@@ -191,6 +191,7 @@ export enum Scene {
     StartupProgram = 'StartupProgram',
     Stamphog = 'Stamphog',
     StamphogRuns = 'StamphogRuns',
+    StamphogDigests = 'StamphogDigests',
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
@@ -450,6 +451,7 @@ export const sceneToAccessControlResourceType: Partial<
     // Stamphog
     [Scene.Stamphog]: AccessControlResourceType.CodeReviewApproval,
     [Scene.StamphogRuns]: AccessControlResourceType.CodeReviewApproval,
+    [Scene.StamphogDigests]: AccessControlResourceType.CodeReviewApproval,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

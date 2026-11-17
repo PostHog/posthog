@@ -33,11 +33,18 @@ export const manifest: ProductManifest = {
             name: 'Stamphog area',
             iconType: 'stamphog',
         },
+        StamphogDigests: {
+            import: () => import('./frontend/scenes/StamphogDigestsScene/StamphogDigestsScene'),
+            projectBased: true,
+            name: 'Stamphog digests',
+            iconType: 'stamphog',
+        },
     },
     routes: {
         '/stamphog': ['Stamphog', 'stamphog'],
         '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
         '/stamphog/area': ['StamphogArea', 'stamphogArea'],
+        '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
         // GitHub App Setup URL — GitHub redirects here after install with an installation_id search
         // param. Lives under the product's own /stamphog namespace, not /integrations/*, so the generic
         // /integrations/:kind/callback scene route can't shadow it (product routes register after core).
@@ -48,6 +55,7 @@ export const manifest: ProductManifest = {
         stamphog: (): string => '/stamphog',
         stamphogRuns: (): string => '/stamphog/runs',
         stamphogArea: (): string => '/stamphog/area',
+        stamphogDigests: (): string => '/stamphog/digests',
         stamphogCallback: (): string => '/stamphog/install/callback',
     },
     fileSystemTypes: {},

@@ -26,9 +26,16 @@ from posthog.models.utils import generate_random_token_personal, uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.stamphog.backend.facade import contracts
-from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, RoutingMode
+from products.stamphog.backend.facade.enums import (
+    ChannelResolutionSource,
+    DigestRunStatus,
+    ReviewMode,
+    ReviewRunStatus,
+    RoutingMode,
+)
 from products.stamphog.backend.facade.github import StamphogGitHubError
 from products.stamphog.backend.models import (
+    DigestRun,
     PullRequest,
     ReviewRun,
     RoutingRun,
@@ -448,7 +455,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(f"{self.url}{theirs.id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @parameterized.expand([("repositories",), ("runs",), ("pull_requests",), ("reviewer_routing",)])
+    @parameterized.expand([("repositories",), ("runs",), ("pull_requests",), ("digests",), ("reviewer_routing",)])
     def test_malformed_id_is_a_404(self, resource: str) -> None:
         # An id that is not a UUID has to read as a miss, or a bad URL becomes a 500.
         response = self.client.get(f"/api/projects/{self.team.id}/code_review/approvals/{resource}/not-a-uuid/")
@@ -1798,3 +1805,66 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(f"{self.url}{self.other_teams_run.id}/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestDigestRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def test_a_run_reports_where_its_digest_went(self) -> None:
+        # The run is the only record of a digest's destination now that routing is derived per run
+        # rather than stored on a channel row. Losing these fields leaves "why did my digest go
+        # there" unanswerable from anywhere but a worker log.
+        # team-x's summary predates the repository key, and team-y posted nothing. Both are stored
+        # shapes the page has to render. team-z's summary predates the `judged` key, so it was written
+        # from PR bodies and must stay out of the API.
+        old_shape_summary = {
+            "headline": "Retries are on for exports.",
+            "prs": [{"pr_number": 7, "title": "Retry exports", "url": "https://example.com/7", "author_login": "ada"}],
+            "judged": True,
+        }
+        body_derived_summary = {
+            "headline": "Text from a private pull request body.",
+            "prs": [{"pr_number": 8, "title": "Private change", "url": "https://example.com/8", "author_login": "bo"}],
+        }
+        for channel_id, audience, summary in (
+            ("C1", "team-x", old_shape_summary),
+            ("C2", "team-y", {}),
+            ("C3", "team-z", body_derived_summary),
+        ):
+            DigestRun.objects.unscoped().create(
+                team_id=self.team.id,
+                audience_key=audience,
+                slack_channel_id=channel_id,
+                # Stored bare, the way _match records it. The "#" belongs to display only.
+                slack_channel_name=audience,
+                resolution_source=ChannelResolutionSource.OWNERS_CONTACT,
+                status=DigestRunStatus.COMPLETED,
+                summary=summary,
+            )
+
+        url = f"/api/projects/{self.team.id}/code_review/approvals/digests/"
+        body = self.client.get(url).json()
+        assert {r["slack_channel_id"] for r in body["results"]} == {"C1", "C2", "C3"}
+        assert {r["audience_key"] for r in body["results"]} == {"team-x", "team-y", "team-z"}
+        assert {r["resolution_source"] for r in body["results"]} == {"owners_contact"}
+        summaries = {r["audience_key"]: r["summary"] for r in body["results"]}
+        assert summaries == {
+            "team-x": {
+                "headline": "Retries are on for exports.",
+                "prs": [
+                    {
+                        "pr_number": 7,
+                        "title": "Retry exports",
+                        "url": "https://example.com/7",
+                        "author_login": "ada",
+                        "summary": "",
+                        "repository": "",
+                    }
+                ],
+            },
+            "team-y": {"headline": "", "prs": []},
+            "team-z": {"headline": "", "prs": []},
+        }
+
+        filtered = self.client.get(f"{url}?slack_channel_id=C1").json()
+        assert [r["audience_key"] for r in filtered["results"]] == ["team-x"]

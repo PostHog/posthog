@@ -336,6 +336,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/stamphog': ['Stamphog', 'stamphog'],
     '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
     '/stamphog/area': ['StamphogArea', 'stamphogArea'],
+    '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
     '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
     '/streamlit-apps': ['StreamlitApps', 'streamlitApps'],
     '/streamlit-apps/new': ['StreamlitAppEdit', 'streamlitAppNew'],
@@ -1258,6 +1259,7 @@ export const productConfiguration: Record<string, any> = {
     Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog', activityScope: 'StamphogRepoConfig' },
     StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
     StamphogArea: { projectBased: true, name: 'Stamphog area', iconType: 'stamphog' },
+    StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
     StreamlitApps: {
         name: 'Streamlit apps',
         description: 'Build and share custom Python apps that run on your PostHog data.',
@@ -2026,6 +2028,7 @@ export const productUrls = {
     stamphog: (): string => '/stamphog',
     stamphogRuns: (): string => '/stamphog/runs',
     stamphogArea: (): string => '/stamphog/area',
+    stamphogDigests: (): string => '/stamphog/digests',
     stamphogCallback: (): string => '/stamphog/install/callback',
     streamlitApps: (): string => '/streamlit-apps',
     streamlitApp: (id: string): string => `/streamlit-apps/${id}`,

@@ -1,7 +1,7 @@
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { urls } from 'scenes/urls'
 
-export type StamphogTabKey = 'repositories' | 'runs' | 'area'
+export type StamphogTabKey = 'repositories' | 'runs' | 'area' | 'digests'
 
 // Top-level tab strip for stamphog. Every tab is team-scoped, so this is purely presentational —
 // each scene passes the key it is. Repositories stays first: it's the only tab you have to visit
@@ -26,6 +26,11 @@ export function StamphogTabs({ activeKey }: { activeKey: StamphogTabKey }): JSX.
                     key: 'area' satisfies StamphogTabKey,
                     label: 'Your area',
                     link: urls.stamphogArea(),
+                },
+                {
+                    key: 'digests' satisfies StamphogTabKey,
+                    label: 'Digests',
+                    link: urls.stamphogDigests(),
                 },
             ]}
         />

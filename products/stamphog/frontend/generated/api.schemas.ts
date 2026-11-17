@@ -8,6 +8,109 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `manual` - MANUAL
+ * * `slack_name_match` - SLACK_NAME_MATCH
+ * * `stamphog_config` - STAMPHOG_CONFIG
+ * * `owners_contact` - OWNERS_CONTACT
+ */
+export type ResolutionSourceEnumApi = (typeof ResolutionSourceEnumApi)[keyof typeof ResolutionSourceEnumApi]
+
+export const ResolutionSourceEnumApi = {
+    Manual: 'manual',
+    SlackNameMatch: 'slack_name_match',
+    StamphogConfig: 'stamphog_config',
+    OwnersContact: 'owners_contact',
+} as const
+
+/**
+ * * `pending` - PENDING
+ * * `completed` - COMPLETED
+ * * `failed` - FAILED
+ */
+export type DigestRunStatusEnumApi = (typeof DigestRunStatusEnumApi)[keyof typeof DigestRunStatusEnumApi]
+
+export const DigestRunStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * One merged pull request as the digest listed it.
+ */
+export interface _DigestSummaryPRApi {
+    /** Pull request number on GitHub. */
+    readonly pr_number: number
+    /** Pull request title. */
+    readonly title: string
+    /** Full URL to the pull request on GitHub. */
+    readonly url: string
+    /** GitHub login of the pull request author. */
+    readonly author_login: string
+    /** The one-line summary of the change that the digest posted. */
+    readonly summary: string
+    /** Repository full name, e.g. 'PostHog/posthog'. Blank on older runs. */
+    readonly repository: string
+}
+
+/**
+ * What the digest posted to Slack: the headline and the pull requests it listed.
+ */
+export interface _DigestSummaryApi {
+    /** Prose about the merges with real consequence. Blank when the digest led with its first line. */
+    readonly headline: string
+    /** The merged pull requests the digest listed, in the order it listed them. */
+    readonly prs: readonly _DigestSummaryPRApi[]
+}
+
+export interface DigestRunApi {
+    readonly id: string
+    /** Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'. */
+    readonly audience_key: string
+    /** Slack channel this digest was posted to, e.g. 'C012AB3CD'. */
+    readonly slack_channel_id: string
+    /** Human-readable name of that channel, for display. */
+    readonly slack_channel_name: string
+    /** Why the digest went to this channel: 'slack_name_match' (no declaration anywhere, so the audience_key matched a same-named Slack channel), 'stamphog_config' (the channel the repo declared under 'digest:' in .stamphog/policy.yml), 'owners_contact' (a teams: entry in a root owners.yaml named it), or 'manual' (no longer produced).
+     *
+     * * `manual` - MANUAL
+     * * `slack_name_match` - SLACK_NAME_MATCH
+     * * `stamphog_config` - STAMPHOG_CONFIG
+     * * `owners_contact` - OWNERS_CONTACT */
+    readonly resolution_source: ResolutionSourceEnumApi
+    /** Current state of the digest run (pending, completed, failed).
+     *
+     * * `pending` - PENDING
+     * * `completed` - COMPLETED
+     * * `failed` - FAILED */
+    readonly status: DigestRunStatusEnumApi
+    /** Number of merged PRs included in the posted digest. */
+    readonly pr_count: number
+    /** What the digest posted: its headline and the merged pull requests it listed. Both are empty on a run with nothing to post, and on runs stored before this format. */
+    readonly summary: _DigestSummaryApi
+    /** Slack message timestamp of the posted digest, if posted. */
+    readonly slack_message_ts: string
+    /** Error message if the run failed, blank otherwise. */
+    readonly error: string
+    /** When the digest run was created. */
+    readonly created_at: string
+    /**
+     * When the digest was posted to Slack, if it was.
+     * @nullable
+     */
+    readonly posted_at: string | null
+}
+
+export interface PaginatedDigestRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DigestRunApi[]
+}
+
+/**
  * * `off` - Off
  * * `always` - Always
  * * `fallback` - When auto-approval does not approve
@@ -987,6 +1090,21 @@ export interface ReviewRequestResponseApi {
     readonly run: ReviewRunApi
     /** True when this request queued a new run. False when a queued, running, or finished run already covered the current head, which is returned instead. */
     readonly created: boolean
+}
+
+export type CodeReviewApprovalsDigestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by the Slack channel the digest was posted to, e.g. 'C012AB3CD'.
+     */
+    slack_channel_id?: string
 }
 
 export type CodeReviewApprovalsPullRequestsListParams = {
