@@ -1,3 +1,5 @@
+import type { SupportFormFields } from 'lib/components/Support/supportLogic'
+
 import type { ThreadItem } from '../types/streamTypes'
 
 // The parts of the ticket that the writing-posthog-support-tickets skill writes. Each part starts with a
@@ -55,6 +57,36 @@ function labelAwaitsBody(block: string[]): boolean {
     return block.length === 1 && block[0].trim().replace(TICKET_LABEL, '').trim() === ''
 }
 
+function fencedTicket(blocks: string[][]): string | null {
+    for (const block of blocks.filter(isCodeBlock)) {
+        const closed = block.length > 1 && isFenceClose(block[block.length - 1], FENCE_OPEN.exec(block[0])![1])
+        const inner = block.slice(1, closed ? -1 : undefined)
+        const firstLine = inner.find((line) => line.trim())
+        if (firstLine && TICKET_START.test(firstLine.trim())) {
+            return inner.join('\n').trim()
+        }
+    }
+    return null
+}
+
+function unfencedTicket(blocks: string[][]): string | null {
+    const start = blocks.findIndex((block) => !isCodeBlock(block) && TICKET_START.test(block[0].trim()))
+    if (start === -1) {
+        return null
+    }
+    const ticket = [blocks[start]]
+    let awaitingBody = labelAwaitsBody(blocks[start])
+    for (const block of blocks.slice(start + 1)) {
+        const isLabel = TICKET_LABEL.test(block[0].trim())
+        if (!isLabel && !awaitingBody && !isCodeBlock(block) && !LIST_LINE.test(block[0])) {
+            break
+        }
+        awaitingBody = isLabel && labelAwaitsBody(block)
+        ticket.push(block)
+    }
+    return ticket.map((block) => block.join('\n')).join('\n\n')
+}
+
 /**
  * Returns the support ticket that an agent message holds, without the agent's text around it, or null.
  * A ticket in a fenced code block is returned whole. An unfenced ticket starts at its "What I want" part
@@ -63,37 +95,7 @@ function labelAwaitsBody(block: string[]): boolean {
  */
 export function extractSupportTicketDraft(text: string): string | null {
     const blocks = splitBlocks(text)
-
-    for (const block of blocks) {
-        if (isCodeBlock(block)) {
-            const closed = block.length > 1 && isFenceClose(block[block.length - 1], FENCE_OPEN.exec(block[0])![1])
-            const inner = block.slice(1, closed ? -1 : undefined)
-            const firstLine = inner.find((line) => line.trim())
-            if (firstLine && TICKET_START.test(firstLine.trim())) {
-                return inner.join('\n').trim()
-            }
-        }
-    }
-
-    const start = blocks.findIndex((block) => !isCodeBlock(block) && TICKET_START.test(block[0].trim()))
-    if (start === -1) {
-        return null
-    }
-    const ticket = [blocks[start]]
-    let awaitingBody = labelAwaitsBody(blocks[start])
-    for (const block of blocks.slice(start + 1)) {
-        if (TICKET_LABEL.test(block[0].trim())) {
-            awaitingBody = labelAwaitsBody(block)
-        } else if (isCodeBlock(block) || LIST_LINE.test(block[0])) {
-            awaitingBody = false
-        } else if (awaitingBody) {
-            awaitingBody = false
-        } else {
-            break
-        }
-        ticket.push(block)
-    }
-    return ticket.map((block) => block.join('\n')).join('\n\n')
+    return fencedTicket(blocks) ?? unfencedTicket(blocks)
 }
 
 /**
@@ -115,4 +117,17 @@ export function findSupportTicketDraft(threadItems: ThreadItem[]): string | null
         }
     }
     return null
+}
+
+/** The `/ticket` form message: the text typed after the command, the drafted ticket, then the task link. */
+export function supportTicketMessage(
+    args: string,
+    threadItems: ThreadItem[],
+    taskUrl: string | null
+): Pick<SupportFormFields, 'message' | 'message_format'> {
+    const draft = findSupportTicketDraft(threadItems)
+    return {
+        message: [args, draft, taskUrl ? `PostHog AI task: ${taskUrl}` : null].filter(Boolean).join('\n\n'),
+        message_format: draft ? 'markdown' : 'plain',
+    }
 }

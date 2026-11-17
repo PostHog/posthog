@@ -34,7 +34,7 @@ import {
     getAppCommand,
     parseSlashCommand,
 } from '../utils/slashCommands'
-import { findSupportTicketDraft } from '../utils/supportTicketDraft'
+import { supportTicketMessage } from '../utils/supportTicketDraft'
 import { runInteractionLogic, type RunInteractionLogicProps } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
 
@@ -292,15 +292,11 @@ export const runSlashCommandsLogic: LogicWrapper<runSlashCommandsLogicType> = ke
                         return
                     case 'ticket': {
                         const taskUrl = taskId ? urls.absolute(urls.currentProject(urls.taskDetail(taskId))) : null
-                        const draft = findSupportTicketDraft(values.threadItems)
                         actions.openSupportForm({
                             kind: 'support',
                             target: 'sidePanel',
                             isEmailFormOpen: true,
-                            message: [args, draft, taskUrl ? `PostHog AI task: ${taskUrl}` : null]
-                                .filter(Boolean)
-                                .join('\n\n'),
-                            message_format: draft ? 'markdown' : 'plain',
+                            ...supportTicketMessage(args, values.threadItems, taskUrl),
                             // Attributes the ticket to this run, like the other PostHog AI ticket handovers.
                             ai_conversation_id: taskId ?? null,
                             ai_trace_id: values.traceId,
