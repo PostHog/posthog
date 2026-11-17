@@ -1104,6 +1104,27 @@ def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
+def send_email_sender_domain_sending_stopped(team_id: int, domain: str, stopped_at: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    stop_digest = hashlib.sha256(f"{domain}|{stopped_at}".encode()).hexdigest()[:32]
+    message = EmailMessage(
+        campaign_key=f"email_sender_domain_sending_stopped_{team_id}_{stop_digest}",
+        subject=f"Emails from {domain} are failing in project '{single_line(str(team))}'",
+        template_name="email_sender_domain_sending_stopped",
+        template_context={"team": team, "domain": domain, "channels_path": f"/project/{team.id}/workflows/channels"},
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
 def send_email_sending_tier_demoted(team_id: int, per_day: int, demoted_at: str, per_hour: int = 0) -> None:
     """
     Tell a project's admins that its workflow email sending limit was lowered for deliverability

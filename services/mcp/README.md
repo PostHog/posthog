@@ -393,7 +393,7 @@ Authenticate with a project secret API key (`phs_...`) that has the `business_kn
 - `project_id` is required, because the key has no user to take a default project from. The `x-posthog-project-id` header also works.
 - The connection lists six read-only tools: document search, document window, library list, library get, repository search, and repository file read. It reaches no other tool, whatever `features` or `tools` say.
 - These connections default to tools mode. Send `mode=cli` for the single `exec` tool.
-- Keep the key on your server. Anyone who has it can read all the business knowledge in the project.
+- Keep the key on your server. Anyone who has it can read all the business knowledge in the project, or one library when the key is limited to a library.
 
 ### Consumer attribution
 

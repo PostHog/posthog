@@ -1685,7 +1685,6 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
-    recommended_only?: boolean
     event_match_scope?: RecordingsQuery['event_match_scope']
     /**
      * Server-resolved population narrowing (sessions of persons exposed to the experiment).
@@ -5910,6 +5909,7 @@ export type ExportContext = (
     row_limit?: number // Some exports have different row limits, e.g. logs
     columns?: string[]
     variables_override?: Record<string, any>
+    filters_override?: DashboardFilter
 }
 
 export interface ExportedAssetType {
@@ -6226,6 +6226,8 @@ export enum ActivityScope {
     REVIEW_PROJECT_SETTINGS = 'ReviewProjectSettings',
     REVIEW_INSTALLATION_CLAIM = 'ReviewInstallationClaim',
     RECOMMENDATION_RESOLUTION = 'RecommendationResolution',
+    SANDBOX_ENVIRONMENT = 'SandboxEnvironment',
+    SANDBOX_CUSTOM_IMAGE = 'SandboxCustomImage',
 }
 
 export type CommentType = {
