@@ -7,9 +7,12 @@ from parameterized import parameterized
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
     BucketingSetting,
+    FlagVariant,
+    Split,
     bucketing_changes_from_activity,
     changes_that_apply,
     conditions_follow_flag_aggregation,
+    switchable_shares,
 )
 
 CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
@@ -181,3 +184,44 @@ class TestBucketingEdits(TestCase):
         self, _name: str, aggregation: int | None, conditions: list[dict[str, int | None]], expected: bool
     ) -> None:
         self.assertEqual(conditions_follow_flag_aggregation(aggregation, conditions), expected)
+
+
+def _split(*variants: tuple[str, float | None]) -> Split:
+    return tuple(FlagVariant(key=key, rollout_percentage=percentage) for key, percentage in variants)
+
+
+class TestSplitEdits(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "middle_variant_zeroed_moves_only_its_people",
+                _split(("a", 34), ("b", 33), ("c", 33)),
+                _split(("a", 50), ("b", 0), ("c", 50)),
+                {"a": 0.0, "b": 1.0, "c": 0.0},
+            ),
+            (
+                "last_variant_zeroed_moves_the_boundary_of_the_one_before",
+                _split(("a", 30), ("b", 30), ("c", 40)),
+                _split(("a", 50), ("b", 50), ("c", 0)),
+                {"a": 0.0, "b": 0.667, "c": 1.0},
+            ),
+            (
+                "rebalance_moves_the_part_between_the_boundaries",
+                _split(("a", 50), ("b", 50)),
+                _split(("a", 30), ("b", 70)),
+                {"a": 0.4, "b": 0.0},
+            ),
+            ("one_variant_at_100_then_split", _split(("a", 100), ("b", 0)), _split(("a", 50), ("b", 50)), {"a": 0.5}),
+            ("same_split", _split(("a", 50), ("b", 50)), _split(("a", 50), ("b", 50)), {"a": 0.0, "b": 0.0}),
+            ("unreadable_percentage", _split(("a", 50), ("b", None)), _split(("a", 30), ("b", 70)), None),
+        ]
+    )
+    def test_switchable_shares(
+        self, _name: str, served: Split, current: Split, expected: dict[str, float] | None
+    ) -> None:
+        shares = switchable_shares(served, current)
+
+        self.assertEqual(
+            None if shares is None else {key: round(share, 3) for key, share in shares.items()},
+            expected,
+        )

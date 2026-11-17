@@ -1,30 +1,24 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { suggestionCountsText } from 'products/warehouse_suggestions/frontend/suggestionCopy'
+import { QuillSuggestionsBanner } from 'products/warehouse_suggestions/frontend/components/QuillSuggestionsBanner'
 import { warehouseSuggestionsLogic } from 'products/warehouse_suggestions/frontend/warehouseSuggestionsLogic'
 
 import { CatalogToReviewList } from './CatalogToReviewList'
 
-function CatalogToReviewWithSuggestions(): JSX.Element {
-    const { stripState, surfaceSuggestions } = useValues(warehouseSuggestionsLogic)
-    const { reportReviewOpened } = useActions(warehouseSuggestionsLogic)
-    const count = stripState === 'active' ? surfaceSuggestions.length : 0
+function CatalogToReviewWithSuggestions(): JSX.Element | null {
+    const { stripState } = useValues(warehouseSuggestionsLogic)
 
     return (
         <CatalogToReviewList
-            suggestionsItem={{
-                key: 'certification-suggestions',
-                count,
-                title: pluralize(count, 'suggestion'),
-                description: suggestionCountsText(surfaceSuggestions),
-                href: urls.dataCatalog('suggestions'),
-                onReview: () => reportReviewOpened(),
-            }}
+            suggestionsBanner={
+                stripState === 'active' ? (
+                    <QuillSuggestionsBanner reviewTo={urls.dataCatalog('suggestions')} />
+                ) : undefined
+            }
         />
     )
 }

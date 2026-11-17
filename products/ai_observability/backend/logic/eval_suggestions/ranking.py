@@ -5,10 +5,12 @@ rest, a rare severe failure can win and a common harmless one can lose, because 
 weekly failures by severity, uncovered scope and running cost.
 """
 
+import re
 import math
 import hashlib
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -23,8 +25,12 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 
 from . import cards, catalog
 from .adapters import AdaptedCheck
+from .call_review import REVIEW_TEMPLATE_KEY, ReviewCard
+from .call_review_queries import CALL_TYPE_INPUT_CHARS, CallTypeRow, SnippetMatches
 from .coverage import EvalFix, fix_dedupe_key
+from .judge_calibration import Calibration
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
+from .prices import MODEL_PRICES
 from .profile import StructuredGap, TeamProfile, normalize_segment_value
 from .stats import wilson_interval
 
@@ -59,22 +65,28 @@ SEVERITY: dict[str, float] = {
     "structured_output_gap": 0.8,
 }
 FIX_SEVERITY = 1.0
+# A reviewed card names a failure the review model saw several times against a rule in the team's own prompt, which
+# makes it worth more than a judge picked from the catalog.
+REVIEW_SEVERITY = 1.0
+# The property that names each kind of call type on a live generation. A call type named by its input has none.
+CALL_TYPE_PROPERTIES = {"prompt_name": "$ai_prompt_name", "span_name": "$ai_span_name"}
+# Plain text that a generation's input holds as is and that the condition matcher's string of the input keeps. The
+# matcher escapes quotes, backslashes and control characters, so they are left out, and so is every character that
+# is special in a LIKE or a regex pattern, so a snippet needs no escaping. Any script's letters are plain, except the
+# Unicode line and paragraph separators.
+_PLAIN_TEXT = re.compile("[A-Za-z0-9 _,:;!/=<>#@&\u00a0-\u2027\u202a-\U0010ffff-]+")
+_JSON_ESCAPE = re.compile(r"\\(u[0-9a-fA-F]{4}|.)")
+MIN_SNIPPET_CHARS = 24
+MAX_SNIPPET_CHARS = 120
+SNIPPET_CANDIDATES = 5
+# The share of the generations a snippet matches that must belong to its call type. The text can also appear in call
+# types outside the busiest ones, or further into another call type's input.
+MIN_SNIPPET_PRECISION = 0.9
+# Words that two phrasings of the same check swap freely, left out of a reviewed card's dedupe key.
+FILLER_WORDS = frozenset(
+    "a an the and or of to in on for is are it its that this whether if check checks does do".split()
+)
 
-
-@frozen
-class ModelPrice:
-    input_per_token: float
-    output_per_token: float
-
-
-# ponytail: list prices of each provider's default model, read for estimates only. Model prices live in the
-# Node ingestion package, which the Python image does not ship; move this to a shared file when a caller
-# outside eval suggestions needs prices. A test keeps every provider default priced here.
-MODEL_PRICES: dict[str, ModelPrice] = {
-    "gpt-5-mini": ModelPrice(input_per_token=0.25e-6, output_per_token=2e-6),
-    "claude-haiku-4-5": ModelPrice(input_per_token=1e-6, output_per_token=5e-6),
-    "gemini-2.5-flash": ModelPrice(input_per_token=0.3e-6, output_per_token=2.5e-6),
-}
 # What a judge runs on when the team has no provider key yet: the evaluator's OpenAI default.
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
 
@@ -486,6 +498,132 @@ def screened_proposal(
         mean_input_tokens=round(unit_tokens) if unit_tokens else None,
         judge_model=judge_model if is_judge else "",
         similar_evaluation_id=similar_evaluation_id,
+    )
+
+
+def prompt_snippets(call_type: CallTypeRow, others: Sequence[CallTypeRow]) -> list[str]:
+    """Plain texts in the start of the call type's input, which every call of the type shares, that no other call
+    type's input holds, longest first."""
+    elsewhere = [other.example_input.lower() for other in others]
+    # The input is JSON cut short, so an escape such as \n reads as a letter after a backslash that the decoded
+    # input does not hold.
+    shared = _JSON_ESCAPE.sub("\0", call_type.example_input[:CALL_TYPE_INPUT_CHARS])
+    snippets: list[str] = []
+    for run in sorted((run.strip() for run in _PLAIN_TEXT.findall(shared)), key=len, reverse=True):
+        if len(run) < MIN_SNIPPET_CHARS:
+            break
+        # Two prompts can open a long run with the same text, so its end is a candidate too.
+        for snippet in (run[:MAX_SNIPPET_CHARS].strip(), run[-MAX_SNIPPET_CHARS:].strip()):
+            if len(snippets) == SNIPPET_CANDIDATES:
+                return snippets
+            unique = not any(snippet.lower() in text for text in elsewhere)
+            if len(snippet) >= MIN_SNIPPET_CHARS and snippet not in snippets and unique:
+                snippets.append(snippet)
+    return snippets
+
+
+def choose_snippet(snippets: Sequence[str], matches: Sequence[SnippetMatches]) -> str | None:
+    """The first snippet whose matches belong mostly to its call type."""
+    for snippet, match in zip(snippets, matches):
+        if match.matched and match.in_call_type / match.matched >= MIN_SNIPPET_PRECISION:
+            return snippet
+    return None
+
+
+def call_type_filters(call_types: Sequence[CallTypeRow], snippets: Mapping[str, str]) -> list[dict[str, Any]] | None:
+    """Filters that select the generations of the call types, or None when no filter can. A judge on every
+    generation would grade mostly calls its question does not apply to.
+
+    Call types named by their input are selected by their snippet, keyed by call type. A generation with a prompt
+    name belongs to that prompt's call type even when it has a span name too, so a span-name filter leaves out
+    generations with a prompt name."""
+    sources = {call_type.source for call_type in call_types}
+    if sources == {"input"}:
+        if any(call_type.key not in snippets for call_type in call_types):
+            return None
+        chosen = sorted({snippets[call_type.key] for call_type in call_types})
+        if len(chosen) == 1:
+            return [{"key": "$ai_input", "value": chosen[0], "operator": "icontains", "type": "event"}]
+        return [{"key": "$ai_input", "value": "|".join(chosen), "operator": "regex", "type": "event"}]
+    key = CALL_TYPE_PROPERTIES.get(next(iter(sources))) if len(sources) == 1 else None
+    if key is None:
+        return None
+    source = next(iter(sources))
+    names = {"key": key, "value": sorted(c.name for c in call_types), "operator": "exact", "type": "event"}
+    if source != "span_name":
+        return [names]
+    # The value repeats the operator, as the property filter UI stores it. An empty list would compile to a filter
+    # that matches every generation.
+    unset = {
+        "key": CALL_TYPE_PROPERTIES["prompt_name"],
+        "value": ["is_not_set"],
+        "operator": "is_not_set",
+        "type": "event",
+    }
+    return [names, unset]
+
+
+def review_dedupe_key(card: ReviewCard) -> str:
+    """The key of the earlier card the review said this one repeats, else the card's call types and the words of
+    what its judge checks. The check's case, punctuation, word order and filler words are left out, so a review
+    that does not name the earlier card still matches a check reworded only that far."""
+    if card.earlier_key:
+        return card.earlier_key
+    keys = ",".join(sorted(c.key for c in card.call_types))
+    words = sorted(set(re.findall(r"\w+", card.checks.lower())) - FILLER_WORDS)
+    return bounded_key(f"review:{keys}:{' '.join(words)}")
+
+
+def review_proposal(
+    card: ReviewCard,
+    profile: TeamProfile,
+    *,
+    snippets: Mapping[str, str],
+    judge_model: str,
+    calibration: Calibration,
+) -> Proposal | None:
+    """A judge on the generations of the card's call types, with the judge's counts and the review's examples, or
+    None when no filter selects those generations."""
+    filters = call_type_filters(card.call_types, snippets)
+    if filters is None:
+        return None
+    # Call types are counted over the last day.
+    weekly_units = 7 * sum(c.calls for c in card.call_types)
+    cost = judge_cost(weekly_units, profile.mean_input_tokens, judge_model)
+    text = cards.review_text(card, cards.cost_clause(cost.weekly_cost_usd, free=False))
+    return Proposal(
+        kind=EvalSuggestionKind.NEW_LLM_JUDGE,
+        template_key=REVIEW_TEMPLATE_KEY,
+        dedupe_key=review_dedupe_key(card),
+        headline=text.headline,
+        outcome=text.outcome,
+        reason=text.reason,
+        draft={
+            "name": card.title[: Evaluation._meta.get_field("name").max_length],
+            "description": card.checks,
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": card.judge_prompt},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "target": "generation",
+            # How the judge matched the review's labels. Accepting the card leaves this out of the evaluation.
+            "calibration": asdict(calibration),
+        },
+        filters=filters,
+        rollout_percentage=cost.rollout_percentage,
+        measured_failure_rate=card.failed / card.of,
+        sample_size=card.of,
+        evidence=[Evidence(trace_id=e.trace_id, reason=e.reason[:160]) for e in card.examples],
+        score=_score(
+            REVIEW_SEVERITY,
+            wilson_interval(card.failed, card.of).low * weekly_units,
+            judge=True,
+            similar=False,
+        ),
+        estimated_weekly_runs=cost.weekly_runs,
+        estimated_weekly_cost_usd=cost.weekly_cost_usd,
+        mean_input_tokens=round(profile.mean_input_tokens) if profile.mean_input_tokens else None,
+        judge_model=judge_model,
     )
 
 

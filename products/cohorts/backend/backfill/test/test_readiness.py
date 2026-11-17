@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
 from posthog.test.base import BaseTest
+from unittest import mock
 
 from django.db import connection
 from django.test import override_settings
@@ -15,6 +16,7 @@ from products.cohorts.backend.backfill.readiness import (
     stamp_person_properties_readiness,
 )
 from products.cohorts.backend.backfill.runs import create_backfill_run_for_cohort, create_person_backfill_run_for_cohort
+from products.cohorts.backend.cohort_enablement import turn_realtime_off, turn_realtime_on
 from products.cohorts.backend.models.backfill import CohortBackfillRun, CohortBackfillRunCohort, CohortBackfillRunStatus
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.leaf_shape import extract_leaf_shape_hash, extract_person_leaf_shape_hash
@@ -94,6 +96,7 @@ class TestBackfillReadiness(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(7, person_hash="person-a"),
         )
         run = make_run(self.team.id, cohort.id, "cohort_created")
@@ -239,6 +242,35 @@ class TestBackfillReadiness(BaseTest):
         self.assertEqual(getattr(cohort, stamp_column), first_stamp)
         self.assertIsNotNone(participation.stamped_at)
         self.assertEqual(run.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
+
+    @parameterized.expand(
+        [
+            (f"{kind[0]}_{case}", *kind[1:], turned_on_again)
+            for kind in KINDS
+            for case, turned_on_again in (("left_off", False), ("turned_on_again", True))
+        ]
+    )
+    def test_a_run_from_before_realtime_was_turned_off_does_not_stamp(
+        self, _name: str, make_run, stamp, _hash: str, stamp_column: str, _same, _other, turned_on_again: bool
+    ) -> None:
+        cohort, run = self._cohort_and_run(make_run)
+        with (
+            mock.patch(
+                "products.cohorts.backend.backfill.runs.supersede_active_runs", side_effect=RuntimeError("db down")
+            ),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            turn_realtime_off(self.team.id, cohort.id)
+            if turned_on_again:
+                turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
+
+        self.assertFalse(stamp(run, cohort.id))
+
+        cohort.refresh_from_db()
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
+        self.assertIsNone(getattr(cohort, stamp_column))
+        self.assertIsNone(participation.stamped_at)
 
     def test_superseded_participation_is_never_resurrected(self) -> None:
         cohort, run = self._cohort_and_run()

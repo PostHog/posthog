@@ -51,12 +51,19 @@ const activitySummarySearch = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary_members/search/`,
             query: {
+                active_since_days: params.active_since_days,
                 exclude_user_uuids: params.exclude_user_uuids,
                 include_profile: params.include_profile,
                 limit: params.limit,
+                mode: params.mode,
+                object_id: params.object_id,
+                object_relation: params.object_relation,
+                object_type: params.object_type,
+                offset: params.offset,
                 product: params.product,
                 query: params.query,
                 search_mode: params.search_mode,
+                user_uuids: params.user_uuids,
             },
         })
         return result
@@ -117,7 +124,7 @@ const anomalyInsightGet = (): ToolBase<ReturnType<typeof AnomalyInsightGetSchema
 
 const AnomalySearchSchema = () => {
     const SignalsAnomaliesSearchRetrieveQueryParams = orvalSchemas.SignalsAnomaliesSearchRetrieveQueryParams()
-    return SignalsAnomaliesSearchRetrieveQueryParams
+    return SignalsAnomaliesSearchRetrieveQueryParams.omit({ include_points: true })
 }
 
 const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schemas.AnomalySearchResponse> => ({
@@ -136,7 +143,10 @@ const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schem
                 insight_id: params.insight_id,
                 interval: params.interval,
                 limit: params.limit,
+                offset: params.offset,
                 only_flagged: params.only_flagged,
+                order: params.order,
+                search: params.search,
             },
         })
         return result

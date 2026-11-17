@@ -3,21 +3,26 @@ import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import clsx from 'clsx'
 
 import { RichContentMention } from './RichContentMention'
+import { RichContentRoleMention } from './RichContentRoleMention'
 import { RichContentNodeType } from './types'
 
+export type RichContentMentionKind = 'member' | 'role'
+
 export interface RichContentNodeMentionAttrs {
-    id?: number
+    /** A user id for a member mention, a role uuid for a role mention. */
+    id?: number | string
+    kind?: RichContentMentionKind
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const { id } = props.node.attrs as RichContentNodeMentionAttrs
+    const { id, kind } = props.node.attrs as RichContentNodeMentionAttrs
 
     return (
         <NodeViewWrapper
             as="span"
             className={clsx('RichContentEditorMention', props.selected && 'RichContentEditorMention--selected')}
         >
-            <RichContentMention id={id} />
+            {kind === 'role' ? <RichContentRoleMention id={String(id)} /> : <RichContentMention id={Number(id)} />}
         </NodeViewWrapper>
     )
 }
@@ -31,12 +36,13 @@ export const RichContentNodeMention = Node.create({
     serializedText: (attrs: RichContentNodeMentionAttrs): string => {
         // mention is not a block so `getText` does not add a separator.
         // we need to add it manually
-        return `(member:${attrs.id})`
+        return `(${attrs.kind ?? 'member'}:${attrs.id})`
     },
 
     addAttributes() {
         return {
             id: { default: null },
+            kind: { default: 'member' },
         }
     },
 

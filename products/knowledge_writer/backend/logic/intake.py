@@ -116,7 +116,7 @@ def launch_request(request: DocsRequest, *, writer: WriterSettings) -> IntakeOut
     except WriterSectionBusy as busy:
         hold_request(busy.busy_task_id, request, team_id)
         return IntakeOutcome(status="section_busy", task_id=busy.busy_task_id)
-    except (WriterRerunTaken, tasks_facade.TaskDoneError):
+    except (WriterRerunTaken, tasks_facade.TaskDoneError, tasks_facade.TaskRunAlreadyLiveError):
         return IntakeOutcome(status="duplicate", task_id=existing_task.id if existing_task is not None else None)
     if joining is not None:
         return IntakeOutcome(status="joined", task_id=task_id, pull_request_url=joining.url)

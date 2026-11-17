@@ -53,6 +53,8 @@ describe('toolbar featureFlagsLogic', () => {
             .build({
                 apiURL: 'http://localhost',
                 accessToken: 'test-token',
+                teamId: 2,
+                projectId: 1,
                 refreshToken: 'test-refresh',
                 clientId: 'test-client',
             })

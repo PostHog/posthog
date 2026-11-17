@@ -24,6 +24,8 @@ The AI detector makes a charged model call on every check, so most of these rule
 
 - Every check asks the model one question: is the latest point anomalous, given its history? The verdict is the fire decision. There is no score, no confidence, and no threshold.
 - The lookback follows the insight interval (`llm_detector_lookback`). The config has no window.
+- The config's optional `model` names one entry of `LLM_DETECTOR_MODELS` in [`backend/judge/llm.py`](backend/judge/llm.py), whose keys must match `LLMDetectorModel` in the schema. A config with no model uses `LLM_DETECTOR_DEFAULT_MODEL`, so older alerts keep their model. A model changes the price of the one call per check, not the number of calls, and every model runs behind the same access, credit, slot, timeout, and retry guards.
+- Each check stores its model in `triggered_metadata.model`, and the verdict memo key covers the model.
 - The prompt marks the points that earlier AI checks of the alert fired on, and lists the rationales of only the most recent ones. Errored and statistical checks are left out. The verdict memo key covers these flags.
 - Simulate makes one live check of the latest point. It never scans the history.
 
@@ -32,6 +34,7 @@ The AI detector makes a charged model call on every check, so most of these rule
 - A check that cannot reach a verdict records an error. It never returns "no anomaly", because an alert that silently stops firing looks healthy.
 - A series with fewer than five points is never sent to the model.
 - Every detector check stores `detector_type`, `insight_id` and `series_index` as provenance, so an investigation reads the check the way it was produced after the alert changes.
+- On a breakdown check, `series_index` is the position of the breakdown value that fired, which the alert chart reads. The check also stores `breakdown_label`, which the investigation uses to find the value that fired.
 - Metric metadata and earlier rationales in the prompt are escaped and marked as data.
 
 ### Where the code lives

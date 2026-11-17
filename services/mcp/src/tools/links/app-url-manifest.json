@@ -364,6 +364,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "businessKnowledgeUsage": {
+        "template": "/business-knowledge/usage",
+        "params": [],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
         "params": [],
@@ -1204,6 +1209,11 @@
         "params": [],
         "scope": "project"
     },
+    "logsSavedView": {
+        "template": "/logs",
+        "params": [],
+        "scope": "project"
+    },
     "managedMigration": {
         "template": "/managed_migrations",
         "params": [],
@@ -1502,6 +1512,11 @@
     "release": {
         "template": "/releases/{id}",
         "params": ["id"],
+        "scope": "project"
+    },
+    "releaseCalendar": {
+        "template": "/releases/calendar",
+        "params": [],
         "scope": "project"
     },
     "releaseList": {

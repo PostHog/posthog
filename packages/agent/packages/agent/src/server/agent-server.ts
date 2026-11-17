@@ -692,6 +692,15 @@ export class AgentServer {
     });
   };
 
+  private createLogger(prefix: string): Logger {
+    return new Logger({
+      debug: true,
+      level: this.config.logLevel ?? "debug",
+      format: this.config.logFormat,
+      prefix,
+    });
+  }
+
   constructor(config: AgentServerConfig) {
     this.config = config;
     this.productLaunch = {
@@ -710,7 +719,7 @@ export class AgentServer {
     this.posthogExecPermissionRegex = compilePostHogExecPermissionRegex(
       this.posthogExecPermissionRegexSource,
     );
-    this.logger = new Logger({ debug: true, prefix: "[AgentServer]" });
+    this.logger = this.createLogger("[AgentServer]");
     this.posthogAPI = new PostHogAPIClient({
       apiUrl: config.apiUrl,
       projectId: config.projectId,
@@ -781,7 +790,11 @@ export class AgentServer {
           mode: this.getEffectiveMode(payload),
           agentVersion: this.config.version ?? packageJson.version,
         },
-        new Logger({ debug: false, prefix: "[OtelRunTelemetry]" }),
+        new Logger({
+          debug: false,
+          format: this.config.logFormat,
+          prefix: "[OtelRunTelemetry]",
+        }),
       );
     } catch (error) {
       this.logger.warn("Failed to initialize OTel run telemetry", error);
@@ -1114,7 +1127,7 @@ export class AgentServer {
         runId: resumeRunId,
         repositoryPath: this.config.repositoryPath,
         apiClient: this.posthogAPI,
-        logger: new Logger({ debug: true, prefix: "[Resume]" }),
+        logger: this.createLogger("[Resume]"),
       });
       if (this.session?.payload.run_id === currentRunId) {
         this.session.contextSelection.resetHistory(
@@ -2320,7 +2333,7 @@ export class AgentServer {
 
     const logWriter = new SessionLogWriter({
       posthogAPI,
-      logger: new Logger({ debug: true, prefix: "[SessionLogWriter]" }),
+      logger: this.createLogger("[SessionLogWriter]"),
       sinks: telemetry ? [telemetry] : undefined,
     });
 
@@ -2375,6 +2388,7 @@ export class AgentServer {
         this.handleAcpTransportMessage(message, eventId),
       stampedRunTraceId: this.stampedRunTraceId,
       logger: this.logger,
+      claudeAgentLogger: this.createLogger("[ClaudeAcpAgent]"),
       processCallbacks: isTaskRunSandbox(process.env)
         ? {
             onProcessSpawned: ({ pid }) => {

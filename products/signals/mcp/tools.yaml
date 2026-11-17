@@ -37,14 +37,16 @@ tools:
             Find the project members whose activity summary matches a topic, an object name or a product, to route a
             report to people connected to the work. It also finds people who only open the work and never edit it, such
             as product managers, which the activity log cannot show. Search as you search anything: start broad with the
-            object, the topic and other wordings, then narrow with `product` or rephrase, and pass `exclude_user_uuids`
-            to skip people you already checked. Set `include_profile` only for the few people worth reading. `hybrid`
-            (the default) merges keyword and semantic ranking; `matched_on` says why each member matched. A result is a
-            lead, not an owner. Check it against the report before you select the person. If you select someone because
-            they open an object often, the `reason` must say so, such as "opens this dashboard most days", and must not
-            claim ownership. Ownership rules and human reviewer corrections take priority over this search.
-            `not_ready_count` is the number of members with no summary, whom the search cannot find. A 404 means the
-            search is not available for this project.
+            object, the topic and other wordings, then narrow with `object_type` and `object_id`, `product`, `mode` or
+            `active_since_days`, or rephrase, and pass `exclude_user_uuids` to skip people you already checked. Set
+            `include_profile` only for the few people worth reading, or pass their `user_uuids` with no query to read
+            them directly. Page with `offset` while it is below `total`. `hybrid` (the default) merges keyword and
+            semantic ranking; `matched_on` says why each member matched, and `objects` lists the owned and watched
+            objects that matched. A result is a lead, not an owner. Check it against the report before you select the
+            person. If you select someone because they open an object often, the `reason` must say so, such as "opens
+            this dashboard most days", and must not claim ownership. Ownership rules and human reviewer corrections take
+            priority over this search. `not_ready_count` is the number of members with no summary, whom the search
+            cannot find. A 404 means the search is not available for this project.
         feature_flag: activity-summary-search
     activity-summary-versions-list:
         operation: signals_activity_summary_versions_retrieve
@@ -104,8 +106,12 @@ tools:
             the project turned scoring off in its self-driving settings; `message` says which. `scoring_enabled: true`
             does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when
             `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range)
-            is 14 or more. Use `group_by: insight` for one row per insight. A 404 means anomaly search is not available
-            for this project.
+            is 14 or more. Use `group_by: insight` for one row per insight. Rows come most unusual first; pass `order:
+            recent` for the newest flagged bucket first. Pass `search` to keep only insights whose name contains the
+            text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly
+            search is not available for this project.
+        exclude_params:
+            - include_points
         feature_flag: anomalies-search
     inbox-my-settings-get:
         operation: users_signal_autonomy_retrieve
@@ -184,12 +190,14 @@ tools:
         description: >
             List the actions on an inbox report that start an agent run, the same ones the inbox shows as buttons:
             `get_it_merged` (fix CI on the report's open, approved pull request and merge it), `make_it_green` (fix
-            failing CI on the report's open pull request and stop without merging it), and one `suggested_prompt` entry
-            per prompt the report suggests. Every action comes back, available or not. `available` says whether a run
-            can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request.
-            Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run. The list
-            does not include `ask`, which takes your own `message`: use it on inbox-report-actions-run to ask about the
-            report or request general work on it.
+            failing CI and merge conflicts on the report's open pull request and stop without merging it),
+            `resolve_conflicts` (update the report's open pull request from its base branch, resolve the conflicts, and
+            stop without merging it or fixing unrelated CI), and one `suggested_prompt` entry per prompt the report
+            suggests. Every action comes back, available or not. `available` says whether a run can start now, and
+            `disabled_reason` says why not. `text` is the message the run gets as its first request. Pass `action`, and
+            `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run. The list does not include
+            `ask`, which takes your own `message`: use it on inbox-report-actions-run to ask about the report or request
+            general work on it.
         param_overrides:
             id:
                 aliases:
@@ -213,13 +221,13 @@ tools:
             suggestion in the report. Each successful call creates a new task, so do not retry after a 201. Starts one
             action from inbox-report-actions-list as a background agent run linked to the report. For every action
             except `ask`, pick one with `available: true` from the list. `get_it_merged` approves merging the report's
-            pull request; `make_it_green` never merges it. Use `ask` for anything else instead of creating a task by
-            hand; it does requested work only while the report has work left and no pull request. The response has
-            `task_id`, `run_id`, and `task_url`; follow the run with tasks-runs-retrieve. If `run_error` is set, the
-            task exists but its run did not start. The run cannot ask questions, so it writes a note to the report's
-            work log when it needs a decision. 409 `report_action_run_active` means a run already works on the pull
-            request: follow its `task_id` and `run_id`. 403 `report_action_sandbox_refused` means start the action from
-            a person's session. 402 and 429 mean a trial, task, or usage limit: do not retry until it clears. For
+            pull request; `make_it_green` and `resolve_conflicts` never merge it. Use `ask` for anything else instead of
+            creating a task by hand; it does requested work only while the report has work left and no pull request. The
+            response has `task_id`, `run_id`, and `task_url`; follow the run with tasks-runs-retrieve. If `run_error` is
+            set, the task exists but its run did not start. The run cannot ask questions, so it writes a note to the
+            report's work log when it needs a decision. 409 `report_action_run_active` means a run already works on the
+            pull request: follow its `task_id` and `run_id`. 403 `report_action_sandbox_refused` means start the action
+            from a person's session. 402 and 429 mean a trial, task, or usage limit: do not retry until it clears. For
             `report_action_unavailable`, the detail says why.
         param_overrides:
             id:
@@ -588,7 +596,8 @@ tools:
         title: List inbox reports
         description: >
             List inbox reports in the current project. A report groups related findings into one issue or trend. Each
-            parameter's description says how it filters.
+            parameter's description says how it filters. To find the reports about a topic, an error message or an
+            entity name, use inbox-reports-search: the `search` filter here matches the exact text only.
 
             Without `view`, the list holds reports from the whole project, not only the user's. When the user says "my
             inbox", "my top 10", or "what should I look at", pass `view=for_you` with `sort=personal` and `limit=10`. Do
@@ -1715,10 +1724,11 @@ tools:
         title: Remember a scratchpad entry
         description: >
             Upsert a scratchpad entry keyed on `(team, key)`: reusing a key updates the existing entry in place rather
-            than creating a second one. Each write carries the whole entry and replaces what was stored. Any agent on
-            this team can overwrite any key, so search the key first with `scout-scratchpad-search` and condense what is
-            already there rather than overwriting an entry you have not read. Use `scout-scratchpad-forget` to delete an
-            entry.
+            than creating a second one. The `key` is a short ID of at most 300 characters, such as
+            `noise:<fingerprint>`, and the note goes in `content`. Each write carries the whole entry and replaces what
+            was stored. Any agent on this team can overwrite any key, so search the key first with
+            `scout-scratchpad-search` and condense what is already there rather than overwriting an entry you have not
+            read. Use `scout-scratchpad-forget` to delete an entry.
     scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true
