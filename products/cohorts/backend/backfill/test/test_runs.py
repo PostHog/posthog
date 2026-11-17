@@ -7,6 +7,7 @@ from unittest import mock
 
 from django.db import IntegrityError, OperationalError, transaction
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -103,6 +104,7 @@ class TestBackfillRuns(BaseTest):
             team=self.team,
             name=event,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(event),
         )
 
@@ -352,6 +354,7 @@ class TestBackfillRuns(BaseTest):
             team=self.team,
             name="unseedable",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={"properties": {"type": "AND", "values": list(leaves)}},
         )
 
@@ -428,10 +431,16 @@ class TestBackfillRuns(BaseTest):
         unseedable = self._unseedable_cohort(self._WINDOWLESS_LEAF)
         unclassified = self._cohort("$autocapture")
         Cohort.objects.filter(id=unclassified.id).update(condition_type=None)
+        switched_off = self._cohort("$pageleave")
+        Cohort.objects.filter(id=switched_off.id).update(realtime_enabled_at=None)
 
-        for refused in (unseedable, unclassified):
+        for refused in (unseedable, unclassified, switched_off):
             with self.assertRaisesMessage(ValueError, "not eligible realtime behavioral cohorts"):
                 create_team_backfill_run(self.team.id, "team_enablement", [refused.id])
+        self.assertEqual(
+            attempt_backfill_run_for_cohort(self.team.id, switched_off.id, "cohort_created").reason,
+            BackfillRefusalReason.COHORT_INELIGIBLE,
+        )
 
         run = create_team_backfill_run(self.team.id, "team_enablement")
 
@@ -548,6 +557,7 @@ class TestBackfillRunFlagCallsTable(BaseTest):
             team=self.team,
             name="flag callers",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={"properties": {"type": "AND", "values": list(leaves)}},
         )
 
@@ -770,6 +780,7 @@ class TestPersonBackfillRuns(BaseTest):
             team=self.team,
             name="person cohort",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(),
             **kwargs,
         )
@@ -899,6 +910,7 @@ class TestPersonBackfillRuns(BaseTest):
             team=self.team,
             name="second person cohort",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(),
         )
 
@@ -918,6 +930,7 @@ class TestPersonBackfillRuns(BaseTest):
             team=self.team,
             name="second person cohort",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(),
         )
 
@@ -938,6 +951,7 @@ class TestPersonBackfillRuns(BaseTest):
             team=self.team,
             name="second person cohort",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(),
         )
 
@@ -1084,6 +1098,7 @@ class TestPersonBackfillRuns(BaseTest):
             # admitting it would create one failed run per save.
             ("windowless_behavioral_sibling", {"filters": "windowless"}),
             ("negated_root", {"filters": "negated_root"}),
+            ("realtime_off", {"realtime_enabled_at": None}),
         ]
     )
     def test_ineligible_cohort_is_refused(self, _name: str, overrides: dict[str, object]) -> None:
@@ -1104,7 +1119,7 @@ class TestPersonBackfillRuns(BaseTest):
             team=self.team,
             cohort_type=cohort_type,
             filters=filters,
-            **overrides,
+            **{"realtime_enabled_at": timezone.now(), **overrides},
         )
 
         self.assertIsNone(create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created"))
@@ -1231,6 +1246,7 @@ class TestCancelRuns(BaseTest):
             team=self.team,
             name=event,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={
                 "properties": {
                     "type": "AND",

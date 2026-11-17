@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["tach==0.34.1"]
+# dependencies = ["tach==0.35.3"]
 # ///
 """Print tach's file-level import map ({file: [files that import it]}) as JSON on stdout.
 

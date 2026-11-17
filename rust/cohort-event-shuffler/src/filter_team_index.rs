@@ -1,12 +1,14 @@
-//! In-memory index of teams with ≥1 realtime-supported cohort, and the consumer's [`TeamGate`]
-//! that joins it with the team access record. Refreshed on a `refresh_secs ± jitter` poll and
-//! swapped atomically via [`arc_swap::ArcSwap`] so hot-path reads are lock-free and a refresh never
-//! blocks the consumer.
+//! In-memory index of the teams with at least one cohort the pipeline loads, and the consumer's
+//! [`TeamGate`] that joins it with the team access record. Refreshed on a `refresh_secs ± jitter`
+//! poll and swapped atomically via [`arc_swap::ArcSwap`] so hot-path reads are lock-free and a
+//! refresh never blocks the consumer.
 //!
-//! Staleness is safe: the gate is defense-in-depth and the downstream processor re-checks
-//! membership, so a stale snapshot only over-forwards briefly. The index starts empty and unloaded
-//! so nothing is forwarded until the first refresh — avoiding a cold-start flood if the DB is
-//! briefly unreachable at boot.
+//! A stale snapshot over-forwards a team that just turned off its last cohort, which is safe
+//! because the gate is defense-in-depth and the downstream processor re-checks membership. It also
+//! drops the events of a team that just turned on its first cohort until the next refresh, and
+//! backfill does not recover the ones on the run's boundary day. The index starts empty and
+//! unloaded so nothing is forwarded until the first refresh — avoiding a cold-start flood if the DB
+//! is briefly unreachable at boot.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,17 +17,12 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
+use cohort_core::filters::load_realtime_cohort_teams;
 use common_cohort_team_access::TeamAccess;
 use lifecycle::Handle;
 use rand::Rng;
 use sqlx::PgPool;
 use tracing::{info, warn};
-
-/// Must match the Node filter manager's predicate (`cohort_type='realtime'`, not deleted, non-null
-/// `filters`); projected to `DISTINCT team_id` since the shuffler only needs the gate.
-const TEAMS_WITH_REALTIME_COHORTS_SQL: &str = "SELECT DISTINCT team_id \
-     FROM posthog_cohort \
-     WHERE cohort_type = 'realtime' AND deleted = false AND filters IS NOT NULL";
 
 pub struct TeamIndex {
     teams: ArcSwap<HashSet<i32>>,
@@ -70,8 +67,7 @@ impl TeamIndex {
     }
 
     pub async fn refresh(&self, pool: &PgPool) -> Result<usize> {
-        let fetched: HashSet<i32> = sqlx::query_scalar(TEAMS_WITH_REALTIME_COHORTS_SQL)
-            .fetch_all(pool)
+        let fetched: HashSet<i32> = load_realtime_cohort_teams(pool)
             .await
             .context("querying posthog_cohort for realtime teams")?
             .into_iter()
@@ -88,9 +84,9 @@ impl Default for TeamIndex {
     }
 }
 
-/// Passes an event when its team processes and has a realtime cohort. The index and the access
-/// record refresh on their own polls. Neither rebuilds the other's snapshot, because two writers
-/// to one snapshot can lose an update and bring back a revoked team.
+/// Passes an event when its team processes and has a cohort with realtime on. The index and the
+/// access record refresh on their own polls. Neither rebuilds the other's snapshot, because two
+/// writers to one snapshot can lose an update and bring back a revoked team.
 pub struct TeamGate {
     index: Arc<TeamIndex>,
     access: Arc<TeamAccess>,
@@ -140,7 +136,6 @@ pub async fn run_refresh_loop(
         tokio::select! {
             _ = handle.shutdown_recv() => break,
             _ = tokio::time::sleep(sleep_for) => match index.refresh(&pool).await {
-                Ok(0) => warn!("team index has no team with a realtime cohort; forwarding nothing"),
                 Ok(count) => info!(realtime_teams = count, "team index refreshed"),
                 Err(err) => warn!(
                     error = %err,

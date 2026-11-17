@@ -138,6 +138,8 @@ ends bypasses heartbeat throttling so a quick follow-up cannot look idle.
 Activity during snapshot capture or replacement startup abandons the handoff and
 keeps the live sandbox. The event relay stays active until startup finishes, and
 an abandoned handoff with new activity requests a fresh snapshot.
+For workflow histories with the `tasks-end-run-at-sandbox-limit` patch, a run that stays on its sandbox ends when the sandbox reaches its time limit.
+If the session was saved, the run ends as soon as the agent is idle and no message is queued, so the task can start a new run.
 Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
 and agent state. Paths outside that directory are not included.
 Cloud launches set `POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state`.

@@ -37,6 +37,7 @@ import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehou
 import { CdpDlqReplayConsumer } from './cdp/consumers/cdp-dlq-replay.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogflow-subscription-matcher.consumer'
+import { CdpIntakeConsumer } from './cdp/consumers/cdp-intake.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
@@ -114,6 +115,8 @@ export class PluginServer implements NodeServer {
             capabilities.cdpDataWarehouseEvents ||
             capabilities.cdpInternalEvents ||
             capabilities.cdpSesWebhooks ||
+            capabilities.cdpIntakeTransactionalEmail ||
+            capabilities.cdpIntakeWorkflowWebhook ||
             capabilities.cdpPersonUpdates ||
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
@@ -356,6 +359,19 @@ export class PluginServer implements NodeServer {
             })
         }
 
+        for (const [enabled, kind] of [
+            [capabilities.cdpIntakeTransactionalEmail, 'transactional-email'],
+            [capabilities.cdpIntakeWorkflowWebhook, 'workflow-webhook'],
+        ] as const) {
+            if (enabled) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpIntakeConsumer(this.config, cdpDeps!, kind)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+        }
+
         if (capabilities.cdpRerunWorker) {
             serviceLoaders.push(async () => {
                 const worker = new CdpRerunWorkerConsumer(this.config, cdpDeps!, {
@@ -507,6 +523,7 @@ export class PluginServer implements NodeServer {
                     // the janitor's stall sweep reclaims them. Same shape as the rerun worker.
                     batchMaxSize: 1,
                     boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
+                    releaseWriteRetry: this.config.CDP_CYCLOTRON_RELEASE_WRITE_RETRY,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,

@@ -54,23 +54,24 @@
             <div class="ml-auto text-muted-foreground whitespace-nowrap">{{ request.user.email }}</div>
         </header>
         <div class="@container">
-            <div class="grid min-h-[calc(100vh-3.25rem)] @3xl:grid-cols-[200px_1fr]">
-                <nav class="flex flex-col gap-0.5 p-2 bg-chrome border-b @3xl:border-b-0 @3xl:border-r border-border"
+            <div class="grid min-h-[calc(100vh-3.25rem)] @3xl:grid-cols-[16rem_1fr]">
+                <nav class="flex flex-col gap-0.5 p-2 min-w-0 bg-chrome border-b @3xl:border-b-0 @3xl:border-r border-border"
                      aria-label="Console">
                     {% url 'admin_console_home' as home_url %}
                     <p class="mt-2 mb-1 mx-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Teams</p>
                     <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap aria-[current=page]:bg-[var(--fill-selected)] aria-[current=page]:font-bold"
                        href="{{ home_url }}"
-                       {% if request.path == home_url %}aria-current="page"{% endif %}>Look up a team</a>
+                       {% if request.path == home_url %}aria-current="page"{% endif %}><span class="truncate">Look up a team</span></a>
                     {% if console_tool_groups %}
                         <p class="mt-4 mb-1 mx-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Tools</p>
                         {% for group, tools in console_tool_groups.items %}
                             <p class="mt-1 mb-0.5 mx-2 text-[11px] text-muted-foreground">{{ group }}</p>
                             {% for nav_tool in tools %}
                                 {% url 'admin_console_tool' tool_key=nav_tool.key as tool_url %}
-                                <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap aria-[current=page]:bg-[var(--fill-selected)] aria-[current=page]:font-bold"
+                                <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 min-w-0 items-center whitespace-nowrap aria-[current=page]:bg-[var(--fill-selected)] aria-[current=page]:font-bold"
                                    href="{{ tool_url }}"
-                                   {% if request.path == tool_url %}aria-current="page"{% endif %}>{{ nav_tool.title }}</a>
+                                   title="{{ nav_tool.title }}"
+                                   {% if request.path == tool_url %}aria-current="page"{% endif %}><span class="truncate">{{ nav_tool.title }}</span></a>
                             {% endfor %}
                         {% endfor %}
                     {% endif %}

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.customer_analytics.backend.facade.api import (

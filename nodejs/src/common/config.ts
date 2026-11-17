@@ -50,6 +50,8 @@ export enum PluginServerMode {
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_ses_webhooks = 'cdp-ses-webhooks',
+    cdp_intake_transactional_email = 'cdp-intake-transactional-email',
+    cdp_intake_workflow_webhook = 'cdp-intake-workflow-webhook',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     // TODO: remove once charts stop setting PLUGIN_SERVER_MODE=cdp-precalculated-filters.
     // The consumer is gone; an unknown mode would throw at boot, so keep the member until then.
@@ -176,6 +178,8 @@ export type CommonConfig = BaseServerConfig & {
 
     // Kafka consumer base
     CONSUMER_BATCH_SIZE: number
+    /** KiB of message values per batch, 0 for no byte bound. Only KafkaConsumerV2 reads it. */
+    CONSUMER_BATCH_SIZE_KB: number
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number
     CONSUMER_LOOP_STALL_THRESHOLD_MS: number
     CONSUMER_LOG_STATS_LEVEL: LogLevel
@@ -451,6 +455,7 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Kafka consumer base
         CONSUMER_BATCH_SIZE: 500,
+        CONSUMER_BATCH_SIZE_KB: 0,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000,
         CONSUMER_LOG_STATS_LEVEL: 'debug',

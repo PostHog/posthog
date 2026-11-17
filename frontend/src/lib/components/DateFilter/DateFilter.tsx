@@ -58,6 +58,8 @@ export interface DateFilterProps {
     fullWidth?: boolean
     resolvedDateRange?: ResolvedDateRangeResponse
     showJumpToTimestamp?: boolean
+    /** Timezone the jump to timestamp picker reads and shows times in. Defaults to UTC. */
+    jumpToTimestampTimezone?: string
     showCustomRelativeRange?: boolean
     allowFutureRelativeDateOptions?: boolean
     footerComponent?: (onClose: () => void) => React.ReactNode
@@ -130,6 +132,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         optionsSize,
         resolvedDateRange,
         showJumpToTimestamp = false,
+        jumpToTimestampTimezone,
         showCustomRelativeRange = false,
         allowFutureRelativeDateOptions = false,
         allowSingleAndRange = false,
@@ -283,7 +286,11 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                 }}
             />
         ) : view === DateFilterView.JumpToTimestamp ? (
-            <JumpToTimestampPicker onApply={(dateFrom, dateTo) => setDate(dateFrom, dateTo)} onClose={open} />
+            <JumpToTimestampPicker
+                onApply={(dateFrom, dateTo) => setDate(dateFrom, dateTo)}
+                onClose={open}
+                timezone={jumpToTimestampTimezone}
+            />
         ) : view === DateFilterView.CustomRelativeRange ? (
             <RelativeDateRangeSelector
                 onApply={(from, to) => setDate(from, to)}

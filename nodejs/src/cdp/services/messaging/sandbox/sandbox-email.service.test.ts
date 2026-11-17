@@ -160,6 +160,15 @@ describe('SandboxEmailService', () => {
             { status: 'retry', reason: 'pause_state_unavailable' },
         ],
         [
+            'the recipient is suppressed and the tenant mirror is stale',
+            async () => {
+                await world.suppression.recordHardBounces(world.team.id, [member()], 'smtp; 550 5.1.1 user unknown')
+                await world.setTenant('ENABLED', new Date(Date.now() - 600_000))
+                return {}
+            },
+            { status: 'retry', reason: 'pause_state_unavailable' },
+        ],
+        [
             'the tenant is paused',
             async () => {
                 await world.setTenant('DISABLED', new Date())

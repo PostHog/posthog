@@ -111,7 +111,13 @@ Many pulls to refresh in a row can still empty the minute bucket. Reads then fai
 7. Breakdown (`live-breakdown`): Devices, Browsers or Countries, with the total and a share bar per row. Devices or Browsers is not offered when its only row is "Unknown", as for app events. With neither and no countries, the card is hidden. Browsers and countries show their top six and an "Other" row. Countries show a flag and a name from the web analytics helper (`countryName`), which uses `Intl.DisplayNames` where the runtime has it and a short list otherwise; codes neither names stay codes. Rows do not open anything, because the web's visitor drill-down is behind a flag.
 8. Live events (`live-events`): the newest 50, newest first. Events that arrive after the first read slide in with a short highlight. A tap opens the event sheet (`live-event-sheet`): Person with Copy, URL or Screen, Session with "Watch recording", "View person on web", and Custom properties. Properties load on demand from the event detail API and exclude PostHog system properties (`$` prefixes, `distinct_id`, and `token`). Values are selectable, with lists and objects formatted as JSON. The sheet scrolls for long values and shows loading, empty, and retry states. Watch recording opens the app's session screen when the session replay flag is on, and the web player otherwise.
 
-Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the last 30 minutes", "No pageviews recorded in the last 30 minutes", "No screen views recorded in the last 30 minutes", "No referrer data in the last 30 minutes", "No device data", "No browser data", "No country data" or "Waiting for events…". A card whose job has not answered yet says "Couldn't load this yet. Live tries again every 30 seconds."
+Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the last 30 minutes", "No pageviews recorded in the last 30 minutes", "No screen views recorded in the last 30 minutes", "No referrer data in the last 30 minutes", "No device data", "No browser data", "No country data" or "Waiting for events…". A card or headline metric whose job has not answered yet shows a loading indicator.
+On reopening Live, the last successful aggregate values appear from the account-scoped device cache, separately for All, Web and Mobile.
+The PostHog icon in the Home header animates while fresh data loads, and successful reads replace the saved values.
+Live opened from Web analytics uses the same animated logo beside its title during reads.
+Pull-to-refresh keeps the native spinner hidden and uses the logo animation while fresh data loads.
+A failed refresh keeps the previous values and follows the reconnecting behavior below.
+The cache uses the existing size and age limits and clears on sign-out, project access denial or loss of Views access; individual event details are not persisted.
 
 ## No web traffic
 

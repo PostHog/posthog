@@ -1741,8 +1741,8 @@
         }
     }
     @container (width >= 48rem) {
-        .\@3xl\:grid-cols-\[200px_1fr\] {
-            grid-template-columns: 200px 1fr;
+        .\@3xl\:grid-cols-\[16rem_1fr\] {
+            grid-template-columns: 16rem 1fr;
         }
     }
     @container (width >= 48rem) {

@@ -148,6 +148,13 @@ class ReleaseDTO:
 
 
 @dataclass(frozen=True)
+class CatalogReleaseDTO:
+    id: UUID
+    name: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class CreateReleaseInput:
     team_id: int
     name: str

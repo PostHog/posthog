@@ -79,6 +79,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: boolean
+    CDP_CYCLOTRON_RELEASE_WRITE_RETRY: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
     WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
@@ -210,6 +211,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: string
     CDP_INTAKE_DLQ_TOPIC: string
     CDP_INTAKE_PRODUCER: CdpProducerName
+    // Teams whose routes produce accepted runs to the intake topics: a list of team ids, or `*`. Shadow still inserts
+    // each run itself and only measures the produce. Async answers on the broker's ack. Async wins over shadow.
+    CDP_INTAKE_KAFKA_SHADOW_TEAMS: string
+    CDP_INTAKE_KAFKA_ASYNC_TEAMS: string
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -405,6 +410,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: false,
+        CDP_CYCLOTRON_RELEASE_WRITE_RETRY: false,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
         WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
         SES_SANDBOX_CONFIGURATION_SET: '',
@@ -512,6 +518,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
         CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
         CDP_INTAKE_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
+        CDP_INTAKE_KAFKA_SHADOW_TEAMS: '',
+        CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',

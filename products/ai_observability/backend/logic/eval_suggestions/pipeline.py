@@ -58,7 +58,6 @@ logger = structlog.get_logger(__name__)
 WINDOW = timedelta(days=7)
 # Traces younger than this may still be receiving events, so the window stops short of now.
 SETTLE = timedelta(minutes=30)
-# Below this share of sampled traces with a model answer, the team has not captured enough to suggest anything.
 MIN_CONTENT_SHARE = 0.25
 # Dedupe asks the model about each hand-written evaluation, so a team with many pays for this many at most.
 MAX_DEDUPED_EVALS = 50
@@ -222,6 +221,7 @@ def _reviewed_proposals(
     handoff: Handoff,
     judge_model: str,
     budget: float,
+    review_calls: int,
     stages: _Stages,
     deadline: float | None,
 ) -> list[Proposal]:
@@ -247,11 +247,11 @@ def _reviewed_proposals(
         detail = "content the review does not read" if triage.excluded else "no call type worth reviewing"
         stages.set("drafting", "skipped", detail=detail, cost_usd=round(spent, 4))
         return []
-    calls = call_review.select_calls(load_review_calls(team, day, per_mille, triage.picked))
+    calls = call_review.select_calls(load_review_calls(team, day, per_mille, triage.picked), limit=review_calls)
     if len(calls) < call_review.MIN_CARD_FAILURES:
         stages.set("drafting", "skipped", detail="too few calls with a text answer", cost_usd=round(spent, 4))
         return []
-    rendering = call_review.render(triage.picked, calls)
+    rendering = call_review.render(triage.picked, calls, review_calls)
     request = call_review.review_request(rendering)
     # A review that starts too late to finish would be paid for and then lost with the timed-out attempt.
     if _time_left(deadline) < call_review.max_seconds(request.timeout):
@@ -548,7 +548,14 @@ def draft_stage(
         return 0
     try:
         drafted = _reviewed_proposals(
-            team, run, handoff, handoff.judge_model, settings.llm_budget_usd_per_run, stages, deadline
+            team,
+            run,
+            handoff,
+            handoff.judge_model,
+            settings.llm_budget_usd_per_run,
+            settings.review_calls,
+            stages,
+            deadline,
         )
     except GatewayNotConfiguredError:
         stages.set("drafting", "skipped", detail="the AI gateway is not configured")
