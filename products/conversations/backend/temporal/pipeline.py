@@ -80,7 +80,9 @@ with workflow.unsafe.imports_passed_through():
 
 def _bill_llm_activity(*, output: Any | None, error: BaseException | None, maximum_attempts: int) -> int:
     if error is None:
-        return max(1, int(getattr(output, "llm_attempts", 1) or 1))
+        # 0 is a real count: the brief reports it when it stopped before calling the model.
+        attempts = getattr(output, "llm_attempts", 1)
+        return 1 if attempts is None else max(0, int(attempts))
     if isinstance(error, ActivityError) and error.retry_state == RetryState.NON_RETRYABLE_FAILURE:
         return 1
     return maximum_attempts

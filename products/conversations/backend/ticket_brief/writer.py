@@ -88,6 +88,8 @@ MAX_OUTPUT_TOKENS = (
 # are all decisions for whoever ships the brief, not writable by a customer's project admin.
 TICKET_BRIEF_FEATURE_FLAG = "support-ticket-brief"
 
+_REASONS_BEFORE_THE_MODEL = frozenset({"gate_failed", "ai_not_approved", "disabled"})
+
 
 @frozen
 class BriefOutcome:
@@ -99,6 +101,12 @@ class BriefOutcome:
 
     written: bool
     reason: str = ""
+
+    @property
+    def called_model(self) -> bool:
+        # The reply pipeline bills each run by its model calls. A brief that stopped at the gate,
+        # which is every run until the flag is rolled out, must not add one.
+        return self.reason not in _REASONS_BEFORE_THE_MODEL
 
 
 class BriefResult(BaseModel):

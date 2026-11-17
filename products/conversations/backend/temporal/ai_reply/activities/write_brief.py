@@ -25,4 +25,8 @@ async def support_write_brief_activity(input: WriteBriefInput) -> WriteBriefOutp
             ticket_context=input.ticket_context,
             trace_id=input.trace_id,
         )
-    return WriteBriefOutput(written=outcome.written, reason=outcome.reason, llm_attempts=llm_attempts())
+    return WriteBriefOutput(
+        written=outcome.written,
+        reason=outcome.reason,
+        llm_attempts=llm_attempts() if outcome.called_model else 0,
+    )

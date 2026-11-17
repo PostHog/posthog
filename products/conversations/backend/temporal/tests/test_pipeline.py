@@ -66,6 +66,7 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
     SupportReplyInput,
     ValidateInput,
     ValidateOutput,
+    WriteBriefOutput,
 )
 from products.conversations.backend.temporal.pipeline import (
     SupportReplyWorkflow,
@@ -81,7 +82,9 @@ from products.conversations.backend.temporal.pipeline import (
     support_review_reply_activity,
     support_safety_filter_activity,
     support_validate_activity,
+    support_write_brief_activity,
 )
+from products.conversations.backend.ticket_brief.writer import BriefOutcome
 from products.tasks.backend.facade.agents import EmptyAgentTurnError
 
 
@@ -109,6 +112,7 @@ PERSIST_REPLY_MODULE = f"{ACTIVITIES}.persist_reply"
 RUN_CITATIONS_MODULE = "products.conversations.backend.temporal.ai_reply.run_citations"
 PERSIST_KNOWLEDGE_GAP_MODULE = f"{ACTIVITIES}.persist_knowledge_gap"
 RECORD_TRIAGE_MODULE = f"{ACTIVITIES}.record_triage"
+WRITE_BRIEF_MODULE = f"{ACTIVITIES}.write_brief"
 PIPELINE_MODULE = "products.conversations.backend.temporal.pipeline"
 
 
@@ -3384,6 +3388,11 @@ class TestRecordTriageActivity:
                 return_value=review_output or ReviewReplyOutput(safe=True),
             ),
             patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput()),
+            patch(
+                f"{WRITE_BRIEF_MODULE}.write_brief",
+                new_callable=AsyncMock,
+                return_value=BriefOutcome(written=False, reason="disabled"),
+            ),
             patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -3402,6 +3411,7 @@ class TestRecordTriageActivity:
                         support_review_reply_activity,
                         support_persist_reply_activity,
                         support_record_triage_activity,
+                        support_write_brief_activity,
                     ],
                 ):
                     result = await env.client.execute_workflow(
@@ -3498,6 +3508,11 @@ class TestRecordTriageActivity:
                 return_value=ReviewReplyOutput(safe=True),
             ),
             patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput()),
+            patch(
+                f"{WRITE_BRIEF_MODULE}.write_brief",
+                new_callable=AsyncMock,
+                return_value=BriefOutcome(written=False, reason="disabled"),
+            ),
             patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -3516,6 +3531,7 @@ class TestRecordTriageActivity:
                         support_review_reply_activity,
                         support_persist_reply_activity,
                         support_record_triage_activity,
+                        support_write_brief_activity,
                     ],
                 ):
                     result = await env.client.execute_workflow(
@@ -3559,6 +3575,11 @@ class TestRecordTriageActivity:
                 return_value=SafetyFilterOutput(safe=True),
             ),
             patch(f"{CLASSIFY_MODULE}._classify", new=flaky_classify),
+            patch(
+                f"{WRITE_BRIEF_MODULE}.write_brief",
+                new_callable=AsyncMock,
+                return_value=BriefOutcome(written=False, reason="disabled"),
+            ),
             patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -3571,6 +3592,7 @@ class TestRecordTriageActivity:
                         support_safety_filter_activity,
                         support_classify_activity,
                         support_record_triage_activity,
+                        support_write_brief_activity,
                     ],
                 ):
                     result = await env.client.execute_workflow(
@@ -3614,6 +3636,12 @@ class TestBillLlmActivity:
     def test_non_retryable_bills_one(self):
         error = _activity_error(RetryState.NON_RETRYABLE_FAILURE)
         assert _bill_llm_activity(output=None, error=error, maximum_attempts=3) == 1
+
+    def test_a_brief_that_stopped_before_the_model_bills_nothing(self):
+        # Every run reaches the brief step, and it stops at the gate until the flag is rolled out.
+        # Billing it as one call would add a model call to every run that never made one.
+        output = WriteBriefOutput(written=False, reason="disabled", llm_attempts=0)
+        assert _bill_llm_activity(output=output, error=None, maximum_attempts=2) == 0
 
 
 class TestRecordTriageSync:
