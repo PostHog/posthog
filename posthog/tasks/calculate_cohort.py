@@ -60,7 +60,12 @@ from products.cohorts.backend.models.util import (
     sort_cohorts_topologically,
 )
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
-from products.cohorts.backend.static_reconciliation import reconcile_static_cohort, select_static_cohorts_to_reconcile
+from products.cohorts.backend.static_reconciliation import (
+    STATIC_COHORT_RECONCILE_COUNTER,
+    StaticCohortToReconcile,
+    reconcile_static_cohort,
+    run_reconciliation_pass,
+)
 
 COHORT_RECALCULATION_MAX_RETRIES = 6
 STATIC_POPULATION_MAX_RETRIES = 6
@@ -1490,18 +1495,41 @@ def finalize_cohort_backfill_runs() -> None:
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def reconcile_static_cohorts() -> None:
-    """Queue a repair for the static cohorts whose Postgres membership lags ClickHouse."""
+    """Dispatch a repair for the static cohorts whose Postgres membership lags ClickHouse."""
     if not get_instance_setting("STATIC_COHORT_RECONCILIATION_ENABLED"):
         return
-    for cohort in select_static_cohorts_to_reconcile(now=timezone.now()):
-        reconcile_static_cohort_membership.delay(team_id=cohort.team_id, cohort_id=cohort.cohort_id)
+    run_reconciliation_pass(
+        now=timezone.now(),
+        dispatch=lambda cohort: reconcile_static_cohort_membership.delay(
+            team_id=cohort.team_id, cohort_id=cohort.cohort_id, clickhouse_count=cohort.clickhouse_count
+        ),
+    )
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
+    max_retries=STATIC_POPULATION_MAX_RETRIES,
     queue=CeleryQueue.LONG_RUNNING.value,
     soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
 )
 @with_team_scope()
-def reconcile_static_cohort_membership(team_id: int, cohort_id: int) -> None:
-    reconcile_static_cohort(team_id=team_id, cohort_id=cohort_id)
+def reconcile_static_cohort_membership(self: Task, team_id: int, cohort_id: int, clickhouse_count: int) -> None:
+    try:
+        reconcile_static_cohort(
+            StaticCohortToReconcile(team_id=team_id, cohort_id=cohort_id, clickhouse_count=clickhouse_count)
+        )
+    except Exception as err:
+        if not _is_final_attempt(self, _is_transient_population_error(err)):
+            raise self.retry(
+                exc=err,
+                countdown=get_exponential_backoff_interval(
+                    factor=STATIC_POPULATION_RETRY_BACKOFF_SECONDS,
+                    retries=self.request.retries,
+                    maximum=STATIC_POPULATION_RETRY_BACKOFF_MAX_SECONDS,
+                    full_jitter=True,
+                ),
+            )
+        STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="failed").inc()
+        logger.exception("static_cohort_reconcile_failed", team_id=team_id, cohort_id=cohort_id)
+        capture_exception(err, additional_properties={"team_id": team_id, "cohort_id": cohort_id})

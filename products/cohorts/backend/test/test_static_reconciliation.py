@@ -17,7 +17,11 @@ from posthog.test.persons import create_person
 from products.cohorts.backend import static_reconciliation
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import count_cohort_members, insert_static_cohort
-from products.cohorts.backend.static_reconciliation import StaticCohortToReconcile, select_static_cohorts_to_reconcile
+from products.cohorts.backend.static_reconciliation import (
+    StaticCohortToReconcile,
+    reconcile_static_cohort,
+    run_reconciliation_pass,
+)
 
 
 class TestStaticCohortReconciliation(BaseTest):
@@ -27,22 +31,30 @@ class TestStaticCohortReconciliation(BaseTest):
         self.addCleanup(cache.clear)
         self.now = timezone.now()
 
-    def _static_cohort(self, *, clickhouse_members: int, **fields: Any) -> Cohort:
+    def _static_cohort(
+        self, *, clickhouse_members: int = 0, person_uuids: tuple[Any, ...] = (), **fields: Any
+    ) -> Cohort:
         fields = {"last_calculation": self.now - timedelta(days=7), "count": 0, **fields}
         cohort = Cohort.objects.create(team=self.team, name="static", is_static=True, **fields)
-        insert_static_cohort([uuid.uuid4() for _ in range(clickhouse_members)], cohort.pk, team_id=self.team.pk)
+        uuids = [*person_uuids, *(uuid.uuid4() for _ in range(clickhouse_members))]
+        insert_static_cohort(uuids, cohort.pk, team_id=self.team.pk)
         return cohort
 
-    def _select(self) -> list[int]:
-        return [cohort.cohort_id for cohort in select_static_cohorts_to_reconcile(now=self.now)]
+    def _dispatched(self) -> list[StaticCohortToReconcile]:
+        dispatched: list[StaticCohortToReconcile] = []
+        run_reconciliation_pass(now=self.now, dispatch=dispatched.append)
+        return dispatched
+
+    def _dispatched_ids(self) -> list[int]:
+        return [cohort.cohort_id for cohort in self._dispatched()]
+
+    def _forget_attempts(self, *cohorts: Cohort) -> None:
+        cache.delete_many([static_reconciliation._attempt_cache_key(cohort.pk) for cohort in cohorts])
 
     @parameterized.expand([(True,), (False,)])
     def test_sweep_copies_clickhouse_members_to_postgres_unless_switched_off(self, enabled: bool) -> None:
         people = [create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2)]
-        cohort = Cohort.objects.create(
-            team=self.team, name="static", is_static=True, last_calculation=self.now - timedelta(days=7), count=0
-        )
-        insert_static_cohort([person.uuid for person in people], cohort.pk, team_id=self.team.pk)
+        cohort = self._static_cohort(person_uuids=tuple(person.uuid for person in people))
 
         with override_instance_config("STATIC_COHORT_RECONCILIATION_ENABLED", enabled):
             reconcile_static_cohorts()
@@ -51,6 +63,7 @@ class TestStaticCohortReconciliation(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), expected)
         self.assertEqual(cohort.count, expected)
+        self.assertFalse(cohort.is_calculating)
 
     @parameterized.expand(
         [
@@ -66,36 +79,73 @@ class TestStaticCohortReconciliation(BaseTest):
         ]
     )
     @patch.object(static_reconciliation, "RECONCILE_MAX_MEMBERS", 250)
-    def test_selects_only_settled_cohorts_whose_postgres_count_lags(
+    def test_dispatches_only_settled_cohorts_whose_postgres_count_lags(
         self,
         _name: str,
         stored_count: int | None,
         clickhouse_members: int,
         fields: dict[str, Any],
-        expected_selected: bool,
+        expected_dispatched: bool,
     ) -> None:
         fields = dict(fields)
         if "last_calculation_ago" in fields:
             fields["last_calculation"] = self.now - fields.pop("last_calculation_ago")
         cohort = self._static_cohort(clickhouse_members=clickhouse_members, count=stored_count, **fields)
 
-        self.assertEqual(
-            select_static_cohorts_to_reconcile(now=self.now),
-            [StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk)] if expected_selected else [],
+        expected = StaticCohortToReconcile(
+            team_id=self.team.pk, cohort_id=cohort.pk, clickhouse_count=clickhouse_members
         )
+        self.assertEqual(self._dispatched(), [expected] if expected_dispatched else [])
 
     @patch.object(static_reconciliation, "RECONCILE_PAGE_SIZE", 2)
     @patch.object(static_reconciliation, "RECONCILE_MAX_COHORTS_PER_RUN", 1)
     def test_walks_from_newest_to_oldest_and_starts_again_from_the_newest(self) -> None:
         oldest, middle, newest = (self._static_cohort(clickhouse_members=1) for _ in range(3))
 
-        passes = [self._select() for _ in range(3)]
-        cache.delete_many([static_reconciliation._attempt_cache_key(c.pk) for c in (oldest, middle, newest)])
-        passes.append(self._select())
+        passes = [self._dispatched_ids() for _ in range(3)]
+        self._forget_attempts(oldest, middle, newest)
+        passes.append(self._dispatched_ids())
 
         self.assertEqual(passes, [[newest.pk], [middle.pk], [oldest.pk], [newest.pk]])
 
-    def test_does_not_retry_a_cohort_whose_gap_stays_open(self) -> None:
+    def test_does_not_dispatch_a_recent_cohort_again_within_the_retry_window(self) -> None:
         cohort = self._static_cohort(clickhouse_members=3, last_calculation=self.now - timedelta(hours=3))
 
-        self.assertEqual([self._select(), self._select()], [[cohort.pk], []])
+        self.assertEqual([self._dispatched_ids(), self._dispatched_ids()], [[cohort.pk], []])
+
+    def test_a_failed_dispatch_is_retried_on_the_next_pass(self) -> None:
+        cohort = self._static_cohort(clickhouse_members=3)
+
+        def fail(_cohort: StaticCohortToReconcile) -> None:
+            raise ConnectionError("broker down")
+
+        run_reconciliation_pass(now=self.now, dispatch=fail)
+
+        self.assertEqual(self._dispatched_ids(), [cohort.pk])
+
+    def test_parks_a_cohort_whose_gap_a_repair_cannot_close(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["kept"])
+        # The second ClickHouse member has no person, like a person deleted after the population.
+        cohort = self._static_cohort(clickhouse_members=1, person_uuids=(person.uuid,))
+
+        passes = []
+        for _ in range(3):
+            dispatched = self._dispatched()
+            passes.append([c.cohort_id for c in dispatched])
+            for target in dispatched:
+                reconcile_static_cohort(target)
+            self._forget_attempts(cohort)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 1)
+        self.assertEqual(passes, [[cohort.pk], [cohort.pk], []])
+
+    def test_repair_leaves_a_cohort_that_another_task_is_calculating(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["member"])
+        cohort = self._static_cohort(person_uuids=(person.uuid,), is_calculating=True)
+
+        reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk, clickhouse_count=1))
+
+        cohort.refresh_from_db()
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 0)
+        self.assertTrue(cohort.is_calculating)
