@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
+
 import pytest
 from unittest.mock import patch
 
 from click.testing import CliRunner
+from hogli_commands import verify_stamp
 from hogli_commands.test_runner import ChangedTests
 from hogli_commands.verify_layers import (
     ChangeKind,
@@ -13,6 +17,18 @@ from hogli_commands.verify_layers import (
     plan_verification,
     verify,
 )
+from hogli_commands.verify_stamp import read_stamp, verify_gate, write_stamp
+
+
+@pytest.fixture
+def repo(tmp_path: Path, git: Callable[..., str], monkeypatch: pytest.MonkeyPatch) -> Path:
+    git(tmp_path, "init", "-q")
+    (tmp_path / "team.py").write_text("a = 1\n")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-q", "-m", "init")
+    monkeypatch.setattr(verify_stamp, "REPO_ROOT", tmp_path)
+    monkeypatch.delenv("GIT_INDEX_FILE", raising=False)
+    return tmp_path
 
 
 class TestClassify:
@@ -80,13 +96,13 @@ class TestPlanVerification:
 
 
 class TestVerifyCommand:
-    def test_an_advisory_check_and_no_tests_leave_the_diff_unverified(self) -> None:
+    def test_an_advisory_check_and_no_tests_leave_the_diff_unverified(self, repo: Path) -> None:
         no_tests = ChangedTests(directly_changed=set(), discovered=set(), skipped_playwright_specs=set())
         with (
             patch("hogli_commands.verify_layers.changed_files", return_value=["posthog/models/team/team.py"]),
             patch("hogli_commands.verify_layers._run_diff_check", return_value=("advisory", "run mypy")),
             patch("hogli_commands.verify_layers.changed_test_files", return_value=no_tests),
-            patch("hogli_commands.verify_layers.subprocess.run") as run,
+            patch("hogli_commands.verify_layers.subprocess") as verify_subprocess,
         ):
             result = CliRunner().invoke(verify, ["--changed"])
 
@@ -94,4 +110,52 @@ class TestVerifyCommand:
         assert "[type-check] did not run: run mypy." in result.output
         assert "No tests were found for the changed files" in result.output
         assert "are enough for this diff" not in result.output
-        run.assert_not_called()
+        verify_subprocess.run.assert_not_called()
+        stamp = read_stamp()
+        assert stamp is not None
+        assert (stamp.outcome, stamp.highest_layer, stamp.layers["unit_test"]) == ("unverified", "static", "no_tests")
+
+
+class TestVerifyGate:
+    @pytest.mark.parametrize(
+        "mode,stamp_outcome,highest_layer,edited_after_verify,message,exit_code,output",
+        [
+            ("observe", "verified", "unit_test", False, "feat: x", 0, "verified, highest layer unit_test"),
+            ("observe", "verified", "unit_test", True, "feat: x", 0, "would block (stale)"),
+            ("enforce", "verified", "unit_test", True, "feat: x", 3, "blocked (stale)"),
+            ("enforce", "failed", "none", False, "feat: x", 3, "blocked (failed)"),
+            ("enforce", "failed", "static", False, "feat: x", 3, "blocked (failed)"),
+            ("enforce", "verified", "unit_test", True, "feat: x\n\nUnverified: generated file only", 0, ""),
+            ("off", "failed", "none", True, "feat: x", 0, ""),
+        ],
+    )
+    def test_gate_matches_the_committed_content_against_the_stamp(
+        self,
+        repo: Path,
+        git: Callable[..., str],
+        monkeypatch: pytest.MonkeyPatch,
+        mode: str,
+        stamp_outcome: str,
+        highest_layer: str,
+        edited_after_verify: bool,
+        message: str,
+        exit_code: int,
+        output: str,
+    ) -> None:
+        (repo / "team.py").write_text("a = 2\n")
+        (repo / "new_module.py").write_text("b = 1\n")
+        write_stamp(
+            outcome=stamp_outcome, highest_layer=highest_layer, sufficient_layer="unit_test", layers={}, checks={}
+        )
+        assert git(repo, "status", "--porcelain").splitlines() == ["M team.py", "?? new_module.py"]
+        if edited_after_verify:
+            (repo / "team.py").write_text("a = 3\n")
+        git(repo, "add", "-A")
+        message_file = repo / "COMMIT_EDITMSG"
+        message_file.write_text(message)
+        monkeypatch.setenv("HOGLI_VERIFY_GATE", mode)
+
+        result = CliRunner().invoke(verify_gate, [str(message_file)])
+
+        assert result.exit_code == exit_code
+        assert output in result.output
