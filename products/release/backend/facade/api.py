@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
@@ -142,6 +143,48 @@ def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[con
     releases = select_page(logic.list_releases(team_id), page)
     hidden = _hidden(lookups, list(releases.results))
     return releases.map(lambda obj: _to_dto(obj, hidden))
+
+
+CATALOG_SCAN_BATCH = 200
+
+
+class InvalidCatalogCursorError(Exception):
+    pass
+
+
+def _parse_cursor(cursor: str) -> tuple[datetime, UUID]:
+    created_at, _, release_id = cursor.partition("|")
+    try:
+        return datetime.fromisoformat(created_at), UUID(release_id)
+    except ValueError:
+        raise InvalidCatalogCursorError(cursor)
+
+
+def list_catalog_page(
+    team_id: int, flags: FlagVisibilityLookup, *, search: str, limit: int, cursor: str
+) -> tuple[list[contracts.CatalogReleaseDTO], str | None]:
+    releases = logic.list_catalog_releases(team_id, search, _parse_cursor(cursor) if cursor else None)
+    results: list[contracts.CatalogReleaseDTO] = []
+    position = 0
+    while True:
+        size = CATALOG_SCAN_BATCH if search else limit + 1
+        batch = list(releases[position : position + size])
+        position += len(batch)
+        hidden = flags(sorted({flag_id for obj in batch if obj.auto_named for flag_id in obj.feature_flag_ids})).hidden
+        for obj in batch:
+            restricted = obj.auto_named and bool(hidden & set(obj.feature_flag_ids))
+            if restricted and search:
+                continue
+            if len(results) == limit:
+                last = results[-1]
+                return results, f"{last.created_at.isoformat()}|{last.id}"
+            results.append(
+                contracts.CatalogReleaseDTO(
+                    id=obj.id, name=RESTRICTED_NAME if restricted else obj.name, created_at=obj.created_at
+                )
+            )
+        if len(batch) < size:
+            return results, None
 
 
 def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contracts.ReleaseDTO:

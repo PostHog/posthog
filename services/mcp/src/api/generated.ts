@@ -12482,6 +12482,7 @@ export namespace Schemas {
       valueColumn?: string | null;
       xAxisColumn?: string | null;
       xAxisLabel?: string | null;
+      xAxisSortOrder?: HeatmapSortOrder | null;
       yAxisColumn?: string | null;
       yAxisLabel?: string | null;
     }
@@ -26740,6 +26741,43 @@ export namespace Schemas {
       evidence?: CapabilityStateEvidence;
     }
 
+    export interface CatalogFlag {
+      /** ID of the feature flag. */
+      id: number;
+      /** Key of the feature flag. */
+      key: string;
+      /** True when the flag is enabled. */
+      active: boolean;
+      /** When the flag was created. */
+      created_at: string;
+    }
+
+    export interface CatalogFlagsResponse {
+      /** Flags the caller can see, newest first. */
+      results: CatalogFlag[];
+      /** True when more flags follow this page. */
+      has_more: boolean;
+    }
+
+    export interface CatalogRelease {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+      /** When the release was created. */
+      created_at: string;
+    }
+
+    export interface CatalogReleasesResponse {
+      /** Releases of the project, newest first. */
+      results: CatalogRelease[];
+      /**
+         * Pass as cursor to fetch the next page. Null when no more releases follow.
+         * @nullable
+         */
+      next_cursor: string | null;
+    }
+
     export interface CatalogueEntry {
       /** A raw utm_source value seen in the window */
       raw_utm_source: string;
@@ -33575,6 +33613,13 @@ export namespace Schemas {
     export interface CustomizationRequest {
       /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole fragment, so send every section to keep. */
       layout: AnalyticsFragmentLayout;
+    }
+
+    export interface DailyCitedRuns {
+      /** Day, in UTC. */
+      readonly date: string;
+      /** Support agent runs that cited knowledge on this day. */
+      readonly cited_run_count: number;
     }
 
     export type DashboardFilters = { [key: string]: unknown };
@@ -66149,6 +66194,13 @@ export namespace Schemas {
       readonly always_include: boolean;
       /** Libraries this source belongs to. Empty when the source is in none. */
       readonly library_ids: readonly string[];
+      /** Number of support agent runs that cited this source. */
+      readonly cited_run_count: number;
+      /**
+         * When a support agent run last cited this source. Null when none has.
+         * @nullable
+         */
+      readonly last_cited_at: string | null;
     }
 
     /**
@@ -66178,6 +66230,39 @@ export namespace Schemas {
        * * `safe` - Safe
        * * `unsafe` - Unsafe */
       readonly safety_verdict: SafetyVerdictEnum;
+    }
+
+    export interface SourceUsage {
+      /** ID of the knowledge source. */
+      readonly source_id: string;
+      /** Name of the knowledge source. */
+      readonly name: string;
+      /** True when the source was learned from a past support ticket. */
+      readonly is_generated: boolean;
+      /** Support agent runs that cited this source in the period. */
+      readonly cited_run_count: number;
+      /** When a run last cited this source in the period. */
+      readonly last_cited_at: string;
+    }
+
+    /**
+     * How much support agent runs used the knowledge base in a period.
+     */
+    export interface KnowledgeUsage {
+      /** Number of days the report covers, today included. */
+      readonly days: number;
+      /** Support agent runs that cited at least one knowledge source. */
+      readonly cited_run_count: number;
+      /** Runs that cited at least one source learned from a past support ticket. */
+      readonly learned_cited_run_count: number;
+      /** Knowledge sources in the project. */
+      readonly source_count: number;
+      /** Knowledge sources that at least one run cited in the period. */
+      readonly cited_source_count: number;
+      /** One entry per day, oldest first. */
+      readonly daily: readonly DailyCitedRuns[];
+      /** The most cited sources in the period, most cited first. */
+      readonly top_sources: readonly SourceUsage[];
     }
 
     export interface KustomerConversationSignalExtra {
@@ -123781,6 +123866,11 @@ export namespace Schemas {
       template_id: string | null;
       /** The template's name. Empty when it was deleted. */
       template_name: string;
+      /**
+         * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** The domain the email was sent from. Empty before it was sent. */
       sending_domain: string;
       /** Whether the recipient opened the email. */
@@ -123831,6 +123921,11 @@ export namespace Schemas {
       template_id: string | null;
       /** The template's name. Empty when it was deleted. */
       template_name: string;
+      /**
+         * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** The domain the email was sent from. Empty before it was sent. */
       sending_domain: string;
       /** Whether the recipient opened the email. */
@@ -123865,6 +123960,16 @@ export namespace Schemas {
       key: string;
       /** The template name or the sending domain. Empty for a deleted template. */
       label: string;
+      /**
+         * The template that sent this row's emails. Null for a deleted template, emails sent from code, and a sending domain.
+         * @nullable
+         */
+      template_id: string | null;
+      /**
+         * The email sent from code under a `template_key`, for a row of sends that have no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** Emails that reached the email provider. */
       sent: number;
       /** Emails the recipient's mail server accepted. */
@@ -134266,6 +134371,15 @@ export namespace Schemas {
       text?: string;
     };
 
+    export type BusinessKnowledgeSourcesUsageRetrieveParams = {
+    /**
+     * Number of days to report, counting back from today. From 1 to 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    };
+
     export type CanvasesListParams = {
     /**
      * Only return canvases in this channel.
@@ -136673,6 +136787,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive match on the feature name.
+     */
+    search?: string;
     };
 
     export type ElementsListParams = {
@@ -143915,6 +144033,44 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ReleasesCatalogFlagsRetrieveParams = {
+    /**
+     * How many flags to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many flags to skip, newest first.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Part of the flag key or name to match.
+     * @maxLength 200
+     */
+    search?: string;
+    };
+
+    export type ReleasesCatalogReleasesRetrieveParams = {
+    /**
+     * next_cursor of the previous page.
+     * @maxLength 100
+     */
+    cursor?: string;
+    /**
+     * How many releases to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Part of the release name to match.
+     * @maxLength 200
+     */
+    search?: string;
+    };
+
     export type ReviewHogRepositoryOverviewRetrieveParams = {
     /**
      * The GitHub App installation to list.
@@ -146953,6 +147109,12 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Only sends whose delivery status has this reason, such as `soft` for a soft bounce or `sending_paused` for a send skipped while sending was paused.
+     * @minLength 1
+     * @maxLength 64
+     */
+    reason?: string;
     /**
      * A `message_id` for an exact match, or part of the recipient's email address.
      */

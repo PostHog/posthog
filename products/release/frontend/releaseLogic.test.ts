@@ -96,7 +96,8 @@ describe('releaseLogic', () => {
             [{ key: ['Release', 'r1'], name: 'Quiet theme' }],
         ],
         ['names the list page', urls.releaseList(), [{ key: 'Releases', name: 'Releases' }]],
-        ['names the calendar page', urls.releases(), [{ key: 'ReleaseCalendar', name: 'Release calendar' }]],
+        ['names the calendar page', urls.releaseCalendar(), [{ key: 'ReleaseCalendar', name: 'Release calendar' }]],
+        ['names the view all page', urls.releases(), [{ key: 'ReleaseAll', name: 'View all' }]],
     ])('%s', async (_name, url, expected) => {
         mockedReleasesList.mockResolvedValue({
             results: [
