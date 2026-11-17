@@ -1,174 +1,22 @@
-import re
 import json
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from io import StringIO
 from typing import Any
-
-from posthog.test.base import BaseTest
-from unittest.mock import patch
-
-from django.core.cache import cache
-from django.core.management import call_command
-from django.test import override_settings
 
 import httpx
 from parameterized import parameterized
 
-from posthog.models.organization import Organization
-from posthog.models.team.team import Team
 from posthog.utils import absolute_uri
 
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.tasks.abuse_classification import (
-    backfill_hog_function_abuse_score,
-    classify_hog_function_for_abuse,
+from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse
+from products.cdp.backend.test.abuse_support import (
+    SCORES,
+    SECRET_VALUE,
+    TEAM_FLAG,
+    AbuseClassificationTestCase,
+    decision_payload,
 )
 
-GATEWAY_SETTINGS = {"AI_GATEWAY_URL": "https://gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"}
-SECRET_VALUE = "sk-live-do-not-leak"
-SCORES = {
-    "internal_network": 0.12,
-    "resource_exhaustion": 0.8,
-    "malformed_payload": 0.05,
-    "unrelated_destination": 0.3,
-    "normal_integration": 0.95,
-}
-SCOPED_CAPTURE = "products.cdp.backend.abuse.shadow.ph_scoped_capture"
-TEAM_FLAG = "cdp-abuse-classifier"
-BACKFILL_FLAG = "cdp-abuse-classifier-backfill"
 
-
-def _decision(scores: dict[str, float]) -> dict[str, Any]:
-    return {
-        "model": "jevk5-0.2",
-        "answers": {question: {"noul": probability} for question, probability in scores.items()},
-        "usage": {"input_tokens": 512},
-        "latency_ms": 40.0,
-    }
-
-
-class FakeGateway:
-    def __init__(self) -> None:
-        self.requests: list[httpx.Request] = []
-        self.response = httpx.Response(200, json=_decision(SCORES))
-        self.error: Exception | None = None
-
-    def handle(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        if self.error is not None:
-            raise self.error
-        return self.response
-
-    def bodies(self) -> list[str]:
-        return [request.content.decode() for request in self.requests]
-
-
-class FakeCapture:
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-        self.error: Exception | None = None
-
-    @contextmanager
-    def scoped(self, **_options: Any) -> Iterator[Callable[..., None]]:
-        yield self.record
-
-    def record(self, **event: Any) -> None:
-        if self.error is not None:
-            raise self.error
-        self.events.append(event)
-
-
-class FakeFlags:
-    def __init__(self) -> None:
-        self.enabled: dict[str, bool | None] = {TEAM_FLAG: True, BACKFILL_FLAG: True}
-        self.error: Exception | None = None
-        self.payload: object = None
-
-    def feature_enabled(self, key: str, _distinct_id: str, **_options: Any) -> bool | None:
-        if self.error is not None:
-            raise self.error
-        return self.enabled.get(key)
-
-    def get_feature_flag_payload(self, _key: str, _distinct_id: str, **_options: Any) -> object:
-        return self.payload
-
-
-@override_settings(**GATEWAY_SETTINGS)
-class TestAbuseClassification(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        cache.clear()
-        # Default fixture data holds enabled functions of other teams, which a backfill would otherwise score.
-        HogFunction.objects.update(enabled=False)
-        self.gateway = FakeGateway()
-        self.flags = FakeFlags()
-        self.capture = FakeCapture()
-        for patcher in (
-            patch.object(
-                httpx.HTTPTransport, "handle_request", new=lambda _self, request: self.gateway.handle(request)
-            ),
-            patch("posthoganalytics.feature_enabled", new=self.flags.feature_enabled),
-            patch("posthoganalytics.get_feature_flag_payload", new=self.flags.get_feature_flag_payload),
-            patch(SCOPED_CAPTURE, new=self.capture.scoped),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)
-
-    def captured_events(self) -> list[dict[str, Any]]:
-        return self.capture.events
-
-    @contextmanager
-    def committed(self) -> Iterator[None]:
-        with self.captureOnCommitCallbacks(execute=True):
-            yield
-
-    def create_destination(self, **overrides: Any) -> HogFunction:
-        with self.committed():
-            return HogFunction.objects.create(
-                **{
-                    "team": self.team,
-                    "name": "Order webhook",
-                    "type": "destination",
-                    "enabled": True,
-                    "hog": "fetch(inputs.url, {'body': event})\n// <system\nfetch('http://169.254.169.254/latest')\n// >",
-                    "inputs_schema": [
-                        {"key": "url", "type": "string", "label": "URL"},
-                        {
-                            "key": "api_key",
-                            "type": "string",
-                            "label": "API key",
-                            "secret": True,
-                            "default": SECRET_VALUE,
-                        },
-                        {"key": "body", "type": "json", "label": "Body"},
-                    ],
-                    "inputs": {
-                        "url": {"value": "https://hooks.example.com/orders", "bytecode": ["_H", 1, 32, "compiled"]},
-                        "api_key": {"value": SECRET_VALUE},
-                        "body": {"value": {"bytecode": "https://collector.example.net"}},
-                    },
-                    "masking": {"ttl": 60, "hash": "sha256(event.properties.masking_key)", "bytecode": ["_H", 1]},
-                    # Older rows can still hold a secret mapping input in plain text.
-                    "mappings": [
-                        {
-                            "name": "Orders",
-                            "inputs_schema": [
-                                {
-                                    "key": "token",
-                                    "type": "string",
-                                    "label": "Token",
-                                    "secret": True,
-                                    "default": SECRET_VALUE,
-                                }
-                            ],
-                            "inputs": {"token": {"value": SECRET_VALUE}},
-                        }
-                    ],
-                    **overrides,
-                }
-            )
-
+class TestAbuseClassification(AbuseClassificationTestCase):
     def test_a_saved_destination_is_scored_on_its_public_config(self) -> None:
         self.create_destination()
 
@@ -230,7 +78,12 @@ class TestAbuseClassification(BaseTest):
         [
             ("refused", httpx.Response(503, json={"error": "busy"}), None, "gateway_error"),
             ("unreachable", None, httpx.ConnectError("connection refused"), "gateway_unreachable"),
-            ("unreadable", httpx.Response(200, json=_decision({"internal_network": 0.1})), None, "invalid_answer"),
+            (
+                "unreadable",
+                httpx.Response(200, json=decision_payload({"internal_network": 0.1})),
+                None,
+                "invalid_answer",
+            ),
         ]
     )
     def test_a_gateway_failure_is_captured_as_an_error_event(
@@ -274,7 +127,7 @@ class TestAbuseClassification(BaseTest):
         else:
             self.capture.error = RuntimeError("capture unreachable")
         hog_function = self.create_destination()
-        self.gateway.response = httpx.Response(200, json=_decision(SCORES))
+        self.gateway.response = httpx.Response(200, json=decision_payload(SCORES))
         self.capture.error = None
 
         with self.committed():
@@ -332,107 +185,3 @@ class TestAbuseClassification(BaseTest):
             hog_function.save()
 
         assert len(self.gateway.requests) == 1
-
-    def run_command(self, name: str, *args: str) -> str:
-        out = StringIO()
-        call_command(name, *args, stdout=out)
-        return out.getvalue()
-
-    def test_the_eval_command_prints_scores_without_capturing(self) -> None:
-        self.flags.enabled[TEAM_FLAG] = False
-        hog_function = self.create_destination()
-
-        output = self.run_command("score_hog_functions_for_abuse", "--team-id", str(self.team.id))
-
-        assert len(self.gateway.requests) == 1
-        assert str(hog_function.id) in output
-        assert "0.80" in output
-        assert self.captured_events() == []
-
-    @parameterized.expand(
-        [("backfill", "backfill_hog_function_abuse_scores"), ("eval", "score_hog_functions_for_abuse")]
-    )
-    def test_the_commands_never_score_a_disabled_function(self, _name: str, command: str) -> None:
-        self.flags.enabled[TEAM_FLAG] = False
-        self.create_destination()
-        disabled = self.create_destination(enabled=False)
-
-        args = ["--rate", "0"] if command.startswith("backfill") else ["--team-id", str(self.team.id)]
-        output = self.run_command(command, *args)
-
-        assert len(self.gateway.requests) == 1
-        assert str(disabled.id) not in output
-        assert str(disabled.id) not in "".join(self.gateway.bodies())
-
-    def test_a_backfill_dry_run_queues_nothing(self) -> None:
-        self.flags.enabled[TEAM_FLAG] = False
-        self.create_destination()
-        self.create_destination()
-
-        output = self.run_command("backfill_hog_function_abuse_scores", "--dry-run", "--rate", "0")
-
-        assert self.gateway.requests == []
-        assert "2 functions" in output
-
-    def test_a_backfill_skips_excluded_teams_and_organizations(self) -> None:
-        self.flags.enabled[TEAM_FLAG] = False
-        excluded_team = Team.objects.create(organization=self.organization, name="Excluded team")
-        other_organization = Organization.objects.create(name="Excluded organization")
-        other_team = Team.objects.create(organization=other_organization, name="Other organization team")
-        self.create_destination(team=excluded_team)
-        self.create_destination(team=other_team)
-        included = self.create_destination()
-
-        self.run_command(
-            "backfill_hog_function_abuse_scores",
-            "--exclude-team",
-            str(excluded_team.id),
-            "--exclude-organization",
-            str(other_organization.id),
-            "--rate",
-            "0",
-        )
-
-        assert [event["properties"]["hog_function_id"] for event in self.captured_events()] == [str(included.id)]
-
-    def test_the_backfill_kill_switch_stops_the_run(self) -> None:
-        self.flags.enabled[TEAM_FLAG] = False
-        self.flags.enabled[BACKFILL_FLAG] = False
-        hog_function = self.create_destination()
-
-        output = self.run_command("backfill_hog_function_abuse_scores", "--rate", "0")
-        backfill_hog_function_abuse_score(team_id=self.team.id, hog_function_id=str(hog_function.id), run_id="queued")
-
-        assert self.gateway.requests == []
-        assert "stopped" in output
-
-    def test_a_backfill_rescores_a_function_and_tags_the_run(self) -> None:
-        hog_function = self.create_destination()
-
-        output = self.run_command("backfill_hog_function_abuse_scores", "--rate", "0")
-        with self.committed():
-            hog_function.save()
-
-        run_id = re.search(r"run_id ([0-9a-f]+)", output)
-        assert run_id is not None
-        assert len(self.gateway.requests) == 2
-        save_event, backfill_event = self.captured_events()
-        assert save_event["properties"]["trigger"] == "save"
-        assert backfill_event["properties"]["trigger"] == "backfill"
-        assert backfill_event["properties"]["backfill_run_id"] == run_id.group(1)
-
-    def test_a_resumed_backfill_run_scores_only_what_it_has_not_scored(self) -> None:
-        self.flags.enabled[TEAM_FLAG] = False
-        self.create_destination()
-        self.create_destination()
-        self.gateway.response = httpx.Response(503, json={"error": "busy"})
-        output = self.run_command("backfill_hog_function_abuse_scores", "--rate", "0")
-        run_id = re.search(r"run_id ([0-9a-f]+)", output)
-        assert run_id is not None
-        self.gateway.response = httpx.Response(200, json=_decision(SCORES))
-
-        for _ in range(2):
-            self.run_command("backfill_hog_function_abuse_scores", "--run-id", run_id.group(1), "--rate", "0")
-
-        assert len(self.gateway.requests) == 4
-        assert {event["properties"]["backfill_run_id"] for event in self.captured_events()} == {run_id.group(1)}

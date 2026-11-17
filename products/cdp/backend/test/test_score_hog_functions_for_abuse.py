@@ -1,0 +1,69 @@
+import pytest
+
+from django.core.management.base import CommandError
+
+import httpx
+
+from products.cdp.backend.test.abuse_support import TEAM_FLAG, AbuseClassificationTestCase
+
+COMMAND = "score_hog_functions_for_abuse"
+
+
+class TestScoreHogFunctionsForAbuse(AbuseClassificationTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        # The command ignores the team flag, so saves stay unscored and only the command calls the gateway.
+        self.flags.enabled[TEAM_FLAG] = False
+
+    def test_prints_a_row_of_scores_for_each_enabled_function_without_capturing(self) -> None:
+        hog_function = self.create_destination()
+
+        output = self.run_command(COMMAND, "--team-id", str(self.team.id))
+
+        assert len(self.gateway.requests) == 1
+        [header, row] = output.strip().split("\n")
+        assert header.split("\t")[:5] == ["hog_function_id", "type", "template_id", "verdict", "risk"]
+        assert row.split("\t")[:5] == [str(hog_function.id), "destination", "-", "alert", "0.80"]
+        assert self.captured_events() == []
+
+    def test_scores_only_the_given_ids(self) -> None:
+        chosen = self.create_destination()
+        other = self.create_destination()
+
+        output = self.run_command(COMMAND, "--id", str(chosen.id))
+
+        assert len(self.gateway.requests) == 1
+        assert str(chosen.id) in output
+        assert str(other.id) not in output
+
+    def test_capture_reports_each_verdict_as_an_eval_event(self) -> None:
+        hog_function = self.create_destination()
+
+        self.run_command(COMMAND, "--id", str(hog_function.id), "--capture")
+
+        [event] = self.captured_events()
+        assert event["properties"]["trigger"] == "eval"
+        assert event["properties"]["hog_function_id"] == str(hog_function.id)
+        assert "backfill_run_id" not in event["properties"]
+
+    def test_a_failed_function_prints_its_error_and_the_run_continues(self) -> None:
+        self.create_destination()
+        self.create_destination()
+        self.gateway.response = httpx.Response(503, json={"error": "busy"})
+
+        output = self.run_command(COMMAND, "--team-id", str(self.team.id))
+
+        assert len(self.gateway.requests) == 2
+        assert output.count("error:gateway_error") == 2
+
+    def test_skips_a_disabled_function(self) -> None:
+        disabled = self.create_destination(enabled=False)
+
+        output = self.run_command(COMMAND, "--id", str(disabled.id))
+
+        assert self.gateway.requests == []
+        assert str(disabled.id) not in output
+
+    def test_needs_ids_or_a_team(self) -> None:
+        with pytest.raises(CommandError, match="--id or --team-id"):
+            self.run_command(COMMAND)
