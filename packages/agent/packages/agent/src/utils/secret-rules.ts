@@ -131,6 +131,12 @@ export const TOKEN_RULES: TokenRule[] = [
     wordStart: true,
   },
   {
+    label: "slack rotation refresh token",
+    prefix: "xoxe-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
     label: "gitlab personal access token",
     prefix: "glpat-",
     body: URL_SAFE_BODY,

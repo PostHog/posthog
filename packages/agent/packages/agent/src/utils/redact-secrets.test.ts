@@ -196,6 +196,7 @@ describe("redactSecrets", () => {
     ["xoxa-", 30],
     ["xoxr-", 30],
     ["xoxs-", 30],
+    ["xoxe-1-", 30],
     ["glpat-", 20],
   ])(
     "redacts a %s token whole and at every chunk split, not inside a word",
@@ -223,6 +224,7 @@ describe("redactSecrets", () => {
     ["a slack legacy workspace token", "xoxo-hugs and xoxa"],
     ["a slack refresh token", "xoxo-hugs and xoxr"],
     ["a slack legacy session token", "xoxo-hugs and xoxs"],
+    ["a slack rotation refresh token", "xoxo-hugs and xoxe"],
     ["a gitlab personal access token", "glpa-style and glpat"],
   ])("keeps a lookalike of %s intact at every chunk split", (_label, text) => {
     expect(redactSecrets(text)).toBe(text);
@@ -230,6 +232,19 @@ describe("redactSecrets", () => {
       expect(streamText([text.slice(0, cut), text.slice(cut)])).toBe(text);
     }
   });
+
+  it.each(["xoxp-", "xoxb-"])(
+    "redacts the secret part of a rotated slack %s access token",
+    (prefix) => {
+      const text = `KEY=xoxe.${prefix}1-${"A".repeat(30)} end`;
+      expect(redactSecrets(text)).toBe("KEY=xoxe.[REDACTED] end");
+      for (let cut = 1; cut < text.length; cut++) {
+        expect(streamText([text.slice(0, cut), text.slice(cut)])).toBe(
+          "KEY=xoxe.[REDACTED] end",
+        );
+      }
+    },
+  );
 
   it("keeps an AWS access key id lookalike with a short body", () => {
     const short = `AKIA${"A".repeat(15)}`;
