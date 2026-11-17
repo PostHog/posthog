@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.exceptions import ErrorDetail, PermissionDenied
+from rest_framework.exceptions import ErrorDetail, NotFound, PermissionDenied
 from rest_framework.test import APIRequestFactory
 
 from posthog.auth import (
@@ -557,23 +557,6 @@ class TestProjectSecretAPIKeyAPIScopePermission(SimpleTestCase):
 
         self.assertIn("only supported on project-based endpoints", str(ctx.exception.detail))
 
-    def test_team_check_does_not_exist_denies(self):
-        from rest_framework.exceptions import PermissionDenied
-
-        from posthog.models.team import Team
-
-        request, _ = self._make_psak_request()
-
-        class StaleTeamView:
-            @property
-            def team(self):
-                raise Team.DoesNotExist
-
-        with self.assertRaises(PermissionDenied) as ctx:
-            self.permission._check_project_secret_api_key_team(request, StaleTeamView())
-
-        self.assertIn("only supported on project-based endpoints", str(ctx.exception.detail))
-
     def test_allows_read_action_with_matching_scope_and_team(self):
         request, _ = self._make_psak_request(scopes=("endpoint:read",), team_id=1)
 
@@ -599,18 +582,27 @@ class TestProjectSecretAPIKeyAPIScopePermission(SimpleTestCase):
             self.permission.has_permission(request, view)
         self.assertIn("missing required scope 'endpoint:write'", str(ctx.exception.detail))
 
-    def test_team_check_denies_when_psak_team_differs(self):
-        from rest_framework.exceptions import PermissionDenied
-
+    @parameterized.expand(
+        [
+            ("another_project", None),
+            ("a_project_the_route_cannot_find", NotFound("Project not found.")),
+            ("a_project_row_that_is_gone", Team.DoesNotExist()),
+        ]
+    )
+    def test_team_check_gives_one_answer_for_every_project_the_key_does_not_own(self, _name, lookup_error):
         request, _ = self._make_psak_request(team_id=1)
 
-        view = Mock(spec=[])
-        view.team = Mock(id=999)
+        class OtherProjectView:
+            @property
+            def team(self):
+                if lookup_error is not None:
+                    raise lookup_error
+                return Mock(id=999)
 
         with self.assertRaises(PermissionDenied) as ctx:
-            self.permission._check_project_secret_api_key_team(request, view)
+            self.permission._check_project_secret_api_key_team(request, OtherProjectView())
 
-        self.assertIn("does not have access to the requested project", str(ctx.exception.detail))
+        self.assertEqual(str(ctx.exception.detail), "API key does not have access to the requested project.")
 
 
 class _ScopedView:

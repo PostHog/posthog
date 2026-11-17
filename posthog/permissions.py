@@ -1123,13 +1123,18 @@ class APIScopePermission(ScopeBasePermission):
 
     def _check_project_secret_api_key_team(self, request, view) -> None:
         psak = request.successful_authenticator.project_secret_api_key
+        # A project that does not exist gets the same answer as one the key does not belong to,
+        # so the answer says nothing about which project IDs exist.
+        wrong_project = PermissionDenied("API key does not have access to the requested project.")
         try:
             team_id = view.team.id
-        except (AttributeError, KeyError, Team.DoesNotExist):
+        except (NotFound, Team.DoesNotExist):
+            raise wrong_project
+        except (AttributeError, KeyError):
             raise PermissionDenied("Project secret API keys are only supported on project-based endpoints.")
 
         if team_id != psak.team_id:
-            raise PermissionDenied(f"API key does not have access to the requested project: ID {team_id}.")
+            raise wrong_project
 
     def check_team_and_org_permissions(self, request, view) -> None:
         scope_object = self._get_scope_object(request, view)
