@@ -25,6 +25,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -59,6 +60,7 @@ from products.cohorts.backend.models.util import (
     sort_cohorts_topologically,
 )
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
+from products.cohorts.backend.static_reconciliation import reconcile_static_cohort, select_static_cohorts_to_reconcile
 
 COHORT_RECALCULATION_MAX_RETRIES = 6
 STATIC_POPULATION_MAX_RETRIES = 6
@@ -1483,3 +1485,23 @@ def finalize_cohort_backfill_runs() -> None:
     ``BEHAVIORAL_BACKFILL_FINALIZER_ENABLED`` (checked inside ``finalize_backfill_runs``, which
     returns before touching the DB when disabled)."""
     finalize_backfill_runs()
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def reconcile_static_cohorts() -> None:
+    """Queue a repair for the static cohorts whose Postgres membership lags ClickHouse."""
+    if not get_instance_setting("STATIC_COHORT_RECONCILIATION_ENABLED"):
+        return
+    for cohort in select_static_cohorts_to_reconcile(now=timezone.now()):
+        reconcile_static_cohort_membership.delay(team_id=cohort.team_id, cohort_id=cohort.cohort_id)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
+)
+@with_team_scope()
+def reconcile_static_cohort_membership(team_id: int, cohort_id: int) -> None:
+    reconcile_static_cohort(team_id=team_id, cohort_id=cohort_id)
