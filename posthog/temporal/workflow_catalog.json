@@ -1235,11 +1235,6 @@
     "task_queues": "BILLING_TASK_QUEUE"
   },
   {
-    "temporal_workflow_type": "score-sessions-batch",
-    "product": "temporal/session_replay",
-    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
-  },
-  {
     "temporal_workflow_type": "security-sync-access-rules",
     "product": "security",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
@@ -1363,11 +1358,6 @@
     "temporal_workflow_type": "support-reply-pipeline",
     "product": "conversations",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
-  },
-  {
-    "temporal_workflow_type": "surfacing-score-export-sweep",
-    "product": "temporal/session_replay",
-    "task_queues": "SESSION_REPLAY_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "sync-events-retention",

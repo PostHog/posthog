@@ -268,11 +268,14 @@ class TestImageExporter(APIBaseTest):
 
             assert self.exported_asset.content == b"image_data"
 
+    @parameterized.expand([(None,), ({"date_from": "-90d", "date_to": "2026-01-01"},)])
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
-    def test_dashboard_export_calculates_all_insights(self, mock_calculate: Any, *args: Any) -> None:
+    def test_dashboard_export_calculates_all_insights(
+        self, selected_filters: dict | None, mock_calculate: Any, *args: Any
+    ) -> None:
         mock_calculate.return_value = make_insight_result("test_cache_key")
 
-        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", filters={"date_from": "-7d"})
         insight_count = 3
 
         insights = []
@@ -293,6 +296,7 @@ class TestImageExporter(APIBaseTest):
             export_format=ExportedAsset.ExportFormat.PNG,
             dashboard=dashboard,
             insight=None,
+            export_context={"filters_override": selected_filters},
         )
 
         with self.settings(OBJECT_STORAGE_ENABLED=False):
@@ -306,6 +310,7 @@ class TestImageExporter(APIBaseTest):
             call_kwargs = call[1]
 
             assert call_kwargs["dashboard"].id == dashboard.id, f"Call {i + 1} missing dashboard"
+            assert call_kwargs["filters_override"] == (selected_filters or dashboard.filters)
 
             assert call_kwargs["execution_mode"] == ExecutionMode.CALCULATE_BLOCKING_ALWAYS, (
                 f"Call {i + 1} should use CALCULATE_BLOCKING_ALWAYS, got {call_kwargs['execution_mode']}"
@@ -1089,7 +1094,10 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
 
         assert image_exporter._read_site_style(page, failed_stylesheets) == expected
 
-    def test_replay_export_finds_the_player_inside_its_frame_document(self) -> None:
+    @parameterized.expand([("automatic", {}, 2), ("custom_size", {"device_scale_factor": 1}, 1)])
+    def test_replay_export_finds_the_player_inside_its_frame_document(
+        self, _name: str, render_options: dict, expected_scale: int
+    ) -> None:
         # The player can mount rrweb inside its own frame document. A selector wait or a document query
         # never looks inside a frame, so the export would time out, or measure the page without the player.
         page = MagicMock()
@@ -1109,8 +1117,9 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
             ),
             patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
         ):
-            image_exporter._screenshot_asset_browserless("p", "u", 1400, ".replayer-wrapper")
+            image_exporter._screenshot_asset_browserless("p", "u", 1400, ".replayer-wrapper", **render_options)
 
+        assert browser.new_context.call_args.kwargs["device_scale_factor"] == expected_scale
         assert all(call.args[0] != ".replayer-wrapper" for call in page.wait_for_selector.call_args_list)
         page.wait_for_function.assert_called_once()
         assert "iframe.PlayerFrame__document" in page.wait_for_function.call_args.args[0]

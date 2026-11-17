@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SourceDescription,
 )
+from products.alerts_platform.backend.facade.rolling_checks import rolling_check_lookback_minutes
 from products.logs.backend.alert_evaluation_key import window_end_of
 from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.logs_url_params import build_logs_url_params, has_filter_values
@@ -104,9 +105,21 @@ def check_window_end(transition: AnnouncedTransition) -> datetime:
     return in_utc(replace(transition, occurred_at=window_end) if window_end else transition).occurred_at
 
 
+def check_lookback_minutes(condition: dict[str, Any]) -> int:
+    """The minutes of logs a check read: every rolling window, not only the latest.
+
+    A row recorded before the snapshot held the interval falls back to one window.
+    """
+    return rolling_check_lookback_minutes(
+        condition["window_minutes"],
+        condition.get("check_interval_minutes") or 0,
+        condition.get("evaluation_periods") or 1,
+    )
+
+
 def _window_params(transition: AnnouncedTransition) -> str:
     date_to = check_window_end(transition)
-    date_from = date_to - timedelta(minutes=transition.condition["window_minutes"])
+    date_from = date_to - timedelta(minutes=check_lookback_minutes(transition.condition))
     return build_logs_url_params(_group_filters(transition), date_from=date_from, date_to=date_to)
 
 

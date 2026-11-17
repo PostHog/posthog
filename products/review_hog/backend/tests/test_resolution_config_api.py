@@ -27,7 +27,7 @@ class TestReviewResolutionConfigAPI(APIBaseTest):
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         sync_canonical_resolution(self.team)
-        self.base = f"/api/projects/{self.team.id}/review_hog/resolution"
+        self.base = f"/api/projects/{self.team.id}/code_review/resolution"
 
     def test_list_seeds_the_default_active_and_shows_profiles_and_customs_inactive(self) -> None:
         # One assert per wiring seam: a wrong route 404s, a wrong seed function renders an empty
