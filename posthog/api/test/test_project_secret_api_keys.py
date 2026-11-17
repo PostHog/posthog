@@ -114,10 +114,11 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-    def test_create_project_secret_api_key(self):
+    @parameterized.expand([("endpoint:read",), ("person:write",)])
+    def test_create_project_secret_api_key(self, scope: str):
         label = "the key to rule them all"
         response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys", {"label": label, "scopes": ["endpoint:read"]}
+            f"/api/projects/{self.team.id}/project_secret_api_keys", {"label": label, "scopes": [scope]}
         )
         assert response.status_code == 201
         data = response.json()
@@ -125,7 +126,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         key = ProjectSecretAPIKey.objects.get(id=data["id"])
         assert data["id"] == key.id
         assert data["label"] == label
-        assert data["scopes"] == ["endpoint:read"]
+        assert data["scopes"] == [scope]
         assert data["last_rolled_at"] is None
         assert data["last_used_at"] is None
         assert data["value"].startswith("phs_")
