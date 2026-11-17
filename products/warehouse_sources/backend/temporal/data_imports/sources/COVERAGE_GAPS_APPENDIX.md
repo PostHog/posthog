@@ -6627,10 +6627,10 @@ Today (2): `builds`, `jobs`
 
 Diffed against: <https://www.jenkins.io/doc/book/using/remote-access-api/>
 
-- [ ] `/computer/api/json (nodes / agents + executors)` — lookup table resolving the builtOn field already on builds; agent online/offline and executor counts (high)
-- [ ] `/queue/api/json (build queue items)` — queued items with blocked/waiting reasons - the only way to measure build wait time vs run time (high)
-- [ ] `/job/{job}/{n}/testReport/api/json (JUnit test report)` — per-build suite and case pass/fail/skip and durations, the headline CI quality metric (high)
-- [ ] `build changeSet / culprits (on /job/{job}/{n}/api/json)` — SCM commits and authors attached to each build, needed to join builds to code changes (high)
+- [x] `/computer/api/json (nodes / agents + executors)` — lookup table resolving the builtOn field already on builds; agent online/offline and executor counts (high)
+- [x] `/queue/api/json (build queue items)` — queued items with blocked/waiting reasons - the only way to measure build wait time vs run time (high)
+- [x] `/job/{job}/{n}/testReport/api/json (JUnit test report)` — per-build suite and case pass/fail/skip and durations, the headline CI quality metric (high)
+- [x] `build changeSet / culprits (on /job/{job}/{n}/api/json)` — SCM commits and authors attached to each build, needed to join builds to code changes (high)
 - [ ] `/view/{name}/api/json (views)` — lookup grouping jobs into views, referenced from the root API's views array (medium)
 - [ ] `/job/{job}/{n}/wfapi/describe (pipeline stage descriptions)` — per-stage status and duration for Pipeline jobs, the breakdown dimension for build-time analysis (medium)
 - [ ] `build artifacts array (on /job/{job}/{n}/api/json)` — artifacts produced per build; the connector's tree selection does not pull them (low)
