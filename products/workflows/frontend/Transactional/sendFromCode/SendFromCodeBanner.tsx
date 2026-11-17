@@ -7,7 +7,7 @@ import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { transactionalEmailsLogic } from '../transactionalEmailsLogic'
-import { ProjectSenderSnippet } from './ProjectSenderSnippet'
+import { SendFromCodeSetup } from './SendFromCodeSetup'
 import { SendingDomainRow } from './SendingDomainRow'
 
 export function SendFromCodeBanner(): JSX.Element | null {
@@ -53,7 +53,7 @@ export function SendFromCodeBanner(): JSX.Element | null {
                 {guideOpen ? (
                     <div className="flex flex-col gap-4">
                         <SendingDomainRow />
-                        <ProjectSenderSnippet surface="transactional_guide" />
+                        <SendFromCodeSetup surface="transactional_guide" />
                     </div>
                 ) : null}
             </LemonModal>
