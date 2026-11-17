@@ -617,15 +617,18 @@ def relative_dates_resolved_at_run_time() -> Iterator[None]:
 
 
 def _date_bound(value: ValueT, team: Team) -> ast.Expr:
-    # Resolved for both forms, because resolving is what rejects an offset outside the supported date range.
-    resolved = _resolve_date_value(value, team)
     relative = (
         _SIGNED_RELATIVE_DATE.match(value) if _relative_dates_at_run_time.get() and isinstance(value, str) else None
     )
     if relative is None or not _is_team_flag_enabled(RUN_TIME_RELATIVE_DATES_FLAG, team):
-        return _force_datetime(ast.Constant(value=resolved))
+        return _force_datetime(ast.Constant(value=_resolve_date_value(value, team)))
 
     sign, amount, kind = relative.groups()
+    from posthog.utils import relative_date_parse
+
+    # Parsing raises for an offset outside the supported date range, so a bad value fails at save
+    # instead of on every run.
+    relative_date_parse(f"{amount}{kind}", team.timezone_info, increase=sign == "+")
     unit, multiplier = _RELATIVE_DATE_INTERVALS[kind]
     offset = int(amount) * multiplier * (1 if sign == "+" else -1)
     return ast.Call(

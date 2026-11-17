@@ -901,11 +901,10 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             result = execute_bytecode(compiled["bytecode"], {"person": {"properties": {"signed_up_at": signed_up_at}}})
         assert result.result is expected
 
-    def test_relative_date_filter_outside_the_date_range_is_rejected_at_save(self):
+    @parameterized.expand([("past", "-100000000000d"), ("future", "+100000000000d")])
+    def test_relative_date_filter_outside_the_date_range_is_rejected_at_save(self, _name: str, value: str):
         filters = {
-            "properties": [
-                {"key": "signed_up_at", "type": "person", "operator": "is_date_before", "value": "-100000000000d"}
-            ]
+            "properties": [{"key": "signed_up_at", "type": "person", "operator": "is_date_before", "value": value}]
         }
 
         with patch(
