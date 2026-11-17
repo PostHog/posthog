@@ -51,23 +51,46 @@ note_for_agents() {
   mv "$CLAUDE_MD.tmp" "$CLAUDE_MD"
 }
 
+# Deletes the secrets at their expiry even if nothing runs devbox-secrets again. A later push
+# writes a new expiry, so this timer then leaves the newer secrets alone.
+schedule_cleanup() {
+  local expires="$1"
+  local wait=$((expires - $(date +%s)))
+  [ "$wait" -gt 0 ] || wait=0
+  local detach=()
+  command -v setsid >/dev/null && detach=(setsid)
+  # shellcheck disable=SC2016  # the child shell expands its own arguments
+  nohup ${detach[@]+"${detach[@]}"} bash -c '
+    sleep "$1"
+    [ "$(cat "$2/expires" 2>/dev/null)" = "$3" ] && rm -rf "$2"
+  ' _ "$wait" "$DIR" "$expires" >/dev/null 2>&1 &
+}
+
 store() {
   local expires="${1:-}"
   [[ "$expires" =~ ^[0-9]+$ ]] || die "store needs the expiry in epoch seconds"
   umask 077
-  rm -rf "$DIR"
-  mkdir -m 700 "$DIR"
+  mkdir -p "$(dirname "$DIR")"
+  # Build the new set aside and swap it in whole, so a failed push leaves neither half a set
+  # nor a set without an expiry, and keeps the previous one.
+  local staging
+  staging=$(mktemp -d "$(dirname "$DIR")/.devbox-secrets-staging.XXXXXX")
+  trap 'rm -rf "$staging"' EXIT
   local line name value count=0
   while IFS= read -r line || [ -n "$line" ]; do
     [ -n "$line" ] || continue
     name="${line%%=*}"
     value="${line#*=}"
-    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "found a line without a valid NAME="
-    printf 'export %s=%q\n' "$name" "$value" >> "$ENV_FILE"
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "found a line without a valid NAME=; kept the previous secrets"
+    printf 'export %s=%q\n' "$name" "$value" >> "$staging/env"
     count=$((count + 1))
   done
   [ "$count" -gt 0 ] || die "nothing to store"
-  echo "$expires" > "$EXPIRES_FILE"
+  echo "$expires" > "$staging/expires"
+  rm -rf "$DIR"
+  mv "$staging" "$DIR"
+  trap - EXIT
+  schedule_cleanup "$expires"
   note_for_agents
   echo "Stored $count secret(s) in memory."
 }

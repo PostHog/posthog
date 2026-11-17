@@ -1836,7 +1836,10 @@ def _refuse_to_share_lent_secrets(name: str) -> None:
     """Fail while the box holds secrets from `devbox:secrets:push`, which a sharee could read."""
     _skip_startup_wait()
     try:
-        result = run_in_workspace(name, ["bash", "-lc", "devbox-secrets status"], timeout=_CLAUDE_AUTH_TIMEOUT)
+        # The explicit path, like devbox:secrets:push uses: a login PATH without ~/.local/bin would hide it.
+        result = run_in_workspace(
+            name, ["bash", "-lc", '"$HOME/.local/bin/devbox-secrets" status'], timeout=_CLAUDE_AUTH_TIMEOUT
+        )
     except subprocess.TimeoutExpired:
         _fail("Couldn't check the devbox for lent secrets, because it didn't answer. Run the command again.")
     # 127: the box never got devbox-secrets, so nothing was lent to it.
@@ -1900,7 +1903,8 @@ def devbox_share(
         raise click.UsageError("Specify at least one --user. Run 'hogli devbox:users' to find usernames.")
 
     _warn_about_claude_login_before_sharing(name, ws, keep_login=keep_claude_login)
-    if get_workspace_status(ws) == "running":
+    # Lent secrets live in memory, so only a box that has stopped or is coming up fresh can't hold any.
+    if get_workspace_status(ws) not in ("stopped", "starting", "pending", "deleted", "deleting"):
         _refuse_to_share_lent_secrets(name)
     share_workspace(name, list(users), role)
     click.echo(f"Shared '{name}' with {', '.join(users)} (role: {role}).")

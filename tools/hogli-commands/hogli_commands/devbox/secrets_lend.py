@@ -11,12 +11,20 @@ import os
 import re
 import time
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import click
 
-from .cli import resolve_workspace_name, workspace_argument
-from .coder import _fail, _ssh_host_alias, coder_ssh_alias_configured, ensure_runtime_ready
+from .cli import _targets_own_box, resolve_workspace_name, workspace_argument
+from .coder import (
+    _fail,
+    _ssh_host_alias,
+    coder_ssh_alias_configured,
+    ensure_runtime_ready,
+    get_shared_users,
+    get_sharing_status,
+)
 
 REFERENCES_FILE = Path.home() / ".config" / "posthog" / "devbox-secrets.env"
 BOX_SCRIPT = Path(__file__).with_name("devbox-secrets.sh")
@@ -25,29 +33,36 @@ _SSH_TIMEOUT = 60
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-def _read_references(path: Path) -> list[tuple[str, str]]:
-    """Return ``(NAME, op://reference)`` pairs from the references file."""
+@dataclass(frozen=True)
+class SecretReference:
+    name: str
+    reference: str
+
+
+def _read_references(path: Path) -> list[SecretReference]:
+    """Return the ``NAME=op://…`` lines of the references file."""
     if not path.exists():
         _fail(
             f"No references file at {path}. Add lines like OPENAI_API_KEY=op://<vault>/<item>/<field>, then run this again."
         )
     references = []
-    for raw in path.read_text().splitlines():
+    for number, raw in enumerate(path.read_text().splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         name, _, reference = line.partition("=")
         if not _NAME.match(name) or not reference.startswith("op://"):
-            _fail(f"Can't read this line in {path}: {name}=… Use NAME=op://<vault>/<item>/<field>.")
-        references.append((name, reference))
+            # Never echo the line: a pasted value would land in the terminal or an agent's log.
+            _fail(f"Line {number} of {path} isn't NAME=op://<vault>/<item>/<field>.")
+        references.append(SecretReference(name=name, reference=reference))
     if not references:
         _fail(f"{path} lists no references.")
     return references
 
 
-def _resolve(references: list[tuple[str, str]]) -> str:
+def _resolve(references: list[SecretReference]) -> str:
     """Resolve every reference with one `op inject`, so 1Password asks once."""
-    template = "".join(f"{name}={{{{ {reference} }}}}\n" for name, reference in references)
+    template = "".join(f"{r.name}={{{{ {r.reference} }}}}\n" for r in references)
     try:
         result = subprocess.run(["op", "inject"], input=template, capture_output=True, text=True)
     except OSError:
@@ -81,6 +96,19 @@ def _box(workspace: str | None) -> str:
     return name
 
 
+def _refuse_shared_box(workspace: str | None, name: str) -> None:
+    """Fail unless only the owner can open the box: anyone it is shared with gets a shell as the owner."""
+    if not _targets_own_box(workspace):
+        _fail("Lend secrets only to your own devbox.")
+    if get_sharing_status(name).returncode != 0:
+        _fail(f"Couldn't check who '{name}' is shared with. Run the command again.")
+    users = get_shared_users(name)
+    if users:
+        _fail(
+            f"'{name}' is shared with {', '.join(users)}, who could read lent secrets. Run `hogli devbox:unshare` first."
+        )
+
+
 def _install_box_script(name: str) -> None:
     result = _ssh(
         name,
@@ -111,6 +139,7 @@ def _run_box_script(name: str, *args: str, stdin: str = "") -> subprocess.Comple
 )
 def devbox_secrets_push(workspace: str | None, hours: int, references_file: Path) -> None:
     name = _box(workspace)
+    _refuse_shared_box(workspace, name)
     references = _read_references(references_file)
     values = _resolve(references)
     _install_box_script(name)
@@ -118,7 +147,7 @@ def devbox_secrets_push(workspace: str | None, hours: int, references_file: Path
     result = _run_box_script(name, "store", str(expires), stdin=values)
     if result.returncode != 0:
         _fail(f"Couldn't store the secrets on '{name}': {result.stderr.strip()}")
-    names = ", ".join(n for n, _ in references)
+    names = ", ".join(r.name for r in references)
     click.echo(f"Lent {names} to '{name}' for {hours}h. They're in memory only and go when the box stops.")
     click.echo("On the box: devbox-secrets run -- <command>")
 
@@ -131,7 +160,9 @@ def devbox_secrets_status(workspace: str | None) -> None:
     if result.returncode == 127:
         click.echo(f"No secrets lent to '{name}'.")
         return
-    click.echo(result.stdout.strip() or result.stderr.strip())
+    if result.returncode != 0:
+        _fail(f"Couldn't check the secrets on '{name}': {result.stderr.strip()}")
+    click.echo(result.stdout.strip())
 
 
 @click.command(name="devbox:secrets:clear", help="Remove lent secrets from your devbox now")

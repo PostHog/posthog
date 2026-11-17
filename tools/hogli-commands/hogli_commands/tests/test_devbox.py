@@ -6,6 +6,7 @@ import os
 import csv
 import sys
 import json
+import time
 import errno
 import shlex
 import signal
@@ -6470,6 +6471,8 @@ class TestDevboxSecretsLend:
         monkeypatch.setattr(secrets_lend, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(secrets_lend, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
         monkeypatch.setattr(secrets_lend, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(secrets_lend, "get_sharing_status", lambda name: subprocess.CompletedProcess([], 0, "", ""))
+        monkeypatch.setattr(secrets_lend, "get_shared_users", lambda name: [])
         monkeypatch.setattr(secrets_lend.subprocess, "run", fake_run)
         monkeypatch.setattr(secrets_lend.time, "time", lambda: 1000)
 
@@ -6482,25 +6485,58 @@ class TestDevboxSecretsLend:
         assert all("sk-secret" not in " ".join(args) for args, _ in ssh_calls)
         assert "sk-secret" not in result.output
 
-    def test_push_rejects_a_line_that_is_not_a_reference(self, tmp_path: Path) -> None:
+    def test_push_rejects_a_pasted_value_without_echoing_it(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         references = tmp_path / "devbox-secrets.env"
         references.write_text("OPENAI_API_KEY=sk-pasted-by-mistake\n")
 
         with pytest.raises(SystemExit):
             secrets_lend._read_references(references)
 
+        assert "sk-pasted" not in capsys.readouterr().out
+
+    def test_push_refuses_a_shared_box(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(secrets_lend, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(secrets_lend, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(secrets_lend, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(secrets_lend, "get_sharing_status", lambda name: subprocess.CompletedProcess([], 0, "", ""))
+        monkeypatch.setattr(secrets_lend, "get_shared_users", lambda name: ["alice"])
+        monkeypatch.setattr(secrets_lend, "_resolve", lambda refs: pytest.fail("resolved secrets for a shared box"))
+
+        result = runner.invoke(cli, ["devbox:secrets:push"])
+
+        assert result.exit_code != 0
+        assert "alice" in result.output
+
     def test_box_script_hands_secrets_to_one_command_until_they_expire(self, tmp_path: Path) -> None:
-        stored = self._box(tmp_path, "store", "4102444800", stdin="OPENAI_API_KEY=sk 'quoted' $value\n")
+        in_an_hour = str(int(time.time()) + 3600)
+        stored = self._box(tmp_path, "store", in_an_hour, stdin="OPENAI_API_KEY=sk 'quoted' $value\n")
         assert stored.returncode == 0, stored.stderr
 
+        stored_env = (tmp_path / "shm/env").read_text()
         ran = self._box(tmp_path, "run", "--", "bash", "-c", 'printf %s "$OPENAI_API_KEY"')
         assert ran.stdout == "sk 'quoted' $value"
         assert "OPENAI_API_KEY" in self._box(tmp_path, "status").stdout
         assert "devbox-secrets run --" in (tmp_path / "home/.claude/CLAUDE.md").read_text()
 
+        failed = self._box(tmp_path, "store", in_an_hour, stdin="ANTHROPIC_API_KEY=new\nnot a name\n")
+        assert failed.returncode != 0
+        assert (tmp_path / "shm/env").read_text() == stored_env
+        assert not list(tmp_path.glob(".devbox-secrets-staging.*"))
+
         (tmp_path / "shm/expires").write_text("1\n")
         expired = self._box(tmp_path, "run", "--", "true")
         assert expired.returncode != 0
+        assert not (tmp_path / "shm").exists()
+
+    def test_box_script_deletes_secrets_at_expiry_without_another_call(self, tmp_path: Path) -> None:
+        self._box(tmp_path, "store", str(int(time.time()) + 1), stdin="OPENAI_API_KEY=sk\n")
+
+        deadline = time.time() + 10
+        while (tmp_path / "shm").exists() and time.time() < deadline:
+            time.sleep(0.2)
+
         assert not (tmp_path / "shm").exists()
 
     def test_share_refuses_while_secrets_are_lent(self, monkeypatch: pytest.MonkeyPatch) -> None:

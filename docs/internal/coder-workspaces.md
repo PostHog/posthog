@@ -228,11 +228,11 @@ hogli devbox:secrets:status    # names and time left, never values
 hogli devbox:secrets:clear     # remove them now
 ```
 
-The box keeps them in memory only (`/dev/shm`, readable by your user alone), so they go when the box stops or the time runs out.
+The box keeps them in memory only (`/dev/shm`, readable by your user alone), so they go when the box stops, and the box deletes them when the time runs out.
 They are not in the environment. On the box, run a command that needs them with `devbox-secrets run -- <command>`, the way `op run` works locally.
 The push adds a note to the box's `~/.claude/CLAUDE.md` so agents there know to do the same.
 Anything running as you on the box can read them while they're lent, so lend keys with spending limits.
-`devbox:share` refuses while secrets are lent.
+Push refuses a box that is shared, and `devbox:share` refuses while secrets are lent.
 
 ## Auth model
 
