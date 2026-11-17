@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import SandboxSession
 
 COMPUTE_QUOTA_DENIAL_CODE = ComputeQuotaDenialReason.COMPUTE_QUOTA_EXHAUSTED.value
+AI_CREDITS_DENIAL_CODE = ComputeQuotaDenialReason.AI_CREDITS_EXHAUSTED.value
 ORGANIZATION_DEACTIVATED_DENIAL_CODE = ComputeQuotaDenialReason.ORGANIZATION_DEACTIVATED.value
 
 
@@ -80,8 +81,10 @@ def get_compute_quota_denial_reason(task: Task) -> ComputeQuotaDenialReason | No
         return None
     if is_task_billable_compute(task):
         is_quota_limited = _is_posthog_code_quota_limited
+        denial_reason = ComputeQuotaDenialReason.COMPUTE_QUOTA_EXHAUSTED
     elif bills_compute_to_ai_credits(task.origin_product):
         is_quota_limited = _is_ai_credits_quota_limited
+        denial_reason = ComputeQuotaDenialReason.AI_CREDITS_EXHAUSTED
     else:
         return None
     try:
@@ -95,7 +98,7 @@ def get_compute_quota_denial_reason(task: Task) -> ComputeQuotaDenialReason | No
         )
         return None
     observe_compute_quota_check("checked_blocked" if exhausted else "checked_allowed")
-    return ComputeQuotaDenialReason.COMPUTE_QUOTA_EXHAUSTED if exhausted else None
+    return denial_reason if exhausted else None
 
 
 def is_compute_quota_exhausted(task: Task) -> bool:

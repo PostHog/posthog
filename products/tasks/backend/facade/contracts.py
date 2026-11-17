@@ -1145,6 +1145,7 @@ class ComputeQuotaDenialReason(StrEnum):
     """Why a compute request was refused. The value is the denial code the API returns."""
 
     COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
+    AI_CREDITS_EXHAUSTED = "ai_credits_billing_limit_exceeded"
     ORGANIZATION_DEACTIVATED = "organization_deactivated"
 
 

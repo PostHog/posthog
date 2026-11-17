@@ -130,14 +130,18 @@ class SandboxProvisionError(ProcessTaskTransientError):
 
 class ComputeBillingLimitError(ProcessTaskError, ComputeBillingLimitExceeded):
     def __init__(self, context: dict[str, Any], reason: str = "posthog_code_billing_limit_exceeded"):
-        from products.tasks.backend.logic.services.compute_quota import ORGANIZATION_DEACTIVATED_DENIAL_CODE
+        from products.tasks.backend.logic.services.compute_quota import (
+            AI_CREDITS_DENIAL_CODE,
+            ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+        )
 
         self.reason = reason
-        message = (
-            "Your organization has been deactivated."
-            if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE
-            else "Your organization reached its PostHog Desktop usage limit."
-        )
+        if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE:
+            message = "Your organization has been deactivated."
+        elif reason == AI_CREDITS_DENIAL_CODE:
+            message = "Your organization reached its PostHog AI usage limit."
+        else:
+            message = "Your organization reached its PostHog Desktop usage limit."
         super().__init__(
             message,
             {**context, "reason": reason},

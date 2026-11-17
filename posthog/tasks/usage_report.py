@@ -336,9 +336,9 @@ class UsageReportCounters:
     business_knowledge_chunks_in_period: int
     business_knowledge_queries_in_period: int
 
-    # AI Billing Credits (PostHog AI feature usage): token credits plus `ai_compute_credits_used_in_period`
+    # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
-    # Sandbox compute of the AI_CREDITS_COMPUTE_BILLED_ORIGINS task origins, already inside the total above
+    # The sandbox compute share, already inside ai_credits_used_in_period
     ai_compute_credits_used_in_period: int
 
     # Signals Billing Credits (flat credits per report whose implementation shipped a PR)

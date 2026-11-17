@@ -444,8 +444,7 @@ class SandboxComputeUsageByTeam:
     credits: list[tuple[int, int]]
     cpu_millicore_seconds: list[tuple[int, int]]
     memory_mib_seconds: list[tuple[int, int]]
-    # Compute of the AI_CREDITS_COMPUTE_BILLED_ORIGINS sessions, priced like `credits`. It bills
-    # into the PostHog AI meter and is never part of `credits`, which is PostHog Desktop's.
+    # Never part of `credits`: it bills into the PostHog AI meter, `credits` into PostHog Desktop's.
     ai_credits: list[tuple[int, int]] = field(default_factory=list)
 
 
@@ -492,17 +491,16 @@ def get_billable_sandbox_compute_usage_by_team(
         cpu_millicore_seconds.append((team_id, int((cpu_quantity * 1000).to_integral_value(rounding=ROUND_HALF_EVEN))))
         memory_mib_seconds.append((team_id, int((memory_quantity * 1024).to_integral_value(rounding=ROUND_HALF_EVEN))))
 
-    return SandboxComputeUsageByTeam(
-        credits, cpu_millicore_seconds, memory_mib_seconds, _get_ai_compute_credits_by_team(begin, end, cards)
-    )
+    ai_credits = _get_ai_compute_credits_by_team(begin, end, cards)
+    return SandboxComputeUsageByTeam(credits, cpu_millicore_seconds, memory_mib_seconds, list(ai_credits.items()))
 
 
 def _get_ai_compute_credits_by_team(
     begin: datetime, end: datetime, rate_cards: Sequence[ComputeRateCard]
-) -> list[tuple[int, int]]:
+) -> dict[int, int]:
     origins = ai_credits_compute_origins()
     if not origins:
-        return []
+        return {}
 
     sessions = (
         SandboxSession.objects.unscoped()
@@ -515,10 +513,10 @@ def _get_ai_compute_credits_by_team(
         cost = calculate_sandbox_compute_cost(session, begin, end, calculated_at=calculated_at, rate_cards=rate_cards)
         usd_by_team[session.team_id] = usd_by_team.get(session.team_id, Decimal(0)) + cost.total_cost_usd
 
-    return [
-        (team_id, int((total_usd * 100).to_integral_value(rounding=ROUND_HALF_EVEN)))
+    return {
+        team_id: int((total_usd * 100).to_integral_value(rounding=ROUND_HALF_EVEN))
         for team_id, total_usd in usd_by_team.items()
-    ]
+    }
 
 
 def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsageByTeam:

@@ -135,36 +135,30 @@ class TestComputeQuota:
     )
     @patch("products.tasks.backend.logic.services.compute_quota._is_posthog_code_quota_limited", return_value=False)
     @patch("products.tasks.backend.logic.services.compute_quota._is_ai_credits_quota_limited")
-    def test_ai_credits_quota_controls_ai_billed_origin(self, ai_limited, code_limited, origin, provenance):
+    def test_ai_credits_quota_controls_ai_billed_origin(self, ai_limited, _code_limited, origin, provenance):
         task = self.task(origin_product=origin, client_provenance=provenance)
         ai_limited.side_effect = [True, False]
 
-        assert get_compute_quota_denial_reason(task) == ComputeQuotaDenialReason.COMPUTE_QUOTA_EXHAUSTED
-        assert not is_compute_quota_exhausted(task)
-        ai_limited.assert_called_with(self.team.api_token)
-        code_limited.assert_not_called()
+        assert get_compute_quota_denial_reason(task) == ComputeQuotaDenialReason.AI_CREDITS_EXHAUSTED
+        assert get_compute_quota_denial_reason(task) is None
 
     @override_settings(TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED=True)
     @patch("products.tasks.backend.logic.services.compute_quota._is_posthog_code_quota_limited", return_value=True)
     @patch("products.tasks.backend.logic.services.compute_quota._is_ai_credits_quota_limited", return_value=True)
-    def test_ai_origin_is_unchecked_while_its_compute_is_not_billed(self, ai_limited, code_limited):
+    def test_ai_origin_is_unchecked_while_its_compute_is_not_billed(self, _ai_limited, _code_limited):
         task = self.task(
             origin_product=Task.OriginProduct.POSTHOG_AI, client_provenance=TaskClientProvenance.POSTHOG_WEB
         )
 
         assert not is_compute_quota_exhausted(task)
-        ai_limited.assert_not_called()
-        code_limited.assert_not_called()
 
     @override_settings(
         TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED=True, AI_CREDITS_COMPUTE_BILLED_ORIGINS=["posthog_ai", "slack"]
     )
     @patch("products.tasks.backend.logic.services.compute_quota._is_posthog_code_quota_limited", return_value=True)
-    @patch("products.tasks.backend.logic.services.compute_quota._is_ai_credits_quota_limited", return_value=False)
-    def test_desktop_task_stays_on_posthog_code_quota_with_ai_origins_billed(self, ai_limited, code_limited):
-        assert is_compute_quota_exhausted(self.task())
-        code_limited.assert_called_once_with(self.team.api_token)
-        ai_limited.assert_not_called()
+    @patch("products.tasks.backend.logic.services.compute_quota._is_ai_credits_quota_limited", return_value=True)
+    def test_desktop_task_stays_on_posthog_code_quota_with_ai_origins_billed(self, _ai_limited, _code_limited):
+        assert get_compute_quota_denial_reason(self.task()) == ComputeQuotaDenialReason.COMPUTE_QUOTA_EXHAUSTED
 
     @override_settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=["posthog_ai", "user_created", "space_setup"])
     def test_desktop_origins_can_never_bill_into_ai_credits(self):
