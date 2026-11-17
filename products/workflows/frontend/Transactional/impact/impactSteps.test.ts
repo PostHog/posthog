@@ -1,12 +1,14 @@
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { clicksTracked, followedSendsNote, impactLift, impactSteps } from './impactSteps'
+import { clicksTracked, followedSendsNote, impactFunnelState, impactLift, impactSteps } from './impactSteps'
 
 const impact: TransactionalEmailImpactApi = {
     sent: 100,
     delivered: 90,
     opened: 60,
     clicked: 20,
+    not_clicked: 72,
+    untracked: 0,
     window_days: 7,
     after_click: { sends: 16, converted: 4 },
     without_click: { sends: 50, converted: 1 },
@@ -16,16 +18,30 @@ const untracked: TransactionalEmailImpactApi = {
     ...impact,
     opened: 0,
     clicked: 0,
+    not_clicked: 90,
+    untracked: 100,
     after_click: { sends: 0, converted: 0 },
 }
 
 describe('impactSteps', () => {
     it.each([
-        ['deliveries with opens', impact, true],
-        ['deliveries with no open and no click', untracked, false],
-        ['nothing delivered yet', { ...untracked, delivered: 0 }, true],
-    ])('reads click tracking from %s', (_, data, expected) => {
+        ['every send went out tracked', impact, true],
+        ['every send went out untracked', untracked, false],
+        ['some sends went out untracked', { ...impact, untracked: 40 }, true],
+        ['tracked sends nobody opened or clicked', { ...impact, opened: 0, clicked: 0 }, true],
+        ['nothing was sent', { ...impact, sent: 0 }, true],
+    ])('reads click tracking when %s', (_, data, expected) => {
         expect(clicksTracked(data)).toBe(expected)
+    })
+
+    it.each([
+        ['a request is in flight over an earlier answer', impact, true, null, 'loading'],
+        ['nothing has answered yet', null, false, null, 'loading'],
+        ['the request failed', impact, false, 'Server error', 'error'],
+        ['nothing was sent in the period', { ...impact, sent: 0 }, false, null, 'empty'],
+        ['sends answered', impact, false, null, 'ready'],
+    ] as const)('shows the funnel as %s', (_, data, loading, error, expected) => {
+        expect(impactFunnelState(data, loading, error)).toBe(expected)
     })
 
     it('ends with the conversion event as a share of the clicked sends it could follow', () => {
@@ -68,15 +84,15 @@ describe('impactSteps', () => {
     it.each([
         [
             'every send is followed',
-            { ...impact, after_click: { sends: 20, converted: 4 }, without_click: { sends: 70, converted: 1 } },
+            { ...impact, after_click: { sends: 20, converted: 4 }, without_click: { sends: 72, converted: 1 } },
             null,
         ],
         [
             'some clicked sends are not',
-            { ...impact, without_click: { sends: 70, converted: 1 } },
+            { ...impact, without_click: { sends: 72, converted: 1 } },
             'Counted over 16 of 20 clicked sends:',
         ],
-        ['both groups fall short', impact, 'Counted over 16 of 20 clicked sends and 50 of 70 sends nobody clicked:'],
+        ['both groups fall short', impact, 'Counted over 16 of 20 clicked sends and 50 of 72 sends nobody clicked:'],
         [
             'untracked sends fall short',
             { ...untracked, without_click: { sends: 50, converted: 1 } },

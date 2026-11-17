@@ -19,6 +19,8 @@ const IMPACT: TransactionalEmailImpactApi = {
     delivered: 9,
     opened: 5,
     clicked: 2,
+    not_clicked: 7,
+    untracked: 0,
     window_days: 7,
     after_click: { sends: 1, converted: 0 },
     without_click: { sends: 7, converted: 1 },
@@ -27,7 +29,7 @@ const IMPACT: TransactionalEmailImpactApi = {
 describe('emailImpactLogic', () => {
     let logic: ReturnType<typeof emailImpactLogic.build>
     let requestedFrom: string[]
-    let answer: [number, unknown]
+    let answer: [number, unknown] | Promise<[number, unknown]>
 
     beforeEach(() => {
         requestedFrom = []
@@ -64,6 +66,30 @@ describe('emailImpactLogic', () => {
 
         expect(requestedFrom).toEqual([String(teamLogic.values.currentTeamId)])
         expect(logic.values.impact).toEqual(IMPACT)
+    })
+
+    it.each([
+        ['period', (): void => logic.actions.setDays(7)],
+        ['event', (): void => logic.actions.setEvent('plan upgraded')],
+    ])('shows the funnel as pending until a new %s answers', async (_, change) => {
+        initKeaTests(true, ENVIRONMENT)
+        logic = emailImpactLogic({ workflowId: 'workflow-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        let answerNewSends: () => void = () => {}
+        answer = new Promise((resolve) => {
+            answerNewSends = () => resolve([200, { ...IMPACT, sent: 4 }])
+        })
+
+        change()
+        await expectLogic(logic).toDispatchActions(['loadImpact']).delay(150)
+
+        expect(requestedFrom).toHaveLength(2)
+        expect(logic.values.funnelState).toBe('loading')
+        answerNewSends()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.funnelState).toBe('ready')
+        expect(logic.values.impact?.sent).toBe(4)
     })
 
     it.each([

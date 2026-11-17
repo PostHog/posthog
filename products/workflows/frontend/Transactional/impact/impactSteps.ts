@@ -4,6 +4,8 @@ import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/ge
 
 export type ImpactStepKey = 'sent' | 'delivered' | 'opened' | 'clicked' | 'session' | 'converted'
 
+export type ImpactFunnelState = 'loading' | 'error' | 'empty' | 'ready'
+
 export interface ImpactStep {
     key: ImpactStepKey
     label: string
@@ -23,15 +25,31 @@ export interface ImpactLift {
 export const LINK_TAGGING_DETAIL =
     "PostHog follows a click into your product through a tag on the email's links. Link tagging isn't on for this project yet. Conversions still count, because they go through the person on each send."
 
-const NOT_TRACKED_DETAIL =
-    'No opens or clicks were recorded for these sends, so tracking was likely off, as it is for sensitive emails.'
+const NOT_TRACKED_DETAIL = 'These sends went out with open and click tracking off, as sensitive emails do.'
 
 function share(value: number, of: number): number | null {
     return of > 0 ? value / of : null
 }
 
 export function clicksTracked(impact: TransactionalEmailImpactApi): boolean {
-    return !(impact.delivered > 0 && impact.opened === 0 && impact.clicked === 0)
+    return impact.untracked === 0 || impact.untracked < impact.sent
+}
+
+export function impactFunnelState(
+    impact: TransactionalEmailImpactApi | null,
+    loading: boolean,
+    error: string | null
+): ImpactFunnelState {
+    if (loading) {
+        return 'loading'
+    }
+    if (error) {
+        return 'error'
+    }
+    if (!impact) {
+        return 'loading'
+    }
+    return impact.sent === 0 ? 'empty' : 'ready'
 }
 
 export function impactSteps(impact: TransactionalEmailImpactApi, event: string | null): ImpactStep[] {
@@ -106,7 +124,7 @@ export function followedSendsNote(impact: TransactionalEmailImpactApi): string |
             `${humanFriendlyNumber(impact.after_click.sends)} of ${humanFriendlyNumber(impact.clicked)} clicked sends`
         )
     }
-    const unclicked = tracked ? impact.delivered - impact.clicked : impact.delivered
+    const unclicked = tracked ? impact.not_clicked : impact.delivered
     if (impact.without_click && impact.without_click.sends < unclicked) {
         const label = tracked ? 'sends nobody clicked' : 'delivered sends'
         parts.push(`${humanFriendlyNumber(impact.without_click.sends)} of ${humanFriendlyNumber(unclicked)} ${label}`)

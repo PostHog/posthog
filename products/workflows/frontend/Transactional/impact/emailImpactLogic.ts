@@ -10,7 +10,16 @@ import { TeamPublicType, TeamType } from '~/types'
 import { transactionalEmailLogImpactRetrieve } from 'products/messaging/frontend/generated/api'
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { ImpactLift, ImpactStep, clicksTracked, followedSendsNote, impactLift, impactSteps } from './impactSteps'
+import {
+    ImpactFunnelState,
+    ImpactLift,
+    ImpactStep,
+    clicksTracked,
+    followedSendsNote,
+    impactFunnelState,
+    impactLift,
+    impactSteps,
+} from './impactSteps'
 
 export interface EmailImpactLogicProps {
     workflowId: string
@@ -29,6 +38,7 @@ export interface emailImpactLogicValues {
     days: number
     event: string | null
     followedNote: string | null
+    funnelState: ImpactFunnelState
     impact: TransactionalEmailImpactApi | null
     impactError: string | null
     impactLoading: boolean
@@ -75,6 +85,11 @@ export interface emailImpactLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         tracked: (impact: TransactionalEmailImpactApi | null) => boolean
+        funnelState: (
+            impact: TransactionalEmailImpactApi | null,
+            impactLoading: boolean,
+            impactError: string | null
+        ) => ImpactFunnelState
         steps: (impact: TransactionalEmailImpactApi | null, event: string | null) => ImpactStep[] | null
         lift: (impact: TransactionalEmailImpactApi | null) => ImpactLift | null
         followedNote: (impact: TransactionalEmailImpactApi | null) => string | null
@@ -144,6 +159,14 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         tracked: [
             (s) => [s.impact],
             (impact: TransactionalEmailImpactApi | null): boolean => !impact || clicksTracked(impact),
+        ],
+        funnelState: [
+            (s) => [s.impact, s.impactLoading, s.impactError],
+            (
+                impact: TransactionalEmailImpactApi | null,
+                impactLoading: boolean,
+                impactError: string | null
+            ): ImpactFunnelState => impactFunnelState(impact, impactLoading, impactError),
         ],
         steps: [
             (s) => [s.impact, s.event],

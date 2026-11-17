@@ -20,12 +20,14 @@ const tracked: TransactionalEmailImpactApi = {
     delivered: 4130,
     opened: 2380,
     clicked: 610,
+    not_clicked: 3540,
+    untracked: 0,
     window_days: 7,
     after_click: null,
     without_click: null,
 }
 
-const untracked: TransactionalEmailImpactApi = { ...tracked, opened: 0, clicked: 0 }
+const untracked: TransactionalEmailImpactApi = { ...tracked, opened: 0, clicked: 0, not_clicked: 4130, untracked: 4200 }
 
 const meta: Meta = {
     title: 'Products/Workflows/EmailImpactTab',
