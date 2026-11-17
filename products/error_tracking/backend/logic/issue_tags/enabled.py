@@ -5,6 +5,7 @@ from posthog.models import User
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
+    property_key_overlaps_restriction,
     split_restricted_property_names,
 )
 from products.access_control.backend.facade.contracts import RestrictedPropertyNames, UserNotOrganizationMemberError
@@ -102,13 +103,15 @@ def _reads_restricted_property(filters: object, restricted: RestrictedPropertyNa
         return True
     match filters.get("type"):
         case "event":
-            return key in restricted.event
+            names: frozenset[str] = restricted.event
         case "person":
-            return key in restricted.person
+            names = restricted.person
         case "group":
-            return restricted.is_group_property_restricted(key, filters.get("group_type_index"))
+            group_type_index = filters.get("group_type_index")
+            names = restricted.group_property_names(group_type_index if isinstance(group_type_index, int) else None)
         case _:
             return True
+    return property_key_overlaps_restriction(key, names)
 
 
 def _enabled_code_definitions(team_id: int) -> tuple[IssueTagDefinition, ...]:

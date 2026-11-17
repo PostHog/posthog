@@ -5,6 +5,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql.compiler.bytecode import create_bytecode
@@ -14,12 +16,19 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.api import upsert_property_access_control
-from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
+from products.access_control.backend.facade.contracts import (
+    PropertyAccessLevel,
+    RestrictedPropertyNames,
+    UpsertPropertyAccessControlInput,
+)
 from products.error_tracking.backend.facade import api as issue_facade
 from products.error_tracking.backend.logic import team_flags
 from products.error_tracking.backend.logic.issue_tags import registry, runner
 from products.error_tracking.backend.logic.issue_tags.correction import UnknownIssueTagError, correct_issue_tag
-from products.error_tracking.backend.logic.issue_tags.enabled import enabled_issue_tag_definitions
+from products.error_tracking.backend.logic.issue_tags.enabled import (
+    _reads_restricted_property,
+    enabled_issue_tag_definitions,
+)
 from products.error_tracking.backend.logic.issue_tags.runner import IssueTaggingSkipReason, TaggerRun, run_issue_taggers
 from products.error_tracking.backend.logic.issue_tags.taggers.rule import RuleTagger
 from products.error_tracking.backend.logic.rules import MAX_SEVERITY_RULE_BYTECODE_OPS, compile_filter_bytecode
@@ -257,3 +266,21 @@ class TestIssueTagRules(BaseTest):
             order_key=order_key,
             version=version,
         )
+
+
+class TestRuleFilterReadsRestrictedProperty(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("same_name", _event_filter("revenue", "gt", 10), {"revenue"}, True),
+            ("parent_of_a_restricted_path", _event_filter("payload", "is_set", "is_set"), {"payload.secret"}, True),
+            ("child_of_a_restricted_name", _event_filter("customer.ssn", "is_set", "is_set"), {"customer"}, True),
+            ("unrelated_name", _event_filter("revenue", "gt", 10), {"plan"}, False),
+            ("hogql_filter", {"type": "AND", "values": [{"type": "hogql", "key": "properties.plan"}]}, {"x"}, True),
+        ]
+    )
+    def test_follows_dot_paths_and_fails_closed(
+        self, _name: str, filters: dict[str, Any], restricted_events: set[str], expected: bool
+    ) -> None:
+        restricted = RestrictedPropertyNames(event=frozenset(restricted_events), person=frozenset())
+
+        assert _reads_restricted_property(filters, restricted) is expected
