@@ -238,6 +238,17 @@ Three points from the #132203 review, settled before the flag goes on. The flag 
 - **Known gap.** A turn that posts only devex findings still counts as a review round, so the round note can come one round earlier on a routed PR.
 - **Still open.** The 2026-11-10 entry's "before the flag goes on" (the plan's experiment and its bars), and the routed-lens table before a second lens.
 
+### ✅ BUILT 2026-11-13 — `code_review` identifier namespace (ReviewHog and Stamphog)
+
+Stamphog folds into PostHog Review, and neither product is released, so the rename is hard, with no aliases.
+Entries below this one keep the old names as history.
+
+- **API paths:** `review_hog/<x>` became `code_review/<x>`. Stamphog's `repo_configs`, `review_runs`, `pull_requests`, `digest_runs` and `routing_runs` became `code_review/approvals/{repositories,runs,pull_requests,digests,reviewer_routing}`. The digest endpoint and its MCP tool moved like the rest (`code_review/approvals/digests`, `code-review-approvals-digests-list`); the digest stays paused, not removed.
+- **MCP tools:** `review-hog-reviews-*` became `code-review-reviews-*`, and `stamphog-*` became `code-review-approvals-*`. Both products share the `PostHog Review` category and the `code_review` feature key.
+- **Scopes and access control:** `review_hog` became `code_review`, and `stamphog` became `code_review_approval`, for API scopes and for the access-control resource. `posthog/migrations/1440_rename_code_review_scopes.py` adds the new names next to the old ones in stored keys, OAuth rows and access-control rows; a follow-up migration drops the old ones after deploy.
+- **OAuth:** shipped desktop builds still request the old scope names, so `posthog/scopes/catalog.py::RENAMED_OAUTH_SCOPE_OBJECTS` translates them at `/authorize`, device authorization and refresh. Remove it once those builds age out.
+- **Kept:** the GitHub app and its `stamphog` label, `/stamp`, `.stamphog/` policy files, the webhook path, the `/stamphog/install/callback` route, internal code names, feature flag keys, analytics events, and stored enum values such as `stamphog_approved` and `reviewhog_clean`.
+
 ### ✅ BUILT 2026-11-13 — changed lines in follow-up prompts, outcomes and author responses on the reviews API
 
 - **What.**
