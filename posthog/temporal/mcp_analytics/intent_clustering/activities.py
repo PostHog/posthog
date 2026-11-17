@@ -40,7 +40,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.models import (
 )
 
 from products.mcp_analytics.backend import intent_clustering
-from products.mcp_analytics.backend.intent_erasure_writers import registered_intent_writer_async
+from products.mcp_analytics.backend.facade import api as mcp_analytics_api
 from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -107,7 +107,7 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
     with team_scope(canonical_team_id, canonical=True):
         async with Heartbeater():
             team, user = await _resolve_team_and_user(inputs.team_id, inputs.user_id)
-            async with registered_intent_writer_async(team, purpose="legacy_snapshot"):
+            async with mcp_analytics_api.registered_intent_writer_async(team, purpose="legacy_snapshot"):
                 snapshot = await _mark_computing(team, user)
 
                 try:

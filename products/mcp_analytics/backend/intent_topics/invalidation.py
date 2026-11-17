@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from uuid import UUID
 
 from django.db import transaction
@@ -9,6 +10,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 
+from products.mcp_analytics.backend.facade.contracts import IntentInvalidationConflict
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentWriteBarrier
 
 
@@ -16,8 +18,10 @@ class IntentWritesFrozen(Exception):
     pass
 
 
-class IntentInvalidationConflict(Exception):
-    pass
+@dataclass(frozen=True)
+class BarrierSnapshot:
+    generation: int
+    frozen: bool
 
 
 @contextmanager
@@ -27,6 +31,13 @@ def _locked_barrier(team: Team) -> Iterator[MCPIntentWriteBarrier]:
     with team_scope(project.pk, canonical=True), transaction.atomic(durable=True):
         get_or_create_team_extension(project, MCPIntentWriteBarrier)
         yield MCPIntentWriteBarrier.objects.select_for_update().get(team_id=project.pk)
+
+
+def _freeze(barrier: MCPIntentWriteBarrier, invalidation_id: UUID) -> None:
+    barrier.invalidation_id = invalidation_id
+    barrier.frozen_at = timezone.now()
+    barrier.generation += 1
+    barrier.save(update_fields=["invalidation_id", "frozen_at", "generation"])
 
 
 @contextmanager
@@ -43,9 +54,32 @@ def freeze_writes(team: Team, *, invalidation_id: UUID) -> None:
         if barrier.invalidation_id is not None and barrier.invalidation_id != invalidation_id:
             raise IntentInvalidationConflict("Another intent invalidation owns this project")
         if barrier.invalidation_id is None:
-            barrier.invalidation_id = invalidation_id
-            barrier.frozen_at = timezone.now()
-            barrier.save(update_fields=["invalidation_id", "frozen_at"])
+            _freeze(barrier, invalidation_id)
+
+
+def snapshot_barrier(team: Team) -> BarrierSnapshot:
+    """Capture the barrier before reading sources, to fence a later cache or digest fill."""
+    project = team.parent_team or team
+    with team_scope(project.pk, canonical=True):
+        barrier = MCPIntentWriteBarrier.objects.filter(team_id=project.pk).first()
+    if barrier is None:
+        return BarrierSnapshot(generation=0, frozen=False)
+    return BarrierSnapshot(generation=barrier.generation, frozen=barrier.invalidation_id is not None)
+
+
+@contextmanager
+def locked_fill(team: Team, snapshot: BarrierSnapshot) -> Iterator[None]:
+    """Hold the barrier row lock while a derived result is written.
+
+    Rejects the write when an erasure froze the barrier, or froze and reopened it, since the
+    snapshot was taken. The generation survives reopen, so a delayed fill cannot slip through.
+    """
+    if snapshot.frozen:
+        raise IntentWritesFrozen("The snapshot was captured while intent writes were frozen")
+    with _locked_barrier(team) as barrier:
+        if barrier.invalidation_id is not None or barrier.generation != snapshot.generation:
+            raise IntentWritesFrozen("An intent erasure ran after this result was computed")
+        yield
 
 
 def has_pending_registered_writers(team: Team, *, invalidation_id: UUID) -> bool:

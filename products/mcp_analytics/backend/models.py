@@ -224,9 +224,26 @@ class MCPIntentWriteBarrier(TeamScopedRootMixin):
     )
     invalidation_id = models.UUIDField(null=True)
     frozen_at = models.DateTimeField(null=True)
+    # Bumped at every freeze and never reset on reopen, so a reader that captured it before an
+    # erasure cannot publish a stale cache fill after the barrier reopens (no ABA on a cleared token).
+    generation = models.BigIntegerField(default=0)
 
     class Meta:
         db_table = "posthog_mcp_analytics_intent_write_barrier"
+
+
+class MCPIntentErasure(TeamScopedRootMixin):
+    id = models.UUIDField(primary_key=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    source_team_ids = models.JSONField(default=list)
+    operation_kind = models.CharField(max_length=24)
+    scope_fingerprint = models.CharField(max_length=64)
+    verify_sources = models.BooleanField(default=False)
+    prepared_at = models.DateTimeField(null=True)
+    completed_at = models.DateTimeField(null=True)
+
+    class Meta:
+        db_table = "posthog_mcp_analytics_intent_erasure"
 
 
 class MCPIntentClusteringRun(UUIDModel, TeamScopedRootMixin):
@@ -236,6 +253,7 @@ class MCPIntentClusteringRun(UUIDModel, TeamScopedRootMixin):
         SYNC = "sync", "Sync embeddings"
         ASSIGN = "assign", "Assign topics"
         REFIT = "refit", "Refit topics"
+        LEGACY = "legacy", "Legacy intent writer"
 
     class Status(models.TextChoices):
         RUNNING = "running", "Running"
