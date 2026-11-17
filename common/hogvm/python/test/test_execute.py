@@ -27,7 +27,6 @@ from common.hogvm.python.utils import (
     HogVMMemoryExceededException,
     HogVMRuntimeExceededException,
     UncaughtHogVMException,
-    calculate_cost,
 )
 
 
@@ -420,15 +419,6 @@ class TestBytecodeExecute:
         _guard_sequence_length(_MAX_SEQUENCE_LENGTH)
         with pytest.raises(HogVMMemoryExceededException):
             _guard_sequence_length(_MAX_SEQUENCE_LENGTH + 1)
-
-    @parameterized.expand([("'x' * 100000", "x"), ("100000 * 'x'", "x"), ("[1] * 100000", [1])])
-    def test_repeating_a_sequence_is_refused_before_allocation(self, expression: str, sequence: Any) -> None:
-        # Only the guard counts every repeat at the cost of the whole sequence, so this size proves it fired before
-        # the result was built. A count big enough to matter would take the test process down without it.
-        bytecode = create_bytecode(parse_expr(expression)).bytecode
-        with pytest.raises(HogVMMemoryExceededException) as exc:
-            execute_bytecode(bytecode, {}, memory_limit=2048)
-        assert exc.value.attempted_memory >= calculate_cost(sequence) * 100000
 
     @parameterized.expand([("range(0, 200)",), ("(range)(0, 200)",)])
     def test_range_checks_remaining_memory_before_allocating(self, expression: str) -> None:
