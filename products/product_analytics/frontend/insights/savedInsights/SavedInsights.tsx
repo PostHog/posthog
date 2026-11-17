@@ -406,21 +406,6 @@ export function SavedInsights(): JSX.Element {
                     ...(showHomeTab ? [{ key: SavedInsightsTabs.Home, label: 'Home' }] : []),
                     { key: SavedInsightsTabs.All, label: 'All insights' },
                     { key: SavedInsightsTabs.Yours, label: 'My insights' },
-                    ...(anomaliesTab
-                        ? [
-                              {
-                                  key: SavedInsightsTabs.Anomalies,
-                                  label: (
-                                      <span className="flex items-center gap-1.5">
-                                          Anomalies
-                                          <LemonTag type="warning" size="small">
-                                              Beta
-                                          </LemonTag>
-                                      </span>
-                                  ),
-                              },
-                          ]
-                        : []),
                     { key: SavedInsightsTabs.Alerts, label: 'Alerts' },
                     {
                         key: SavedInsightsTabs.Notifications,
@@ -436,6 +421,21 @@ export function SavedInsights(): JSX.Element {
                         ),
                     },
                     { key: SavedInsightsTabs.History, label: 'History' },
+                    ...(anomaliesTab
+                        ? [
+                              {
+                                  key: SavedInsightsTabs.Anomalies,
+                                  label: (
+                                      <span className="flex items-center gap-1.5">
+                                          Anomalies
+                                          <LemonTag type="warning" size="small">
+                                              Beta
+                                          </LemonTag>
+                                      </span>
+                                  ),
+                              },
+                          ]
+                        : []),
                 ]}
                 sceneInset
                 rightSlot={homeDashboardActions}
