@@ -211,6 +211,11 @@ export class TaskRunEventStreamSender {
     }, delayMs);
   }
 
+  private scheduleRetry(): void {
+    if (this.flushTimer || this.flushPromise || this.stopped) return;
+    this.scheduleFlush(this.nextRetryDelayMs());
+  }
+
   private nextRetryDelayMs(): number {
     const ceiling = Math.min(
       this.retryDelayMs * 2 ** this.consecutiveFailures,
@@ -285,7 +290,6 @@ export class TaskRunEventStreamSender {
       if (!this.stopped && !this.keepProxyStreamOpen) {
         await this.closeActiveStream();
       }
-      this.consecutiveFailures = 0;
       return this.bufferedEvents.length < previousBufferLength;
     } catch (error) {
       this.config.logger.warn(
@@ -296,7 +300,7 @@ export class TaskRunEventStreamSender {
       if (!this.stopped) {
         // scheduleFlush ignores the retry timer while flushPromise is set.
         this.flushPromise = null;
-        this.scheduleFlush(this.nextRetryDelayMs());
+        this.scheduleRetry();
       }
       return false;
     } finally {
@@ -469,7 +473,7 @@ export class TaskRunEventStreamSender {
         this.describeError(error),
       );
       if (!this.stopped && this.bufferedEvents.length > 0) {
-        this.scheduleFlush(this.nextRetryDelayMs());
+        this.scheduleRetry();
       }
     }
   }
@@ -495,7 +499,7 @@ export class TaskRunEventStreamSender {
       );
     }
     if (!this.stopped && this.bufferedEvents.length > 0) {
-      this.scheduleFlush(this.nextRetryDelayMs());
+      this.scheduleRetry();
     }
   }
 
@@ -548,6 +552,7 @@ export class TaskRunEventStreamSender {
 
     await this.applyIngestResponse(response, "Event ingest stream");
     this.sequenceSynced = true;
+    this.consecutiveFailures = 0;
     this.config.logger.debug("Task run event ingest stream delivered", {
       durationMs: Date.now() - stream.startedAtMs,
       sentBytes: stream.sentBytes,

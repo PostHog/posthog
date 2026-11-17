@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
+import type { StreamingUpload } from "./streaming-upload";
 
 const STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete";
 
@@ -729,6 +730,76 @@ describe("TaskRunEventStreamSender", () => {
         }
       },
     );
+
+    async function collectFailedUploadGaps(
+      rejectUpload: (
+        error: Error,
+      ) => Pick<StreamingUpload, "write" | "responsePromise">,
+    ): Promise<number[]> {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => responseForBody("")),
+      );
+      const uploadTimes: number[] = [];
+      const sender = createSender({
+        keepProxyStreamOpen: true,
+        retryDelayMs: 1_000,
+        random: () => 1,
+        createStreamingUpload: () => {
+          uploadTimes.push(Date.now());
+          return {
+            close: async () => undefined,
+            abort: async () => undefined,
+            ...rejectUpload(new Error("socket hang up")),
+          };
+        },
+      });
+      sender.enqueue({ type: "event" });
+      for (let i = 0; i < 100 && uploadTimes.length < 4; i++) {
+        await vi.advanceTimersToNextTimerAsync();
+      }
+      return uploadTimes.slice(1).map((time, i) => time - uploadTimes[i]);
+    }
+
+    it("counts one failure when a transport error rejects both the write and the response", async () => {
+      vi.useFakeTimers();
+      try {
+        const gaps = await collectFailedUploadGaps((error) => {
+          const responsePromise = Promise.reject<Response>(error);
+          return {
+            responsePromise,
+            write: () =>
+              Promise.resolve().then(() =>
+                Promise.reject(error),
+              ) as Promise<void>,
+          };
+        });
+        expect(gaps).toEqual([1_000, 2_000, 4_000]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps backing off when an open stream accepts writes but its response keeps failing", async () => {
+      vi.useFakeTimers();
+      try {
+        const gaps = await collectFailedUploadGaps((error) => {
+          let rejectResponse: (reason: Error) => void = () => undefined;
+          const responsePromise = new Promise<Response>((_, reject) => {
+            rejectResponse = reject;
+          });
+          return {
+            responsePromise,
+            write: async () => {
+              setTimeout(() => rejectResponse(error), 0);
+            },
+          };
+        });
+        expect(gaps).toEqual([1_000, 2_000, 4_000]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
 
     it("starts over from the base delay after a successful flush", async () => {
       vi.useFakeTimers();
