@@ -148,7 +148,7 @@ class TestEvalSuggestionReviewTool(BaseTest):
             ("good", "Real failures", self.user.pk) if known else (None, "", None)
         )
 
-    def test_an_old_label_link_opens_the_form_for_its_card(self) -> None:
+    def test_an_old_label_link_opens_the_form_for_its_card_with_its_label(self) -> None:
         response = self.client.get(
             f"/admin/console/tools/eval-suggestion-review/label/?team={self.team.pk}&suggestion={self.labeled.id}"
         )
@@ -156,6 +156,8 @@ class TestEvalSuggestionReviewTool(BaseTest):
         content = response.content.decode()
         assert re.search(rf'name="suggestion"\s+value="{self.labeled.id}"', content)
         assert re.search(rf'name="team"\s+value="{self.team.pk}"', content)
+        # Saving the form unchanged keeps the card's label.
+        assert re.search(r'<option value="bad"\s+selected>', content) and "Examples are summaries" in content
 
     def test_a_named_card_outside_the_loaded_cards_says_so(self) -> None:
         with patch("products.ai_observability.backend.logic.eval_suggestions.review_queries.MAX_REVIEW_CARDS", 1):

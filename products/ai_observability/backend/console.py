@@ -35,10 +35,12 @@ from posthog.models.user import User
 
 from products.ai_observability.backend.facade.admin import (
     EvalSuggestionReviewVerdict,
+    LabelTarget,
     ReviewCard,
     UsageReportRefused,
     dataset_retention_enabled,
     label_card,
+    label_target,
     load_labeled_cards,
     load_review_cards,
     queue_usage_report,
@@ -322,6 +324,19 @@ def _decision(card: ReviewCard, position: int, count: int, filters: ReviewFilter
     )
 
 
+def _label_form(request: HttpRequest) -> tuple[dict[str, object], LabelTarget | None]:
+    """The form's initial values and the card the link points at. The card's current label fills the form, so
+    submitting it unchanged keeps the label."""
+    initial: dict[str, object] = {"team": request.GET.get("team", ""), "suggestion": request.GET.get("suggestion", "")}
+    form = LabelSuggestionForm({**initial, "verdict": EvalSuggestionReviewVerdict.GOOD})
+    if not form.is_valid():
+        return initial, None
+    target = label_target(form.cleaned_data["team"], form.cleaned_data["suggestion"])
+    if target is not None and target.verdict is not None:
+        initial.update(verdict=target.verdict, note=target.note)
+    return initial, target
+
+
 @console.register_tool
 class EvalSuggestionReviewTool(ConsoleTool):
     key = "eval-suggestion-review"
@@ -379,15 +394,17 @@ class EvalSuggestionReviewTool(ConsoleTool):
         return Page(blocks=tuple(blocks))
 
     def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        # Bookmarks to the old label page carry the card in the query, and its form opens with the current label.
+        initial, target = _label_form(request)
+        card = f"{target.headline}: {target.outcome} {target.reason} " if target is not None else ""
         return [
             ToolOperation(
                 key="label",
                 label="Label a card",
                 handler=label_suggestion,
                 form_class=LabelSuggestionForm,
-                # Bookmarks to the old label page carry the card in the query.
-                form_initial={"team": request.GET.get("team", ""), "suggestion": request.GET.get("suggestion", "")},
-                description="Saves a staff label on one card. The customer sees nothing.",
+                form_initial=initial,
+                description=f"{card}Saves a staff label on one card. The customer sees nothing.",
                 listed=False,
             )
         ]
