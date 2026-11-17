@@ -9,7 +9,7 @@ from uuid import UUID
 
 from django.db.models import Model, Q, QuerySet
 
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.facade.user_access_control import (
     RESOURCE_FALLBACK_MAP,
@@ -93,6 +93,31 @@ def filter_projects(
         return queryset.none()
     team_ids = [int(team_id) for team_id in result.ids]
     return queryset.exclude(id__in=team_ids) if result.excluded else queryset.filter(id__in=team_ids)
+
+
+def filter_visible_projects(queryset: QuerySet[M], *, subject: Subject | None = None) -> QuerySet[M]:
+    """Keep the rows whose project the subject may view, in every organization the subject belongs to.
+
+    The rows are teams, or projects keyed by their main team's id, the ids that `team_ids_visible_for_user`
+    lists. `subject=None` means the request's user.
+    """
+    user_id = api.principal_user_id(subject=subject)
+    if user_id is None:
+        return queryset.none()
+    visible = Q(pk__in=[])
+    for organization_id in OrganizationMembership.objects.filter(user_id=user_id).values_list(
+        "organization_id", flat=True
+    ):
+        result = api.list_objects(
+            resource=Resource(type=ResourceType.PROJECT, organization_id=organization_id),
+            action=Action.VIEW,
+            subject=subject,
+        )
+        if not result.complete:
+            continue
+        team_ids = [int(team_id) for team_id in result.ids]
+        visible |= (Q(organization_id=organization_id) & ~Q(id__in=team_ids)) if result.excluded else Q(id__in=team_ids)
+    return queryset.filter(visible)
 
 
 def filter_file_system_queryset(

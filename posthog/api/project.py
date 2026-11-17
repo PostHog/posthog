@@ -123,8 +123,11 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
     UserCanCreateProjectPermission,
+    can_in_organization,
+    can_in_project,
     get_authenticator_scoped_organization_ids,
     get_organization_from_view,
+    request_subject,
 )
 from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
@@ -146,6 +149,10 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_visible_projects
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
@@ -166,6 +173,10 @@ from products.notifications.backend.facade.api import (
 logger = structlog.get_logger(__name__)
 
 MAX_ALLOWED_PROJECTS_PER_ORG = 2000
+
+# The action that each level in a field's access rule needs, for a project and for other resources.
+_PROJECT_LEVEL_ACTIONS = {"member": Action.VIEW, "admin": Action.EDIT}
+_RESOURCE_LEVEL_ACTIONS = {"viewer": Action.VIEW, "editor": Action.EDIT, "manager": Action.MANAGE_ACCESS}
 
 
 # --- Backward-compatibility logic for the /api/projects/ surface ---
@@ -494,8 +505,7 @@ def team_default_evaluation_contexts_view(
 
             ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=root_team)
             if ctx.hidden_from_suggestions:
-                level = user_permissions.team(team).effective_membership_level
-                if level is not None and level >= OrganizationMembership.Level.ADMIN:
+                if can_in_project(request, team, Action.EDIT):
                     ctx.hidden_from_suggestions = False
                     ctx.save(update_fields=["hidden_from_suggestions"])
             default_ctx, created = TeamDefaultEvaluationContext.objects.get_or_create(
@@ -1243,9 +1253,17 @@ class ProjectBackwardCompatSerializer(
                         # gates the admin-only fields on the membership level instead.
                         if not user_access_control.access_controls_supported:
                             continue
-                        has_access = user_access_control.check_access_level_for_object(team, required_level)
+                        has_access = authorization.check(
+                            resource=Resource(type=ResourceType.PROJECT, id=str(team.pk)),
+                            action=_PROJECT_LEVEL_ACTIONS[required_level],
+                            subject=request_subject(self.context["request"]),
+                        )
                     else:
-                        has_access = user_access_control.check_access_level_for_resource(resource, required_level)
+                        has_access = authorization.check(
+                            resource=Resource(type=ResourceType(resource), project_id=team.pk),
+                            action=_RESOURCE_LEVEL_ACTIONS[required_level],
+                            subject=request_subject(self.context["request"]),
+                        )
                     if not has_access:
                         display_name = resource_to_display_name(resource)
                         raise serializers.ValidationError(
@@ -1611,8 +1629,7 @@ class ProjectViewSet(
 
     def safely_get_queryset(self, queryset):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
-        visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
-        queryset = queryset.filter(id__in=visible_teams_ids)
+        queryset = filter_visible_projects(queryset, subject=request_subject(self.request))
         if self.action == "list":
             queryset = queryset.exclude(organization_id__in=get_ip_blocked_organization_ids(self.request))
         if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
@@ -1657,10 +1674,10 @@ class ProjectViewSet(
         """When a member (below admin) creates a project, notify org admins/owners in-app. Best-effort."""
         try:
             user = cast(User, self.request.user)
-            membership = OrganizationMembership.objects.filter(
-                user=user, organization_id=project.organization_id
-            ).first()
-            if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+            organization = project.organization
+            if not can_in_organization(self.request, organization, Action.VIEW) or can_in_organization(
+                self.request, organization, Action.EDIT
+            ):
                 return
 
             admin_user_ids = OrganizationMembership.objects.filter(
@@ -1902,8 +1919,7 @@ class ProjectViewSet(
     )
     def cancel_deletion(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = cast(Project, self.get_object())
-        membership_level = self.user_permissions.team(project.passthrough_team).effective_membership_level
-        if membership_level is None or membership_level < OrganizationMembership.Level.ADMIN:
+        if not can_in_project(request, project.passthrough_team, Action.EDIT, self):
             raise exceptions.PermissionDenied("You don't have sufficient permissions in the project.")
         now = timezone.now()
         if not project.is_deletion_pending():
@@ -2303,23 +2319,15 @@ class ProjectViewSet(
 
             try:
                 target_organization = Organization.objects.get(pk=target_organization_id)
-                current_organization_membership = OrganizationMembership.objects.get(
-                    user=user, organization=current_organization
-                )
-                target_organization_membership = OrganizationMembership.objects.get(
-                    user=user, organization=target_organization
-                )
-
-                if (
-                    current_organization_membership.level < OrganizationMembership.Level.ADMIN
-                    or target_organization_membership.level < OrganizationMembership.Level.ADMIN
-                ):
-                    raise exceptions.ValidationError(
-                        "You must be an admin of both the source and target organizations to move a project."
-                    )
-
-            except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
+            except Organization.DoesNotExist:
                 raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+            organizations = (current_organization, target_organization)
+            if not all(can_in_organization(request, organization, Action.VIEW) for organization in organizations):
+                raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+            if not all(can_in_organization(request, organization, Action.EDIT) for organization in organizations):
+                raise exceptions.ValidationError(
+                    "You must be an admin of both the source and target organizations to move a project."
+                )
 
             # Compare resolved UUIDs: target_organization_id comes off the request body as a string, so
             # comparing it to the UUID organization_id never matches and would let a same-org request through.

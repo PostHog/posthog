@@ -1,11 +1,11 @@
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
@@ -845,6 +845,10 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
 
         self.private_project = Project.objects.create(
             id=Team.objects.increment_id_sequence(), organization=self.organization
@@ -919,9 +923,6 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
             ("search",),
         ]
     )
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_blocked_for_user_without_project_access(self, endpoint: str) -> None:
         self.client.force_login(self.other_user)
         url, payload = self._endpoint_params(endpoint)
@@ -935,17 +936,11 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
             ("search", status.HTTP_200_OK),
         ]
     )
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_allowed_for_user_with_project_access(self, endpoint: str, expected_status: int) -> None:
         url, payload = self._endpoint_params(endpoint)
         response = self.client.post(url, payload)
         assert response.status_code == expected_status
 
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_search_hides_objects_the_user_cannot_view(self) -> None:
         visible = Dashboard.objects.create(team=self.dest_team, name="Visible dashboard", created_by=self.user)
         restricted = Dashboard.objects.create(team=self.dest_team, name="Restricted dashboard", created_by=self.user)
@@ -967,9 +962,6 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
         assert str(visible.id) in ids
         assert str(restricted.id) not in ids
 
-    @patch(
-        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
-    )
     def test_substitution_needs_read_access_to_the_destination_object(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Source dashboard")
         insight = Insight.objects.create(team=self.team, name="Source insight")

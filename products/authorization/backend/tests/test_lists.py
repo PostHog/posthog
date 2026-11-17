@@ -32,6 +32,7 @@ from products.authorization.backend.presentation.querysets import (
     filter_file_system_queryset,
     filter_projects,
     filter_queryset,
+    filter_visible_projects,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -288,6 +289,12 @@ class TestListsMatchCurrentRules(BaseTest):
             subject=Subject(user_id=self.user.id),
         )
         assert set(projects.values_list("id", flat=True)) == set(expected.values_list("id", flat=True))
+
+        second = Organization.objects.create(name="Second")
+        OrganizationMembership.objects.create(user=self.user, organization=second)
+        Team.objects.create(organization=second, name="Second")
+        visible = filter_visible_projects(Team.objects.all(), subject=Subject(user_id=self.user.id))
+        assert set(visible.values_list("id", flat=True)) == set(UserPermissions(self.user).team_ids_visible_for_user)
 
     def test_list_over_the_limit_allows_nothing(self) -> None:
         self._rule("dashboard", "none")
