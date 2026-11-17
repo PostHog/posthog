@@ -23242,16 +23242,25 @@ export namespace Schemas {
     } as const;
 
     export interface BookActivityMatrixCell {
+      /** People active in this product through AI agents, such as MCP tool calls. */
+      agentUsers?: number | null;
       column: string;
       row: string;
       series: string;
+      /** People active in this product in the app. */
+      uiUsers?: number | null;
+      /** People active in this product through any channel. Each person counts once. */
       users: number;
     }
 
     export interface BookActivityMatrixCombination {
+      /** The products these people used through AI agents, as a bitmask over `series`. */
+      agentMask?: number | null;
       column: string;
       mask: number;
       row: string;
+      /** The products these people used in the app, as a bitmask over `series`. */
+      uiMask?: number | null;
       users: number;
     }
 
@@ -23340,6 +23349,8 @@ export namespace Schemas {
       actionCount: number;
       /** Every action event that qualified this person, most frequent first. */
       actions: BookActivityPersonAction[];
+      /** AI agent calls, such as MCP tool calls, that qualified this person for the product. */
+      agentCalls?: number | null;
       /** Bucket start, the same as `AccountActivityMatrixColumn.key`. */
       column: string;
       engagedSeconds: number;
