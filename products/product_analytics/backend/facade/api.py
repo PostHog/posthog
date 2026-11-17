@@ -229,6 +229,14 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
+def insights_in_project(*, project_id: int, insight_ids: Collection[int]) -> list[Insight]:
+    return logic.insights_in_project(project_id=project_id, insight_ids=insight_ids)
+
+
+def live_insights_in_project_by_short_ids(*, project_id: int, short_ids: Collection[str]) -> list[Insight]:
+    return logic.live_insights_in_project_by_short_ids(project_id=project_id, short_ids=short_ids)
+
+
 def _visible_insight_rows(
     insight_ids: Collection[int],
     *,

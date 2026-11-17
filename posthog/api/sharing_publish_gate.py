@@ -25,6 +25,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, extract_referenced_insight_short_ids
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.facade.api import insights_in_project, live_insights_in_project_by_short_ids
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.api import (
     dashboard_has_active_full_subscription,
@@ -151,9 +152,7 @@ def share_access_error(
     errors don't block.
     """
     # Dashboards are project-wide, so a tile can hold an insight from a sibling environment.
-    connected_insights = list(
-        Insight.objects.filter(team__project_id=team.project_id, id__in=config.get_connected_insight_ids())
-    )
+    connected_insights = insights_in_project(project_id=team.project_id, insight_ids=config.get_connected_insight_ids())
     denied_resources = denied_query_resources(user, team, _queries_exposed_by(config, connected_insights))
     # A dashboard's own filters and tile overrides run inside every tile, and they could have
     # been saved before the dashboard was shared, when the save-time check did not apply.
@@ -305,11 +304,7 @@ def notebook_edit_access_error(user: User, notebook: Any, new_content: dict[str,
         extract_referenced_insight_short_ids(old_content)
     )
     added_insights = (
-        list(
-            Insight.objects.filter(
-                team__project_id=notebook.team.project_id, short_id__in=added_short_ids, deleted=False
-            )
-        )
+        live_insights_in_project_by_short_ids(project_id=notebook.team.project_id, short_ids=added_short_ids)
         if added_short_ids
         else []
     )
