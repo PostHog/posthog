@@ -119,35 +119,23 @@ class LLMAlertRefusal:
     field: Literal["detector_config", "calculation_interval"] | None = None
 
 
-@frozen
-class PreparedLLMAlertWrite:
-    team_id: int
-    exclude_alert_id: str | None
-    cap: int | None
+def admit_llm_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | None:
+    """Every rule for a write that can put an alert on the AI detector, in one place and one order.
 
-    def check_capacity(self) -> LLMAlertRefusal | None:
-        """Check under the team cap lock, inside the transaction that saves the alert."""
-        if self.cap is None:
-            return None
-        lock_llm_alert_limit(team_id=self.team_id)
-        if error := llm_alert_limit_error(team_id=self.team_id, exclude_alert_id=self.exclude_alert_id, cap=self.cap):
-            return LLMAlertRefusal(message=error, reason="cap", field="detector_config")
-        return None
-
-
-def prepare_llm_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | PreparedLLMAlertWrite:
-    """Resolve detector access and the cap before taking the alert's write locks."""
-    prepared = PreparedLLMAlertWrite(
-        team_id=write.team_id, exclude_alert_id=str(write.existing.id) if write.existing else None, cap=None
-    )
+    Call it inside the transaction that will save, after the writer holds the alert's row
+    lock: when the write adds an enabled AI alert it takes the team's cap lock and counts
+    under it, and it must not queue behind that lock otherwise. A write that leaves the
+    alert on a statistical detector passes without a check. A write that puts the alert on the
+    forecast detector runs the forecast's rules instead.
+    """
     if is_forecast_detector_config(write.detector_config):
-        return _admit_forecast_alert_write(write) or prepared
+        return _admit_forecast_alert_write(write)
     if not write.is_llm:
-        return prepared
+        return None
     if error := llm_detector_interval_error(write.calculation_interval):
         return LLMAlertRefusal(message=error, reason="cadence", field="calculation_interval")
     if not write.adds_llm_alert:
-        return prepared
+        return None
     # The judge refuses the call too, but an alert that errors on every check is a worse
     # way to learn this than a message at save time.
     if write.principal is None:
@@ -157,19 +145,18 @@ def prepare_llm_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | PreparedL
     ):
         return LLMAlertRefusal(message=error, reason="access")
     if not write.adds_enabled_llm_alert:
-        return prepared
+        return None
     # The cap is a flag read that can go to the network; resolve it before the lock so a slow
     # flag service never holds the team's other AI-alert writes, or the rows the caller locked.
     cap = max_llm_alerts_per_team(team_id=write.team_id, organization_id=write.organization.id)
-    return PreparedLLMAlertWrite(team_id=write.team_id, exclude_alert_id=prepared.exclude_alert_id, cap=cap)
-
-
-def admit_llm_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | None:
-    """Validate and reserve capacity inside the transaction that saves the alert."""
-    prepared = prepare_llm_alert_write(write)
-    if isinstance(prepared, LLMAlertRefusal):
-        return prepared
-    return prepared.check_capacity()
+    lock_llm_alert_limit(team_id=write.team_id)
+    if error := llm_alert_limit_error(
+        team_id=write.team_id,
+        exclude_alert_id=str(write.existing.id) if write.existing is not None else None,
+        cap=cap,
+    ):
+        return LLMAlertRefusal(message=error, reason="cap", field="detector_config")
+    return None
 
 
 def _admit_forecast_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | None:

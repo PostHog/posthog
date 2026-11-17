@@ -1,4 +1,3 @@
-from copy import deepcopy
 from typing import Any
 from uuid import UUID
 
@@ -7,7 +6,6 @@ from django.utils import timezone
 
 from posthog.api.query_access_check import denied_query_resources
 from posthog.constants import AvailableFeature
-from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
@@ -22,11 +20,10 @@ from products.alerts.backend.facade.contracts import AlertInsightSnapshot, Alert
 from products.alerts.backend.facade.platform import follow_insight_alert
 from products.alerts.backend.insight_alert_state_machine import apply_enable, apply_threshold_change
 from products.alerts.backend.llm_detector_limits import (
-    LLMAlertRefusal,
     LLMAlertWrite,
+    admit_llm_alert_write,
     is_llm_detector_config,
     llm_detector_access_error,
-    prepare_llm_alert_write,
 )
 from products.alerts.backend.logic.alert_validation import validate_alert_write
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
@@ -44,44 +41,6 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
-
-
-@frozen
-class OwnershipSnapshot:
-    """Validation inputs only: evaluation progress must not invalidate an ownership change."""
-
-    fields: dict[str, Any]
-    threshold: dict[str, Any] | None
-    query: dict[str, Any] | None
-    filters: dict[str, Any] | None
-    insight_deleted: bool
-
-    @classmethod
-    def of(cls, alert: AlertConfiguration) -> "OwnershipSnapshot":
-        return cls(
-            fields=deepcopy(
-                {
-                    field: getattr(alert, field)
-                    for field in (
-                        "insight_id",
-                        "created_by_id",
-                        "owner",
-                        "enabled",
-                        "condition",
-                        "config",
-                        "detector_config",
-                        "calculation_interval",
-                        "evaluation_delay_intervals",
-                        "investigation_agent_enabled",
-                        "investigation_gates_notifications",
-                    )
-                }
-            ),
-            threshold=deepcopy(alert.threshold.configuration if alert.threshold else None),
-            query=deepcopy(alert.insight.query),
-            filters=deepcopy(alert.insight.filters),
-            insight_deleted=alert.insight.deleted,
-        )
 
 
 def _load_alert(team_id: int, alert_id: UUID, *, lock: bool = False) -> AlertConfiguration:
@@ -253,47 +212,45 @@ def take_alert_ownership(
     analytics_props: AnalyticsProps | None = None,
     expected_insight: AlertInsightSnapshot | None = None,
 ) -> AlertConfiguration:
-    alert = _load_alert(team_id, alert_id)
-    snapshot = OwnershipSnapshot.of(alert)
-    if expected_insight is not None:
-        with upgrade_insight(alert.insight):
-            if (alert.insight_id, alert.insight.query, alert.insight.filters) != (
-                expected_insight.id,
-                expected_insight.query,
-                expected_insight.filters,
-            ):
-                raise AlertWriteRefused("The alert or insight changed. Retry the ownership transfer.", status_code=409)
-    _validate_owner(alert, actor, owner)
-    alert.created_by = owner
-    attrs = validate_alert_write(
-        {"enabled": True}, instance=alert, team=alert.team, organization=alert.team.organization, actor=actor
-    )
-    admission = prepare_llm_alert_write(
-        LLMAlertWrite(
-            team_id=team_id,
-            organization=alert.team.organization,
-            principal=owner,
-            detector_config=alert.detector_config,
-            enabled=True,
-            calculation_interval=alert.calculation_interval,
-            existing=alert,
-        )
-    )
-    if isinstance(admission, LLMAlertRefusal):
-        raise AlertWriteRefused({admission.field: [admission.message]} if admission.field else admission.message)
-
+    insight_id = _load_alert(team_id, alert_id).insight_id
     with transaction.atomic(), ActingUserContext(actor):
-        if not lock_insight_for_evaluation(team_id=team_id, insight_id=alert.insight_id):
+        if not lock_insight_for_evaluation(team_id=team_id, insight_id=insight_id):
             raise AlertWriteRefused("The insight no longer exists. Refresh the alert.", status_code=409)
         locked = _load_alert(team_id, alert_id, lock=True)
-        if OwnershipSnapshot.of(locked) != snapshot:
-            raise AlertWriteRefused("The alert or insight changed. Retry the ownership transfer.", status_code=409)
-        if refusal := admission.check_capacity():
-            raise AlertWriteRefused({refusal.field: [refusal.message]} if refusal.field else refusal.message)
+        if locked.insight_id != insight_id:
+            raise AlertWriteRefused("The alert's insight changed. Retry the ownership transfer.", status_code=409)
+        if expected_insight is not None:
+            with upgrade_insight(locked.insight):
+                if (locked.insight_id, locked.insight.query, locked.insight.filters) != (
+                    expected_insight.id,
+                    expected_insight.query,
+                    expected_insight.filters,
+                ):
+                    raise AlertWriteRefused(
+                        "The alert or insight changed. Retry the ownership transfer.", status_code=409
+                    )
+        _validate_owner(locked, actor, owner)
         previous_owner = locked.created_by
         previous = AlertConfiguration(
             id=locked.id, enabled=locked.enabled, calculation_interval=locked.calculation_interval
         )
+        locked.created_by = owner
+        attrs = validate_alert_write(
+            {"enabled": True}, instance=locked, team=locked.team, organization=locked.team.organization, actor=actor
+        )
+        refusal = admit_llm_alert_write(
+            LLMAlertWrite(
+                team_id=team_id,
+                organization=locked.team.organization,
+                principal=owner,
+                detector_config=locked.detector_config,
+                enabled=True,
+                calculation_interval=locked.calculation_interval,
+                existing=locked,
+            )
+        )
+        if refusal:
+            raise AlertWriteRefused({refusal.field: [refusal.message]} if refusal.field else refusal.message)
         try:
             updated = _save_owner_and_enable(locked, owner, actor, attrs)
         except InvalidPlatformAlertEdit as error:
