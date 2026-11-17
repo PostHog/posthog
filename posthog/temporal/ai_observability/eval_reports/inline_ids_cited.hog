@@ -1,0 +1,108 @@
+let known := []
+let cited := []
+let sections := []
+let tool_results := {}
+
+fun remember(bucket, id) {
+    if (typeof(id) == 'string' and id != '' and not has(bucket, id)) {
+        return arrayPushBack(bucket, id)
+    }
+    return bucket
+}
+
+fun json_array(value) {
+    if (typeof(value) == 'string' and isValidJSON(value)) {
+        let parsed := jsonParse(value)
+        if (typeof(parsed) == 'array') { return parsed }
+    }
+    return []
+}
+
+for (let i, item in evaluation_events) {
+    if (item.event == '$ai_generation') {
+        for (let m, message in json_array(item.input)) {
+            if (typeof(message) == 'object' and message.role == 'tool'
+                and typeof(message.tool_call_id) == 'string' and typeof(message.content) == 'string') {
+                tool_results[message.tool_call_id] := message.content
+            } else if (typeof(message) == 'object' and message.type == 'function_call_output'
+                and typeof(message.call_id) == 'string' and typeof(message.output) == 'string') {
+                tool_results[message.call_id] := message.output
+            }
+        }
+    }
+}
+
+for (let i, item in evaluation_events) {
+    if (item.event == '$ai_generation') {
+        for (let c, choice in json_array(item.output)) {
+            if (typeof(choice) == 'object' and typeof(choice.tool_calls) == 'array') {
+                for (let t, call in choice.tool_calls) {
+                    if (typeof(call) == 'object' and typeof(call.function) == 'object') {
+                        let name := call.function.name
+                        let args := call.function.arguments
+                        if (typeof(args) == 'string' and isValidJSON(args)) { args := jsonParse(args) }
+                        if (typeof(args) == 'object') {
+                            let result := tool_results[call.id]
+                            if (typeof(result) != 'string') { result := '' }
+
+                            if (name == 'sample_generation_details' and typeof(args.generation_ids) == 'array') {
+                                for (let k, id in args.generation_ids) { known := remember(known, id) }
+                            } else if (name == 'sample_trace_details' and typeof(args.trace_ids) == 'array') {
+                                for (let k, id in args.trace_ids) { known := remember(known, id) }
+                            } else if (name == 'sample_session_details' and typeof(args.session_ids) == 'array') {
+                                for (let k, id in args.session_ids) { known := remember(known, id) }
+                            } else if (name == 'get_generation_detail' or name == 'get_generation_text_repr') {
+                                known := remember(known, args.generation_id)
+                            } else if (name == 'get_trace_detail') {
+                                known := remember(known, args.trace_id)
+                            } else if (name == 'get_session_detail') {
+                                known := remember(known, args.session_id)
+                            } else if (name == 'add_citation' and match(result, '^Citation [0-9]+ added:')) {
+                                if (args.session_id != null and args.session_id != '') {
+                                    cited := remember(cited, args.session_id)
+                                } else if (args.generation_id != null and args.generation_id != '') {
+                                    cited := remember(cited, args.generation_id)
+                                } else {
+                                    cited := remember(cited, args.trace_id)
+                                }
+                            // boffin: Rejected sections never reach the report, so they cannot fail its citation check.
+                            } else if (name == 'add_section' and match(result, '^Section [0-9]+/[0-9]+ added:')
+                                and typeof(args.content) == 'string') {
+                                sections := arrayPushBack(sections, args.content)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+if (length(sections) == 0) {
+    print('No accepted report sections with tool results in this session')
+    return null
+}
+
+let ids := []
+for (let s, content in sections) {
+    let inside := false
+    for (let k, chunk in splitByString('`', content)) {
+        if (inside and (has(known, chunk) or has(cited, chunk))) {
+            ids := remember(ids, chunk)
+        }
+        inside := not inside
+    }
+}
+
+if (length(ids) == 0) {
+    print('No handled report IDs referenced inline')
+    return null
+}
+for (let i, id in ids) {
+    if (not has(cited, id)) {
+        print(concat('Mentioned inline but never cited: ', id))
+        return false
+    }
+}
+print(concat('All ', toString(length(ids)), ' inline IDs are cited'))
+return true
