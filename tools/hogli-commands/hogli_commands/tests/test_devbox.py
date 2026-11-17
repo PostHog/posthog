@@ -4309,6 +4309,7 @@ class TestDevboxShare:
         monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
         monkeypatch.setattr(devbox_cli, "share_workspace", fake_share)
         monkeypatch.setattr(devbox_cli, "_can_prompt", lambda: interactive)
+        monkeypatch.setattr(devbox_cli, "_claude_token_secret_is_set", lambda: False)
 
         result = runner.invoke(cli, ["devbox:share", "--user", "alice"], input=logout_answer)
 
@@ -4317,6 +4318,51 @@ class TestDevboxShare:
         assert calls == expected_calls
         assert expected_output in result.output
         assert "Shared" in result.output
+
+    @pytest.mark.parametrize(
+        "token_secret_set, logout_exit, expected_calls, expected_exit",
+        [
+            (True, 0, ["logout", "share"], 0),
+            (False, 1, ["logout"], 1),
+        ],
+        ids=["token_secret_does_not_hide_stored_login", "failed_logout_blocks_share"],
+    )
+    def test_share_logs_out_the_stored_login(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        token_secret_set: bool,
+        logout_exit: int,
+        expected_calls: list[str],
+        expected_exit: int,
+    ) -> None:
+        calls: list[str] = []
+        status_commands: list[str] = []
+
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if "logout" in command[-1]:
+                calls.append("logout")
+                return subprocess.CompletedProcess([], logout_exit, "", "")
+            status_commands.append(command[-1])
+            status = {"loggedIn": True, "authMethod": "claude.ai", "email": "jane@example.com"}
+            return subprocess.CompletedProcess([], 0, json.dumps(status), "")
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
+        monkeypatch.setattr(devbox_cli, "share_workspace", lambda name, users, role="use": calls.append("share"))
+        monkeypatch.setattr(devbox_cli, "_can_prompt", lambda: True)
+        monkeypatch.setattr(devbox_cli, "_claude_token_secret_is_set", lambda: token_secret_set)
+
+        result = runner.invoke(cli, ["devbox:share", "--user", "alice"], input="y\n")
+
+        assert result.exit_code == expected_exit, result.output
+        assert calls == expected_calls
+        assert status_commands == ["env -u CLAUDE_CODE_OAUTH_TOKEN claude auth status --json"]
 
     def test_unshare_revokes_and_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
@@ -5253,18 +5299,21 @@ class TestSetupGitSigning:
         self._patch_local_config(monkeypatch, key=None, agent=self.AGENT_SOCKET, secure_enclave=True)
         monkeypatch.setattr(devbox_cli, "_forwarded_agent_socket", lambda: self.AGENT_SOCKET)
 
+        monkeypatch.setenv("GH_TOKEN", "app-token-for-another-account")
+        gh_calls: list[list[str]] = []
+
         def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
             if args[:2] == ["ssh-add", "-L"]:
                 return subprocess.CompletedProcess(args, 0, "ssh-ed25519 AAAAAGENT laptop\nssh-rsa AAAARSA old\n", "")
-            if args[:3] == ["gh", "api", "user"]:
-                return subprocess.CompletedProcess(args, 0, "jane\n", "")
+            if args[0] == "gh":
+                assert "GH_TOKEN" not in kwargs["env"]
+                gh_calls.append(args)
+                if args[:3] == ["gh", "api", "user"]:
+                    return subprocess.CompletedProcess(args, 0, "jane\n", "")
+                return subprocess.CompletedProcess(args, 0, json.dumps(github_keys), "")
             raise AssertionError(f"unexpected command: {args}")
 
-        requested: list[str] = []
-        response = MagicMock(status_code=200)
-        response.json.return_value = github_keys
         monkeypatch.setattr(devbox_cli.subprocess, "run", fake_run)
-        monkeypatch.setattr(devbox_cli.requests, "get", lambda url, **kw: requested.append(url) or response)
         monkeypatch.setattr(devbox_cli.click, "confirm", lambda *a, **kw: True)
         upserts: list[tuple[str, str, str | None]] = []
         monkeypatch.setattr(
@@ -5275,7 +5324,7 @@ class TestSetupGitSigning:
 
         devbox_cli.maybe_configure_git_signing(None)
 
-        assert requested == ["https://api.github.com/users/jane/ssh_signing_keys"]
+        assert gh_calls[-1] == ["gh", "api", "users/jane/ssh_signing_keys"]
         assert upserts == expected_upserts
 
     def test_rejects_rsa_keys_per_handbook(self, monkeypatch: pytest.MonkeyPatch) -> None:

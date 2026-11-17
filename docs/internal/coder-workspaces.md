@@ -148,7 +148,8 @@ Add `-n <label>` to target a labeled box.
 The login stays in `~/.claude/.credentials.json` on the box, so it survives stops, starts and updates, and each box has its own login.
 `devbox:claude:logout` deletes the login from the box.
 `devbox:destroy` logs out of Claude Code on a running box before it deletes the box and its disk.
-To end a login after an incident or when you leave, run `devbox:claude:logout` on each box that has one.
+When you leave, run `devbox:claude:logout` on each box that has a login.
+Logout only deletes the box's copy of the login. If the login may have been copied off the box, for example after a compromise, also end it on the Claude side: sign out of your sessions in your claude.ai account settings, or ask an admin of your Claude organization to revoke it.
 
 `devbox:setup` asks how devboxes use Claude Code:
 

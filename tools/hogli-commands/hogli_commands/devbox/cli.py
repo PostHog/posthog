@@ -23,11 +23,16 @@ from pathlib import Path
 from typing import Any
 
 import click
-import requests
 from hogli import telemetry
 from hogli.manifest import get_manifest
 
-from ..git_signing import DEVBOX_FEEDBACK_HINT, DEVBOX_SIGNING_NOTE, public_key_identity, signs_with_secure_enclave_key
+from ..git_signing import (
+    DEVBOX_FEEDBACK_HINT,
+    DEVBOX_SIGNING_NOTE,
+    gh_env_without_app_tokens,
+    public_key_identity,
+    signs_with_secure_enclave_key,
+)
 from ..worktrees import _gitdir_for
 from . import (
     herdr as herdr_app,
@@ -802,9 +807,6 @@ def _diagnose_signing_agent() -> SigningAgentStatus:
     return SigningAgentStatus(True, f"{fingerprint} via {socket_path}")
 
 
-_GITHUB_API_TIMEOUT = 10
-
-
 @dataclass(frozen=True)
 class AgentSigningKey:
     """A key in the agent forwarded to devboxes that GitHub also lists as a signing key."""
@@ -826,12 +828,17 @@ def _agent_public_keys(socket_path: str) -> set[str]:
     return {public_key_identity(line) for line in listed.stdout.splitlines() if line.strip()}
 
 
+def _gh(*args: str) -> subprocess.CompletedProcess[str] | None:
+    """Run `gh` as the engineer's stored login, or return ``None`` when `gh` is missing."""
+    try:
+        return subprocess.run(["gh", *args], capture_output=True, text=True, env=gh_env_without_app_tokens())
+    except OSError:
+        return None
+
+
 def _github_login() -> str | None:
     """Return the GitHub login from an authenticated `gh`, or ask for it."""
-    try:
-        result = subprocess.run(["gh", "api", "user", "--jq", ".login"], capture_output=True, text=True)
-    except OSError:
-        result = None
+    result = _gh("api", "user", "--jq", ".login")
     if result is not None and result.returncode == 0 and result.stdout.strip():
         return result.stdout.strip()
     login = click.prompt(
@@ -841,16 +848,13 @@ def _github_login() -> str | None:
 
 
 def _github_signing_keys(login: str) -> list[dict[str, Any]]:
-    url = f"https://api.github.com/users/{urllib.parse.quote(login)}/ssh_signing_keys"
-    try:
-        response = requests.get(url, headers={"Accept": "application/vnd.github+json"}, timeout=_GITHUB_API_TIMEOUT)
-    except requests.RequestException:
-        return []
-    if response.status_code != 200:
+    # A user's signing keys are public, so any gh login can read them.
+    result = _gh("api", f"users/{urllib.parse.quote(login)}/ssh_signing_keys")
+    if result is None or result.returncode != 0:
         return []
     try:
-        payload = response.json()
-    except ValueError:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
         return []
     if not isinstance(payload, list):
         return []
@@ -1174,9 +1178,19 @@ class ClaudeLogin:
     plan: str | None
 
 
-def _remote_claude_auth(*args: str) -> list[str]:
+def _remote_claude_auth(*args: str, ignore_token: bool = False) -> list[str]:
     # The template installs Claude Code to ~/.local/bin, which only a login shell puts on PATH.
-    return ["bash", "-lc", shlex.join(["claude", "auth", *args])]
+    command = ["claude", "auth", *args]
+    if ignore_token:
+        # The token env var hides a stored login from `claude auth status`.
+        command = ["env", "-u", CLAUDE_CODE_OAUTH_ENV, *command]
+    return ["bash", "-lc", shlex.join(command)]
+
+
+def _skip_startup_wait() -> None:
+    # Coder's ssh proxy otherwise waits for blocking startup scripts and replays the whole startup log
+    # when one failed. Claude commands only need a running box.
+    os.environ.setdefault("CODER_SSH_WAIT", "no")
 
 
 def _optional_text(payload: dict[str, Any], key: str) -> str | None:
@@ -1184,10 +1198,15 @@ def _optional_text(payload: dict[str, Any], key: str) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _read_claude_login(name: str) -> ClaudeLogin | None:
-    """Return the Claude Code login on the box, or ``None`` when the box does not answer with a status."""
+def _read_claude_login(name: str, *, stored_only: bool = False) -> ClaudeLogin | None:
+    """Return the Claude Code login on the box, or ``None`` when the box does not answer with a status.
+
+    ``stored_only`` reports the login saved on the box even when the token env var overrides it.
+    """
+    _skip_startup_wait()
+    command = _remote_claude_auth("status", "--json", ignore_token=stored_only)
     try:
-        result = run_in_workspace(name, _remote_claude_auth("status", "--json"), timeout=_CLAUDE_AUTH_TIMEOUT)
+        result = run_in_workspace(name, command, timeout=_CLAUDE_AUTH_TIMEOUT)
     except subprocess.TimeoutExpired:
         return None
     # `claude auth status` exits 1 when nobody is logged in, so the JSON on stdout decides, not the exit code.
@@ -1207,6 +1226,7 @@ def _read_claude_login(name: str) -> ClaudeLogin | None:
 
 
 def _logout_claude(name: str) -> bool:
+    _skip_startup_wait()
     try:
         result = run_in_workspace(name, _remote_claude_auth("logout"), timeout=_CLAUDE_AUTH_TIMEOUT)
     except subprocess.TimeoutExpired:
@@ -1776,13 +1796,12 @@ def _warn_about_claude_login_before_sharing(name: str, workspace: dict[str, Any]
     if get_workspace_status(workspace) != "running":
         click.echo("  Couldn't check the box's Claude Code login, because the devbox isn't running.")
         return
-    login = _read_claude_login(name)
-    if login is None:
-        click.echo("  Couldn't check the box's Claude Code login, because the devbox didn't answer.")
-        return
-    if login.auth_method == "oauth_token":
+    if _claude_token_secret_is_set():
         click.echo(f"  The box gets your {CLAUDE_CODE_OAUTH_ENV} user secret as an environment variable.")
         click.echo("  To remove it, run `hogli devbox:config:rm claude` and restart the box.")
+    login = _read_claude_login(name, stored_only=True)
+    if login is None:
+        click.echo("  Couldn't check the box's Claude Code login, because the devbox didn't answer.")
         return
     if login.auth_method != "claude.ai":
         return
@@ -1792,12 +1811,9 @@ def _warn_about_claude_login_before_sharing(name: str, workspace: dict[str, Any]
         return
     if not click.confirm("Log out of Claude Code on the box before sharing?", default=True):
         return
-    if _logout_claude(name):
-        click.echo("Logged out of Claude Code on the box.")
-        return
-    click.echo(
-        click.style("Couldn't log out. Run `hogli devbox:claude:logout` to try again. Sharing anyway.", fg="yellow")
-    )
+    if not _logout_claude(name):
+        _fail("Couldn't log out of Claude Code on the box, so the devbox wasn't shared. Run the command again.")
+    click.echo("Logged out of Claude Code on the box.")
 
 
 def _logout_claude_before_destroy(name: str) -> None:
@@ -1806,7 +1822,7 @@ def _logout_claude_before_destroy(name: str) -> None:
     Deleting the disk deletes the stored login too. Logging out first also
     gets any server-side cleanup that `claude auth logout` does.
     """
-    login = _read_claude_login(name)
+    login = _read_claude_login(name, stored_only=True)
     if login is None or login.auth_method != "claude.ai":
         return
     if _logout_claude(name):
@@ -2185,16 +2201,15 @@ def devbox_claude_login(workspace: str | None) -> None:
     The login stays on the box's disk until `devbox:claude:logout` or `devbox:destroy`.
     Run it again to switch to another account.
     """
-    ensure_runtime_ready()
     if not _targets_own_box(workspace):
         _fail("Log in to Claude Code only on your own devbox.")
+    ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
     _ensure_ssh_alias(name)
     if _claude_token_secret_is_set():
         _offer_to_delete_claude_token_secret()
     click.echo(f"Starting `claude auth login` on '{name}'. Run this command again to switch accounts.")
-    # Waiting replays the box's whole startup log when a startup script failed, which buries the login link.
-    os.environ["CODER_SSH_WAIT"] = "no"
+    _skip_startup_wait()
     exec_replace(name, _remote_claude_auth("login"), tty=True)
 
 
