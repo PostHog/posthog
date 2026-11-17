@@ -25,8 +25,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
-from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.test.insight_alerts import create_insight_alert
+from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     create_configuration,
@@ -54,6 +53,7 @@ from products.metrics.backend.alerts.freshness import (
 )
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
+from products.product_analytics.backend.facade.models import Insight
 
 _QUERY = 'sum(kafka_consumer_group_lag{group="example"})'
 
@@ -634,7 +634,23 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 class TestMetricsInsightAlertOwnership(APIBaseTest):
     def _disabled_alert_of_a_former_member(self) -> AlertConfiguration:
         former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
-        return create_insight_alert(self.team, created_by=former_member, enabled=False)
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+        )
+        threshold = Threshold.objects.create(
+            team=self.team, insight=insight, configuration={"type": "absolute", "bounds": {"upper": 100.0}}
+        )
+        return AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            threshold=threshold,
+            created_by=former_member,
+            enabled=False,
+            calculation_interval="daily",
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
+            condition={"type": "absolute_value"},
+        )
 
     @parameterized.expand([False, True])
     def test_transfer_checks_metrics_owner_rollout_without_access_control(self, owner_enabled: bool) -> None:
