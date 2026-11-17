@@ -55,9 +55,8 @@ from products.logs.backend.models import LogsAlertConfiguration
 
 _KIND_BY_EVENT_ID: dict[str, EventKind] = {spec.event_id: kind for kind, spec in EVENT_KIND_CONFIG.items()}
 
-# An event the platform emitted for the alert's HogFunctions waits in the internal events queue until the
-# CDP consumer picks its recipients. Retiring the HogFunctions before then loses the message, and the
-# platform has already counted it as delivered. This is far longer than that queue normally takes.
+# An emitted event waits in the internal events queue until the CDP consumer picks its HogFunctions, so
+# retiring them sooner loses a message the platform already counted as delivered.
 LEGACY_EVENTS_QUIET_PERIOD = timedelta(minutes=15)
 
 
@@ -68,8 +67,6 @@ class GroupOutcome(StrEnum):
     # A HogFunction opened the firing's incident under a key the row's resolve would not match, so the
     # alert waits for a run after the firing ends.
     FIRING = "firing"
-    # The platform emitted events for the alert's HogFunctions within `LEGACY_EVENTS_QUIET_PERIOD`, so one
-    # may still be queued for them. The alert waits for a later run.
     RECENTLY_EMITTED = "recently_emitted"
     # Some of the group's HogFunctions are switched off. A row is on or off for every kind it hears.
     PARTLY_ENABLED = "partly_enabled"
