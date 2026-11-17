@@ -27,8 +27,8 @@ async def create_entitlement_repair_schedule(client: Client) -> None:
             task_queue=settings.BILLING_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
-            jitter=timedelta(minutes=10),
+            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=5),
         ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )

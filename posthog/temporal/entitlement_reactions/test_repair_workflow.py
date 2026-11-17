@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.conf import settings
 
 from temporalio.api.enums.v1 import EventType
-from temporalio.client import ScheduleOverlapPolicy
+from temporalio.client import ScheduleIntervalSpec, ScheduleOverlapPolicy
 from temporalio.service import RPCError, RPCStatusCode
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -71,7 +71,7 @@ async def test_repair_retries_failed_handoff_on_later_sweep(temporal_environment
             assert integration["seen"] == [2, 2]
 
 
-async def test_hourly_schedule_does_not_trigger_on_creation() -> None:
+async def test_schedule_does_not_trigger_on_creation() -> None:
     client = MagicMock()
     client.get_schedule_handle.return_value.describe = AsyncMock(
         side_effect=RPCError("missing", RPCStatusCode.NOT_FOUND, b"")
@@ -81,6 +81,7 @@ async def test_hourly_schedule_does_not_trigger_on_creation() -> None:
     request = client.create_schedule.call_args.kwargs
     assert request["trigger_immediately"] is False
     schedule = request["schedule"]
-    assert schedule.spec.intervals[0].every == timedelta(hours=1)
+    assert schedule.spec.intervals == [ScheduleIntervalSpec(every=timedelta(minutes=30), offset=timedelta(minutes=2))]
+    assert schedule.spec.jitter == timedelta(minutes=5)
     assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
     assert schedule.action.task_queue == settings.BILLING_TASK_QUEUE
