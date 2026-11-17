@@ -205,6 +205,7 @@ if TYPE_CHECKING:
         DatabaseSchemaSystemTable,
         DatabaseSchemaTableCertification,
         DatabaseSchemaViewTable,
+        DataWarehouseEventsModifier,
         DataWarehouseSyncWarning,
         HogQLQueryModifiers,
     )
@@ -1010,6 +1011,11 @@ class Database(BaseModel):
         alias_target = self._models_aliases.get(table_name)
         return alias_target is not None and ".".join(alias_target) in self._denied_tables
 
+    def _canonical_table_name(self, name: str) -> str:
+        """The stored name of the view a `models.` alias resolves to; any other name comes back unchanged."""
+        alias_target = self._models_aliases.get(name)
+        return ".".join(alias_target) if alias_target is not None else name
+
     def _models_alias_node(self, table_name: list[str]) -> TableNode | None:
         # The deny check comes before the alias, so a denied query stored as `models.x` is never
         # answered by the alias of an allowed `x`.
@@ -1073,7 +1079,7 @@ class Database(BaseModel):
         # Fold case so a Snowflake reference that resolved through the case-insensitive fallback still
         # arms the build. Over-triggering only costs the build we deferred; under-triggering would drop
         # foreign-key fields the eager path had.
-        return name.lower() in trigger_names
+        return self._canonical_table_name(name).lower() in trigger_names
 
     def _should_build_revenue_views_for(self, table_name: str | list[str]) -> bool:
         if self._revenue_views_built:
@@ -2495,6 +2501,8 @@ class Database(BaseModel):
         if modifiers.dataWarehouseEventsModifiers:
             with timings.measure("data_warehouse_event_modifiers_fetch", emit_span=True):
                 names = {warehouse_modifier.table_name for warehouse_modifier in modifiers.dataWarehouseEventsModifiers}
+                # A modifier on `models.x` maps onto the stored view `x`, so fetch that row too.
+                names |= {name.removeprefix("models.") for name in names if name.startswith("models.")}
                 event_modifier_saved_queries = dict.fromkeys(names)
                 for saved_query in DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(
                     team_id=team.pk, name__in=names
@@ -2975,6 +2983,7 @@ class Database(BaseModel):
         def define_mappings(
             root_node: TableNode,
             get_table: Callable[[Any], Union[DataWarehouseTable, DataWarehouseSavedQuery]],
+            warehouse_modifier: DataWarehouseEventsModifier,
         ) -> TableNode:
             table: Table | None = None
 
@@ -3060,7 +3069,8 @@ class Database(BaseModel):
                     (
                         join
                         for join in sources.data_warehouse_joins
-                        if join.source_table_name == warehouse_modifier.table_name
+                        if database._canonical_table_name(join.source_table_name)
+                        == database._canonical_table_name(warehouse_modifier.table_name)
                         and join.joining_table_name == "events"
                     ),
                     None,
@@ -3108,10 +3118,15 @@ class Database(BaseModel):
                     with timings.measure(f"data_warehouse_event_modifier_{warehouse_modifier.table_name}"):
                         # Apply mappings to every matching namespace. A saved query and a warehouse table can share a
                         # name, and the final database may resolve that name to the table even if a view exists too.
-                        views = define_mappings(views, _saved_query_model_for)
-                        warehouse_tables = define_mappings(warehouse_tables, _warehouse_table_model_for)
+                        model_modifier = warehouse_modifier.model_copy(
+                            update={"table_name": database._canonical_table_name(warehouse_modifier.table_name)}
+                        )
+                        views = define_mappings(views, _saved_query_model_for, model_modifier)
+                        warehouse_tables = define_mappings(
+                            warehouse_tables, _warehouse_table_model_for, warehouse_modifier
+                        )
                         self_managed_warehouse_tables = define_mappings(
-                            self_managed_warehouse_tables, _self_managed_table_model_for
+                            self_managed_warehouse_tables, _self_managed_table_model_for, warehouse_modifier
                         )
 
         database._add_warehouse_tables(warehouse_tables)
@@ -3286,7 +3301,9 @@ class Database(BaseModel):
                 | set(database._direct_access_warehouse_table_names)
                 | _foreign_key_join_entry_points(database, sources.data_warehouse_joins)
             )
-            database._foreign_key_trigger_names = {name.lower() for name in trigger_names}
+            database._foreign_key_trigger_names = {
+                database._canonical_table_name(name).lower() for name in trigger_names
+            }
             database._foreign_keys_built = False
 
         # Direct connections query the source itself, so no sync creates their tables.

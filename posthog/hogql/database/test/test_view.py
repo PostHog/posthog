@@ -7,9 +7,12 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.schema import DataWarehouseEventsModifier, HogQLQueryModifiers
+
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import SavedQuery, TableNode
+from posthog.hogql.database.models import ExpressionField, FieldTraverser, SavedQuery, TableNode
 from posthog.hogql.database.test.tables import (
     create_aapl_stock_s3_table,
     create_aapl_stock_table_self_referencing,
@@ -22,6 +25,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 Origin = DataWarehouseSavedQuery.Origin
@@ -266,6 +270,71 @@ class TestModelsNamespaceDualRegistration(BaseTest):
         assert database.has_table("models.revenue")
         assert cast(SavedQuery, database.get_table("models.revenue")).id == str(revenue.id)
         assert cast(SavedQuery, database.get_table("models.revenue.monthly")).id == str(monthly.id)
+
+    @parameterized.expand(
+        [
+            ("stored_name", "revenue", False),
+            ("models_name", "models.revenue", False),
+            ("stored_models_name_wins", "models.revenue", True),
+        ]
+    )
+    def test_event_modifier_maps_a_model_under_either_name(
+        self, _name: str, modifier_table_name: str, stored_models_name_exists: bool
+    ) -> None:
+        self._create("revenue")
+        if stored_models_name_exists:
+            self._create("models.revenue")
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name=modifier_table_name,
+                    id_field="real_id",
+                    timestamp_field="event_time",
+                    distinct_id_field="real_id",
+                )
+            ]
+        )
+
+        database = Database.create_for(team=self.team, modifiers=modifiers)
+
+        for name in ["models.revenue"] if stored_models_name_exists else ["revenue", "models.revenue"]:
+            fields = database.get_table(name).fields
+            assert isinstance(fields["id"], ExpressionField)
+            assert cast(ast.Field, fields["id"].expr).chain == ["real_id"]
+            assert isinstance(fields["timestamp"], ExpressionField)
+            assert cast(ast.Field, fields["timestamp"].expr).chain == ["event_time"]
+        if stored_models_name_exists:
+            assert not isinstance(database.get_table("revenue").fields["id"], ExpressionField)
+
+    @parameterized.expand([("stored_name", "revenue"), ("models_name", "models.revenue")])
+    def test_event_modifier_finds_the_events_join_under_either_name(self, _name: str, modifier_table_name: str) -> None:
+        self._create("revenue")
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="revenue",
+            source_table_key="id",
+            joining_table_name="events",
+            joining_table_key="distinct_id",
+            field_name="events_join",
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name=modifier_table_name,
+                    id_field="real_id",
+                    timestamp_field="event_time",
+                    distinct_id_field="real_id",
+                )
+            ]
+        )
+
+        database = Database.create_for(team=self.team, modifiers=modifiers)
+
+        # The join holds the stored name, so a modifier that names the models form must still reach it.
+        # Otherwise person_id silently falls back to the configured distinct_id_field.
+        person_id = database.get_table(modifier_table_name).fields["person_id"]
+        assert isinstance(person_id, FieldTraverser)
+        assert person_id.chain == ["events_join", "person_id"]
 
     def test_a_legacy_model_named_models_keeps_its_slot(self) -> None:
         root = self._create("root_placeholder")
