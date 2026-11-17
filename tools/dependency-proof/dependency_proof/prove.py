@@ -104,9 +104,9 @@ class Git:
         oid = self.blob(ref, path)
         return None if oid is None else self.run("cat-file", "blob", oid)
 
-    def changed_files(self, base: str, head: str) -> list[tuple[str, str]]:
+    def changed_files(self, base: str, head: str) -> list[policy.ChangedFile]:
         fields = self.run("diff", "--name-status", "--no-renames", "-z", base, head).decode().split("\0")
-        return list(zip(fields[0::2], fields[1::2]))
+        return [policy.ChangedFile(status, path) for status, path in zip(fields[0::2], fields[1::2])]
 
     def commit_time(self, sha: str) -> datetime:
         return datetime.fromtimestamp(int(self.run("log", "-1", "--format=%ct", sha)), UTC)

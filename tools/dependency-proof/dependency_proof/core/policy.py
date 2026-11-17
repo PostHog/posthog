@@ -43,6 +43,14 @@ class Refused(Exception):
     """The update is outside what this proof covers. The message says why."""
 
 
+@dataclass(frozen=True)
+class ChangedFile:
+    """One entry of `git diff --name-status`: the status letter and the path."""
+
+    status: str
+    path: str
+
+
 @dataclass(frozen=True, kw_only=True)
 class DirectChange:
     """A workspace project dependency whose lockfile entry changes.
@@ -79,11 +87,12 @@ def load_manifest(text: bytes) -> dict[str, Any]:
     return manifest
 
 
-def eligible_paths(changes: Iterable[tuple[str, str]]) -> list[str]:
+def eligible_paths(changes: Iterable[ChangedFile]) -> list[str]:
     """The changed paths, when every one is a modified package.json, pnpm-lock.yaml or pnpm-workspace.yaml."""
     paths = []
-    for status, path in changes:
-        if status != "M":
+    for change in changes:
+        path = change.path
+        if change.status != "M":
             raise Refused(f"{path} is not a modification")
         if not SAFE_PATH.match(path) or ".." in path.split("/"):
             raise Refused(f"{path} has a name this proof does not accept")

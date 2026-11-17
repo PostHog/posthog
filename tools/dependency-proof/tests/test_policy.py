@@ -162,11 +162,12 @@ def test_check_workspace_text(side: str, old: bytes, new: bytes, refused: bool) 
     ],
 )
 def test_eligible_paths(changes: list[tuple[str, str]], reason: str | None) -> None:
+    changed_files = [policy.ChangedFile(status, path) for status, path in changes]
     if reason is None:
-        assert policy.eligible_paths(changes) == sorted(path for _, path in changes)
+        assert policy.eligible_paths(changed_files) == sorted(path for _, path in changes)
     else:
         with pytest.raises(Refused, match=reason):
-            policy.eligible_paths(changes)
+            policy.eligible_paths(changed_files)
 
 
 BLOCKED = policy.blocked_patterns(

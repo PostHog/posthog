@@ -19,7 +19,7 @@ from dependency_proof import (
     cli,
     prove as prover,
 )
-from dependency_proof.core.policy import RENOVATE_BOT_USER_ID, Refused
+from dependency_proof.core.policy import RENOVATE_BOT_USER_ID, ChangedFile, Refused
 
 REPOSITORY = "PostHog/posthog"
 HEAD, MERGE_BASE, WORKFLOW_SHA = "a" * 40, "b" * 40, "c" * 40
@@ -112,10 +112,13 @@ class FakeGit:
     def show(self, ref: str, path: str) -> bytes | None:
         return self.trees[ref].get(path)
 
-    def changed_files(self, base: str, head: str) -> list[tuple[str, str]]:
+    def changed_files(self, base: str, head: str) -> list[ChangedFile]:
         before, after = self.trees[base], self.trees[head]
         changed = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
-        return [("M" if path in before and path in after else "A" if path in after else "D", path) for path in changed]
+        return [
+            ChangedFile("M" if path in before and path in after else "A" if path in after else "D", path)
+            for path in changed
+        ]
 
     def commit_time(self, sha: str) -> datetime:
         return self.committed
@@ -445,7 +448,10 @@ def test_git_reads_trees_without_running_hooks(tmp_path: Path) -> None:
     git("sparse-checkout", "set", "--no-cone", "/package.json")
 
     reader = prover.Git(repo)
-    assert reader.changed_files(base, head) == [("M", "package.json"), ("A", "renovate.json5")]
+    assert reader.changed_files(base, head) == [
+        ChangedFile("M", "package.json"),
+        ChangedFile("A", "renovate.json5"),
+    ]
     assert reader.show(head, "package.json") == b'{"a": 1}'
     assert reader.blob(head, "missing.json") is None
     with pytest.raises(Refused, match="not a regular file"):
