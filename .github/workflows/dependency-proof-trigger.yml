@@ -12,6 +12,9 @@ on:
             - '**/package.json'
             - '**/pnpm-lock.yaml'
             - '**/pnpm-workspace.yaml'
+            - '**/pyproject.toml'
+            - '**/uv.lock'
+            - '**/requirements*.txt'
 
 concurrency:
     # A branch name is not unique across forks, so the pull request number keys the group.

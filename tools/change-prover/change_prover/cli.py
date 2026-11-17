@@ -34,13 +34,14 @@ def identify_request(env: Mapping[str, str]) -> prove.IdentifyRequest:
 
 def prove_request(env: Mapping[str, str]) -> prove.ProveRequest:
     """The prove job's request, refused unless the identification job handed over well-formed values."""
-    merge_base = env["MERGE_BASE"]
-    identity.check_handover(env["PULL_REQUEST"], merge_base)
+    merge_base, lane = env["MERGE_BASE"], env["LANE"]
+    identity.check_handover(env["PULL_REQUEST"], merge_base, lane)
     return prove.ProveRequest(
         head_sha=env["HEAD_SHA"],
         workflow_sha=env["WORKFLOW_SHA"],
         merge_base=merge_base,
         merge_base_dir=Path(env["MERGE_BASE_DIR"]),
+        lane=lane,
     )
 
 
@@ -102,7 +103,9 @@ def run_prover(command: str, env: Mapping[str, str]) -> int:
     """Runs `identify` or `prove`, and writes the answer, a refusal included, to the step outputs."""
     step_files = StepFiles(output=Path(env["GITHUB_OUTPUT"]), summary=Path(env["GITHUB_STEP_SUMMARY"]))
     outputs = (
-        {"pr": "0", "merge_base": "", "eligible": "false"} if command == "identify" else {"files": "[]", "blobs": "{}"}
+        {"pr": "0", "merge_base": "", "lane": "", "eligible": "false"}
+        if command == "identify"
+        else {"files": "[]", "blobs": "{}"}
     )
     # Package names and paths from the pull request reach the log, in pnpm's output and in a refusal,
     # so the runner must not read commands from it.
@@ -115,11 +118,16 @@ def run_prover(command: str, env: Mapping[str, str]) -> int:
             if found is None:
                 summary = "No pull request at this head is eligible for a proof"
             else:
-                outputs = {"pr": str(found.pr), "merge_base": found.merge_base, "eligible": "true"}
+                outputs = {"pr": str(found.pr), "merge_base": found.merge_base, "lane": found.lane, "eligible": "true"}
                 summary = f"Pull request {found.pr} is eligible for a proof"
         else:
             proof = prove.prove(
-                prove_request(env), prove.Git(Path.cwd()), prove.registry_metadata, prove.run_command, datetime.now(UTC)
+                prove_request(env),
+                prove.Git(Path.cwd()),
+                prove.registry_metadata,
+                prove.PyPI(),
+                prove.run_command,
+                datetime.now(UTC),
             )
             outputs = {"files": json.dumps(proof.files), "blobs": json.dumps(proof.blobs)}
             summary = f"Attested {', '.join(proof.files)}"
