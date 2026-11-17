@@ -92,6 +92,8 @@ STATUS_TONES: dict[PartnerProvisioningStatus, Tone | None] = {
 def provisioning_status(app: OAuthApplication, review: CIMDProvisioningReview | None) -> tuple[str, Tone | None]:
     """Whether the app can provision right now, in a few words, for the app page and the list of apps."""
     status = partner_provisioning_status(app, review)
+    if app.is_provisioning_partner and app.provisioning.active and app.needs_organization_link:
+        return "Off until it links a PostHog organization", Tone.WARNING
     if status == PartnerProvisioningStatus.ON and app.provisioning.disabled:
         return "On, though marked blocked", Tone.WARNING
     return str(status.label), STATUS_TONES[status]

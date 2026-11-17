@@ -35,6 +35,7 @@ from posthog.admin.console.tools import (
     Table,
 )
 from posthog.api.oauth.provisioning_review import review_workflow_id
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
@@ -117,13 +118,26 @@ KIND_FILTERS = {
 ACTIVE_OFF = Q(_provisioning_config__active=False) | Q(_provisioning_config__active__isnull=True)
 DISABLED_OFF = Q(_provisioning_config__disabled=False) | Q(_provisioning_config__disabled__isnull=True)
 
-# These follow the partner gates, which read `active` alone. `provisioning_status` labels the same states.
+# These follow the partner gates, and `_provisioning_filter` adds the organization link when staff require one.
+# `provisioning_status` labels the same states.
 PROVISIONING_FILTERS = {
     "partner": Q(is_provisioning_partner=True),
     "on": Q(is_provisioning_partner=True, _provisioning_config__active=True),
     "off": Q(is_provisioning_partner=True) & ACTIVE_OFF & DISABLED_OFF,
     "blocked": Q(_provisioning_config__disabled=True) & (ACTIVE_OFF | Q(is_provisioning_partner=False)),
 }
+
+
+def _provisioning_filter(state: str) -> Q:
+    if not get_instance_setting("CIMD_PROVISIONING_REQUIRES_ORGANIZATION"):
+        return PROVISIONING_FILTERS[state]
+    # The gates also refuse an active self-registered partner with no organization behind it.
+    held_back = Q(is_cimd_client=True, organization__isnull=True, _provisioning_config__active=True)
+    if state == "on":
+        return PROVISIONING_FILTERS["on"] & ~held_back
+    if state == "off":
+        return PROVISIONING_FILTERS["off"] | (Q(is_provisioning_partner=True) & held_back)
+    return PROVISIONING_FILTERS[state]
 
 
 def _filtered_applications(form: ApplicationFilterForm) -> QuerySet[OAuthApplication]:
@@ -135,7 +149,7 @@ def _filtered_applications(form: ApplicationFilterForm) -> QuerySet[OAuthApplica
     if kind := form.cleaned_data["kind"]:
         applications = applications.filter(KIND_FILTERS[kind])
     if provisioning := form.cleaned_data["provisioning"]:
-        applications = applications.filter(PROVISIONING_FILTERS[provisioning])
+        applications = applications.filter(_provisioning_filter(provisioning))
     if review := form.cleaned_data["review"]:
         applications = (
             applications.filter(provisioning_review__isnull=True)

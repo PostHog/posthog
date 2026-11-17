@@ -406,6 +406,23 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return self.provisioning_signing is ProvisioningSigning.REQUIRED
 
     @property
+    def needs_organization_link(self) -> bool:
+        """A self-registered partner with no PostHog organization behind it, while staff require one. Staff-created
+        partners are exempt, because staff already know who runs them."""
+        from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
+
+        return (
+            self.is_cimd_client
+            and self.organization_id is None
+            and bool(get_instance_setting("CIMD_PROVISIONING_REQUIRES_ORGANIZATION"))
+        )
+
+    @property
+    def provisioning_allowed(self) -> bool:
+        """Whether the partner may provision right now. Every partner gate reads this rather than `active`."""
+        return self.provisioning.active and not self.needs_organization_link
+
+    @property
     def cannot_meet_provisioning_signature(self) -> bool:
         # Checked per request rather than stored, because a CIMD refresh demotes a partner to public once its
         # metadata drops its key.
