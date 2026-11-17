@@ -7,7 +7,7 @@ import { useScreenBlurTarget } from './ScreenBlur'
 import { layout } from './tokens'
 
 export const HEADER_FADE = 8
-const HEADER_BLUR_INTENSITY = 20
+const HEADER_BLUR_INTENSITY = 26.6
 
 export function HeaderBackdrop({
     fadeStart,

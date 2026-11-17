@@ -108,7 +108,7 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   The title truncates before either control and stays out of the accessibility tree; the content title remains the heading.
   This pattern covers Settings, browse lists, dashboards, insights, web analytics, scrollable full-screen charts,
   Errors, issues, Sessions, recordings, reports and full reports. Tab titles stay in their shared navigation row.
-- **Header backdrop.** Tab, pushed-page and chat headers use `HeaderBackdrop` with blur intensity 20 and the theme's existing tint. Blur and tint follow a smooth curve across the full header: soft at the bottom edge, stronger through the upper half, and full strength at the top. Tab backdrops end just below the logo and title; status lines and controls do not extend them.
+- **Header backdrop.** Tab, pushed-page and chat headers use `HeaderBackdrop` with blur intensity 26.6 and the theme's existing tint. Blur and tint remain visible from the lower edge, gain strength through the upper half, and reach full strength at the top. Tab backdrops end just below the logo and title; status lines and controls do not extend them.
   `ScreenBlur` keeps each screen's content inside an Android `BlurTargetView` and its header outside that target.
   Reports and chat bodies can pass their existing target explicitly. Loading, empty and error states retain the same backdrop.
 - **Text wrapping.** The prototype sets `text-wrap: pretty`. iOS gets the same behavior from

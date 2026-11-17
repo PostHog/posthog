@@ -10,13 +10,13 @@ const LINEAR_STOPS = [
     [0, 1],
     [1, 0],
 ] as const
-// Smoothstep samples soften the lower edge and strengthen the upper half.
+// Keep the lower edge visible while adding strength through the upper half.
 const SMOOTH_STOPS = [
     [0, 1],
-    [0.2, 0.896],
-    [0.4, 0.648],
-    [0.6, 0.352],
-    [0.8, 0.104],
+    [0.2, 0.8768],
+    [0.4, 0.6864],
+    [0.6, 0.4576],
+    [0.8, 0.2192],
     [1, 0],
 ] as const
 
