@@ -1675,6 +1675,10 @@ class TestScannerScope(_VisionAPITestCase):
         super().setUp()
         self.experiment = create_experiment(self.team, "scope-exp", launched=True, variants=["control", "test"])
         self.scope = {"kind": "experiment", "experiment_id": self.experiment.id, "variants": ["control", "test"]}
+        # Writing a scope needs the flag; without it the API keeps today's shapes.
+        flag = patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
 
     def _payload(self, name: str, **extra: Any) -> dict[str, Any]:
         return {
@@ -1776,8 +1780,7 @@ class TestScannerScope(_VisionAPITestCase):
         ]
     )
     def test_the_flag_refuses_the_older_shapes(self, _name: str, extra: dict[str, Any]) -> None:
-        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=True):
-            resp = self.client.post(self.scanners_url, data=self._payload("legacy", **extra), format="json")
+        resp = self.client.post(self.scanners_url, data=self._payload("legacy", **extra), format="json")
 
         self.assertEqual(resp.status_code, 400, resp.json())
 
@@ -1790,6 +1793,74 @@ class TestScannerScope(_VisionAPITestCase):
             )
 
         self.assertEqual(resp.status_code, 201, resp.json())
+
+    def test_without_the_flag_a_scope_is_refused(self) -> None:
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=False):
+            resp = self.client.post(self.scanners_url, data=self._payload("early", scope=self.scope), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scope")
+
+    def test_writing_both_stores_in_one_request_is_refused(self) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data=self._payload("both", scope=self.scope, experiment_targeting={"experiment_id": self.experiment.id}),
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "experiment_targeting")
+
+    def test_writing_the_legacy_store_cannot_repoint_a_scoped_scanner(self) -> None:
+        other = create_experiment(self.team, "other-exp", launched=True, variants=["control"])
+        scanner = self._create_scanner(name="scoped", scope=self.scope)
+
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=False):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/",
+                data={"experiment_targeting": {"experiment_id": other.id}},
+                format="json",
+            )
+        self.assertEqual(resp.status_code, 400, resp.json())
+
+        scanner.refresh_from_db()
+        assert scanner.scope is not None
+        self.assertEqual(scanner.scope["experiment_id"], self.experiment.id)
+
+    def test_the_flag_still_lets_an_existing_experiment_scanner_be_renamed(self) -> None:
+        scanner = self._create_scanner(
+            name="old-name",
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": self.experiment.id, "variants": ["control"]},
+        )
+
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"name": "new-name", "scanner_type": ScannerType.EXPERIMENT},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+
+    def test_the_flag_refuses_retargeting_an_existing_scanner(self) -> None:
+        # Resending unchanged targeting is an ordinary save and must pass; moving it to another
+        # experiment is a new write of the retired shape and must not.
+        other = create_experiment(self.team, "retarget-exp", launched=True, variants=["control"])
+        scanner = self._create_scanner(name="legacy-targeted", experiment_targeting={"experiment_id": other.id})
+
+        unchanged = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"name": "renamed", "experiment_targeting": {"experiment_id": other.id}},
+            format="json",
+        )
+        self.assertEqual(unchanged.status_code, 200, unchanged.json())
+
+        moved = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"experiment_targeting": {"experiment_id": self.experiment.id}},
+            format="json",
+        )
+        self.assertEqual(moved.status_code, 400, moved.json())
 
 
 class TestScannerLifecycleTelemetry(_VisionAPITestCase):

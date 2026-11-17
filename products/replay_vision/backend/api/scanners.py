@@ -1126,6 +1126,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         instance: whether the caller may watch that experiment, and whether this edit moves a key
         the scope model treats as immutable.
         """
+        self._refuse_a_legacy_write_that_moves_the_scope(attrs)
         if "scope" not in attrs or attrs["scope"] is None:
             return
         scope = attrs["scope"]
@@ -1158,25 +1159,63 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 {"scope": "A scanner's experiment is fixed after creation. Make a new scanner instead."}
             )
 
+    def _refuse_a_legacy_write_that_moves_the_scope(self, attrs: dict[str, Any]) -> None:
+        """Stop the two stores from disagreeing about which experiment a scanner watches.
+
+        `scope` mirrors the older stores on save, so a legacy write would move a scope that this
+        serializer treats as fixed, and a request carrying both would store the legacy one after
+        validating the scope. Refusing the combination keeps one writer per row.
+        """
+        targeting = attrs.get("experiment_targeting")
+        if not targeting:
+            return
+        if attrs.get("scope"):
+            raise serializers.ValidationError(
+                {"experiment_targeting": "Set either `scope` or `experiment_targeting`, not both."}
+            )
+        stored = self.instance.scope if self.instance is not None else None
+        if not isinstance(stored, dict):
+            return
+        if targeting.get("experiment_id") != stored.get("experiment_id"):
+            raise serializers.ValidationError(
+                {"experiment_targeting": "This scanner's experiment is set by its `scope`. Edit the scope instead."}
+            )
+
     def _refuse_legacy_shapes_under_the_flag(self, attrs: dict[str, Any]) -> None:
         """Under the flag, a scope is the only way to watch an experiment.
 
         Both older shapes still read, so existing scanners keep working; this refuses only new
         writes of them, which is what stops a team from creating rows the new editor cannot show.
         """
-        writes_a_legacy_shape = attrs.get("scanner_type") == ScannerType.EXPERIMENT or attrs.get("experiment_targeting")
         get_team = self.context.get("get_team")
-        # No request context (internal serialization) or nothing legacy in this write: there is
-        # nothing to refuse, and evaluating the flag would cost a lookup for no decision.
-        if not writes_a_legacy_shape or get_team is None:
+        if get_team is None:  # no request context (internal serialization); nothing to gate
+            return
+        instance = self.instance
+        # On *change*, not presence: the editor PATCHes the whole form back, so an unchanged
+        # `scanner_type` or targeting rides along on an ordinary rename. Refusing those would make
+        # every scanner that already watches an experiment uneditable the moment the flag goes on.
+        becomes_experiment_type = attrs.get("scanner_type") == ScannerType.EXPERIMENT and (
+            instance is None or instance.scanner_type != ScannerType.EXPERIMENT
+        )
+        targeting = attrs.get("experiment_targeting")
+        # Compare the experiment, not the blob: the field normalizes a missing `variant` to None,
+        # so an unchanged resend never equals the stored value byte for byte.
+        stored_experiment = (instance.experiment_targeting or {}).get("experiment_id") if instance else None
+        retargets = bool(targeting) and (targeting or {}).get("experiment_id") != stored_experiment
+        writes_a_scope = "scope" in attrs and attrs["scope"] is not None
+        if not (becomes_experiment_type or retargets or writes_a_scope):
             return
         if not scope_api_enabled(get_team(), acting_user(self.context)):
+            # Off, so the API behaves as it did before this layer: the older shapes write and the
+            # new one is refused, rather than letting a team store rows nothing else reads yet.
+            if writes_a_scope:
+                raise serializers.ValidationError({"scope": "Scopes are not enabled for this project yet."})
             return
-        if attrs.get("scanner_type") == ScannerType.EXPERIMENT:
+        if becomes_experiment_type:
             raise serializers.ValidationError(
                 {"scanner_type": "The experiment type is retired. Pick an answer format and set `scope` instead."}
             )
-        if attrs.get("experiment_targeting"):
+        if retargets:
             raise serializers.ValidationError(
                 {"experiment_targeting": "Experiment targeting is retired. Set `scope` instead."}
             )
@@ -2754,6 +2793,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 self.user_access_control, self.team_id, experiment_id
             ):
                 experiment_targeting = None
+        # Stripped rather than refused, the way targeting is: the copy then watches what its
+        # filters match instead of an experiment the caller cannot view.
+        scope = source.scope if isinstance(source.scope, dict) else None
+        if scope is not None:
+            scope_id = scope.get("experiment_id")
+            if not isinstance(scope_id, int) or not is_experiment_accessible(
+                self.user_access_control, self.team_id, scope_id
+            ):
+                scope = None
         if source.scanner_type == ScannerType.EXPERIMENT:
             scope_experiment_id = experiment_id_of(source)
             if scope_experiment_id is None or not is_experiment_accessible(
@@ -2784,6 +2832,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     model=source.model,
                     emits_signals=source.emits_signals,
                     experiment_targeting=experiment_targeting,
+                    scope=scope,
                     enabled=False,
                 )
             except IntegrityError as e:
