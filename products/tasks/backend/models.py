@@ -4004,6 +4004,10 @@ class AgentEgressRegistration(models.Model):
     relay_key_sha256 = models.CharField(max_length=43)
     lease_expires_at = models.DateTimeField()
     revoked = models.BooleanField(default=False)
+    created_at = models.DateTimeField(null=True)
+    revoked_at = models.DateTimeField(null=True)
+    revoked_by = models.CharField(max_length=64, null=True)
+    revocation_reason = models.CharField(max_length=64, null=True)
 
     objects = EnvironmentScopedManager()
 

@@ -16634,6 +16634,13 @@ export namespace Schemas {
       content: string | null;
     }
 
+    export interface AppStoreConnectReviewSignalExtra {
+      app_id: string | null;
+      rating: string | null;
+      territory: string | null;
+      created_date: string | null;
+    }
+
     export interface AppSummaryContract {
       /** User who created this app. */
       created_by?: StreamlitAppUserInfo | null;
@@ -45399,7 +45406,7 @@ export namespace Schemas {
     }
 
     /**
-     * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix.
+     * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule.
      */
     export type EvalSuggestionDraft = { [key: string]: unknown };
 
@@ -45407,6 +45414,7 @@ export namespace Schemas {
      * * `new_hog` - New Hog eval
      * * `new_llm_judge` - New LLM judge
      * * `fix_eval` - Fix an evaluation
+     * * `fix_prompt` - Fix a prompt
      */
     export type EvalSuggestionKindEnum = typeof EvalSuggestionKindEnum[keyof typeof EvalSuggestionKindEnum];
 
@@ -45415,6 +45423,7 @@ export namespace Schemas {
       NewHog: 'new_hog',
       NewLlmJudge: 'new_llm_judge',
       FixEval: 'fix_eval',
+      FixPrompt: 'fix_prompt',
     } as const;
 
     /**
@@ -45470,11 +45479,12 @@ export namespace Schemas {
     export interface EvalSuggestion {
       /** Suggestion identifier. */
       readonly id: string;
-      /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results.
+      /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results. fix_prompt: a rule the prompt sets that most sampled calls break, which a prompt change fixes and an evaluation cannot; it has no evaluation to accept.
        *
        * * `new_hog` - New Hog eval
        * * `new_llm_judge` - New LLM judge
-       * * `fix_eval` - Fix an evaluation */
+       * * `fix_eval` - Fix an evaluation
+       * * `fix_prompt` - Fix a prompt */
       readonly kind: EvalSuggestionKindEnum;
       /** proposed until someone accepts or dismisses it.
        *
@@ -45493,7 +45503,7 @@ export namespace Schemas {
       readonly outcome: string;
       /** How the problem was measured or found, for people who want the detail. */
       readonly reason: string;
-      /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. */
+      /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule. */
       readonly draft: EvalSuggestionDraft;
       /** Property filters the suggested evaluation runs on. Empty means all AI traffic. */
       readonly filters: readonly EvalSuggestionFilter[];
@@ -64449,6 +64459,8 @@ export namespace Schemas {
      * * `sentinelone` - SentinelOne
      * * `jfrog_xray` - JFrog Xray
      * * `dynatrace_security` - Dynatrace Application Security
+     * * `app_store_connect` - App Store Connect
+     * * `sentry_feedback` - Sentry user feedback
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -64610,6 +64622,8 @@ export namespace Schemas {
       Sentinelone: 'sentinelone',
       JfrogXray: 'jfrog_xray',
       DynatraceSecurity: 'dynatrace_security',
+      AppStoreConnect: 'app_store_connect',
+      SentryFeedback: 'sentry_feedback',
     } as const;
 
     /**
@@ -64820,7 +64834,9 @@ export namespace Schemas {
        * * `aws_macie` - AWS Macie
        * * `sentinelone` - SentinelOne
        * * `jfrog_xray` - JFrog Xray
-       * * `dynatrace_security` - Dynatrace Application Security */
+       * * `dynatrace_security` - Dynatrace Application Security
+       * * `app_store_connect` - App Store Connect
+       * * `sentry_feedback` - Sentry user feedback */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -83907,6 +83923,11 @@ export namespace Schemas {
       readonly updated_at: string;
       readonly created_by: UserBasic;
       deleted?: boolean;
+      /**
+         * The evaluation that replaced this tagger when it was migrated. Null until then.
+         * @nullable
+         */
+      readonly migrated_to_evaluation_id: string | null;
     }
 
     export interface PaginatedTaggerList {
@@ -108917,6 +108938,8 @@ export namespace Schemas {
      * * `sentinelone` - sentinelone
      * * `jfrog_xray` - jfrog_xray
      * * `dynatrace_security` - dynatrace_security
+     * * `app_store_connect` - app_store_connect
+     * * `sentry_feedback` - sentry_feedback
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -109078,6 +109101,8 @@ export namespace Schemas {
       Sentinelone: 'sentinelone',
       JfrogXray: 'jfrog_xray',
       DynatraceSecurity: 'dynatrace_security',
+      AppStoreConnect: 'app_store_connect',
+      SentryFeedback: 'sentry_feedback',
     } as const;
 
     /**
@@ -109414,6 +109439,12 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface SentryFeedbackSignalExtra {
+      project_slug: string | null;
+      event_id: string | null;
+      date_created: string | null;
+    }
+
     export interface SonarcloudScannerFindingSignalExtra {
       severity: string | null;
       type: string | null;
@@ -109534,7 +109565,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | BingWebmasterToolsSearchOpportunitySignalExtra | AhrefsSearchOpportunitySignalExtra | SemrushSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | RootlyIncidentSignalExtra | ZendutyIncidentSignalExtra | SplunkObservabilityCloudIncidentSignalExtra | UptimerobotIncidentSignalExtra | RootlyAlertsIncidentSignalExtra | IncidentIoAlertsIncidentSignalExtra | FirehydrantAlertsIncidentSignalExtra | GrafanaIrmAlertGroupsIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | BingWebmasterToolsSearchOpportunitySignalExtra | AhrefsSearchOpportunitySignalExtra | SemrushSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | RootlyIncidentSignalExtra | ZendutyIncidentSignalExtra | SplunkObservabilityCloudIncidentSignalExtra | UptimerobotIncidentSignalExtra | RootlyAlertsIncidentSignalExtra | IncidentIoAlertsIncidentSignalExtra | FirehydrantAlertsIncidentSignalExtra | GrafanaIrmAlertGroupsIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | AppStoreConnectReviewSignalExtra | SentryFeedbackSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -109707,7 +109738,9 @@ export namespace Schemas {
        * * `aws_macie` - aws_macie
        * * `sentinelone` - sentinelone
        * * `jfrog_xray` - jfrog_xray
-       * * `dynatrace_security` - dynatrace_security */
+       * * `dynatrace_security` - dynatrace_security
+       * * `app_store_connect` - app_store_connect
+       * * `sentry_feedback` - sentry_feedback */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -116340,6 +116373,32 @@ export namespace Schemas {
     }
 
     /**
+     * * `string` - string
+     * * `integer` - integer
+     * * `number` - number
+     * * `boolean` - boolean
+     * * `datetime` - datetime
+     * * `array<string>` - array<string>
+     * * `array<integer>` - array<integer>
+     * * `array<number>` - array<number>
+     * * `array<boolean>` - array<boolean>
+     */
+    export type SignalFilterFieldTypeEnum = typeof SignalFilterFieldTypeEnum[keyof typeof SignalFilterFieldTypeEnum];
+
+
+    export const SignalFilterFieldTypeEnum = {
+      String: 'string',
+      Integer: 'integer',
+      Number: 'number',
+      Boolean: 'boolean',
+      Datetime: 'datetime',
+      ArrayString: 'array<string>',
+      ArrayInteger: 'array<integer>',
+      ArrayNumber: 'array<number>',
+      ArrayBoolean: 'array<boolean>',
+    } as const;
+
+    /**
      * Body for appending an artefact to a report.
      *
      * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
@@ -118546,6 +118605,43 @@ export namespace Schemas {
          * @nullable
          */
       edit_index: number | null;
+    }
+
+    export interface SourceFilterCatalogField {
+      /** Name to use for this field in a filter expression. */
+      name: string;
+      /** Type of the field's value. Compare it with values of the same type.
+       *
+       * * `string` - string
+       * * `integer` - integer
+       * * `number` - number
+       * * `boolean` - boolean
+       * * `datetime` - datetime
+       * * `array<string>` - array<string>
+       * * `array<integer>` - array<integer>
+       * * `array<number>` - array<number>
+       * * `array<boolean>` - array<boolean> */
+      type: SignalFilterFieldTypeEnum;
+      /** What the field holds, and its value when the record has none (null, or an empty array). */
+      description: string;
+    }
+
+    export interface SourceFilterCatalog {
+      /** Source product the filter applies to, for example `linear`. */
+      source_product: string;
+      /** Source type the filter applies to, for example `issue`. */
+      source_type: string;
+      /** Catalog version a filter saved now is pinned to. A saved filter keeps the meaning of its version. */
+      catalog_version: number;
+      /** Fields a filter expression can use. */
+      filter_fields: SourceFilterCatalogField[];
+      /** Example expressions that are valid for this source. */
+      starter_expressions: string[];
+    }
+
+    export interface SourceFilterCatalogList {
+      /** One entry per source whose filter this project can set. A source that is missing does not take a filter. */
+      results: SourceFilterCatalog[];
     }
 
     export interface SourceMappingSuggestion {
@@ -124601,6 +124697,34 @@ export namespace Schemas {
       has_more_after: boolean;
       /** The sessions the returned events belong to, in the order they first appear. */
       sessions: TransactionalEmailActivitySession[];
+    }
+
+    export interface TransactionalEmailConversions {
+      /** Sends in this group that named a person, newest 10,000 at most. */
+      sends: number;
+      /** Of those, sends whose person did the event within window_days of the click, or of the send when nobody clicked. */
+      converted: number;
+    }
+
+    export interface TransactionalEmailImpact {
+      /** Sends that left PostHog, including those that bounced. */
+      sent: number;
+      /** Sends the recipient's mail server accepted. */
+      delivered: number;
+      /** Sends opened at least once. */
+      opened: number;
+      /** Sends with at least one tracked link click. */
+      clicked: number;
+      /** Delivered sends nobody clicked. */
+      not_clicked: number;
+      /** Sends that went out with open and click tracking off, as sensitive emails do, counted by when they were sent rather than queued. They can't record an open or a click. */
+      untracked: number;
+      /** How many days after the click or the send the event counts. */
+      window_days: number;
+      /** Clicked sends and how many converted. Null without an event. */
+      after_click: TransactionalEmailConversions | null;
+      /** Delivered sends nobody clicked and how many converted. Null without an event. */
+      without_click: TransactionalEmailConversions | null;
     }
 
     export interface TransactionalEmailLogEvent {
@@ -147145,6 +147269,10 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Only the tagger that was migrated to this evaluation
+     */
+    migrated_to_evaluation_id?: string;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
@@ -148090,6 +148218,25 @@ export namespace Schemas {
       Bounced: 'bounced',
       Complained: 'complained',
     } as const;
+
+    export type TransactionalEmailLogImpactRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * The event that counts as a conversion, such as `signed_up`. Leave it out for the funnel alone.
+     */
+    event?: string;
+    /**
+     * The workflow behind the transactional email.
+     */
+    workflow_id: string;
+    };
 
     export type TransactionalEmailLogResultsRetrieveParams = {
     /**

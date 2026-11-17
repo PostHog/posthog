@@ -63,6 +63,12 @@ from products.managed_warehouse.backend.storage import (
     setup_duckgres_session,
     stage_delta_table_with_workload,
 )
+from products.managed_warehouse.backend.temporal.ducklake_declared_columns import (
+    DeclaredColumn,
+    columns_missing_from_files,
+    declared_columns,
+    duckdb_type_for_clickhouse,
+)
 from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_copy_data_imports_bytes_metric,
     get_ducklake_copy_data_imports_duration_metric,
@@ -240,7 +246,7 @@ class DataImportsDuckLakeCopyInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DuckLakeCopyDataImportsMetadata:
     """Metadata for a data imports schema to copy into DuckLake."""
 
@@ -265,6 +271,10 @@ class DuckLakeCopyDataImportsMetadata:
 
     # Verification
     verification_queries: list[DuckLakeCopyVerificationQuery] = dataclasses.field(default_factory=list)
+
+    # The columns of the table record. Histories recorded before this field have none, which copies the Delta
+    # columns only.
+    declared_columns: list[DeclaredColumn] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -400,6 +410,7 @@ async def _prepare_data_imports_ducklake_metadata(
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
                 staging_uri=staging_uri,
+                declared_columns=declared_columns(schema.table.columns if schema.table is not None else None),
             )
         )
 
@@ -449,7 +460,13 @@ def _copy_data_imports_via_duckdb(
         )
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
         conn.execute(
-            f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
+            _create_table_from_delta_statement(
+                conn,
+                qualified_table,
+                inputs.model.source_table_uri,
+                inputs.model.declared_columns,
+                parameter_placeholder="?",
+            ),
             [inputs.model.source_table_uri],
         )
         logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
@@ -464,6 +481,38 @@ def _copy_data_imports_via_duckdb(
 # a consumer outage beyond it fails the copy, and the next sync retries.
 DELTA_REBUILD_WAIT_SECONDS = 600
 DELTA_REBUILD_POLL_SECONDS = 20
+
+
+def _quote_identifier_for_placeholder(identifier: str, parameter_placeholder: str) -> str:
+    # psycopg looks for `%` placeholders in the whole statement text, quoted identifiers included, so a literal `%`
+    # in a column name must be written as `%%` when the statement runs with `%s` parameters.
+    quoted = _quote_identifier(identifier)
+    return quoted.replace("%", "%%") if parameter_placeholder == "%s" else quoted
+
+
+def _create_table_from_delta_statement(
+    conn: _VerificationConnection,
+    qualified_table: str,
+    source_uri: str,
+    declared: typing.Sequence[DeclaredColumn],
+    *,
+    parameter_placeholder: str,
+) -> str:
+    """Copy the Delta table, plus a NULL column for each declared column that the Delta schema lacks."""
+    declared_only_columns = ""
+    if declared:
+        delta_columns = [
+            name for name, _ in _fetch_delta_schema(conn, source_uri, parameter_placeholder=parameter_placeholder)
+        ]
+        declared_only_columns = "".join(
+            f", CAST(NULL AS {duckdb_type_for_clickhouse(column.clickhouse_type)}) AS "
+            f"{_quote_identifier_for_placeholder(column.name, parameter_placeholder)}"
+            for column in columns_missing_from_files(declared, delta_columns)
+        )
+    return (
+        f"CREATE OR REPLACE TABLE {qualified_table} AS "
+        f"SELECT *{declared_only_columns} FROM delta_scan({parameter_placeholder})"
+    )
 
 
 def _is_delta_table_absent_error(error: Exception) -> bool:
@@ -542,7 +591,13 @@ def _copy_data_imports_via_duckgres(
         )
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
         conn.execute(
-            f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM delta_scan(%s)",
+            _create_table_from_delta_statement(
+                conn,
+                table,
+                inputs.model.staging_uri,
+                inputs.model.declared_columns,
+                parameter_placeholder="%s",
+            ),
             [inputs.model.staging_uri],
         )
         logger.info("Successfully materialized DuckLake table via duckgres", ducklake_table=table)
@@ -927,6 +982,14 @@ def _run_data_imports_schema_verification(
             error=str(exc),
         )
 
+    # The copy adds the declared columns that the Delta schema lacks, so they are not a mismatch.
+    declared_only = {
+        column.name.lower()
+        for column in columns_missing_from_files(inputs.model.declared_columns, (name for name, _ in source_schema))
+    }
+    ducklake_schema = [
+        (name, column_type) for name, column_type in ducklake_schema if name.lower() not in declared_only
+    ]
     mismatches = _diff_schema(source_schema, ducklake_schema)
     passed = not mismatches
     error = None
