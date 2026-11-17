@@ -1,5 +1,6 @@
 from collections.abc import Collection
 from datetime import datetime
+from enum import Enum, auto
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -48,8 +49,10 @@ def refresh_view_columns(team: "Team", saved_query_ids: Collection[UUID | str], 
     for view_id in saved_query_ids_upstream_first(team.pk, set(views)):
         if database is None:
             database = Database.create_for(team=team, user=user, bypass_warehouse_access_control=user is None)
-        if _refresh_columns(views[view_id], user, database):
+        outcome = _refresh_columns(views[view_id], user, database)
+        if outcome is _ColumnRefresh.SAVED:
             changed.add(view_id)
+        if outcome is not _ColumnRefresh.KEPT:
             database = None
     return changed
 
@@ -82,16 +85,22 @@ def _infers_masked_columns(team: "Team", user: "User | None") -> bool:
     return bool(get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk))
 
 
-def _refresh_columns(view: DataWarehouseSavedQuery, user: "User | None", database: Database) -> bool:
+class _ColumnRefresh(Enum):
+    KEPT = auto()
+    SAVED = auto()
+    SUPERSEDED = auto()
+
+
+def _refresh_columns(view: DataWarehouseSavedQuery, user: "User | None", database: Database) -> _ColumnRefresh:
     with tracer.start_as_current_span(
         "view_column_refresh.view", attributes={"saved_query_id": str(view.id)}
     ) as view_span:
-        columns_changed = _infer_and_store_columns(view, user, database)
-        view_span.set_attribute("columns_changed", columns_changed)
-        return columns_changed
+        outcome = _infer_and_store_columns(view, user, database)
+        view_span.set_attribute("columns_changed", outcome is _ColumnRefresh.SAVED)
+        return outcome
 
 
-def _infer_and_store_columns(view: DataWarehouseSavedQuery, user: "User | None", database: Database) -> bool:
+def _infer_and_store_columns(view: DataWarehouseSavedQuery, user: "User | None", database: Database) -> _ColumnRefresh:
     # Inference uses the team's default modifiers, so a materialized upstream view is read from its backing table.
     # A query with useMaterializedViews=False reads that view's SQL instead. When the SQL changed and the view has
     # not materialized again, such a query can still fail on stale columns after this refresh. The refresh that
@@ -102,13 +111,13 @@ def _infer_and_store_columns(view: DataWarehouseSavedQuery, user: "User | None",
         raise
     except Exception:
         logger.warning("view_column_refresh_failed", team_id=view.team_id, saved_query_id=str(view.id), exc_info=True)
-        return False
+        return _ColumnRefresh.KEPT
 
     if view.stores_columns(columns):
-        return False
+        return _ColumnRefresh.KEPT
 
     view.set_columns(columns)
-    return _save_columns_unless_query_changed(view)
+    return _ColumnRefresh.SAVED if _save_columns_unless_query_changed(view) else _ColumnRefresh.SUPERSEDED
 
 
 def _save_columns_unless_query_changed(view: DataWarehouseSavedQuery) -> bool:

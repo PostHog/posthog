@@ -1,3 +1,4 @@
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -126,6 +127,31 @@ class TestViewColumnRefresh(ClickhouseTestMixin, BaseTest):
         assert changed == set()
         view.refresh_from_db()
         assert view.column_order == ["edited_id"]
+
+    def test_refresh_reads_an_upstream_edit_made_during_its_inference(self) -> None:
+        upstream = self._create_view("upstream_view", "SELECT 1 AS old_id")
+        downstream = self._create_view("downstream_view", "SELECT * FROM upstream_view")
+        edited_columns = {"edited_id": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt8", "valid": True}}
+        infer_columns = DataWarehouseSavedQuery.get_columns
+
+        def edit_upstream_during_its_inference(view: DataWarehouseSavedQuery, **kwargs: Any) -> dict:
+            if view.pk != upstream.pk:
+                return infer_columns(view, **kwargs)
+            DataWarehouseSavedQuery.objects.filter(pk=upstream.pk).update(
+                query={"kind": "HogQLQuery", "query": "SELECT 1 AS edited_id"},
+                query_revision=uuid4(),
+                columns=edited_columns,
+                column_order=["edited_id"],
+            )
+            return {"new_id": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt8", "valid": True}}
+
+        with patch.object(
+            DataWarehouseSavedQuery, "get_columns", autospec=True, side_effect=edit_upstream_during_its_inference
+        ):
+            refresh_view_columns(self.team, [upstream.id, downstream.id], self.user)
+
+        downstream.refresh_from_db()
+        assert downstream.column_order == ["edited_id"]
 
     def test_refresh_of_unchanged_views_builds_the_database_once(self) -> None:
         views = [
