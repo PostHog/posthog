@@ -216,6 +216,12 @@ def target_before_plan_floor_clamp(properties: Mapping[str, Any] | None) -> time
     return timedelta(seconds=seconds) if seconds is not None else None
 
 
+def target_before_plan_floor_clamp_by_saved_query(team_id: int, saved_query_id: str | uuid.UUID) -> timedelta | None:
+    """The cadence a plan floor rewrite replaced on any of the saved query's nodes, or None when none was rewritten."""
+    nodes = Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).only("properties")
+    return next((target for node in nodes if (target := target_before_plan_floor_clamp(node.properties))), None)
+
+
 def set_declared_pin(node: Node, pinned: bool) -> None:
     """Pin (or unpin) the node's declared target without touching sibling system state."""
     if pinned and get_declared_target(node) is None:
