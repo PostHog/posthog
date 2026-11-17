@@ -77,7 +77,7 @@ describe('TransactionalEmailsTable', () => {
         }
     )
 
-    it('tells a team with emails that transactional emails never wait for the sending allowance', async () => {
+    const renderListWithOneEmail = async (preflight?: Record<string, unknown>): Promise<void> => {
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/': { results: [] },
@@ -85,7 +85,8 @@ describe('TransactionalEmailsTable', () => {
                     codeEmail('password-reset', AccessControlLevel.Editor),
                 ],
                 '/api/projects/:team_id/tags': [],
-            },
+                ...(preflight ? { '/_preflight': preflight } : {}),
+            } as Record<string, any>,
         })
         initKeaTests()
         render(
@@ -93,12 +94,25 @@ describe('TransactionalEmailsTable', () => {
                 <TransactionalEmailsTable />
             </Provider>
         )
+        expect(await screen.findByText('password-reset')).toBeInTheDocument()
+    }
 
-        expect(await screen.findByText(/sent even when your daily sending allowance is used up/)).toBeInTheDocument()
+    it('tells a cloud team with emails that transactional emails never wait for the sending allowance', async () => {
+        await renderListWithOneEmail()
+
+        expect(
+            await screen.findByText(/count toward your daily sending allowance and are still sent after it's used up/)
+        ).toBeInTheDocument()
         expect(screen.getByText('How sending allowances work').closest('a')).toHaveAttribute(
             'href',
             'https://posthog.com/docs/workflows/sending-reputation#do-transactional-emails-count-against-the-allowance'
         )
+    })
+
+    it('says nothing about a sending allowance on a self-hosted instance, which has none', async () => {
+        await renderListWithOneEmail({ cloud: false, is_debug: false })
+
+        await waitFor(() => expect(screen.queryByText(/sending allowance/)).not.toBeInTheDocument())
     })
 
     it('says the emails failed to load instead of showing the first-run intro, and loads them on retry', async () => {
