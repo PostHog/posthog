@@ -80,7 +80,8 @@ SELECT
     countDistinctIf($session_id, $session_id != '') AS sessions,
     count() AS tool_calls,
     countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
+    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
+    uniq(distinct_id) AS users
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
