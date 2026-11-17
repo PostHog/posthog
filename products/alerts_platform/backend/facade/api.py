@@ -802,6 +802,7 @@ def record_source_destination(
     event_kinds: Collection[AlertEventKind],
     hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool = True,
 ) -> StoredAlertDestination | None:
     """Adds the `AlertDestination` row for a destination a source has just written as HogFunctions, in the
     caller's transaction. `hog_function_groups` are the alert's HogFunction destinations, from the source. Raises `AlertDestinationValidationError` when the alert already sends there.
@@ -813,6 +814,7 @@ def record_source_destination(
         event_kinds=event_kinds,
         hog_function_ids=hog_function_ids,
         hog_function_groups=hog_function_groups,
+        enabled=enabled,
     )
 
 
