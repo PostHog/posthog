@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Iterable
+from typing import Any
 
 from django.core.cache import cache
 from django.db import transaction
@@ -31,7 +32,6 @@ from products.cdp.backend.abuse.classifier import (
     public_schema,
     without_derived,
 )
-from products.cdp.backend.flag_gated_templates import gated_template_enabled
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType, _is_draft_only_save
 
@@ -62,22 +62,38 @@ def content_of(hog_function: HogFunction, template: HogFunctionTemplate | None =
         inputs=public_inputs(hog_function.inputs, hog_function.inputs_schema),
         filters=without_derived(hog_function.filters),
         mappings=public_mappings(hog_function.mappings),
-        masking=hog_function.masking,
+        masking=without_derived(hog_function.masking) or None,
     )
+
+
+def _flag_targeting(team: Team) -> dict[str, Any]:
+    return {
+        "groups": {"organization": str(team.organization_id), "project": str(team.id)},
+        "group_properties": {
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id), "uuid": str(team.uuid)},
+        },
+        "send_feature_flag_events": False,
+    }
+
+
+def shadow_enabled(team: Team, *, only_evaluate_locally: bool = False) -> bool:
+    """Fails closed: a flag error means nothing runs."""
+    try:
+        return (
+            posthoganalytics.feature_enabled(
+                FLAG, str(team.uuid), only_evaluate_locally=only_evaluate_locally, **_flag_targeting(team)
+            )
+            is True
+        )
+    except Exception:
+        logger.warning("cdp_abuse_classifier_flag_check_failed", team_id=team.id, exc_info=True)
+        return False
 
 
 def thresholds_for(team: Team) -> Thresholds:
     try:
-        payload = posthoganalytics.get_feature_flag_payload(
-            FLAG,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id), "uuid": str(team.uuid)},
-            },
-            send_feature_flag_events=False,
-        )
+        payload = posthoganalytics.get_feature_flag_payload(FLAG, str(team.uuid), **_flag_targeting(team))
         if isinstance(payload, str):
             payload = json.loads(payload)
         if isinstance(payload, dict):
@@ -101,9 +117,10 @@ def hog_function_saved(
 
 
 def _queue_if_enabled(hog_function: HogFunction) -> None:
-    # Runs in the saving request after the commit, so a failure here must not fail the save.
+    # Runs in the saving request after the commit, so a failure here must not fail the save, and the flag is
+    # read from the polled definitions so a slow flag service cannot slow the save.
     try:
-        if not gated_template_enabled(FLAG, hog_function.team):
+        if not shadow_enabled(hog_function.team, only_evaluate_locally=True):
             return
 
         from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse  # noqa: PLC0415
@@ -115,7 +132,7 @@ def _queue_if_enabled(hog_function: HogFunction) -> None:
 
 def classify_if_due(hog_function: HogFunction) -> None:
     """Score and report a saved function, unless the flag went off or its content was scored since it was queued."""
-    if not gated_template_enabled(FLAG, hog_function.team):
+    if not shadow_enabled(hog_function.team):
         return
     content = content_of(hog_function, hog_function.template)
     if cache.get(_hash_key(str(hog_function.id))) == content_hash(content):

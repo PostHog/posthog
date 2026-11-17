@@ -221,6 +221,7 @@ post_save:products.annotations.backend.activity_logging.annotation_created
 post_save:products.authorization.backend.logic.session.invalidate
 post_save:products.autoresearch.backend.signals.on_task_run_saved
 post_save:products.canvas.backend.search_sync.canvas_saved
+post_save:products.cdp.backend.abuse.shadow.hog_function_saved
 post_save:products.cdp.backend.models.hog_functions.hog_function.cohort_saved
 post_save:products.cdp.backend.models.hog_functions.hog_function.enabled_default_hog_functions_for_new_team
 post_save:products.cdp.backend.models.hog_functions.hog_function.hog_function_saved

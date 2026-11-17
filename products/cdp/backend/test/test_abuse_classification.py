@@ -118,6 +118,7 @@ class TestAbuseClassification(BaseTest):
                         "api_key": {"value": SECRET_VALUE},
                         "body": {"value": {"bytecode": "https://collector.example.net"}},
                     },
+                    "masking": {"ttl": 60, "hash": "sha256(event.properties.masking_key)", "bytecode": ["_H", 1]},
                     # Older rows can still hold a secret mapping input in plain text.
                     "mappings": [
                         {
@@ -146,6 +147,7 @@ class TestAbuseClassification(BaseTest):
         assert "compiled" not in body
         assert "fetch(inputs.url" in body
         assert "169.254.169.254" in body
+        assert "masking_key" in body
         assert "https://hooks.example.com/orders" in body
         assert "https://collector.example.net" in body
         assert self.gateway.requests[0].headers["X-PostHog-Privacy-Mode"] == "true"

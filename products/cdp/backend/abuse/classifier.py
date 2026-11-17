@@ -192,6 +192,8 @@ def build_state(content: HogFunctionContent) -> tuple[dict[str, JsonValue], bool
         "inputs": content.inputs,
         "filters": content.filters,
         "mappings": content.mappings,
+        # The masking hash is a Hog expression that runs before the function.
+        "masking": content.masking,
     }
     return _fit(state)
 
