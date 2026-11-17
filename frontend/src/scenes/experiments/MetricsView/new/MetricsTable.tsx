@@ -209,6 +209,7 @@ export function MetricsTable({
                                             dragHandle={dragHandle}
                                             result={result}
                                             experiment={experiment}
+                                            displayOrder={index}
                                             axisRange={axisRange}
                                             isSecondary={isSecondary}
                                             isLastMetric={index === metrics.length - 1}

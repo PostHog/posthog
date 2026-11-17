@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 
 import { ExperimentStatsMethod } from '~/types'
@@ -26,6 +27,7 @@ export function TableHeader({
     sequentialTestingEnabled,
     loading = false,
 }: TableHeaderProps): JSX.Element {
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
     const [svgWidth, setSvgWidth] = useState<number | undefined>(undefined)
 
     // Set up tick values and scaling for the header
@@ -90,6 +92,7 @@ export function TableHeader({
                         </span>
                     )}
                 </th>
+                {!resultsRedesign && <th className="border-b-2 bg-bg-table p-3 z-10" />}
                 <th className="border-b-2 bg-bg-table p-0 z-10">
                     {axisRange && axisRange > 0 ? (
                         <div>
@@ -122,7 +125,10 @@ export function TableHeader({
             {/* Thin loader line spanning the full table width, pinned to the header's bottom edge.
                 Mirrors LemonTable's loader row: a zero-height positioning host for the absolute line. */}
             <tr>
-                <th colSpan={6} className="relative h-0 overflow-visible !border-none !p-0 leading-none">
+                <th
+                    colSpan={resultsRedesign ? 6 : 7}
+                    className="relative h-0 overflow-visible !border-none !p-0 leading-none"
+                >
                     <LemonTableLoader loading={loading} tag="div" placement="bottom" />
                 </th>
             </tr>

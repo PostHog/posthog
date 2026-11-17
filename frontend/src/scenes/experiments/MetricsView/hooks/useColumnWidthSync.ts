@@ -5,12 +5,10 @@ interface UseColumnWidthSyncParams {
     parentRowRef: React.RefObject<HTMLTableRowElement>
     /** Ref to the nested breakdown table */
     nestedTableRef: React.RefObject<HTMLTableElement>
+    /** Columns in the parent table: 7 with the Details column, 6 without it */
+    columnCount: number
 }
 
-// Constants for table structure validation
-const BASELINE_ROW_CELL_COUNT = 6
-const VARIANT_ROW_CELL_COUNT = 5
-const EXPECTED_COLUMN_COUNT = 6
 const WIDTH_COMPARISON_TOLERANCE = 0.5 // Tolerance for sub-pixel rendering differences
 
 /**
@@ -26,14 +24,14 @@ const widthsHaveChanged = (newWidths: number[], previousWidths: number[]): boole
 /**
  * Get the parent column index for a cell in the nested breakdown table
  */
-const getParentColumnIndex = (cellIndex: number, cellCount: number): number | null => {
-    if (cellCount === BASELINE_ROW_CELL_COUNT) {
+const getParentColumnIndex = (cellIndex: number, cellCount: number, columnCount: number): number | null => {
+    if (cellCount === columnCount) {
         // Baseline row: maps 1:1 with parent columns
         return cellIndex
     }
 
-    if (cellCount === VARIANT_ROW_CELL_COUNT) {
-        // Variant row: skip breakdown label (col 0), then map 1:1 to columns 1-5
+    if (cellCount === columnCount - 1) {
+        // Variant row: skip breakdown label (col 0), then map 1:1 to the remaining columns
         return cellIndex + 1
     }
 
@@ -43,7 +41,7 @@ const getParentColumnIndex = (cellIndex: number, cellCount: number): number | nu
 /**
  * Measure column widths from a parent table's first data row
  */
-const measureColumnWidths = (parentTable: HTMLTableElement): number[] => {
+const measureColumnWidths = (parentTable: HTMLTableElement, columnCount: number): number[] => {
     // Get the first data row from the parent table (not the header, not the breakdown row)
     const firstDataRow = parentTable.querySelector('tbody tr:not([data-breakdown-row])') as HTMLTableRowElement
     if (!firstDataRow) {
@@ -54,9 +52,9 @@ const measureColumnWidths = (parentTable: HTMLTableElement): number[] => {
     const cells = Array.from(firstDataRow.querySelectorAll('td'))
 
     // Validate we have the expected number of columns
-    if (cells.length !== EXPECTED_COLUMN_COUNT) {
+    if (cells.length !== columnCount) {
         console.warn(
-            `[useColumnWidthSync] Unexpected parent table structure: expected ${EXPECTED_COLUMN_COUNT} columns, got ${cells.length}`
+            `[useColumnWidthSync] Unexpected parent table structure: expected ${columnCount} columns, got ${cells.length}`
         )
         throw new Error('Unexpected column count')
     }
@@ -90,11 +88,11 @@ const clearRowStyles = (rows: NodeListOf<Element>): void => {
 /**
  * Apply measured widths to nested table rows
  */
-const applyWidthsToRows = (rows: NodeListOf<Element>, widths: number[]): void => {
+const applyWidthsToRows = (rows: NodeListOf<Element>, widths: number[], columnCount: number): void => {
     // Validate column widths array
-    if (widths.length !== EXPECTED_COLUMN_COUNT) {
+    if (widths.length !== columnCount) {
         console.warn(
-            `[useColumnWidthSync] Column widths array has unexpected length: expected ${EXPECTED_COLUMN_COUNT}, got ${widths.length}`
+            `[useColumnWidthSync] Column widths array has unexpected length: expected ${columnCount}, got ${widths.length}`
         )
         return
     }
@@ -105,12 +103,12 @@ const applyWidthsToRows = (rows: NodeListOf<Element>, widths: number[]): void =>
 
         cells.forEach((cell, cellIndex) => {
             // Get parent column index for this cell
-            const parentColumnIndex = getParentColumnIndex(cellIndex, cellCount)
+            const parentColumnIndex = getParentColumnIndex(cellIndex, cellCount, columnCount)
 
             if (parentColumnIndex === null) {
                 // Unknown structure - log warning once per unique cell count
                 console.warn(
-                    `[useColumnWidthSync] Unexpected row structure: expected ${BASELINE_ROW_CELL_COUNT} or ${VARIANT_ROW_CELL_COUNT} cells, got ${cellCount}`
+                    `[useColumnWidthSync] Unexpected row structure: expected ${columnCount} or ${columnCount - 1} cells, got ${cellCount}`
                 )
                 return
             }
@@ -145,11 +143,12 @@ const applyWidthsToRows = (rows: NodeListOf<Element>, widths: number[]): void =>
  * @example
  * useColumnWidthSync({
  *   parentRowRef: mainTableRef,
- *   nestedTableRef: breakdownTableRef
+ *   nestedTableRef: breakdownTableRef,
+ *   columnCount: 7
  * }, [breakdownResults, axisRange])
  */
 export const useColumnWidthSync = (
-    { parentRowRef, nestedTableRef }: UseColumnWidthSyncParams,
+    { parentRowRef, nestedTableRef, columnCount }: UseColumnWidthSyncParams,
     deps: React.DependencyList = []
 ): void => {
     const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -176,7 +175,7 @@ export const useColumnWidthSync = (
                 }
 
                 // Measure column widths from parent table
-                const widths = measureColumnWidths(parentTable)
+                const widths = measureColumnWidths(parentTable, columnCount)
 
                 // Check if nested table is new (different instance from last time)
                 const isNewNestedTable = nestedTableRef.current !== previousNestedTableRef.current
@@ -191,7 +190,7 @@ export const useColumnWidthSync = (
                 // Apply widths if they changed OR if nested table is new (reopened collapse)
                 if (widthsChanged || isNewNestedTable) {
                     const rows = nestedTableRef.current.querySelectorAll('tbody tr')
-                    applyWidthsToRows(rows, widths)
+                    applyWidthsToRows(rows, widths, columnCount)
                 }
             } catch (error) {
                 console.error('[useColumnWidthSync] Error measuring column widths:', error)

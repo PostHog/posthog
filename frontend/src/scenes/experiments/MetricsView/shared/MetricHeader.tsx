@@ -108,6 +108,7 @@ const getBreakdownMenuItem = (experiment: Experiment, onChange: (breakdown: Brea
 
 export const MetricHeader = ({
     dragHandle,
+    displayOrder,
     metric,
     isPrimaryMetric,
     experiment,
@@ -119,6 +120,7 @@ export const MetricHeader = ({
     readOnly,
 }: {
     dragHandle?: JSX.Element | null
+    displayOrder?: number
     metric: ExperimentMetric
     isPrimaryMetric: boolean
     experiment: Experiment
@@ -242,10 +244,11 @@ export const MetricHeader = ({
     const metricRetry = metric.uuid ? metricRetries[metric.uuid] : undefined
 
     return (
-        // The handle is its own column, so the title and the tags below it share one left edge
-        // instead of the tags starting back at the cell edge.
+        // The handle and the order number are their own columns, so the title and the tags below it
+        // share one left edge instead of the tags starting back at the cell edge.
         <div className="text-xs font-semibold flex items-start gap-1">
             {dragHandle}
+            {displayOrder !== undefined && <span className="flex-shrink-0">{displayOrder + 1}.</span>}
             <div className="flex flex-col flex-1 min-w-0 deprecated-space-y-1">
                 <div className="flex items-start justify-between gap-2 min-w-0">
                     <div className="text-xs font-semibold flex items-start min-w-0 flex-1">

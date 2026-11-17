@@ -1,10 +1,19 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { ExperimentFunnelChart } from 'scenes/experiments/charts/funnel/ExperimentFunnelChart'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { getMetricRecordingModes } from 'scenes/experiments/ExperimentView/experimentRecordingModes'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
+import { viewRecordingsLinkabilityLogic } from 'scenes/experiments/viewRecordingsLinkabilityLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -30,22 +39,104 @@ import {
     isBayesianResult,
     isFrequentistResult,
 } from '../shared/utils'
+import { type ExperimentResultsSurface, VariantRecordingsButton } from './VariantRecordingsButton'
+
+function SqlCollapsible({
+    hogql,
+    clickhouseSql,
+    showClickhouseSql,
+    embedded,
+}: {
+    hogql?: string
+    clickhouseSql?: string
+    showClickhouseSql: boolean
+    embedded?: boolean
+}): JSX.Element {
+    const [isOpen, setIsOpen] = useState(false)
+    const [activeTab, setActiveTab] = useState<'hogql' | 'clickhouse'>('hogql')
+
+    const hogqlSnippet = hogql ? (
+        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+            {hogql}
+        </CodeSnippet>
+    ) : (
+        <div className="text-xs text-secondary">No HogQL available</div>
+    )
+
+    return (
+        <div className={embedded ? 'px-2 py-1' : undefined}>
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                // One glyph rotated rather than a chevron pair: IconChevronRight is drawn three times
+                // taller than IconChevronDown in this set, so the two states would change size.
+                icon={
+                    <IconChevronDown className={clsx('text-secondary transition-transform', !isOpen && '-rotate-90')} />
+                }
+                onClick={() => setIsOpen(!isOpen)}
+                aria-expanded={isOpen}
+                data-attr="experiment-result-sql-toggle"
+            >
+                <span className="text-secondary font-normal">SQL</span>
+            </LemonButton>
+            {isOpen && (
+                <div className="mt-1">
+                    {showClickhouseSql ? (
+                        <LemonTabs
+                            size="small"
+                            activeKey={activeTab}
+                            onChange={setActiveTab}
+                            tabs={[
+                                {
+                                    key: 'hogql',
+                                    label: 'HogQL',
+                                    content: hogqlSnippet,
+                                },
+                                {
+                                    key: 'clickhouse',
+                                    label: 'ClickHouse',
+                                    content: clickhouseSql ? (
+                                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                                            {clickhouseSql}
+                                        </CodeSnippet>
+                                    ) : (
+                                        <div className="text-xs text-secondary">No SQL available</div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    ) : (
+                        hogqlSnippet
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
 
 export function ResultDetails({
     experiment,
     result,
     metric,
     embedded = false,
+    surface = 'inline',
 }: {
     experiment: Experiment
     result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
-    /** Renders the table and funnel as divider-separated sections of a parent panel instead of standalone cards. */
+    /** Renders the table, funnel, and SQL as divider-separated sections of a parent panel instead of standalone cards. */
     embedded?: boolean
+    surface?: ExperimentResultsSurface
 }): JSX.Element {
+    const { featureFlags } = useValues(experimentLogic)
     const { baseCurrency } = useValues(teamLogic)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const { unlinkableEventNames, linkabilityLoaded } = useValues(viewRecordingsLinkabilityLogic({ experiment }))
 
     const baselineKey = result.baseline?.key
+    // Every row links to the same metric, so the labels and the reasons are decided once. An empty
+    // set while the check is in flight keeps today's fail-open behavior.
+    const recordingModes = getMetricRecordingModes(metric, linkabilityLoaded ? unlinkableEventNames : new Set<string>())
 
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
@@ -129,6 +220,26 @@ export function ResultDetails({
                 return formatIntervalPercent(item)
             },
         },
+        ...(resultsRedesign
+            ? []
+            : [
+                  {
+                      key: 'recordings',
+                      title: '',
+                      render: (_: unknown, item: ExperimentVariantResult & { key: string }) => (
+                          <div className="flex justify-end">
+                              <VariantRecordingsButton
+                                  experiment={experiment}
+                                  metric={metric}
+                                  variantKey={item.key}
+                                  isBaseline={item.key === baselineKey}
+                                  surface={surface}
+                                  modes={recordingModes}
+                              />
+                          </div>
+                      ),
+                  },
+              ]),
     ]
 
     const dataSource = [
@@ -154,6 +265,14 @@ export function ResultDetails({
                     experiment={experiment}
                     metric={metric}
                     experimentQuery={experimentQuery}
+                    embedded={embedded}
+                />
+            )}
+            {!resultsRedesign && (
+                <SqlCollapsible
+                    hogql={result.hogql}
+                    clickhouseSql={result.clickhouse_sql}
+                    showClickhouseSql={!!featureFlags[FEATURE_FLAGS.EXPERIMENTS_SHOW_SQL]}
                     embedded={embedded}
                 />
             )}

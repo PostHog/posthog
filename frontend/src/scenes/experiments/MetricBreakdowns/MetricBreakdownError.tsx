@@ -1,3 +1,5 @@
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType } from '~/types'
 
@@ -18,9 +20,14 @@ export function MetricBreakdownError({
     onAttributionChange,
     onBreakdownLimitChange,
 }: MetricBreakdownErrorProps): JSX.Element {
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+
     return (
         <tr data-breakdown-row className="hover:bg-bg-hover group">
-            <td colSpan={6} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
+            <td
+                colSpan={resultsRedesign ? 6 : 7}
+                className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+            >
                 <div className="p-1">
                     <MetricBreakdowns
                         metric={metric}

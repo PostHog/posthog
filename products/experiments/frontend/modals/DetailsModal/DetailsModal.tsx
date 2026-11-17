@@ -26,7 +26,7 @@ export function DetailsModal({ isOpen, onClose, metric, result, experiment }: De
                 </LemonButton>
             }
         >
-            <ResultDetails result={result} experiment={experiment} metric={metric} />
+            <ResultDetails result={result} experiment={experiment} metric={metric} surface="details_modal" />
         </LemonModal>
     )
 }
