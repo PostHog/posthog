@@ -10,6 +10,7 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, override_setti
 import requests
 from parameterized import parameterized
 
+from posthog.tasks.workos_radar import retry_countdown
 from posthog.workos_radar import (
     WORKOS_RADAR_API_URL,
     WORKOS_RADAR_LOGIN_TIMEOUT,
@@ -87,6 +88,38 @@ class TestAttemptSuccessReport(SimpleTestCase):
             if challenge_completed:
                 expected_body["challenge_status"] = "success"
             assert mock_put.call_args[1]["json"] == expected_body
+
+
+class TestAttemptSuccessRetry(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("seconds", "30", 30),
+            ("over_the_limit", "86400", 3600),
+            ("http_date", "Wed, 21 Oct 2026 07:28:00 GMT", None),
+            ("missing", None, None),
+        ]
+    )
+    @patch("posthog.workos_radar.requests.put")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_a_throttled_report_carries_the_retry_after_delay(self, _name, header, expected, mock_put):
+        mock_put.return_value.status_code = 429
+        mock_put.return_value.headers = {"Retry-After": header} if header else {}
+
+        with pytest.raises(RadarReportFailed) as error:
+            send_attempt_success("radar_att_01ABC")
+
+        assert error.value.retry_after == expected
+
+    @parameterized.expand(
+        [
+            ("first_retry", 0, None, 60),
+            ("fourth_retry", 3, None, 480),
+            ("capped", 5, None, 900),
+            ("retry_after_wins", 0, 30, 30),
+        ]
+    )
+    def test_retry_countdown(self, _name, retries, retry_after, expected):
+        assert retry_countdown(retries, retry_after) == expected
 
 
 class TestLoginSample(SimpleTestCase):

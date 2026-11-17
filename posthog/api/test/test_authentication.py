@@ -2,7 +2,7 @@ import json
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -838,6 +838,16 @@ class TestLoginRadar(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert mock_call_api.call_args[1]["email"] == self.user.email
 
+    RADAR_ATTEMPT_URL = "https://api.workos.com/radar/attempts/radar_att_01ABC"
+
+    def _password_login(self, email: str, password: str) -> Any:
+        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"), self.captureOnCommitCallbacks(execute=True):
+            return self.client.post("/api/login", {"email": email, "password": password})
+
+    def _totp_login(self, device: Any) -> Any:
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post("/api/login/token", {"token": totp_str(device.bin_key)})
+
     @parameterized.expand([("correct_password", True, 1), ("wrong_password", False, 0)])
     @patch("posthog.workos_radar.requests.put")
     @patch(
@@ -848,32 +858,54 @@ class TestLoginRadar(APIBaseTest):
         self, _name, correct_password, expected_reports, _mock_call_api, mock_put
     ):
         mock_put.return_value.status_code = 200
-        password = self.CONFIG_PASSWORD if correct_password else "not-the-password"
 
-        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"):
-            self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": password})
+        self._password_login(self.CONFIG_EMAIL, self.CONFIG_PASSWORD if correct_password else "not-the-password")
 
         assert mock_put.call_count == expected_reports
         if expected_reports:
-            assert mock_put.call_args[0][0] == "https://api.workos.com/radar/attempts/radar_att_01ABC"
+            assert mock_put.call_args[0][0] == self.RADAR_ATTEMPT_URL
             assert mock_put.call_args[1]["json"] == {"attempt_status": "success"}
+
+    @parameterized.expand([("without_2fa", False), ("with_2fa", True)])
+    @patch("posthog.workos_radar.requests.put")
+    @patch(
+        "posthog.workos_radar._call_radar_api",
+        return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
+    )
+    def test_a_login_reports_its_radar_attempt_after_the_second_factor(
+        self, _name, two_factor, _mock_call_api, mock_put
+    ):
+        mock_put.return_value.status_code = 200
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6) if two_factor else None  # type: ignore
+        # Signing in to another account first makes login() flush the session that holds the attempt
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "a-password-for-other")
+        self.client.force_login(other)
+
+        first = self._password_login(self.CONFIG_EMAIL, self.CONFIG_PASSWORD)
+        if device:
+            assert first.json()["code"] == "2fa_required"
+            mock_put.assert_not_called()
+            assert self._totp_login(device).status_code == 200
+        else:
+            assert first.status_code == 200
+
+        assert [c[0][0] for c in mock_put.call_args_list] == [self.RADAR_ATTEMPT_URL]
 
     @patch("posthog.workos_radar.requests.put")
     @patch(
         "posthog.workos_radar._call_radar_api",
         return_value=RadarAttempt(verdict=RadarVerdict.ALLOW, attempt_id="radar_att_01ABC"),
     )
-    def test_a_login_with_2fa_reports_its_radar_attempt_after_the_second_factor(self, _mock_call_api, mock_put):
-        mock_put.return_value.status_code = 200
-        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+    def test_a_passkey_login_after_an_abandoned_second_factor_does_not_report_the_password_attempt(
+        self, _mock_call_api, mock_put
+    ):
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        assert self._password_login(self.CONFIG_EMAIL, self.CONFIG_PASSWORD).json()["code"] == "2fa_required"
 
-        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"):
-            first = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        assert first.json()["code"] == "2fa_required"
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.force_login(self.user, backend="posthog.auth.WebauthnBackend")
+
         mock_put.assert_not_called()
-
-        assert self.client.post("/api/login/token", {"token": totp_str(device.bin_key)}).status_code == 200
-        assert [c[0][0] for c in mock_put.call_args_list] == ["https://api.workos.com/radar/attempts/radar_att_01ABC"]
 
     @patch("posthog.workos_radar._call_radar_api", return_value=RadarAttempt(verdict=RadarVerdict.BLOCK))
     def test_reauth_from_a_signed_in_session_skips_radar(self, mock_call_api):

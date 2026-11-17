@@ -105,6 +105,13 @@ class RadarAttempt:
 class RadarReportFailed(Exception):
     """WorkOS could not take a success report now, so the report can go again later."""
 
+    def __init__(self, status_code: int, retry_after: Optional[int] = None):
+        super().__init__(f"WorkOS answered {status_code}")
+        self.retry_after = retry_after
+
+
+_MAX_RETRY_AFTER_SECONDS = 3600
+
 
 # The browser sends this token, so a value outside this shape is dropped rather than sent to WorkOS
 _SIGNALS_ID_PATTERN = re.compile(r"[A-Za-z0-9_.:-]{1,512}")
@@ -479,9 +486,16 @@ def send_attempt_success(attempt_id: str, challenge_completed: bool = False) -> 
         timeout=WORKOS_RADAR_TIMEOUT,
     )
     if response.status_code == 429 or response.status_code >= 500:
-        raise RadarReportFailed(f"WorkOS answered {response.status_code}")
+        raise RadarReportFailed(response.status_code, retry_after=_retry_after_seconds(response))
     if not response.ok:
         logger.warning("workos_radar_success_report_refused", status_code=response.status_code)
+
+
+def _retry_after_seconds(response: requests.Response) -> Optional[int]:
+    value = str(response.headers.get("Retry-After") or "").strip()
+    if not value.isdigit():
+        return None
+    return min(int(value), _MAX_RETRY_AFTER_SECONDS)
 
 
 def _log_radar_event(
