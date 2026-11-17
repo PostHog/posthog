@@ -46,6 +46,7 @@ READERS: dict[str, str] = {
     "products/logs/backend/facade/platform_ownership.py": "ownership facade for the platform API (E2)",
     "products/alerts/backend/platform_cutover.py": "cutover and rollback (E2)",
     "products/logs/backend/platform_cutover.py": "cutover and rollback (E2)",
+    "products/logs/backend/destination_conversion.py": "moves destinations off HogFunctions under the row's lock (H5)",
     "products/alerts/backend/management/commands/cut_over_insight_alerts_to_platform.py": "cut command (E2)",
     "products/alerts/backend/platform_alert_backfill.py": "builds copies from rows",
     "products/logs/backend/platform_alert_backfill.py": "builds copies from rows",
