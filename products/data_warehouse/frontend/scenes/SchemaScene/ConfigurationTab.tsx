@@ -1099,16 +1099,18 @@ function ColumnsAndRowFiltersSection({
                                       ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
                                       : 'No columns discovered yet for this schema.'}
                             </span>
-                            <SchemaEditorAction schema={schema}>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    loading={refreshingSchemas}
-                                    onClick={() => refreshSchemas()}
-                                >
-                                    Pull new schemas
-                                </LemonButton>
-                            </SchemaEditorAction>
+                            {source?.supports_table_discovery !== false && (
+                                <SchemaEditorAction schema={schema}>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        loading={refreshingSchemas}
+                                        onClick={() => refreshSchemas()}
+                                    >
+                                        Pull new schemas
+                                    </LemonButton>
+                                </SchemaEditorAction>
+                            )}
                         </div>
                     ) : (
                         <>

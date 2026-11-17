@@ -32,11 +32,8 @@ from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.api import access_rules, replace_object_access_rules
 from products.access_control.backend.facade.contracts import AccessRule, ObjectAccessRuleInput
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import MIGRATION_MARKER_KEY, ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-
-# The `connection_metadata` key of a source the migration created.
-MIGRATION_MARKER_KEY = "self_managed_migration"
 
 TABLE_RESOURCE = "warehouse_table"
 WAREHOUSE_RESOURCE = "warehouse_objects"

@@ -7153,6 +7153,21 @@
             "readOnlyHint": true
         }
     },
+    "external-data-sources-add-table": {
+        "description": "Add one table to an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2) from the path of its files. Use this for object storage sources, where a table is a folder, a file or a wildcard pattern in the bucket, and always for a source whose source refresh ('external-data-sources-refresh-schemas') fails because it reads tables from anywhere in its bucket. The path is relative to the source's files URL (such as exports/events/ or exports/events/2026/*.parquet), or a full URL into the same bucket. PostHog lists only that location to check that it holds files the key can read. It does not sync data. The new table is created turned off: to start syncing it, set should_sync to true with 'external-data-schemas-partial-update' on the returned schema id. A 400 names the field to fix in 'attr': 'name' when another table of the source has the name, 'path' when the location is outside the source's bucket or folder, holds no importable files, or can't be read.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Add a table to an object storage source",
+        "title": "Add a table to an object storage source",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/external_data_sources/{id}/add_table/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "external-data-sources-bulk-update-schemas": {
         "description": "Apply sync configuration to several of a source's table schemas at once: enable or disable syncing (should_sync), live queries without syncing (live_query_enabled, on a synced source with live queries on), sync_type, sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field, and primary key columns. Each entry needs the schema id plus the fields to change. Prefer this over looping 'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source, such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before anything is written, and a schema that fails is reported by name while the rest of the batch is saved. Changes take effect on the next sync, not retroactively. sync_frequency takes 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day or 30day. Common spellings are mapped for you: hourly or 60min = 1hour, daily or 1day = 24hour, weekly = 7day, monthly = 30day. There is no 'never' value: to stop a table syncing, set should_sync to false.",
         "category": "Warehouse sources",
@@ -7382,7 +7397,7 @@
         }
     },
     "external-data-sources-refresh-schemas": {
-        "description": "Fetch the latest table list from the remote database and create schema entries for any new tables found. This is a metadata refresh — it does NOT move or sync any data (use 'external-data-sources-reload' for that). Use this after adding new tables to a source database to make them available for syncing.",
+        "description": "Fetch the latest table list from the remote database and create schema entries for any new tables found. This is a metadata refresh — it does NOT move or sync any data (use 'external-data-sources-reload' for that). Use this after adding new tables to a source database to make them available for syncing. It fails with a 400 for an object storage source that reads tables from anywhere in its bucket (the source's supports_table_discovery is false): add each table of such a source by its path with 'external-data-sources-add-table' instead.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Discover new tables in source",

@@ -75,6 +75,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     CustomSourceConfig,
     DocsFetchError,
     MySQLSource,
+    ObjectStorageSource,
     PostgresSource,
     RowFilterValidationError,
     SourceRegistry,
@@ -240,6 +241,28 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
     )
+    supports_adding_tables = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether tables can be added to this source by their path with the add_table endpoint. True for "
+            "object storage sources."
+        ),
+    )
+    table_root = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "For object storage sources: the folder that add_table resolves relative paths against, as "
+            "`<bucket>/<prefix>/`, such as `my-bucket/exports/`. Null for other sources, or when the source's files "
+            "URL can't be read."
+        ),
+    )
+    supports_table_discovery = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a "
+            "source that reads tables from anywhere in its bucket. Add tables to such a source by their path."
+        ),
+    )
     file_name = serializers.SerializerMethodField(
         read_only=True,
         help_text="The name of the file a file upload source imports. Null for other sources or when it is unknown.",
@@ -353,6 +376,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_webhooks",
             "webhook_not_registered",
             "supports_column_selection",
+            "supports_adding_tables",
+            "table_root",
+            "supports_table_discovery",
             "file_name",
             "api_version",
             "api_version_deprecation",
@@ -375,6 +401,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_webhooks",
             "webhook_not_registered",
             "supports_column_selection",
+            "supports_adding_tables",
+            "table_root",
+            "supports_table_discovery",
             "file_name",
             "api_version",
             "api_version_deprecation",
@@ -479,6 +508,28 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         except Exception as e:
             capture_exception(e)
             return None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_supports_adding_tables(self, instance: ExternalDataSource) -> bool:
+        try:
+            source = SourceRegistry.get_source(known_source_key(instance.source_type))
+        except ValueError:
+            return False
+        return isinstance(source, ObjectStorageSource)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_table_root(self, instance: ExternalDataSource) -> str | None:
+        try:
+            source = SourceRegistry.get_source(known_source_key(instance.source_type))
+            if not isinstance(source, ObjectStorageSource):
+                return None
+            return source.table_root(source.parse_config(self._source_inputs(instance)))
+        except Exception:
+            return None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_supports_table_discovery(self, instance: ExternalDataSource) -> bool:
+        return not instance.is_self_managed_migration
 
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
         return source_supports_column_selection(instance.source_type)

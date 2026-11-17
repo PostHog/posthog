@@ -1,7 +1,8 @@
+import dataclasses
 from abc import abstractmethod
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
-from typing import Any, ClassVar, Generic, NoReturn, Optional
+from typing import Any, ClassVar, Generic, NoReturn, Optional, cast
 
 import pyarrow as pa
 from botocore.exceptions import ClientError
@@ -11,9 +12,19 @@ from products.warehouse_sources.backend.models.util import validate_warehouse_ta
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FILE_MODIFIED_AT_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.added_tables import (
+    delta_table,
+    display_root,
+    files_table,
+    holds_delta_log,
+    is_full_url,
+    parse_added_location,
+    relative_key,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     DiscoveryOptions,
     FileFormat,
+    FileFormatChoice,
     StoreConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import (
@@ -24,9 +35,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     plan_delta_read,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
+    DELTA_LOG_DIRECTORY,
     TableDefinition,
     explain_no_tables,
     group_tables,
+    list_table_objects,
     resolve_file_format,
     resolve_table_files,
 )
@@ -300,6 +313,68 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
                 raise translate_storage_error(PermissionError(), location) from e
             _raise_translated(e, location)
         return _source_schema(table)
+
+    def table_root(self, config: ConfigType) -> str:
+        """The folder that `define_added_table` resolves relative paths against, as `<bucket>/<prefix>/`.
+
+        A source whose config parsing makes a network call overrides this to read only the URL.
+        """
+        return display_root(self.object_store_config(config))
+
+    def config_with_files_url(self, config: ConfigType, url: str) -> ConfigType:
+        """The config with another files URL, so the URL is parsed the same way as the source's own."""
+        return cast(ConfigType, dataclasses.replace(cast(Any, config), url_pattern=url))
+
+    def define_added_table(
+        self,
+        config: ConfigType,
+        name: str,
+        location: str,
+        file_format: FileFormatChoice,
+        allow_double_quotes: bool,
+    ) -> TableDefinition:
+        """Define the table a user adds by its path, and check that the key can read it.
+
+        The location is a path relative to the source's files URL, or a full URL into the same
+        bucket. Only that location is read, so a source rooted at a large bucket isn't walked.
+        """
+        try:
+            store_config = self.object_store_config(config)
+            relative = location
+            if is_full_url(location):
+                url_config = self.object_store_config(self.config_with_files_url(config, location.strip()))
+                relative = relative_key(store_config, url_config)
+            added = parse_added_location(relative, file_format)
+            store = self.open_store(store_config)
+            if file_format != "delta":
+                try:
+                    objects = list_table_objects(store, added.path)
+                except Exception as e:
+                    _raise_translated(e, store.path(added.path))
+                if file_format != "infer" or not holds_delta_log(objects, added):
+                    options = DiscoveryOptions(file_format=file_format, allow_double_quotes=allow_double_quotes)
+                    return files_table(objects, name, added, options)
+            table = delta_table(name, added, file_format)
+            self._check_added_delta_table(store, table)
+            return table
+        except ObjectStorageError as e:
+            message = self._validation_message(str(e))
+            if message == str(e):
+                raise
+            raise ObjectStorageError(message) from e
+
+    def _check_added_delta_table(self, store: ObjectStore, table: TableDefinition) -> None:
+        try:
+            check_delta_table(store.delta_uri(table.path), store.delta_storage_options, table.name)
+        except ObjectStorageError as e:
+            if str(e).startswith(NO_TABLE_FILES_ERROR):
+                raise ObjectStorageError(
+                    f"No Delta table is at '{store.path(table.path)}'. Enter the folder that holds the table's "
+                    f"{DELTA_LOG_DIRECTORY} folder, or choose another file format."
+                ) from e
+            raise
+        except OSError as e:
+            _raise_translated(e, store.path(table.path))
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         store = self.open_store(self.object_store_config(config))

@@ -14059,6 +14059,51 @@ export namespace Schemas {
     }
 
     /**
+     * * `infer` - Infer from the file names
+     * * `csv` - CSV with a header row
+     * * `csv_no_header` - CSV without a header row
+     * * `jsonl` - JSON Lines
+     * * `parquet` - Parquet
+     * * `delta` - Delta table
+     */
+    export type ObjectStorageTableFileFormatEnum = typeof ObjectStorageTableFileFormatEnum[keyof typeof ObjectStorageTableFileFormatEnum];
+
+
+    export const ObjectStorageTableFileFormatEnum = {
+      Infer: 'infer',
+      Csv: 'csv',
+      CsvNoHeader: 'csv_no_header',
+      Jsonl: 'jsonl',
+      Parquet: 'parquet',
+      Delta: 'delta',
+    } as const;
+
+    export interface AddTableRequest {
+      /**
+         * Name of the new table in the source. Starts with a letter or underscore, and contains only letters, numbers and underscores. Must not be the name of another table in the source.
+         * @maxLength 128
+         * @pattern ^[a-zA-Z_][a-zA-Z0-9_]*$
+         */
+      name: string;
+      /**
+         * Where the table's files are. Use a path relative to the source's files URL, such as `exports/events/`, `exports/events/2026/*.parquet` or `data/file.csv`, or a full URL into the same bucket. A folder reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole files URL.
+         * @maxLength 2048
+         */
+      path: string;
+      /** The format of the files. `infer` reads each file by its extension, and reads a folder that holds a `_delta_log` folder as a Delta table. `delta` needs the folder of a Delta table, without wildcards.
+       *
+       * * `infer` - Infer from the file names
+       * * `csv` - CSV with a header row
+       * * `csv_no_header` - CSV without a header row
+       * * `jsonl` - JSON Lines
+       * * `parquet` - Parquet
+       * * `delta` - Delta table */
+      file_format?: ObjectStorageTableFileFormatEnum;
+      /** For CSV files: whether a double quote encloses a field. When false, it is an ordinary character. */
+      csv_allow_double_quotes?: boolean;
+    }
+
+    /**
      * * `serves` - Serves
      * * `slice` - Slice
      * * `different` - Different
@@ -52951,6 +52996,15 @@ export namespace Schemas {
       readonly webhook_not_registered: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
+      /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources. */
+      readonly supports_adding_tables: boolean;
+      /**
+         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<prefix>/`, such as `my-bucket/exports/`. Null for other sources, or when the source's files URL can't be read.
+         * @nullable
+         */
+      readonly table_root: string | null;
+      /** Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path. */
+      readonly supports_table_discovery: boolean;
       /**
          * The name of the file a file upload source imports. Null for other sources or when it is unknown.
          * @nullable
@@ -90457,6 +90511,15 @@ export namespace Schemas {
       readonly webhook_not_registered?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
+      /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources. */
+      readonly supports_adding_tables?: boolean;
+      /**
+         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<prefix>/`, such as `my-bucket/exports/`. Null for other sources, or when the source's files URL can't be read.
+         * @nullable
+         */
+      readonly table_root?: string | null;
+      /** Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path. */
+      readonly supports_table_discovery?: boolean;
       /**
          * The name of the file a file upload source imports. Null for other sources or when it is unknown.
          * @nullable
