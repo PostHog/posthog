@@ -1334,7 +1334,6 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             user_id=user.pk,
             team_id=user.current_team_id,
             access_method=AccessMethod.OAUTH,
-            oauth_application_id=access_token.application_id,
         )
         if access_token.sandbox_task_id is not None and "scout_experiment_internal:read" in access_token.scope.split():
             tag_queries(is_scout_experiment=True)
