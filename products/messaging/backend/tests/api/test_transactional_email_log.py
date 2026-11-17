@@ -615,10 +615,16 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "without_click": None,
         }
 
-    def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(self, _flag):
+    @parameterized.expand([("in_one_query", 4 * 1024 * 1024), ("one_query_per_send", 1)])
+    def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(
+        self, _flag, _name, query_bytes
+    ):
         self._seed_impact_sends()
 
-        assert self._impact(event="purchase", date_from=(NOW - timedelta(days=29)).isoformat()) == {
+        with patch("products.messaging.backend.services.transactional_email_log._CONVERSION_QUERY_BYTES", query_bytes):
+            impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=29)).isoformat())
+
+        assert impact == {
             **IMPACT_COUNTS,
             "after_click": {"sends": 3, "converted": 2},
             "without_click": {"sends": 3, "converted": 2},
