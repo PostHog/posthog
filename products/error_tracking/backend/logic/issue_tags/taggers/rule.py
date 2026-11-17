@@ -67,7 +67,8 @@ class RuleTagger:
                     team_id=context.issue.team_id,
                     issue_id=str(context.issue.id),
                     rule_id=str(config.rule_id),
-                    error=str(error),
+                    # The message can quote an event property value, so it stays out of the log.
+                    error_type=type(error).__name__,
                 )
                 continue
             if matched:
@@ -96,7 +97,8 @@ def _bytecode_fault(bytecode: object) -> str | None:
 def _matches(config: RuleTaggerConfig, rule_input: dict[str, object], timeout: timedelta) -> bool:
     # Rules run on the shared worker, so a blocking call must not hold it.
     result = execute_bytecode(config.bytecode, rule_input, timeout=timeout, disallowed_functions=BLOCKING_FUNCTIONS)
-    return result.result is True
+    # A filter with an empty property group or value list compiles to the constant 1, which matches every event.
+    return result.result is True or (type(result.result) is int and result.result == 1)
 
 
 def _log_budget_exhausted(context: TagContext, *, skipped: int) -> None:

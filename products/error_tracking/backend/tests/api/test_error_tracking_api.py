@@ -281,7 +281,7 @@ class TestErrorTracking(APIBaseTest):
     def test_issue_tag_correction_holds_against_jev_and_logs_the_person(self) -> None:
         self._enable_issue_tags()
         issue = self.create_issue()
-        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT.key, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
 
         with patch("products.error_tracking.backend.presentation.views.issues.is_impersonated", return_value=True):
             response = self.client.patch(
@@ -289,7 +289,7 @@ class TestErrorTracking(APIBaseTest):
                 data={"key": BLOCKS_CHECKOUT.key, "applied": False},
                 format="json",
             )
-        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT.key, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {
@@ -575,7 +575,7 @@ class TestErrorTracking(APIBaseTest):
     def _issue_tag_correction(self) -> tuple[str, str, dict]:
         self._enable_issue_tags()
         issue = self.create_issue(["fingerprint"])
-        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT.key, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
+        set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
         return "patch", f"issues/{issue.id}/tag", {"key": BLOCKS_CHECKOUT.key, "applied": False}
 
     def _issue_tag_repeated_correction(self) -> tuple[str, str, dict]:

@@ -73,6 +73,16 @@ class TestIssueTagRules(BaseTest):
             (rule.key, True, Source.RULE, rule.version, str(rule.id)) for rule in rules
         }
 
+    def test_a_rule_with_an_empty_filter_applies_to_every_issue(self) -> None:
+        every_issue = self._rule("Every issue", {"type": "AND", "values": []}, order_key=3)
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+
+        run_issue_taggers(self.team.id, issue.id, lambda team: {})
+
+        assert list(
+            ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).values_list("key", "value")
+        ) == [(every_issue.key, True)]
+
     def test_a_rule_match_does_not_replace_a_manual_removal(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         correct_issue_tag(

@@ -574,7 +574,7 @@ def _issue_tag_rule_key() -> str:
     return f"rule_{uuid4().hex}"
 
 
-class ErrorTrackingIssueTagRule(TeamScopedRootMixin, UUIDTModel):
+class ErrorTrackingIssueTagRule(TeamScopedRootMixin, UUIDModel):
     """A team's issue tag. Its label applies to a new issue when `bytecode` matches the issue's first event."""
 
     # The unique constraint leads with team, so it serves the per-team rules read and the default foreign key

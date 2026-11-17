@@ -76,10 +76,11 @@ def _applicable_taggers(team_id: int) -> list[tuple[Tagger, tuple[IssueTagDefini
 def _run_tagger(context: TagContext, tagger: Tagger, definitions: tuple[IssueTagDefinition, ...]) -> TaggerRun:
     try:
         answers = tagger.answer(context, definitions)
+        by_key = {definition.key: definition for definition in definitions}
         stored = tuple(
             key
             for key, answer in answers.items()
-            if set_issue_tag(context.issue.team_id, context.issue.id, key, answer, tagger.source)
+            if set_issue_tag(context.issue.team_id, context.issue.id, by_key[key], answer, tagger.source)
         )
     except ErrorTrackingIssue.DoesNotExist:
         raise

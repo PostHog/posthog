@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.uuidt.UUIDT,
+                        default=posthog.uuidt.uuid7,
                         editable=False,
                         primary_key=True,
                         serialize=False,

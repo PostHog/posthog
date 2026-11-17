@@ -3,7 +3,7 @@ from django.db.models import QuerySet
 from products.error_tracking.backend.logic.issue_tags import registry
 from products.error_tracking.backend.logic.issue_tags.flag import ISSUE_TAGS_FLAG
 from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
-from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition, RuleTaggerConfig
+from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition, RuleTaggerConfig, TaggerConfig
 from products.error_tracking.backend.logic.team_flags import team_flag_enabled
 from products.error_tracking.backend.models import ErrorTrackingIssueTagRule
 
@@ -11,17 +11,21 @@ from products.error_tracking.backend.models import ErrorTrackingIssueTagRule
 def enabled_issue_tag_definitions(team_id: int) -> tuple[IssueTagDefinition, ...]:
     """The tags the team can see and filter by. Empty while issue tags are off for the team.
 
-    The flag check comes before the rules query, so a team without issue tags reads no rules.
+    The flag check comes before the rules query, so a team without issue tags reads no rules. A rule definition here
+    has no taggers, because the request paths that call this show labels and never run a rule.
     """
     if not issue_tags_enabled(team_id):
         return ()
-    return issue_tag_definitions_for_enabled_team(team_id)
+    rules = _ordered(_active_rules(team_id)).only("id", "key", "label", "description", "version")
+    return _enabled_code_definitions(team_id) + tuple(_rule_definition(rule, taggers=()) for rule in rules)
 
 
 def issue_tag_definitions_for_enabled_team(team_id: int) -> tuple[IssueTagDefinition, ...]:
     """The code tags whose flags are on, then the team's active rules. The caller checked ISSUE_TAGS_FLAG."""
-    rules = _active_rules(team_id).order_by("order_key", "created_at", "id")
-    return _enabled_code_definitions(team_id) + tuple(_rule_definition(rule) for rule in rules)
+    rules = _ordered(_active_rules(team_id))
+    return _enabled_code_definitions(team_id) + tuple(
+        _rule_definition(rule, taggers=(RuleTaggerConfig(rule_id=rule.id, bytecode=rule.bytecode),)) for rule in rules
+    )
 
 
 def get_issue_tag_definition(team_id: int, key: str) -> IssueTagDefinition:
@@ -35,7 +39,7 @@ def get_issue_tag_definition(team_id: int, key: str) -> IssueTagDefinition:
     rule = _active_rules(team_id).filter(key=key).first()
     if rule is None:
         raise ValueError(f"unknown issue tag {key!r}")
-    return _rule_definition(rule)
+    return _rule_definition(rule, taggers=(RuleTaggerConfig(rule_id=rule.id, bytecode=rule.bytecode),))
 
 
 def _enabled_code_definitions(team_id: int) -> tuple[IssueTagDefinition, ...]:
@@ -52,12 +56,16 @@ def _active_rules(team_id: int) -> QuerySet[ErrorTrackingIssueTagRule]:
     return ErrorTrackingIssueTagRule.objects.for_team(team_id).filter(disabled_data__isnull=True)
 
 
-def _rule_definition(rule: ErrorTrackingIssueTagRule) -> IssueTagDefinition:
+def _ordered(rules: QuerySet[ErrorTrackingIssueTagRule]) -> QuerySet[ErrorTrackingIssueTagRule]:
+    return rules.order_by("order_key", "created_at", "id")
+
+
+def _rule_definition(rule: ErrorTrackingIssueTagRule, *, taggers: tuple[TaggerConfig, ...]) -> IssueTagDefinition:
     return IssueTagDefinition(
         key=rule.key,
         label=rule.label,
         description=rule.description,
         question_version=rule.version,
         enabled_flag=ISSUE_TAGS_FLAG,
-        taggers=(RuleTaggerConfig(rule_id=rule.id, bytecode=rule.bytecode),),
+        taggers=taggers,
     )

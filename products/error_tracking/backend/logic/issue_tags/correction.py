@@ -41,7 +41,7 @@ def correct_issue_tag(
         value=applied, probability=None, model=None, question_version=definition.question_version, set_by=user
     )
     try:
-        stored = set_issue_tag(team_id, issue_id, key, answer, source, was_impersonated=was_impersonated)
+        stored = set_issue_tag(team_id, issue_id, definition, answer, source, was_impersonated=was_impersonated)
     except ErrorTrackingIssue.DoesNotExist:
         raise ErrorTrackingIssueNotFoundError
     # Manual outranks every source, so the writer refuses it only when issue tags were turned off after the check above.
