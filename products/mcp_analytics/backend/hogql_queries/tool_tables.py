@@ -64,6 +64,7 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     HarnessLabelQueryRunner,
     display_person_properties,
     effective_tool_expr,
+    isoformat_timestamp,
     mcp_query_date_range,
     mcp_source_expr,
     shared_filter_exprs,
@@ -391,7 +392,7 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
         return parse_select(
             """
             SELECT
-                toString(timestamp) AS ts,
+                timestamp AS ts,
                 distinct_id,
                 session_id,
                 {harness_label} AS harness,
@@ -442,7 +443,7 @@ class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailur
 
         results = [
             MCPToolFailureOccurrenceItem(
-                timestamp=str(row[0] or ""),
+                timestamp=isoformat_timestamp(row[0]),
                 distinct_id=str(row[1] or ""),
                 session_id=str(row[2] or ""),
                 harness=str(row[3] or ""),
@@ -663,7 +664,7 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
             """
             SELECT
                 {_EFFECTIVE_DESCRIPTION} AS description,
-                toString(max(timestamp)) AS last_seen
+                max(timestamp) AS last_seen
             FROM events
             WHERE {where}
             GROUP BY description
@@ -691,7 +692,7 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
             )
 
         results = [
-            MCPToolDescriptionItem(description=str(row[0] or ""), last_seen=str(row[1] or ""))
+            MCPToolDescriptionItem(description=str(row[0] or ""), last_seen=isoformat_timestamp(row[1]))
             for row in (response.results or [])
         ]
         return MCPToolDescriptionsQueryResponse(
@@ -726,7 +727,7 @@ class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleInten
         return parse_select(
             """
             SELECT
-                toString(timestamp) AS timestamp,
+                timestamp,
                 intent,
                 intent_source,
                 {harness_label} AS harness
@@ -768,7 +769,7 @@ class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleInten
 
         results = [
             MCPToolSampleIntentItem(
-                timestamp=str(row[0] or ""),
+                timestamp=isoformat_timestamp(row[0]),
                 intent=str(row[1] or ""),
                 intent_source=str(row[2] or ""),
                 harness=str(row[3] or ""),
