@@ -145,7 +145,49 @@ class TestOrganizationOffboarding(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         assert self.client.get(self.url + "offboarding_preview/").status_code == 403
+        assert self.client.get(self.url + "offboarding_unattributed_recordings/").status_code == 403
+        assert self.client.post(self.url + "offboarding_unattributed_recordings/revoke/").status_code == 403
         assert self.client.delete(self.url).status_code == 403
+
+    def test_revoke_unattributed_recording_links_only_disables_active_links_without_publisher(self) -> None:
+        def share(team: Team, session_id: str, **kwargs: object) -> SharingConfiguration:
+            recording = SessionRecording.objects.create(team=team, session_id=session_id)
+            return SharingConfiguration.objects.create(team=team, recording=recording, enabled=True, **kwargs)
+
+        second_team = Team.objects.create(organization=self.organization, name="Second project")
+        unattributed = [share(self.team, "unattributed-1"), share(second_team, "unattributed-2")]
+        deleted_recording = SessionRecording.objects.create(team=self.team, session_id="deleted", deleted=True)
+        SharingConfiguration.objects.create(team=self.team, recording=deleted_recording, enabled=True)
+        disabled = share(self.team, "disabled")
+        disabled.enabled = False
+        disabled.save()
+        attributed = share(self.team, "attributed", shared_by=self.user)
+        expired = share(self.team, "expired", expires_at=timezone.now() - timedelta(seconds=1))
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other organization"))
+        other_organization = share(other_team, "other-organization")
+
+        response = self.client.get(self.url + "offboarding_unattributed_recordings/")
+        assert response.json() == {"count": 2, "count_is_capped": False}
+
+        with patch("posthog.unattributed_recording_links.COUNT_LIMIT", 1):
+            assert self.client.get(self.url + "offboarding_unattributed_recordings/").json() == {
+                "count": 1,
+                "count_is_capped": True,
+            }
+        self_url = f"/api/organizations/@current/members/{self.user.uuid}/"
+        assert self.client.get(self_url + "offboarding_unattributed_recordings/").json()["count"] == 0
+        assert self.client.post(self_url + "offboarding_unattributed_recordings/revoke/").status_code == 400
+        response = self.client.post(self.url + "offboarding_unattributed_recordings/revoke/")
+        assert response.status_code == 202
+        assert response.json() == {"count": 2, "count_is_capped": False}
+        for link in (*unattributed, attributed, other_organization):
+            link.refresh_from_db()
+        assert [link.enabled for link in unattributed] == [False, False]
+        assert attributed.enabled
+        assert other_organization.enabled
+        assert self.client.get(self.url + "offboarding_unattributed_recordings/").json()["count"] == 0
+        expired.refresh_from_db()
+        assert expired.enabled
 
     def test_self_removal_preserves_public_links(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, is_shared=True)

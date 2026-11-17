@@ -40,6 +40,8 @@ from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.organization_offboarding import OrganizationOffboarding
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
+from posthog.tasks.organization_offboarding import revoke_unattributed_recording_links_task
+from posthog.unattributed_recording_links import UnattributedRecordingLinksCount, count_unattributed_recording_links
 from posthog.utils import posthoganalytics
 
 from products.access_control.backend.facade.subject_access_control import get_project_scoped_visible_membership_ids
@@ -183,6 +185,16 @@ class MemberOffboardingResourceSerializer(serializers.Serializer):
     )
     password_protected = serializers.BooleanField(help_text="Whether all active public links require a password.")
     url = serializers.CharField(allow_null=True, help_text="Project-scoped path to open the resource in PostHog.")
+
+
+class MemberOffboardingUnattributedRecordingsSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        help_text=(
+            "Active public recording links in this organization with no recorded publisher. "
+            "These links can't be tied to any member. The count stops at 10,000."
+        )
+    )
+    count_is_capped = serializers.BooleanField(help_text="Whether more links exist than `count` shows.")
 
 
 @extend_schema(extensions={"x-product": "platform_features"})
@@ -367,16 +379,59 @@ class OrganizationMemberViewSet(
     )
     @action(detail=True, methods=["get"], required_scopes=["organization_member:write"], pagination_class=None)
     def offboarding_preview(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self._get_offboarding_membership(request)
+        if instance.user_id == request.user.id:
+            return Response([])
+        resources = OrganizationOffboarding(instance).resources()
+        return Response(MemberOffboardingResourceSerializer(resources, many=True).data)
+
+    @extend_schema(
+        operation_id="members_offboarding_unattributed_recordings_retrieve",
+        responses=MemberOffboardingUnattributedRecordingsSerializer,
+    )
+    @action(detail=True, methods=["get"], required_scopes=["organization_member:write"], pagination_class=None)
+    def offboarding_unattributed_recordings(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self._get_offboarding_membership(request)
+        if instance.user_id == request.user.id:
+            links = UnattributedRecordingLinksCount(count=0, count_is_capped=False)
+        else:
+            links = count_unattributed_recording_links(str(instance.organization_id))
+        return Response(MemberOffboardingUnattributedRecordingsSerializer(links).data)
+
+    @extend_schema(
+        operation_id="members_offboarding_unattributed_recordings_revoke",
+        request=None,
+        responses={202: MemberOffboardingUnattributedRecordingsSerializer},
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="offboarding_unattributed_recordings/revoke",
+        required_scopes=["organization_member:write"],
+    )
+    def offboarding_revoke_unattributed_recordings(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self._get_offboarding_membership(request)
+        if instance.user_id == request.user.id:
+            raise exceptions.ValidationError("Only another admin can revoke these links while you leave.")
+        organization_id = str(instance.organization_id)
+        links = count_unattributed_recording_links(organization_id)
+        revoke_unattributed_recording_links_task.delay(organization_id)
+        posthoganalytics.capture(
+            distinct_id=str(cast(User, request.user).distinct_id),
+            event="organization offboarding unattributed recording links revocation requested",
+            properties={"link_count": links.count, "link_count_is_capped": links.count_is_capped},
+            groups=groups(instance.organization),
+        )
+        return Response(MemberOffboardingUnattributedRecordingsSerializer(links).data, status=202)
+
+    def _get_offboarding_membership(self, request: Request) -> OrganizationMembership:
         instance = cast(OrganizationMembership, self.get_object())
         requesting_membership = OrganizationMembership.objects.get(
             user_id=cast(User, request.user).id,
             organization=instance.organization,
         )
         requesting_membership.validate_update(instance)
-        if instance.user_id == request.user.id:
-            return Response([])
-        resources = OrganizationOffboarding(instance).resources()
-        return Response(MemberOffboardingResourceSerializer(resources, many=True).data)
+        return instance
 
     @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
     @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])
