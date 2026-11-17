@@ -84,6 +84,15 @@ def _run_provider(
     provider(erasure=erasure, cluster=cluster)
 
 
+def _assert_writers_drained(*, erasure: IntentErasure, cluster: ClickhouseCluster) -> None:
+    # Legacy writers read source intents and write copies later without consulting the barrier, so empty
+    # stores prove nothing about them. Drain proof is required even when no derived data exists yet.
+    provider = _provider(WRITERS_DRAINED)
+    if provider is None:
+        raise IntentErasurePending("Intent writer drain cannot be proved in this layer")
+    provider(erasure=erasure, cluster=cluster)
+
+
 def _pg_state_exists(team_id: int) -> bool:
     with team_scope(team_id, canonical=True):
         return (
@@ -136,9 +145,7 @@ def prepare(
         erasure = IntentErasure(
             project_id=source_team_id, invalidation_id=invalidation_id, source_team_ids=(source_team_id,)
         )
-        _run_provider(
-            WRITERS_DRAINED, erasure=erasure, cluster=cluster, has_state=has_state(erasure=erasure, cluster=cluster)
-        )
+        _assert_writers_drained(erasure=erasure, cluster=cluster)
         return erasure
     project = source.parent_team or source
     invalidation_id = uuid5(invalidation_id, str(project.pk))
@@ -174,7 +181,7 @@ def prepare(
     if state:
         _require_source_verification(project, erasure)
     try:
-        _run_provider(WRITERS_DRAINED, erasure=erasure, cluster=cluster, has_state=state)
+        _assert_writers_drained(erasure=erasure, cluster=cluster)
     except IntentErasurePending:
         _require_source_verification(project, erasure)
         raise
@@ -197,9 +204,7 @@ def _require_source_verification(project: Team, erasure: IntentErasure) -> None:
 def complete(*, erasure: IntentErasure, cluster: ClickhouseCluster) -> None:
     project = Team.objects.filter(pk=erasure.project_id).first()
     if project is None:
-        _run_provider(
-            WRITERS_DRAINED, erasure=erasure, cluster=cluster, has_state=has_state(erasure=erasure, cluster=cluster)
-        )
+        _assert_writers_drained(erasure=erasure, cluster=cluster)
         return
     failure: Exception | None = None
     with _locked_barrier(project) as barrier:
@@ -218,7 +223,7 @@ def complete(*, erasure: IntentErasure, cluster: ClickhouseCluster) -> None:
         try:
             with transaction.atomic():
                 state = has_state(erasure=erasure, cluster=cluster)
-                _run_provider(WRITERS_DRAINED, erasure=erasure, cluster=cluster, has_state=state)
+                _assert_writers_drained(erasure=erasure, cluster=cluster)
                 _run_provider(STORAGE_PURGE, erasure=erasure, cluster=cluster, has_state=state)
                 _run_provider(ROLLUPS_PURGE, erasure=erasure, cluster=cluster, has_state=state)
                 for team_id in erasure.source_team_ids:
