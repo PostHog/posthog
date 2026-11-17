@@ -20,6 +20,10 @@ dependencies = [
     'posthoganalytics>=7.91.1,<8',
     # ok: posthog-sdk-major-pin-python
     "posthoganalytics>=7.91.1,<8; python_version < '4'",
+    # ruleid: posthog-sdk-major-pin-python
+    "posthoganalytics (>=7.91.1)",
+    # ok: posthog-sdk-major-pin-python
+    "posthoganalytics (>=7.91.1,<8)",
 ]
 
 [tool.poetry.dependencies]

@@ -46,10 +46,10 @@ rules:
       patterns:
           - pattern-either:
                 # requirements.txt / .in lines
-                - pattern-regex: '(?m)^[ \t]*(?:posthoganalytics|posthog)(?:\[[^\]\n]*\])?(?=[ \t]*(?:[<>!~;#]|==|$))(?![^#;\n]*(?:==|~=|<))'
+                - pattern-regex: '(?m)^[ \t]*(?:posthoganalytics|posthog)(?:\[[^\]\n]*\])?(?=[ \t]*(?:[(<>!~;#]|==|$))(?![^#;\n]*(?:==|~=|<))'
                 # PEP 621 dependency strings
-                - pattern-regex: '"(?![^";\n]*(?:==|~=|<))(?:posthoganalytics(?:\[[^\]"]*\])?(?:\s*[>!;][^"\n]*)?|posthog(?:\[[^\]"]*\])?\s*[>!;][^"\n]*)"'
-                - pattern-regex: '''(?![^'';\n]*(?:==|~=|<))(?:posthoganalytics(?:\[[^\]'']*\])?(?:\s*[>!;][^''\n]*)?|posthog(?:\[[^\]'']*\])?\s*[>!;][^''\n]*)'''
+                - pattern-regex: '"(?![^";\n]*(?:==|~=|<))(?:posthoganalytics(?:\[[^\]"]*\])?(?:\s*[(>!;][^"\n]*)?|posthog(?:\[[^\]"]*\])?\s*[(>!;][^"\n]*)"'
+                - pattern-regex: '''(?![^'';\n]*(?:==|~=|<))(?:posthoganalytics(?:\[[^\]'']*\])?(?:\s*[(>!;][^''\n]*)?|posthog(?:\[[^\]'']*\])?\s*[(>!;][^''\n]*)'''
                 # Poetry-style tables
                 - pattern-regex: '(?m)^[ \t]*(?:posthoganalytics|posthog)[ \t]*=[ \t]*"(?:\*|[>!][^"<\n]*)"'
           # A cap that lives elsewhere in the manifest: a uv constraint, or a pip constraints file.
@@ -76,7 +76,7 @@ rules:
           - pattern-regex: '(?m)^[ \t]*posthog-rs[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
           - pattern-regex: '(?m)^[ \t]*posthog-rs[ \t]*=[ \t]*\{[^}\n]*\bversion[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
           - pattern-regex: '(?m)^[ \t]*posthog-rs[ \t]*=[ \t]*\{(?![^}\n]*\b(?:version|rev|tag|workspace|path)[ \t]*=)[^}\n]*\bgit[ \t]*='
-          - pattern-regex: '(?m)^[ \t]*\[(?:[^\]\n]*\.)?(?:dev-|build-)?dependencies\.posthog-rs\][ \t]*$(?:(?!^[ \t]*\[)[\s\S])*?^[ \t]*version[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
+          - pattern-regex: '(?m)^[ \t]*\[(?:[^\]\n]*\.)?(?:dev-|build-)?dependencies\.posthog-rs\][ \t]*(?:#[^\n]*)?$(?:(?!^[ \t]*\[)[\s\S])*?^[ \t]*version[ \t]*=[ \t]*"(?:\*|>[^"<\n]*)"'
       metadata:
           category: best-practice
           subcategory:

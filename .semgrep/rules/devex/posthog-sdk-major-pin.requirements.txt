@@ -12,3 +12,7 @@ posthog>=7.91.1,<8
 posthog~=7.91
 # ok: posthog-sdk-major-pin-python
 posthog-ai>=1
+# ruleid: posthog-sdk-major-pin-python
+posthoganalytics (>=7.91.1)
+# ok: posthog-sdk-major-pin-python
+posthoganalytics (>=7.91.1,<8)

@@ -23,6 +23,10 @@ posthog-symbol-data = "*"
 features = ["async-client"]
 version = ">=0.30"
 
+# ruleid: posthog-sdk-major-pin-rust
+[build-dependencies.posthog-rs] # SDK
+version = "*"
+
 # ok: posthog-sdk-major-pin-rust
 [workspace.dependencies.posthog-rs]
 version = "0.33.1"
