@@ -19,7 +19,6 @@ export type UtmTags = {
 type LinkTags = Record<string, string>
 
 export type WorkflowRunTag = {
-    // null when this send carries no run id: links still lose the run ids of earlier sends.
     runId: string | null
     senderEmail: string
     siteUrl: string

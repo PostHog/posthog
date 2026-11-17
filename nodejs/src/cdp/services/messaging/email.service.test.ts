@@ -3893,6 +3893,10 @@ describe('EmailService', () => {
                 )
             })
 
+            const STALE_HREF = 'https://app.posthog-test.com/?ref=email&ph_workflow_run=earlier-run'
+            const TAGGED_HREF = 'https://app.posthog-test.com/?ref=email&amp;ph_workflow_run=invocation-1'
+            const STRIPPED_HREF = 'https://app.posthog-test.com/?ref=email'
+
             it.each<{
                 case: string
                 trackingEnabled: boolean
@@ -3901,7 +3905,7 @@ describe('EmailService', () => {
                 sensitive: boolean
                 send?: { sensitive: boolean }
                 teamOptedOut?: boolean
-                runIds: string[]
+                href: string
             }>([
                 {
                     case: 'tags the links of a tracked send',
@@ -3909,7 +3913,7 @@ describe('EmailService', () => {
                     allowlisted: true,
                     isTest: false,
                     sensitive: false,
-                    runIds: ['invocation-1'],
+                    href: TAGGED_HREF,
                 },
                 {
                     case: 'leaves the links of a team off the allowlist',
@@ -3917,15 +3921,7 @@ describe('EmailService', () => {
                     allowlisted: false,
                     isTest: false,
                     sensitive: false,
-                    runIds: ['earlier-run'],
-                },
-                {
-                    case: 'leaves the links of an untracked send from a team off the allowlist',
-                    trackingEnabled: false,
-                    allowlisted: false,
-                    isTest: false,
-                    sensitive: false,
-                    runIds: ['earlier-run'],
+                    href: STALE_HREF,
                 },
                 {
                     case: 'drops the run ids of earlier sends from the links of a team that turned link tagging off',
@@ -3934,40 +3930,40 @@ describe('EmailService', () => {
                     isTest: false,
                     sensitive: false,
                     teamOptedOut: true,
-                    runIds: [],
+                    href: STRIPPED_HREF,
                 },
                 {
-                    case: 'drops the run ids of earlier sends from an untracked send',
+                    case: 'leaves the links of an untracked send',
                     trackingEnabled: false,
                     allowlisted: true,
                     isTest: false,
                     sensitive: false,
-                    runIds: [],
+                    href: STALE_HREF,
                 },
                 {
-                    case: 'drops the run ids of earlier sends from a test send',
+                    case: 'leaves the links of a test send',
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: true,
                     sensitive: false,
-                    runIds: [],
+                    href: STALE_HREF,
                 },
                 {
-                    case: 'drops the run ids of earlier sends from a sensitive email',
+                    case: 'leaves the links of a sensitive email',
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
                     sensitive: true,
-                    runIds: [],
+                    href: STALE_HREF,
                 },
                 {
-                    case: "drops the run ids of earlier sends from a code send marked sensitive on a workflow that isn't sensitive",
+                    case: "leaves the links of a code send marked sensitive on a workflow that isn't sensitive",
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
                     sensitive: false,
                     send: { sensitive: true },
-                    runIds: [],
+                    href: STALE_HREF,
                 },
                 {
                     case: 'tags the links of a code send marked not sensitive on a sensitive workflow',
@@ -3976,11 +3972,11 @@ describe('EmailService', () => {
                     isTest: false,
                     sensitive: true,
                     send: { sensitive: false },
-                    runIds: ['invocation-1'],
+                    href: TAGGED_HREF,
                 },
             ])(
                 '$case with the workflow run id',
-                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, runIds }) => {
+                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, href }) => {
                     if (teamOptedOut) {
                         await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
@@ -3999,47 +3995,43 @@ describe('EmailService', () => {
                     invocation.state.send = send && { ...send, tracking: { captureEngagement: true } }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
-                        html: '<a href="https://app.posthog-test.com/?ref=email&ph_workflow_run=earlier-run">a</a><a href="https://example.com/">b</a>',
+                        html: `<a href="${STALE_HREF}">a</a><a href="https://example.com/">b</a>`,
                     })
                     const result = await taggingService.executeSendEmail(invocation, isTest)
                     expect(result.error).toBeUndefined()
-                    const sentHtml = ses.sent[0].html!
-                    expect(sentHtml.match(/ph_workflow_run=[^"&]*/g) ?? []).toEqual(
-                        runIds.map((runId) => `ph_workflow_run=${runId}`)
-                    )
-                    expect(sentHtml).toContain(
-                        `href="https://app.posthog-test.com/?ref=email${runIds.length ? '&' : '"'}`
-                    )
+                    expect([...ses.sent[0].html!.matchAll(/href="([^"]*)"/g)].map(([, sent]) => sent)).toEqual([
+                        href,
+                        'https://example.com/',
+                    ])
                 }
             )
 
-            // A transactional send skips the consent read, so its failure reaches the tag lookup instead.
-            it.each(['marketing', 'transactional'] as const)(
-                'sends a %s email without any run id when the team config read fails',
-                async (category) => {
-                    const teamConfigDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => true)
-                    const taggingService = createService(
-                        { workflowRunLinkTagTeams: String(team.id) },
-                        {},
-                        { teamConfigDb: teamConfigDb.postgres }
-                    )
-                    invocation.hogFunction.metadata = {
-                        tracking_enabled: true,
-                        sensitive: false,
-                        message_category_type: category,
-                    }
-                    invocation.queueParameters = createEmailParams({
-                        from: { integrationId: 1 },
-                        html: '<a href="https://app.posthog-test.com/?ref=email&ph_workflow_run=earlier-run">b</a>',
-                    })
-
-                    const result = await taggingService.executeSendEmail(invocation).finally(() => teamConfigDb.close())
-
-                    expect(result.error).toBeUndefined()
-                    expect(ses.sent).toHaveLength(1)
-                    expect(ses.sent[0].html).toContain('href="https://app.posthog-test.com/?ref=email"')
+            it('sends without any run id when the link tag lookup fails', async () => {
+                const teamConfigDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => true)
+                const taggingService = createService(
+                    { workflowRunLinkTagTeams: String(team.id) },
+                    {},
+                    { teamConfigDb: teamConfigDb.postgres }
+                )
+                // Transactional sends skip the consent read, so the failure reaches the tag lookup.
+                invocation.hogFunction.metadata = {
+                    tracking_enabled: true,
+                    sensitive: false,
+                    message_category_type: 'transactional',
                 }
-            )
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    html: `<a href="${STALE_HREF}">b</a>`,
+                })
+
+                const result = await taggingService.executeSendEmail(invocation).finally(() => teamConfigDb.close())
+
+                expect(result.error).toBeUndefined()
+                expect(ses.sent).toHaveLength(1)
+                expect([...ses.sent[0].html!.matchAll(/href="([^"]*)"/g)].map(([, sent]) => sent)).toEqual([
+                    STRIPPED_HREF,
+                ])
+            })
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
                 invocation.state.renderedWorkflowVersion = 3
