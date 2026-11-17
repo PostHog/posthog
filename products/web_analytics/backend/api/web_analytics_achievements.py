@@ -1,7 +1,7 @@
 from typing import cast
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -13,15 +13,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 
-from products.web_analytics.backend.achievements.definitions import (
-    STREAK_ARM_CONTROL,
-    TRACKS,
-    TrackKey,
-    serialize_definitions,
-)
+from products.web_analytics.backend.achievements.definitions import TRACKS, TrackKey, serialize_definitions
 from products.web_analytics.backend.achievements.tasks import (
-    ensure_team_progress,
-    recompute_web_analytics_achievements_sync,
+    recompute_web_analytics_achievements,
     streak_arm_for_user,
     team_local_today,
 )
@@ -45,9 +39,6 @@ class AchievementDefinitionSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="Stable track identifier, e.g. 'streak'.")
     display_name = serializers.CharField(help_text="Human-readable track name.")
     description = serializers.CharField(help_text="One-line description of what the track rewards.")
-    scope = serializers.ChoiceField(
-        choices=["user", "team"], help_text="Whether the track is tracked per user or per team."
-    )
     is_experiment_track = serializers.BooleanField(
         help_text="True for the streak track, whose thresholds vary by the streak-cadence experiment arm."
     )
@@ -79,10 +70,7 @@ class AchievementsListResponseSerializer(serializers.Serializer):
     definitions = AchievementDefinitionSerializer(
         many=True, help_text="All Wave-1 track definitions, thresholds resolved for the user's streak arm."
     )
-    user_progress = AchievementProgressSerializer(
-        many=True, help_text="The requesting user's progress on per-user tracks."
-    )
-    team_progress = AchievementProgressSerializer(many=True, help_text="The team's progress on per-team tracks.")
+    user_progress = AchievementProgressSerializer(many=True, help_text="The requesting user's progress on each track.")
     pending_celebrations = PendingCelebrationSerializer(
         many=True, help_text="Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it."
     )
@@ -141,16 +129,10 @@ def _stage_name(track_key: str, stage: int) -> str:
     return track.stages[stage - 1].name if 1 <= stage <= len(track.stages) else ""
 
 
-def _collect_pending(rows: list[WebAnalyticsAchievementProgress], user_id: int) -> list[dict[str, object]]:
+def _collect_pending(rows: list[WebAnalyticsAchievementProgress]) -> list[dict[str, object]]:
     pending: list[dict[str, object]] = []
     for progress in rows:
-        state = progress.state or {}
-        celebration_acks = state.get("celebration_acks", {})
-        for stage in state.get("pending_celebrations", []):
-            # Team rows are shared across members; only surface a stage to a user who hasn't acked it
-            # yet, so a team unlock is celebrated once per member rather than first-acker-wins.
-            if progress.user_id is None and user_id in celebration_acks.get(str(stage), []):
-                continue
+        for stage in (progress.state or {}).get("pending_celebrations", []):
             pending.append(
                 {
                     "track_key": progress.track_key,
@@ -170,7 +152,7 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         summary="Get Web analytics achievements overview",
         description=(
             "Returns the achievement track definitions (thresholds resolved for the requesting user's "
-            "streak-cadence arm), the user's and team's progress, and any newly unlocked stages awaiting "
+            "streak-cadence arm), the user's progress, and any newly unlocked stages awaiting "
             "an in-session celebration."
         ),
         responses={200: AchievementsListResponseSerializer},
@@ -180,18 +162,12 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         user = cast(User, request.user)
         arm = streak_arm_for_user(user)
         canonical_team_id = self.team.parent_team_id or self.team.id
-
-        if arm != STREAK_ARM_CONTROL:
-            ensure_team_progress(self.team)
-
         user_rows = list(WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, user=user))
-        team_rows = list(WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, user__isnull=True))
 
         payload = {
             "definitions": serialize_definitions(arm),
             "user_progress": [_serialize_progress(row) for row in user_rows],
-            "team_progress": [_serialize_progress(row) for row in team_rows],
-            "pending_celebrations": _collect_pending(user_rows + team_rows, user.id),
+            "pending_celebrations": _collect_pending(user_rows),
         }
         return Response(AchievementsListResponseSerializer(payload).data)
 
@@ -216,10 +192,9 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
             visit_date=today,
         )
         try:
-            recompute_web_analytics_achievements_sync(canonical_team_id, user_id=user.id, cheap_only=True)
+            recompute_web_analytics_achievements(self.team.parent_team or self.team, user)
         except Exception as e:
             capture_exception(e)
-        ensure_team_progress(self.team)
         return Response({"recorded": True})
 
     @extend_schema(
@@ -244,31 +219,17 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         # Lock the rows so this serializes with a concurrent recompute on the same row — neither can
         # clobber the other's state, and an acked celebration can't be resurrected.
         with transaction.atomic():
-            rows = (
-                WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, track_key=track_key)
-                .filter(Q(user=user) | Q(user__isnull=True))
-                .select_for_update()
-            )
+            rows = WebAnalyticsAchievementProgress.objects.filter(
+                team_id=canonical_team_id, track_key=track_key, user=user
+            ).select_for_update()
             for progress in rows:
                 state = dict(progress.state or {})
                 pending = list(state.get("pending_celebrations", []))
                 if stage not in pending:
                     continue
-                if progress.user_id is None:
-                    # Team celebration: record this user's ack without clearing it for other members.
-                    celebration_acks = dict(state.get("celebration_acks", {}))
-                    acked_user_ids = list(celebration_acks.get(str(stage), []))
-                    if user.id not in acked_user_ids:
-                        acked_user_ids.append(user.id)
-                        celebration_acks[str(stage)] = acked_user_ids
-                        state["celebration_acks"] = celebration_acks
-                        progress.state = state
-                        progress.save(update_fields=["state", "updated_at"])
-                else:
-                    # User celebration: the pending list is already per-user, so drop the stage.
-                    state["pending_celebrations"] = [entry for entry in pending if entry != stage]
-                    progress.state = state
-                    progress.save(update_fields=["state", "updated_at"])
+                state["pending_celebrations"] = [entry for entry in pending if entry != stage]
+                progress.state = state
+                progress.save(update_fields=["state", "updated_at"])
                 acknowledged = True
         return Response({"acknowledged": acknowledged})
 
@@ -298,7 +259,7 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         # Atomic increment — no read-modify-write, so concurrent interactions can't lose a count.
         WebAnalyticsInteraction.objects.filter(pk=interaction.pk).update(count=F("count") + 1)
         try:
-            recompute_web_analytics_achievements_sync(canonical_team_id, user_id=user.id, cheap_only=True)
+            recompute_web_analytics_achievements(self.team.parent_team or self.team, user)
         except Exception as e:
             capture_exception(e)
         return Response({"recorded": True})

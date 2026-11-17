@@ -1450,7 +1450,7 @@ export const getWebAnalyticsAchievementsOverviewUrl = (projectId: string) => {
 }
 
 /**
- * Returns the achievement track definitions (thresholds resolved for the requesting user's streak-cadence arm), the user's and team's progress, and any newly unlocked stages awaiting an in-session celebration.
+ * Returns the achievement track definitions (thresholds resolved for the requesting user's streak-cadence arm), the user's progress, and any newly unlocked stages awaiting an in-session celebration.
  * @summary Get Web analytics achievements overview
  */
 export const webAnalyticsAchievementsOverview = async (

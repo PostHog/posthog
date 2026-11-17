@@ -164,7 +164,6 @@ from products.visual_review.backend.facade.tasks import (
     sweep_visual_review_runs,
 )
 from products.warehouse_sources.backend.facade.tasks import sweep_stalled_schema_schedules, sweep_stopped_schema_syncs
-from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
@@ -564,13 +563,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="verify and fix auth token cache",
         # expires_seconds omitted — defaults to 1.5x interval (9 h) so the safety-net
         # task survives moderate worker downtime without being dropped.
-    )
-
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/5"),
-        sweep_web_analytics_achievement_team_tracks.s(),
-        name="web analytics achievements team-track sweep",
     )
 
     # Update events table partitions twice a week
