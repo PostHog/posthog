@@ -8,7 +8,6 @@ import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { CatalogSetupSource, catalogSetupLogic } from '../catalogSetupLogic'
 import { AIConsentGate, useAIConsentGate } from './useAIConsentGate'
 
-/** The consent gate for both setup buttons, including the resume after an SSO reauthentication. */
 export function useSetupWithPostHogAIGate(source: CatalogSetupSource): AIConsentGate {
     const { startSetupWithPostHogAI, rememberSetupIntent, resumeSetupIntent } = useActions(catalogSetupLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
