@@ -5,7 +5,7 @@ import { Suspense } from 'react'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import { ANOMALY_SCORES_SEARCH_PARAM } from './anomalyScorePoints'
+import { ANOMALY_SCORES_SEARCH_PARAM } from './anomalyScoresParam'
 import type { TrendsAnomalyScoreOverlayProps } from './TrendsAnomalyScoreOverlay'
 
 // Only a link from the Anomalies tab asks for the marks, so their code and request stay out of every other chart.

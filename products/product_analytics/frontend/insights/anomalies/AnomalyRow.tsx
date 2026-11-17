@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import type { AnomalyIntervalEnumApi, AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { AnomalyRowChart } from './AnomalyRowChart'
-import { withAnomalyScoresParam } from './anomalyScorePoints'
+import { withAnomalyScoresParam } from './anomalyScoresParam'
 
 const INTERVAL_LABELS: Record<AnomalyIntervalEnumApi, string> = {
     hour: 'Hourly',

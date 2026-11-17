@@ -4,13 +4,6 @@ import type { AnomalyPoint } from 'products/alerts/frontend/types'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 import type { AnomalyInsightSeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
-// Pinned: URL search param. The Anomalies tab adds it to a row link, and a bookmark can hold it.
-export const ANOMALY_SCORES_SEARCH_PARAM = 'anomaly_scores'
-
-export function withAnomalyScoresParam(path: string): string {
-    return `${path}${path.includes('?') ? '&' : '?'}${ANOMALY_SCORES_SEARCH_PARAM}=true`
-}
-
 // Both strings are wall-clock times in the project timezone. A chart day has no offset and can lack the time.
 function wallClock(value: string): string {
     const normalized = value.replace(' ', 'T').slice(0, 19)
