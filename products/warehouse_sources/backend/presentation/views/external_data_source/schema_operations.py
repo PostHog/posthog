@@ -26,6 +26,7 @@ from posthog.permissions import is_service_auth
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
+from products.warehouse_sources.backend.facade.contracts import AddedTableLocationError
 from products.warehouse_sources.backend.facade.incremental_field_model import (
     MAX_COLUMNS_PER_CALL,
     MAX_TABLES_PER_CALL,
@@ -50,14 +51,13 @@ from products.warehouse_sources.backend.facade.source_management import (
     Config,
     CustomSource,
     MySQLSource,
-    ObjectStorageError,
-    ObjectStorageSource,
     PostgresSource,
     SQLSource,
-    TableDefinition,
     build_default_sync_settings,
+    define_added_table_metadata,
     known_source_key,
     new_source_requires_ssl,
+    supports_adding_tables,
 )
 from products.warehouse_sources.backend.presentation.sync_frequency_field import SYNC_FREQUENCY_HELP_TEXT
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
@@ -538,11 +538,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         instance: ExternalDataSource = self.get_object()
         data = request.validated_data
         name: str = data["name"]
-        try:
-            source = base.SourceRegistry.get_source(known_source_key(instance.source_type))
-        except ValueError:
-            source = None
-        if not isinstance(source, ObjectStorageSource):
+        if not supports_adding_tables(instance.source_type):
             raise ValidationError("Only object storage sources can add a table by path.")
         source_inputs = SourceInputsStore.load(instance)
         if not source_inputs:
@@ -550,7 +546,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         self._refuse_taken_table_name(instance, name)
 
         # The storage requests run before the row lock, so a slow bucket can't hold the source row.
-        table = self._define_added_table(instance, source, source_inputs, data)
+        schema_metadata = self._define_added_table(instance, source_inputs, data)
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
             self._refuse_taken_table_name(instance, name)
@@ -560,7 +556,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 source=instance,
                 should_sync=False,
                 sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
-                sync_type_config={"schema_metadata": {**table.schema_metadata(), SCHEMA_PINNED_METADATA_KEY: True}},
+                sync_type_config={"schema_metadata": {**schema_metadata, SCHEMA_PINNED_METADATA_KEY: True}},
             )
         base.logger.info(
             "add_table created a schema",
@@ -568,7 +564,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             team_id=self.team_id,
             source_type=instance.source_type,
             schema_id=str(schema.id),
-            table_kind=table.kind,
+            table_kind=schema_metadata.get("kind"),
         )
         return Response(
             ExternalDataSchemaSerializer(schema, context=self.get_serializer_context()).data,
@@ -587,20 +583,21 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             raise ValidationError({"name": f"A table named {name} already exists in this source."})
 
     def _define_added_table(
-        self,
-        instance: ExternalDataSource,
-        source: ObjectStorageSource,
-        source_inputs: dict[str, Any],
-        data: dict[str, Any],
-    ) -> TableDefinition:
+        self, instance: ExternalDataSource, source_inputs: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
         try:
-            config = source.parse_config(source_inputs)
-            return source.define_added_table(
-                config, data["name"], data["path"], data["file_format"], data["csv_allow_double_quotes"]
+            return define_added_table_metadata(
+                instance.source_type,
+                source_inputs,
+                data["name"],
+                data["path"],
+                data["file_format"],
+                data["csv_allow_double_quotes"],
             )
-        except ObjectStorageError as e:
+        except AddedTableLocationError as e:
             raise ValidationError({"path": str(e)}) from e
         except Exception as e:
+            source = base.SourceRegistry.get_source(known_source_key(instance.source_type))
             error_message, is_expected_source_error = helpers._classify_refresh_schemas_error(source, e)
             base.logger.exception(
                 "Could not read the location of an added table",

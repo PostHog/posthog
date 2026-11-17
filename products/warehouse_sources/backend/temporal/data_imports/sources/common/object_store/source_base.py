@@ -8,6 +8,7 @@ import pyarrow as pa
 from botocore.exceptions import ClientError
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.facade.contracts import AddedTableLocationError
 from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
@@ -79,6 +80,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     CHUNK_SIZE_BYTES,
     MAX_DISCOVERY_OBJECTS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
+    SourceRegistry,
+    known_source_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
@@ -473,6 +478,57 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             f"{NO_TABLE_FILES_ERROR} '{schema_name}'. The files it was discovered from may have been renamed, "
             "moved, or removed from the bucket."
         )
+
+
+def _object_storage_source(source_type: str) -> "ObjectStorageSource[Any] | None":
+    try:
+        source = SourceRegistry.get_source(known_source_key(source_type))
+    except ValueError:
+        return None
+    return source if isinstance(source, ObjectStorageSource) else None
+
+
+def supports_adding_tables(source_type: str) -> bool:
+    """Whether a table can be added to a source of this type by its path."""
+    return _object_storage_source(source_type) is not None
+
+
+def added_table_root(source_type: str, job_inputs: dict[str, Any]) -> str | None:
+    """Where relative paths of an added table start, or None for a source that can't add tables.
+
+    It reads only the files URL, so it makes no network call.
+    """
+    source = _object_storage_source(source_type)
+    if source is None:
+        return None
+    try:
+        return source.table_root(source.parse_config(job_inputs))
+    except Exception:
+        return None
+
+
+def define_added_table_metadata(
+    source_type: str,
+    job_inputs: dict[str, Any],
+    name: str,
+    location: str,
+    file_format: FileFormatChoice,
+    allow_double_quotes: bool,
+) -> dict[str, Any]:
+    """The `schema_metadata` of a table added by its path, after a check that the key can read it.
+
+    A path the user must change raises `AddedTableLocationError`. Other errors, such as an
+    unexpected storage failure, propagate.
+    """
+    source = _object_storage_source(source_type)
+    if source is None:
+        raise ValueError(f"'{source_type}' is not an object storage source")
+    config = source.parse_config(job_inputs)
+    try:
+        table = source.define_added_table(config, name, location, file_format, allow_double_quotes)
+    except ObjectStorageError as e:
+        raise AddedTableLocationError(str(e)) from e
+    return table.schema_metadata()
 
 
 def _source_schema(table: TableDefinition) -> SourceSchema:

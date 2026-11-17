@@ -75,13 +75,13 @@ from products.warehouse_sources.backend.facade.source_management import (
     CustomSourceConfig,
     DocsFetchError,
     MySQLSource,
-    ObjectStorageSource,
     PostgresSource,
     RowFilterValidationError,
     SourceRegistry,
     SourceSchema,
     WebhookSource,
     add_table_failure_message,
+    added_table_root,
     build_default_schemas,
     draft_manifest_sync,
     fetch_docs_text,
@@ -98,6 +98,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     reserved_column_names,
     source_type_supports_cdc,
     sql_schema_metadata,
+    supports_adding_tables,
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.sync_alerts import create_default_failure_alert
@@ -511,21 +512,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_adding_tables(self, instance: ExternalDataSource) -> bool:
-        try:
-            source = SourceRegistry.get_source(known_source_key(instance.source_type))
-        except ValueError:
-            return False
-        return isinstance(source, ObjectStorageSource)
+        return supports_adding_tables(instance.source_type)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_table_root(self, instance: ExternalDataSource) -> str | None:
-        try:
-            source = SourceRegistry.get_source(known_source_key(instance.source_type))
-            if not isinstance(source, ObjectStorageSource):
-                return None
-            return source.table_root(source.parse_config(self._source_inputs(instance)))
-        except Exception:
+        if not supports_adding_tables(instance.source_type):
             return None
+        return added_table_root(instance.source_type, self._source_inputs(instance))
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_table_discovery(self, instance: ExternalDataSource) -> bool:
