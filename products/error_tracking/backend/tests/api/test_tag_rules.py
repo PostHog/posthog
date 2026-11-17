@@ -10,6 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.error_tracking.backend.logic import team_flags
+from products.error_tracking.backend.logic.issue_tags.rules import MAX_ISSUE_TAG_RULES_PER_TEAM
 from products.error_tracking.backend.logic.issue_tags.runner import run_issue_taggers
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
 
@@ -143,11 +144,29 @@ class TestIssueTagRuleAPI(APIBaseTest):
         ] == [kept["id"]]
         assert list(ErrorTrackingIssueTag.objects.unscoped().values_list("id", flat=True)) == [kept_tag.id]
 
-    def test_reorder_sets_the_list_order(self) -> None:
+    def test_create_rejects_a_rule_above_the_project_limit(self) -> None:
+        ErrorTrackingIssueTagRule.objects.for_team(self.team.id).bulk_create(
+            [
+                ErrorTrackingIssueTagRule(team=self.team, label=f"Rule {index}", filters={}, bytecode=[], order_key=0)
+                for index in range(MAX_ISSUE_TAG_RULES_PER_TEAM)
+            ]
+        )
+
+        response = self.client.post(self._url(), data={"label": "One more", "filters": ENTERPRISE_PLAN}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert ErrorTrackingIssueTagRule.objects.for_team(self.team.id).count() == MAX_ISSUE_TAG_RULES_PER_TEAM
+
+    @parameterized.expand(
+        [("canonical", str), ("uppercase", str.upper), ("no_hyphens", lambda key: key.replace("-", ""))]
+    )
+    def test_reorder_sets_the_list_order(self, _name: str, key_form: Any) -> None:
         first, second = self._create(), self._create("Checkout", CHECKOUT_PAGE)
 
         reorder = self.client.patch(
-            self._url("reorder"), data={"orders": {first["id"]: 1, second["id"]: 0}}, format="json"
+            self._url("reorder"),
+            data={"orders": {key_form(first["id"]): 1, key_form(second["id"]): 0}},
+            format="json",
         )
 
         assert reorder.status_code == status.HTTP_204_NO_CONTENT

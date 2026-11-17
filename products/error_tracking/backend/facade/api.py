@@ -51,6 +51,7 @@ ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
 IssueTagRuleFiltersError = issue_tag_rules.IssueTagRuleFiltersError
+IssueTagRuleLimitError = issue_tag_rules.IssueTagRuleLimitError
 IssueTagsDisabledError = issue_tag_gate.IssueTagsDisabledError
 UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
 

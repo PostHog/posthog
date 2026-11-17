@@ -1,11 +1,12 @@
 from typing import Any
 
-from django.db import transaction
-from django.db.models import F
+from django.db import connection, transaction
 
 from posthog.schema import EmptyPropertyFilter, EventPropertyFilter, PropertyGroupFilterValue
 
 from posthog.hogql.errors import BaseHogQLError
+
+from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.error_tracking.backend.logic.issue_tags.gate import require_issue_tags
 from products.error_tracking.backend.logic.rules import (
@@ -18,8 +19,14 @@ from products.error_tracking.backend.logic.rules import (
 )
 from products.error_tracking.backend.models import ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
 
+MAX_ISSUE_TAG_RULES_PER_TEAM = 100
+
 
 class IssueTagRuleFiltersError(Exception):
+    pass
+
+
+class IssueTagRuleLimitError(Exception):
     pass
 
 
@@ -41,14 +48,27 @@ def create_issue_tag_rule(
     team_id: int, *, label: str, description: str, filters: dict, order_key: int = 0
 ) -> ErrorTrackingIssueTagRule:
     require_issue_tags(team_id)
-    return ErrorTrackingIssueTagRule.objects.for_team(team_id).create(
-        team_id=team_id,
-        label=label,
-        description=description,
-        filters=filters,
-        bytecode=_compile(team_id, filters),
-        order_key=order_key,
-    )
+    bytecode = _compile(team_id, filters)
+    canonical_team_id = resolve_effective_team_id(team_id)
+    rules = ErrorTrackingIssueTagRule.objects.for_team(canonical_team_id, canonical=True)
+    with transaction.atomic():
+        # Serialize creates for the team so concurrent requests cannot all pass the count check. An advisory lock
+        # does this without locking the team row, which every write to a team's child rows touches.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                [f"error-tracking-issue-tag-rules:{canonical_team_id}"],
+            )
+        if rules.count() >= MAX_ISSUE_TAG_RULES_PER_TEAM:
+            raise IssueTagRuleLimitError(f"A project can have at most {MAX_ISSUE_TAG_RULES_PER_TEAM} tag rules.")
+        return rules.create(
+            team_id=canonical_team_id,
+            label=label,
+            description=description,
+            filters=filters,
+            bytecode=bytecode,
+            order_key=order_key,
+        )
 
 
 def update_issue_tag_rule(
@@ -64,31 +84,27 @@ def update_issue_tag_rule(
     A change to the filters starts a new version. Answers from the old version stay, because an edit does not
     re-answer the issues that already exist.
     """
-    rule = get_issue_tag_rule(team_id, rule_id)
-    if rule is None:
+    require_issue_tags(team_id)
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
         return None
-    new_version = filters is not None and filters != rule.filters
-    # Write only these columns. A full save writes back the values read above, which undoes a filter edit or a
-    # tagger auto-disable that committed after that read.
-    changed = ["updated_at"]
-    if filters is not None:
-        rule.bytecode = _compile(team_id, filters)
-        rule.filters = filters
-        rule.disabled_data = None
-        changed += ["bytecode", "filters", "disabled_data"]
-    if new_version:
-        # The tagger stamps each answer with the version it read, so a concurrent edit must not lose an increment.
-        rule.version = F("version") + 1
-        changed.append("version")
-    if label is not None:
-        rule.label = label
-        changed.append("label")
-    if description is not None:
-        rule.description = description
-        changed.append("description")
-    rule.save(update_fields=changed)
-    if new_version:
-        rule.refresh_from_db(fields=["version"])
+    with transaction.atomic():
+        # The row lock holds off a concurrent edit and the tagger's auto-disable from the read to the save, so the
+        # version goes up exactly when the stored filters change.
+        rule = ErrorTrackingIssueTagRule.objects.for_team(team_id).select_for_update().filter(id=parsed_id).first()
+        if rule is None:
+            return None
+        if filters is not None:
+            if filters != rule.filters:
+                rule.version += 1
+            rule.bytecode = _compile(team_id, filters)
+            rule.filters = filters
+            rule.disabled_data = None
+        if label is not None:
+            rule.label = label
+        if description is not None:
+            rule.description = description
+        rule.save()
     return rule
 
 
@@ -109,7 +125,11 @@ def delete_issue_tag_rule(team_id: int, rule_id: str) -> bool:
 
 def reorder_issue_tag_rules(team_id: int, orders: dict[str, int]) -> None:
     require_issue_tags(team_id)
-    _reorder_rules(ErrorTrackingIssueTagRule.objects.for_team(team_id), orders)
+    # The shared helper looks each rule up by its canonical id, so an uppercase or unhyphenated key would miss.
+    canonical_orders = {
+        str(parsed_id): order for key, order in orders.items() if (parsed_id := _parse_rule_id(key)) is not None
+    }
+    _reorder_rules(ErrorTrackingIssueTagRule.objects.for_team(team_id), canonical_orders)
 
 
 def _compile(team_id: int, filters: dict) -> list[Any]:

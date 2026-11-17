@@ -143,6 +143,8 @@ class ErrorTrackingIssueTagRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
             exc = NotFound(ISSUE_TAGS_OFF)
         elif isinstance(exc, error_tracking_api.IssueTagRuleFiltersError):
             exc = ValidationError({"filters": str(exc)})
+        elif isinstance(exc, error_tracking_api.IssueTagRuleLimitError):
+            exc = ValidationError(str(exc))
         return super().handle_exception(exc)
 
     @extend_schema(responses={200: OpenApiResponse(response=ErrorTrackingIssueTagRuleListResponseSerializer)})
