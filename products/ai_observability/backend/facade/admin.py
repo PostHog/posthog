@@ -10,6 +10,7 @@ from products.ai_observability.backend.logic.eval_suggestions.review_queries imp
     ReviewCard as ReviewCard,
     label_card as label_card,
     label_target as label_target,
+    load_labeled_cards as load_labeled_cards,
     load_review_cards as load_review_cards,
 )
 from products.ai_observability.backend.logic.tagger_migration.migration import (
