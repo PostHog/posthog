@@ -6,7 +6,7 @@ The per-source build query and read CTE live in metric_source_precompute; this m
 decides when they apply and runs the builds.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import posthoganalytics
@@ -27,7 +27,10 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
-from posthog.constants import EXPERIMENTS_RATIO_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY
+from posthog.constants import (
+    EXPERIMENTS_CUPED_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY,
+    EXPERIMENTS_RATIO_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY,
+)
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
@@ -110,6 +113,13 @@ class MetricEventsPrecompute:
             raise ValidationError("Experiment must have a start date for lazy computation")
 
         date_from = self.experiment.start_date
+        # The write query rolls its lower bound back with toIntervalDay, which counts calendar days in
+        # the project timezone. Count them the same way here, or across a DST change the first job
+        # starts an hour after the write's lower bound and that hour is never stored.
+        # The builder's config decides, because it also builds the read.
+        if builder.cuped_config.enabled:
+            local_start = date_from.astimezone(self.team.timezone_info)
+            date_from = (local_start - timedelta(days=builder.cuped_config.lookback_days)).astimezone(UTC)
         date_to = experiment_window_end(self.experiment, self.as_of)
 
         # Extend the time range past the experiment end, because metric events can occur after
@@ -142,8 +152,8 @@ class MetricEventsPrecompute:
         Why metric-events precompute cannot serve this metric, or None when it can.
         Supported: ordered funnels, mean metrics with numeric math (count/sum/avg/min/max)
         or ID-valued math (unique users / unique sessions), ratio metrics whose two sides
-        each pass the mean rules, and retention metrics, in all cases without breakdowns,
-        CUPED, or data warehouse sources.
+        each pass the mean rules, and retention metrics, in all cases without breakdowns
+        or data warehouse sources. A CUPED metric is served when its kill-switch flag is on.
 
         Tagged on the read as `experiment_metric_events_skip_reason`, the metric-events
         counterpart of `experiment_precompute_skip_reason`, so query-log analysis can split
@@ -151,9 +161,9 @@ class MetricEventsPrecompute:
         """
         if self.has_breakdowns:
             return "breakdown"
-        # CUPED extends the metric scan back by lookback_days for the pre-exposure covariate,
-        # but the precomputed metric_events table covers only the experiment window.
-        if self.cuped_enabled:
+        # CUPED extends the metric scan back by lookback_days for the pre-exposure covariate.
+        # The build stores that window too, behind a kill switch while the path soaks.
+        if self.cuped_enabled and not self.cuped_flag_enabled():
             return "cuped"
         if self.is_data_warehouse_query:
             return "data_warehouse"
@@ -227,9 +237,20 @@ class MetricEventsPrecompute:
         metric events on the direct scan while exposures and the other types keep their
         precomputed tables.
         """
+        return self._team_flag_enabled(EXPERIMENTS_RATIO_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY)
+
+    def cuped_flag_enabled(self) -> bool:
+        """
+        Kill switch for metric-events precomputation of CUPED metrics. Default-off and
+        fail-safe like the ratio flag: off, a CUPED metric scans its metric events directly
+        and keeps its precomputed exposures.
+        """
+        return self._team_flag_enabled(EXPERIMENTS_CUPED_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY)
+
+    def _team_flag_enabled(self, flag_key: str) -> bool:
         return bool(
             posthoganalytics.feature_enabled(
-                EXPERIMENTS_RATIO_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY,
+                flag_key,
                 str(self.team.uuid),
                 groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
                 group_properties={

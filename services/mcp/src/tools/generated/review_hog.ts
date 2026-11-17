@@ -6,20 +6,20 @@ import * as orvalSchemas from '@/generated/review_hog/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ReviewHogReviewsGetSchema = () => {
-    const ReviewHogReviewsRetrieveParams = orvalSchemas.ReviewHogReviewsRetrieveParams()
-    const ReviewHogReviewsRetrieveQueryParams = orvalSchemas.ReviewHogReviewsRetrieveQueryParams()
-    return ReviewHogReviewsRetrieveParams.omit({ project_id: true }).extend(ReviewHogReviewsRetrieveQueryParams.shape)
+const CodeReviewReviewsGetSchema = () => {
+    const CodeReviewReviewsRetrieveParams = orvalSchemas.CodeReviewReviewsRetrieveParams()
+    const CodeReviewReviewsRetrieveQueryParams = orvalSchemas.CodeReviewReviewsRetrieveQueryParams()
+    return CodeReviewReviewsRetrieveParams.omit({ project_id: true }).extend(CodeReviewReviewsRetrieveQueryParams.shape)
 }
 
-const reviewHogReviewsGet = (): ToolBase<ReturnType<typeof ReviewHogReviewsGetSchema>, Schemas.ReviewDetail> => ({
-    name: 'review-hog-reviews-get',
-    schema: ReviewHogReviewsGetSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ReviewHogReviewsGetSchema>>) => {
+const codeReviewReviewsGet = (): ToolBase<ReturnType<typeof CodeReviewReviewsGetSchema>, Schemas.ReviewDetail> => ({
+    name: 'code-review-reviews-get',
+    schema: CodeReviewReviewsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CodeReviewReviewsGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ReviewDetail>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/review_hog/reviews/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/code_review/reviews/${encodeURIComponent(String(params.id))}/`,
             query: {
                 run_index: params.run_index,
             },
@@ -28,22 +28,22 @@ const reviewHogReviewsGet = (): ToolBase<ReturnType<typeof ReviewHogReviewsGetSc
     },
 })
 
-const ReviewHogReviewsListSchema = () => {
-    const ReviewHogReviewsListQueryParams = orvalSchemas.ReviewHogReviewsListQueryParams()
-    return ReviewHogReviewsListQueryParams
+const CodeReviewReviewsListSchema = () => {
+    const CodeReviewReviewsListQueryParams = orvalSchemas.CodeReviewReviewsListQueryParams()
+    return CodeReviewReviewsListQueryParams
 }
 
-const reviewHogReviewsList = (): ToolBase<
-    ReturnType<typeof ReviewHogReviewsListSchema>,
+const codeReviewReviewsList = (): ToolBase<
+    ReturnType<typeof CodeReviewReviewsListSchema>,
     WithPostHogUrl<Schemas.ReviewRecentReviewsPage>
 > => ({
-    name: 'review-hog-reviews-list',
-    schema: ReviewHogReviewsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ReviewHogReviewsListSchema>>) => {
+    name: 'code-review-reviews-list',
+    schema: CodeReviewReviewsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CodeReviewReviewsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ReviewRecentReviewsPage>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/review_hog/reviews/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/code_review/reviews/`,
             query: {
                 limit: params.limit,
                 scope: params.scope,
@@ -53,22 +53,22 @@ const reviewHogReviewsList = (): ToolBase<
     },
 })
 
-const ReviewHogReviewsPrStatusSchema = () => {
-    const ReviewHogReviewsPrStatusRetrieveQueryParams = orvalSchemas.ReviewHogReviewsPrStatusRetrieveQueryParams()
-    return ReviewHogReviewsPrStatusRetrieveQueryParams
+const CodeReviewReviewsPrStatusSchema = () => {
+    const CodeReviewReviewsPrStatusRetrieveQueryParams = orvalSchemas.CodeReviewReviewsPrStatusRetrieveQueryParams()
+    return CodeReviewReviewsPrStatusRetrieveQueryParams
 }
 
-const reviewHogReviewsPrStatus = (): ToolBase<
-    ReturnType<typeof ReviewHogReviewsPrStatusSchema>,
+const codeReviewReviewsPrStatus = (): ToolBase<
+    ReturnType<typeof CodeReviewReviewsPrStatusSchema>,
     Schemas.ReviewPRStatus
 > => ({
-    name: 'review-hog-reviews-pr-status',
-    schema: ReviewHogReviewsPrStatusSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ReviewHogReviewsPrStatusSchema>>) => {
+    name: 'code-review-reviews-pr-status',
+    schema: CodeReviewReviewsPrStatusSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CodeReviewReviewsPrStatusSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ReviewPRStatus>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/review_hog/reviews/pr_status/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/code_review/reviews/pr_status/`,
             query: {
                 head_sha: params.head_sha,
                 pr_url: params.pr_url,
@@ -80,18 +80,18 @@ const reviewHogReviewsPrStatus = (): ToolBase<
     },
 })
 
-const ReviewHogReviewsTriggerSchema = () => {
-    const ReviewHogReviewsTriggerCreateBody = orvalSchemas.ReviewHogReviewsTriggerCreateBody()
-    return ReviewHogReviewsTriggerCreateBody
+const CodeReviewReviewsTriggerSchema = () => {
+    const CodeReviewReviewsTriggerCreateBody = orvalSchemas.CodeReviewReviewsTriggerCreateBody()
+    return CodeReviewReviewsTriggerCreateBody
 }
 
-const reviewHogReviewsTrigger = (): ToolBase<
-    ReturnType<typeof ReviewHogReviewsTriggerSchema>,
+const codeReviewReviewsTrigger = (): ToolBase<
+    ReturnType<typeof CodeReviewReviewsTriggerSchema>,
     Schemas.ReviewTriggerResponse
 > => ({
-    name: 'review-hog-reviews-trigger',
-    schema: ReviewHogReviewsTriggerSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ReviewHogReviewsTriggerSchema>>) => {
+    name: 'code-review-reviews-trigger',
+    schema: CodeReviewReviewsTriggerSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CodeReviewReviewsTriggerSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.pr_url !== undefined) {
@@ -102,7 +102,7 @@ const reviewHogReviewsTrigger = (): ToolBase<
         }
         const result = await context.api.request<Schemas.ReviewTriggerResponse>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/review_hog/reviews/trigger/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/code_review/reviews/trigger/`,
             body,
         })
         return result
@@ -110,8 +110,8 @@ const reviewHogReviewsTrigger = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'review-hog-reviews-get': reviewHogReviewsGet,
-    'review-hog-reviews-list': reviewHogReviewsList,
-    'review-hog-reviews-pr-status': reviewHogReviewsPrStatus,
-    'review-hog-reviews-trigger': reviewHogReviewsTrigger,
+    'code-review-reviews-get': codeReviewReviewsGet,
+    'code-review-reviews-list': codeReviewReviewsList,
+    'code-review-reviews-pr-status': codeReviewReviewsPrStatus,
+    'code-review-reviews-trigger': codeReviewReviewsTrigger,
 }

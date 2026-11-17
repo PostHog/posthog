@@ -180,7 +180,7 @@ export const getReleasesCatalogFlagsRetrieveUrl = (projectId: string, params?: R
 }
 
 /**
- * List the project's feature flags the caller can see, newest first, with only the fields a list shows.
+ * List the project's feature flags the caller can see, newest or oldest first, with only the fields a list shows.
  */
 export const releasesCatalogFlagsRetrieve = async (
     projectId: string,
@@ -213,7 +213,7 @@ export const getReleasesCatalogReleasesRetrieveUrl = (
 }
 
 /**
- * List the project's releases, newest first, with only the fields a list shows.
+ * List the project's releases, newest or oldest first, with only the fields a list shows.
  */
 export const releasesCatalogReleasesRetrieve = async (
     projectId: string,
