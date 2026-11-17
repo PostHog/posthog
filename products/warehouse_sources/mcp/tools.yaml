@@ -82,6 +82,9 @@ tools:
         exclude_params:
             - client_secret
             - account_id
+            - created_via
+        inject_body:
+            created_via: mcp
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
