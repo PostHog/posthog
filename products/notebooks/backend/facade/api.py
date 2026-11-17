@@ -30,7 +30,6 @@ from . import contracts
 
 if TYPE_CHECKING:
     from posthog.models import User
-    from posthog.models.cohortmembership.query_rewrite import SavedQueryRewrite
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -385,9 +384,3 @@ def list_team_account_notes(
         limit=limit,
     )
     return [_to_team_account_note(link) for link in links], count
-
-
-def rewrite_cohort_membership_queries(team_id: int, apply: bool) -> list["SavedQueryRewrite"]:
-    from .. import cohort_membership_rewrite  # noqa: PLC0415 — keeps the HogQL parser off this facade's import path
-
-    return cohort_membership_rewrite.rewrite_cohort_membership_queries(team_id, apply)

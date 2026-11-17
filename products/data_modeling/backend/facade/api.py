@@ -158,7 +158,6 @@ _LAZY = {
     "watcher_user_ids": "logic.watchers",
     "duplicate_output_columns": "logic.output_columns",
     "duplicate_output_columns_message": "logic.output_columns",
-    "rewrite_cohort_membership_queries": "logic.cohort_membership_rewrite",
 }
 
 __all__ = sorted(_LAZY)

@@ -536,10 +536,7 @@ def get_insight_series(
 
 def rewrite_cohort_membership_queries(team_id: int, apply: bool) -> list["SavedQueryRewrite"]:
     from posthog.models.cohortmembership.query_rewrite import (  # noqa: PLC0415 — keeps the HogQL parser off this facade's import path
-        rewrite_query_nodes,
         rewrite_saved_rows,
     )
 
-    return rewrite_saved_rows(
-        Insight.objects_including_soft_deleted.filter(team_id=team_id), "query", "insight", rewrite_query_nodes, apply
-    )
+    return rewrite_saved_rows(Insight.objects_including_soft_deleted.filter(team_id=team_id), apply)

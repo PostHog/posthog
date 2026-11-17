@@ -1,6 +1,6 @@
 import re
-from collections.abc import Callable, Iterator
-from typing import Any, Literal, Optional
+from collections.abc import Iterator
+from typing import Any, Optional
 
 from django.db.models import QuerySet, TextField
 from django.db.models.functions import Cast
@@ -16,11 +16,7 @@ LEGACY_TABLE = "cohort_membership"
 REPLACEMENT_TABLE = "cohort_people"
 # `cohort_people` has neither column, and `*` over it returns a different column list.
 UNMAPPED_COLUMNS = {"status", "last_updated", "*"}
-# A table-like mention left after the rewrite: not a column qualifier (`cohort_membership.x`), not the alias the
-# rewrite adds (`AS cohort_membership`), and not a longer name like `cohort_membership_changed`.
-LEFTOVER_MENTION = re.compile(r"(?<![\w.])(?<!AS )(?<!as )cohort_membership\b(?!\.)|posthog\.cohort_membership\b")
-
-SavedQuerySource = Literal["insight", "view", "notebook", "endpoint version"]
+LEFTOVER_MENTION = re.compile(rf"\b{LEGACY_TABLE}\b")
 
 
 @frozen
@@ -35,7 +31,6 @@ class SqlRewrite:
 
 @frozen
 class SavedQueryRewrite:
-    source: SavedQuerySource
     pk: str
     team_id: int
     rewrites: tuple[SqlRewrite, ...]
@@ -118,13 +113,28 @@ def _legacy_table(join: ast.JoinExpr) -> Optional[ast.Field]:
 
 
 def _reads_unmapped_column(references: _TableReferences) -> bool:
-    qualifiers = {LEGACY_TABLE} | {alias for _, alias in references.legacy_tables if alias}
+    aliases = {alias for _, alias in references.legacy_tables if alias}
     for chain in references.legacy_scope_chains:
         if chain[-1] not in UNMAPPED_COLUMNS:
             continue
-        if len(chain) == 1 or (len(chain) == 2 and chain[0] in qualifiers):
+        if len(chain) == 1 or (len(chain) == 2 and chain[0] in aliases):
             return True
     return False
+
+
+def _needs_manual_fix(references: _TableReferences) -> bool:
+    # A CTE of the same name shadows the table in scopes this rewrite does not model, such as later UNION branches.
+    if references.defines_legacy_cte or _reads_unmapped_column(references):
+        return True
+    # Each of these changes what the replaced table reads: a CTE or a second table named `cohort_people`,
+    # positional column aliases (the two tables order their columns differently), and `COLUMNS(...)` patterns.
+    if references.names_replacement or references.legacy_column_aliases or references.selects_by_pattern:
+        return True
+    # A rename would break `posthog.cohort_membership` and columns qualified with the table name. No saved query uses
+    # either form, so the command leaves them for a manual fix.
+    if any(len(table.chain) > 1 for table, _ in references.legacy_tables):
+        return True
+    return any(len(chain) > 1 and LEGACY_TABLE in chain[:2] for chain in references.all_chains)
 
 
 def rewrite_hogql(sql: str) -> Optional[SqlRewrite]:
@@ -142,32 +152,17 @@ def rewrite_hogql(sql: str) -> Optional[SqlRewrite]:
         return None
 
     manual_fix = SqlRewrite(before=sql, after=None)
-    # A CTE of the same name shadows the table in scopes this rewrite does not model, such as later UNION branches.
-    if references.defines_legacy_cte or _reads_unmapped_column(references):
-        return manual_fix
-    # Each of these changes what the replaced table reads: a CTE or a second table named `cohort_people`,
-    # positional column aliases (the two tables order their columns differently), and `COLUMNS(...)` patterns.
-    if references.names_replacement or references.legacy_column_aliases or references.selects_by_pattern:
-        return manual_fix
-    if any(len(chain) > 2 and chain[:2] == ["posthog", LEGACY_TABLE] for chain in references.all_chains):
+    if _needs_manual_fix(references):
         return manual_fix
 
-    # Columns qualified with the old table name keep resolving through an alias of the same name.
-    qualified_by_table_name = any(len(chain) > 1 and chain[0] == LEGACY_TABLE for chain in references.all_chains)
     rewritten = sql
-    for table, alias in sorted(references.legacy_tables, key=lambda reference: reference[0].start or 0, reverse=True):
+    for table, _alias in sorted(references.legacy_tables, key=lambda reference: reference[0].start or 0, reverse=True):
         if table.start is None or table.end is None:
             return manual_fix
         # The parser offsets can drift from the Python string, for example after a leading byte order mark.
-        if sql[table.start : table.end].replace("`", "").replace('"', "") not in (
-            LEGACY_TABLE,
-            f"posthog.{LEGACY_TABLE}",
-        ):
+        if sql[table.start : table.end].replace("`", "").replace('"', "") != LEGACY_TABLE:
             return manual_fix
-        replacement = REPLACEMENT_TABLE
-        if alias is None and qualified_by_table_name:
-            replacement = f"{REPLACEMENT_TABLE} AS {LEGACY_TABLE}"
-        rewritten = rewritten[: table.start] + replacement + rewritten[table.end :]
+        rewritten = rewritten[: table.start] + REPLACEMENT_TABLE + rewritten[table.end :]
     return SqlRewrite(before=sql, after=rewritten)
 
 
@@ -177,19 +172,8 @@ def _runs_on_posthog(node: dict[str, Any]) -> bool:
     return not node.get("connectionId") and node.get("executionTarget") != ExecutionTarget.MANAGED_TRINO
 
 
-def rewrite_hogql_node(node: dict[str, Any]) -> tuple[dict[str, Any], Optional[SqlRewrite]]:
-    """Rewrites the HogQL in `node["query"]` when PostHog runs it, for a query node or a view's stored query."""
-    sql = node.get("query")
-    if not isinstance(sql, str) or not _runs_on_posthog(node):
-        return node, None
-    rewrite = rewrite_hogql(sql)
-    if rewrite is None or rewrite.after is None:
-        return node, rewrite
-    return {**node, "query": rewrite.after}, rewrite
-
-
 def rewrite_query_nodes(value: Any) -> tuple[Any, list[SqlRewrite]]:
-    """Rewrites every HogQLQuery node nested anywhere in a query or a notebook document."""
+    """Rewrites every HogQLQuery node that PostHog runs, nested anywhere in a saved query."""
     if isinstance(value, list):
         results = [rewrite_query_nodes(item) for item in value]
         return [item for item, _ in results], [rewrite for _, rewrites in results for rewrite in rewrites]
@@ -201,10 +185,13 @@ def rewrite_query_nodes(value: Any) -> tuple[Any, list[SqlRewrite]]:
     for key, item in value.items():
         rewritten[key], item_rewrites = rewrite_query_nodes(item)
         rewrites.extend(item_rewrites)
-    if rewritten.get("kind") == "HogQLQuery":
-        rewritten, rewrite = rewrite_hogql_node(rewritten)
+    sql = rewritten.get("query")
+    if rewritten.get("kind") == "HogQLQuery" and isinstance(sql, str) and _runs_on_posthog(rewritten):
+        rewrite = rewrite_hogql(sql)
         if rewrite is not None:
             rewrites.append(rewrite)
+            if rewrite.after is not None:
+                rewritten["query"] = rewrite.after
     return rewritten, rewrites
 
 
@@ -223,19 +210,12 @@ def mentions_legacy_table(value: Any) -> bool:
     return any(LEFTOVER_MENTION.search(text) for text in _strings(value))
 
 
-def rewrite_saved_rows(
-    queryset: QuerySet[Any],
-    field: str,
-    source: SavedQuerySource,
-    rewrite_value: Callable[[Any], tuple[Any, list[SqlRewrite]]],
-    apply: bool,
-    extra_updates: Callable[[], dict[str, Any]] = dict,
-) -> list[SavedQueryRewrite]:
-    """Rewrites `field` on each row of `queryset` that mentions the table, writing only when `apply` is set."""
-    matching = queryset.annotate(field_text=Cast(field, TextField())).filter(field_text__contains=LEGACY_TABLE)
+def rewrite_saved_rows(queryset: QuerySet[Any], apply: bool) -> list[SavedQueryRewrite]:
+    """Rewrites the `query` of each row of `queryset` that mentions the table, writing only when `apply` is set."""
+    matching = queryset.annotate(query_text=Cast("query", TextField())).filter(query_text__contains=LEGACY_TABLE)
     results: list[SavedQueryRewrite] = []
-    for pk, team_id, value in matching.values_list("pk", "team_id", field):
-        new_value, rewrites = rewrite_value(value)
+    for pk, team_id, value in matching.values_list("pk", "team_id", "query"):
+        new_value, rewrites = rewrite_query_nodes(value)
         still_mentions_table = mentions_legacy_table(new_value)
         if not rewrites and not still_mentions_table:
             continue
@@ -243,15 +223,9 @@ def rewrite_saved_rows(
         written = False
         if apply and changed:
             # The filter on the value read keeps an edit saved since then, which the next run picks up.
-            written = (
-                queryset.model._base_manager.filter(pk=pk, **{field: value}).update(
-                    **{field: new_value, **extra_updates()}
-                )
-                == 1
-            )
+            written = queryset.model._base_manager.filter(pk=pk, query=value).update(query=new_value) == 1
         results.append(
             SavedQueryRewrite(
-                source=source,
                 pk=str(pk),
                 team_id=team_id,
                 rewrites=tuple(rewrites),
