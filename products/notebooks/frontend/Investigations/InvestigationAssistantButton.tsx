@@ -10,7 +10,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 export function InvestigationAssistantButton(): JSX.Element | null {
-    const { isMaxAvailable } = useValues(aiShellLogic)
+    const { isMaxAvailable, isPhaiSandboxFlagOn } = useValues(aiShellLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const ask = (): void =>
         openSidePanel(
@@ -18,7 +18,7 @@ export function InvestigationAssistantButton(): JSX.Element | null {
             'Help investigate the question in this notebook. Start by reviewing the premise checks and existing evidence, then propose the next query that would distinguish competing explanations.'
         )
 
-    if (!isMaxAvailable) {
+    if (!isMaxAvailable || isPhaiSandboxFlagOn) {
         return null
     }
 

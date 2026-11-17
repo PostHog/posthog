@@ -33,4 +33,11 @@ type Story = StoryObj<typeof meta>
 
 export const Empty: Story = { args: { document: newInvestigation() } }
 export const WorkedExample: Story = { args: { document: investigationExample() } }
-export const ReadOnly: Story = { args: { document: investigationExample(), editable: false } }
+export const ReadOnly: Story = {
+    args: { document: investigationExample(), editable: false },
+    parameters: { featureFlags: ['phai-sandbox-mode'] },
+}
+export const QueryAssistant: Story = {
+    args: { document: investigationExample() },
+    parameters: { featureFlags: ['phai-sandbox-mode'] },
+}

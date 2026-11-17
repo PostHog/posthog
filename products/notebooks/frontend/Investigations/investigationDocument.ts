@@ -176,12 +176,15 @@ export function compareInvestigationResults(
         return { kind: 'incomplete', label: 'Partial results', delta: null }
     }
     const same = JSON.stringify(current.rows) === JSON.stringify(baseline.rows)
-    const currentValue = current.rows.length === 1 && current.columns.length === 1 ? current.rows[0][0] : null
-    const baselineValue = baseline.rows.length === 1 && baseline.columns.length === 1 ? baseline.rows[0][0] : null
     return {
         kind: same ? 'unchanged' : 'changed',
         label: same ? 'Unchanged' : 'Results changed',
-        delta:
-            typeof currentValue === 'number' && typeof baselineValue === 'number' ? currentValue - baselineValue : null,
+        delta: investigationScalarDelta(current, baseline),
     }
+}
+
+function investigationScalarDelta(current: InvestigationResult, baseline: InvestigationResult): number | null {
+    const currentValue = current.rows.length === 1 && current.columns.length === 1 ? current.rows[0][0] : null
+    const baselineValue = baseline.rows.length === 1 && baseline.columns.length === 1 ? baseline.rows[0][0] : null
+    return typeof currentValue === 'number' && typeof baselineValue === 'number' ? currentValue - baselineValue : null
 }

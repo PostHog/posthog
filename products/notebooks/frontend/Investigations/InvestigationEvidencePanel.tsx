@@ -18,6 +18,8 @@ import {
     getInvestigationLink,
     removeInvestigationEvidence,
 } from './investigationDocument'
+import { InvestigationEvidenceQueryActions } from './InvestigationEvidenceQueryActions'
+import { InvestigationQueryTask } from './queryAssistantHelpers'
 
 export function InvestigationEvidencePanel({
     document,
@@ -25,12 +27,14 @@ export function InvestigationEvidencePanel({
     editable,
     selectedId,
     onSelect,
+    onAskAI,
 }: {
     document: InvestigationDocument
     onChange: (document: InvestigationDocument) => void
     editable: boolean
     selectedId: string | null
     onSelect: (id: string | null) => void
+    onAskAI?: (task: InvestigationQueryTask, evidenceId: string) => void
 }): JSX.Element {
     const fieldId = useId()
     const selected = document.evidence.find((item) => item.id === selectedId) ?? document.evidence[0]
@@ -126,6 +130,11 @@ export function InvestigationEvidencePanel({
                         </div>
                         {selected.kind === 'query' ? (
                             <>
+                                <InvestigationEvidenceQueryActions
+                                    document={document}
+                                    selected={selected}
+                                    onAskAI={onAskAI}
+                                />
                                 <div>
                                     <LemonLabel htmlFor={`${fieldId}-sql`}>SQL</LemonLabel>
                                     <LemonTextArea

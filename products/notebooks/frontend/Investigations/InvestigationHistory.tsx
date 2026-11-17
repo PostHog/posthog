@@ -4,7 +4,7 @@ import { LemonBanner, LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { InvestigationDocument } from './investigationDocument'
+import { InvestigationDocument, InvestigationRun } from './investigationDocument'
 import { InvestigationResults } from './InvestigationResults'
 
 export function InvestigationHistory({
@@ -50,13 +50,7 @@ export function InvestigationHistory({
                     <LemonButton
                         type="secondary"
                         size="small"
-                        disabledReason={
-                            run.id === baseline?.id
-                                ? 'This run is already the baseline.'
-                                : run.results.some((result) => result.error || result.truncated)
-                                  ? 'Choose a run with complete, successful results.'
-                                  : undefined
-                        }
+                        disabledReason={baselineDisabledReason(run, baseline)}
                         onClick={() => onChange({ ...document, baselineId: run.id })}
                         data-attr="investigation-set-baseline"
                     >
@@ -97,4 +91,14 @@ export function InvestigationHistory({
             </p>
         </div>
     )
+}
+
+function baselineDisabledReason(run: InvestigationRun, baseline: InvestigationRun | undefined): string | undefined {
+    if (run.id === baseline?.id) {
+        return 'This run is already the baseline.'
+    }
+    if (run.results.some((result) => result.error || result.truncated)) {
+        return 'Choose a run with complete, successful results.'
+    }
+    return undefined
 }

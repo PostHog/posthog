@@ -114,27 +114,12 @@ export const investigationLogic = kea<investigationLogicType>([
             try {
                 for (const item of evidence) {
                     try {
-                        const response = await performQuery<HogQLQuery>(
-                            {
-                                kind: NodeKind.HogQLQuery,
-                                query: item.sql,
-                                tags: { productKey: ProductKey.NOTEBOOKS, name: 'investigation_evidence' },
-                            },
-                            { signal: controller.signal, queryTelemetry: 'metadata' },
-                            'force_async'
-                        )
+                        const result = await executeInvestigationEvidence(item, controller.signal)
                         breakpoint()
                         if (controller.signal.aborted) {
                             return
                         }
-                        results.push(
-                            snapshotInvestigationResult(
-                                item,
-                                response.columns ?? [],
-                                response.results ?? [],
-                                response.hasMore
-                            )
-                        )
+                        results.push(result)
                     } catch (error) {
                         breakpoint()
                         if (controller.signal.aborted) {
@@ -194,4 +179,21 @@ function failedResult(evidence: InvestigationEvidence, error: unknown): Investig
         truncated: false,
         error: message.slice(0, 2000),
     }
+}
+
+async function executeInvestigationEvidence(
+    evidence: InvestigationEvidence,
+    signal: AbortSignal
+): Promise<InvestigationResult> {
+    const response = await performQuery<HogQLQuery>(
+        {
+            kind: NodeKind.HogQLQuery,
+            query: evidence.sql,
+            tags: { productKey: ProductKey.NOTEBOOKS, name: 'investigation_evidence' },
+        },
+        { signal: signal, queryTelemetry: 'metadata' },
+        'force_async'
+    )
+
+    return snapshotInvestigationResult(evidence, response.columns ?? [], response.results ?? [], response.hasMore)
 }

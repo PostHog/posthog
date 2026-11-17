@@ -4,11 +4,15 @@ import { ReactNode } from 'react'
 import { IconPlay, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
+
 import { InvestigationEvidencePanel } from './InvestigationEvidencePanel'
 import { InvestigationHistory } from './InvestigationHistory'
 import { InvestigationHypotheses } from './InvestigationHypotheses'
 import { InvestigationLogicProps, investigationLogic } from './investigationLogic'
 import { InvestigationOverview } from './InvestigationOverview'
+import { InvestigationQueryAssistant } from './InvestigationQueryAssistant'
+import { investigationQueryAssistantLogic } from './investigationQueryAssistantLogic'
 import { InvestigationReport } from './InvestigationReport'
 
 export function InvestigationWorkspace(props: InvestigationLogicProps & { assistant?: ReactNode }): JSX.Element {
@@ -17,6 +21,18 @@ export function InvestigationWorkspace(props: InvestigationLogicProps & { assist
     const { changeDocument, setTab, runEvidence, cancelRun, setError, setSelectedEvidenceId } = useActions(logic)
     const queryCount = document.evidence.filter((item) => item.kind === 'query' && item.sql.trim()).length
     const panelProps = { document, onChange: changeDocument, editable: props.editable }
+    const { isMaxAvailable, isPhaiSandboxFlagOn } = useValues(aiShellLogic)
+    const assistantProps = {
+        scope: props.scope,
+        ...panelProps,
+        onSelect: (id: string) => {
+            setSelectedEvidenceId(id)
+            setTab('evidence')
+        },
+    }
+    const { setTask, setTargetId, setPrompt, askAssistant } = useActions(
+        investigationQueryAssistantLogic(assistantProps)
+    )
     return (
         <section
             className="@container/investigation min-w-0"
@@ -67,6 +83,7 @@ export function InvestigationWorkspace(props: InvestigationLogicProps & { assist
                     product events. Replace the queries to investigate your own data.
                 </LemonBanner>
             )}
+            <InvestigationQueryAssistant {...assistantProps} />
             {error && (
                 <LemonBanner type="error" className="mt-4" onClose={() => setError(null)}>
                     {error}
@@ -85,6 +102,16 @@ export function InvestigationWorkspace(props: InvestigationLogicProps & { assist
                                 {...panelProps}
                                 selectedId={selectedEvidenceId}
                                 onSelect={setSelectedEvidenceId}
+                                onAskAI={
+                                    props.editable && isMaxAvailable && isPhaiSandboxFlagOn
+                                        ? (task, id) => {
+                                              setTask(task)
+                                              setTargetId(id)
+                                              setPrompt('')
+                                              askAssistant()
+                                          }
+                                        : undefined
+                                }
                             />
                         ),
                     },

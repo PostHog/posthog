@@ -74,7 +74,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { uuid } from 'lib/utils/dom'
 
 import 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookNodeGeneratedWidget'
-import { NotebookInvestigation } from 'products/notebooks/frontend/Investigations/NotebookInvestigation'
+import { LazyNotebookInvestigation } from 'products/notebooks/frontend/Investigations/LazyNotebookInvestigation'
 import { notebookExportLogic } from 'products/notebooks/frontend/notebookExportLogic'
 import { NotebookGeneratedWidgetRunButton } from 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookGeneratedWidgetRunButton'
 
@@ -358,8 +358,8 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
         label: 'Investigation',
         category: 'PostHog',
         description: 'Investigate a question with evidence, hypotheses, and saved comparisons',
-        ViewComponent: NotebookInvestigation,
-        EditComponent: NotebookInvestigation,
+        ViewComponent: LazyNotebookInvestigation,
+        EditComponent: LazyNotebookInvestigation,
         exclusiveEditPanel: true,
         hideModeActions: true,
         persistNodeId: true,
