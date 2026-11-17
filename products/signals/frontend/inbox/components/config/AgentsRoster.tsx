@@ -166,6 +166,8 @@ interface SourceFilters {
 interface SourceExpressionFilter {
     catalogState: Exclude<SourceFilterCatalogState['status'], 'unavailable'>
     isSet: boolean
+    /** Set when the editor also holds the source's own scope (Linear teams), which then has no separate button. */
+    summary?: string
     onOpen: () => void
     onRetry: () => void
     disabledReason?: string
@@ -456,8 +458,10 @@ function Expansion({
                             </div>
                         ) : product ? (
                             <ProductDataStatus agent={agent} status={product.dataStatus} onRetry={onRetryData} />
-                        ) : filters ? (
-                            <span className="text-xs text-secondary">{filters.summary}</span>
+                        ) : filters || expressionFilter?.summary ? (
+                            <span className="text-xs text-secondary">
+                                {filters?.summary ?? expressionFilter?.summary}
+                            </span>
                         ) : (
                             <span />
                         )}
@@ -1153,13 +1157,43 @@ export function AgentsRoster(): JSX.Element {
             const steeringConfigs = agent.steerable ? persistedConfigs(state.steeringConfigs) : null
             const errorTrackingConfigs =
                 agent.source === 'error_tracking' ? persistedConfigs(state.steeringConfigs) : null
+            const filterConfig = isExternalSignalSource(agent.source) ? externalSourceStates[agent.source].config : null
+            // Optimistic `new_` rows have nothing to save a filter on until the reload lands.
+            const catalogState =
+                filterConfig && !filterConfig.id.startsWith('new_')
+                    ? catalogStateFor(filterConfig.source_product, filterConfig.source_type)
+                    : null
+            // The filter editor holds the Linear teams once its fields load, so the teams get no button of their own.
+            const teamsInEditor = agent.source === 'linear' && catalogState?.status === 'ready'
+            const expressionFilter: SourceExpressionFilter | undefined =
+                filterConfig && catalogState && catalogState.status !== 'unavailable'
+                    ? {
+                          catalogState: catalogState.status,
+                          isSet:
+                              sourceFilterIsSet(filterConfig.config) ||
+                              (teamsInEditor && linearTeamIdsFromConfig(filterConfig.config).length > 0),
+                          summary: teamsInEditor ? linearTeamsSummary(filterConfig) : undefined,
+                          onOpen: () =>
+                              catalogState.status === 'ready' &&
+                              setExpressionFilterTarget({
+                                  config: filterConfig,
+                                  catalog: catalogState.catalog,
+                                  label: agent.label,
+                              }),
+                          onRetry: loadFilterCatalogs,
+                          disabledReason: state.loading ? 'Saving' : sourceConfigsLoading ? 'Refreshing' : undefined,
+                      }
+                    : undefined
             const filters: SourceFilters | undefined = errorTrackingConfigs
                 ? errorTrackingSourceFilters(
                       errorTrackingConfigs,
                       () => setIssueFiltersConfigs(errorTrackingConfigs),
                       state.loading ? 'Saving' : sourceConfigsLoading ? 'Refreshing' : undefined
                   )
-                : agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
+                : agent.source === 'linear' &&
+                    !teamsInEditor &&
+                    linearIssuesConfig &&
+                    !linearIssuesConfig.id.startsWith('new_')
                   ? {
                         summary: linearTeamsSummary(linearIssuesConfig),
                         changeLabel: 'Change teams',
@@ -1172,28 +1206,6 @@ export function AgentsRoster(): JSX.Element {
                               : undefined,
                     }
                   : undefined
-            const filterConfig = isExternalSignalSource(agent.source) ? externalSourceStates[agent.source].config : null
-            // Optimistic `new_` rows have nothing to save a filter on until the reload lands.
-            const catalogState =
-                filterConfig && !filterConfig.id.startsWith('new_')
-                    ? catalogStateFor(filterConfig.source_product, filterConfig.source_type)
-                    : null
-            const expressionFilter: SourceExpressionFilter | undefined =
-                filterConfig && catalogState && catalogState.status !== 'unavailable'
-                    ? {
-                          catalogState: catalogState.status,
-                          isSet: sourceFilterIsSet(filterConfig.config),
-                          onOpen: () =>
-                              catalogState.status === 'ready' &&
-                              setExpressionFilterTarget({
-                                  config: filterConfig,
-                                  catalog: catalogState.catalog,
-                                  label: agent.label,
-                              }),
-                          onRetry: loadFilterCatalogs,
-                          disabledReason: state.loading ? 'Saving' : sourceConfigsLoading ? 'Refreshing' : undefined,
-                      }
-                    : undefined
             return (
                 <AgentRow
                     key={agent.source}

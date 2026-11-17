@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { mswDecorator } from '~/mocks/browser'
+
 import type { SourceFilterCatalogApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
@@ -50,10 +52,33 @@ function linearConfig(config: Record<string, any>): SignalSourceConfig {
     }
 }
 
+const LINEAR_INTEGRATION = {
+    id: 7,
+    kind: 'linear',
+    display_name: 'Example workspace',
+    icon_url: '/static/services/linear.png',
+    config: {},
+    created_at: '2026-11-01T00:00:00Z',
+}
+
+const LINEAR_TEAMS = [
+    { id: 'team-eng', name: 'Engineering' },
+    { id: 'team-design', name: 'Design' },
+    { id: 'team-support', name: 'Support' },
+]
+
 const meta: Meta<typeof SourceFilterModal> = {
     title: 'Scenes-App/Inbox/SourceFilterModal',
     component: SourceFilterModal,
     args: { catalog: CATALOG, sourceLabel: 'Linear', onClose: () => {} },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/integrations/': { results: [LINEAR_INTEGRATION] },
+                '/api/environments/:team_id/integrations/:id/linear_teams/': { teams: LINEAR_TEAMS },
+            },
+        }),
+    ],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -84,5 +109,14 @@ export const EditingAFilter: Story = {
 export const SavedOnAnOlderFieldList: Story = {
     args: {
         sourceConfig: linearConfig({ hogql_filter: { expression: "project_name = 'Mobile app'", catalog_version: 1 } }),
+    },
+}
+
+export const WithPickedTeams: Story = {
+    args: {
+        sourceConfig: linearConfig({
+            linear_team_ids: ['team-eng', 'team-support'],
+            hogql_filter: { expression: "NOT has(label_names, 'internal')", catalog_version: 2 },
+        }),
     },
 }

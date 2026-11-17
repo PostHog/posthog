@@ -12,6 +12,7 @@ import { SourceFilterModalLogicProps, sourceFilterModalLogic } from '../../logic
 import { SignalSourceConfig } from '../../types'
 import { SourceFilterFieldList } from './SourceFilterFieldList'
 import { SourceFilterFieldSnippets } from './SourceFilterFieldSnippets'
+import { SourceFilterLinearTeams } from './SourceFilterLinearTeams'
 import { SourceFilterSnippet, appendSnippet } from './sourceFilterSnippets'
 
 export interface SourceFilterModalProps {
@@ -40,6 +41,9 @@ export function SourceFilterModal({
         savedOnOlderCatalog,
         selectedField,
         selectedFieldName,
+        teamsEditable,
+        linearIntegration,
+        integrationsUnknown,
     } = useValues(logic)
     const { setSourceFilterValue, selectField, removeFilter } = useActions(logic)
 
@@ -131,6 +135,14 @@ export function SourceFilterModal({
                             This filter was saved before the {sourceLabel} fields last changed. It keeps working as
                             saved. Saving it again checks it against the current fields.
                         </LemonBanner>
+                    )}
+                    {teamsEditable && (
+                        <SourceFilterLinearTeams
+                            scope={sourceFilter.teamScope}
+                            linearIntegration={linearIntegration}
+                            integrationsUnknown={integrationsUnknown}
+                            disabledReason={busy ? 'Saving' : undefined}
+                        />
                     )}
                     <div className="flex flex-col gap-3 @min-[36rem]:flex-row">
                         <div className="@min-[36rem]:w-52 @min-[36rem]:shrink-0">

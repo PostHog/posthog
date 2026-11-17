@@ -47,6 +47,8 @@ describe('sourceFilterModalLogic', () => {
         onClose = jest.fn()
         useMocks({
             get: {
+                '/api/environments/:team_id/integrations/': () => [200, { results: [] }],
+                '/api/environments/:team_id/external_data_sources/': () => [200, { results: [] }],
                 '/api/projects/:team_id/signals/source_configs/': () => [
                     200,
                     { results: [], count: 0, next: null, previous: null },
@@ -74,16 +76,27 @@ describe('sourceFilterModalLogic', () => {
     })
 
     test.each([
-        ['saves trimmed text', {}, '  assignee_id IS NULL  ', { config_set: { hogql_filter: 'assignee_id IS NULL' } }],
+        [
+            'saves trimmed text and leaves unchanged teams alone',
+            {},
+            { expression: '  assignee_id IS NULL  ' },
+            { config_set: { hogql_filter: 'assignee_id IS NULL' } },
+        ],
         [
             'removes the filter when the text is cleared',
             { hogql_filter: { expression: 'assignee_id IS NULL', catalog_version: 2 } },
-            '   ',
+            { expression: '   ' },
             { config_remove: ['hogql_filter'] },
         ],
-    ])('%s', async (_, config, expression, expectedBody) => {
+        [
+            'saves teams and the filter in one request',
+            {},
+            { expression: 'assignee_id IS NULL', teamScope: 'all' as const },
+            { config_set: { hogql_filter: 'assignee_id IS NULL', linear_team_ids: [] } },
+        ],
+    ])('%s', async (_, config, values, expectedBody) => {
         mountWith(config)
-        logic.actions.setSourceFilterValue('expression', expression)
+        logic.actions.setSourceFilterValues(values)
 
         await expectLogic(logic, () => logic.actions.submitSourceFilter()).toDispatchActions([
             'submitSourceFilterSuccess',
