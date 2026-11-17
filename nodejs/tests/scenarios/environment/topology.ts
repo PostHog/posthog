@@ -88,9 +88,16 @@ export function unionOf(...lists: ConsumerGroup[][]): ConsumerGroup[] {
     return [...merged].map(([group, topics]) => ({ group, topics: [...topics] }))
 }
 
+const GROUPS_PER_DESCRIBE = 20
+
 export async function kafkaGroups(docker: string): Promise<KafkaGroup[]> {
     const names = groupNamesOf(await rpkOrThrow(docker, ['group', 'list']))
-    return names.length === 0 ? [] : groupsOf(await rpkOrThrow(docker, ['group', 'describe', ...names]))
+    const groups: KafkaGroup[] = []
+    for (let at = 0; at < names.length; at += GROUPS_PER_DESCRIBE) {
+        const batch = names.slice(at, at + GROUPS_PER_DESCRIBE)
+        groups.push(...groupsOf(await rpkOrThrow(docker, ['group', 'describe', ...batch])))
+    }
+    return groups
 }
 
 export async function postgresClients(postgresUrl: string): Promise<PostgresClient[]> {

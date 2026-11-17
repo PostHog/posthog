@@ -338,6 +338,9 @@ export function createRunner(
                 (wiring) => ({ wiring }),
                 (error: unknown) => ({ error })
             )
+            if (signal.aborted) {
+                throw new Error('the run was interrupted while it read its topology')
+            }
             const late = Date.now() >= deadline
             if ('error' in read) {
                 if (late) {

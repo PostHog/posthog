@@ -750,6 +750,7 @@ describe('runner through seed, drive and judge', () => {
     let exitsAtWiringRead: RoleExit[] = []
     let wiringChurns = false
     let groupsJoinAtRead = 0
+    let interruptAtWiringRead: { read: number; interrupt: AbortController } | undefined
     const exitOfTheKill = (role: Role): RoleExit[] => [
         { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
@@ -789,6 +790,9 @@ describe('runner through seed, drive and judge', () => {
         groupLag: () => Promise.resolve(0),
         wiring: () => {
             const read = wiringReads++
+            if (interruptAtWiringRead?.read === read) {
+                interruptAtWiringRead.interrupt.abort()
+            }
             exits.push(...exitsAtWiringRead.splice(0))
             if (read < failedWiringReads) {
                 return Promise.reject(new Error('rpk group list timed out'))
@@ -901,6 +905,7 @@ describe('runner through seed, drive and judge', () => {
         exitsAtWiringRead = []
         wiringChurns = false
         groupsJoinAtRead = 0
+        interruptAtWiringRead = undefined
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
@@ -975,12 +980,13 @@ describe('runner through seed, drive and judge', () => {
         delivering: Parameters<typeof environmentOf>[0],
         valves: ValveEntry[] = [],
         traffic?: string,
-        options: Parameters<typeof shortSmoke>[2] = {}
+        options: Parameters<typeof shortSmoke>[2] = {},
+        signal: AbortSignal = NEVER_ABORTED
     ): Promise<RunResult> => {
         const result = await createRunner(environmentOf(delivering), env, {
             topologyWithinMs: 1000,
             topologyEveryMs: 10,
-        }).run(shortSmoke(valves, traffic, options), NEVER_ABORTED)
+        }).run(shortSmoke(valves, traffic, options), signal)
         results.push(result)
         return result
     }
@@ -1358,6 +1364,18 @@ describe('runner through seed, drive and judge', () => {
             status: result.status,
             recordedPastTheFirstTwoReads: Number(recorded.database.replace('cyclotron-', '')) >= 2,
         }).toEqual({ status: 'passed', recordedPastTheFirstTwoReads: true })
+    }, 30_000)
+
+    it('calls a run invalid before its drive when it is interrupted during the read that settles its topology', async () => {
+        const interrupt = new AbortController()
+        interruptAtWiringRead = { read: 1, interrupt }
+        const result = await run('all', [KILL_EMAIL_WORKER], undefined, {}, interrupt.signal)
+
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: 'the run stopped: the run was interrupted while it read its topology',
+            timeline: [],
+        })
     }, 30_000)
 
     it('calls a run invalid before its drive when a valve targets a node its topology lacks, and names the nodes found', async () => {

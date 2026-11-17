@@ -130,6 +130,29 @@ describe('topology', () => {
         expect(wiringFrom(groups, CLIENTS, 'another-adapter').hash).not.toEqual(hash)
     })
 
+    it('reads every group of a broker whose descriptions together pass the output limit of one call', async () => {
+        const names = Array.from({ length: 2000 }, (_, index) => `group-${index}`)
+        writeFileSync(
+            path.join(dir, 'list.txt'),
+            ['BROKER  GROUP  STATE', ...names.map((name) => `0  ${name}  Empty`)].join('\n')
+        )
+        const docker = path.join(dir, 'docker')
+        writeFileSync(
+            docker,
+            [
+                '#!/bin/sh',
+                `[ "$5" = list ] && cat '${path.join(dir, 'list.txt')}' && exit 0`,
+                'shift 5',
+                `for group in "$@"; do printf 'GROUP        %s\\nSTATE        Empty\\n\\nTOPIC  PARTITION  LAG  CLIENT-ID\\n%s  0  0  %0600d\\n\\n' "$group" "$group" 0; done`,
+            ].join('\n')
+        )
+        chmodSync(docker, 0o755)
+
+        const groups = await kafkaGroups(docker)
+
+        expect(groups.map(({ group }) => group)).toEqual(names)
+    })
+
     it('fails the read when rpk fails, instead of reading its error as groups', async () => {
         await expect(
             kafkaGroups(fakeDocker(dir, { list: 'unable to dial: connection refused', describe: '', exitCode: 1 }))
