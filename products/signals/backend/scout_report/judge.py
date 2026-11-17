@@ -74,10 +74,7 @@ SAFETY_REFUSAL_EXPLANATION = "The safety model refused to assess this content, s
 
 
 class SafetyJudgeUnavailableError(Exception):
-    """The safety model could not be reached or timed out, so there is no verdict and nothing may be written.
-
-    Unlike a refusal, this says nothing about the content, so the caller retries instead of being told the
-    content is unsafe."""
+    """The safety model timed out or could not be reached, so there is no verdict and nothing may be written."""
 
 
 async def _judge_safety_fail_closed(

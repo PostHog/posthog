@@ -337,6 +337,9 @@ class _SafetyJudgeUnavailable(exceptions.APIException):
     default_code = "safety_judge_unavailable"
 
 
+SAFETY_JUDGE_UNAVAILABLE_RESPONSE = OpenApiResponse(description=_SafetyJudgeUnavailable.default_detail)
+
+
 class _LighthouseNotConfigured(exceptions.APIException):
     """501 for a deployment with no Browserless provisioned: the capability is absent here,
     which is a different thing from the request being wrong, and no retry will fix it."""
@@ -1354,9 +1357,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             400: OpenApiResponse(description="Invalid report shape (empty title/summary/evidence, bad actionability)."),
             404: OpenApiResponse(description="Run not found for this project."),
-            503: OpenApiResponse(
-                description="The safety check did not finish, so nothing was written. Retry the call."
-            ),
+            503: SAFETY_JUDGE_UNAVAILABLE_RESPONSE,
         },
         summary="Author a full report for a run",
         description=(
@@ -1395,9 +1396,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=EditReportResponseSerializer, description="Report edited."),
             400: OpenApiResponse(description="Nothing to edit, empty note, or report not found for this project."),
             404: OpenApiResponse(description="Run not found for this project."),
-            503: OpenApiResponse(
-                description="The safety check did not finish, so nothing was written. Retry the call."
-            ),
+            503: SAFETY_JUDGE_UNAVAILABLE_RESPONSE,
         },
         summary="Edit an existing report for a run",
         description=(
