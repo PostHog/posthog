@@ -93774,6 +93774,8 @@ export namespace Schemas {
       email_utm_tags_enabled?: boolean;
       /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
       email_utm_params?: EmailUtmParams;
+      /** Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default. */
+      email_workflow_run_link_tag_enabled?: boolean;
       /**
          * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
          * @minimum 0
