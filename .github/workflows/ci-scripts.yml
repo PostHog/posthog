@@ -8,6 +8,7 @@ on:
         paths:
             - .github/scripts/**
             - .github/auto-assign-labels.json
+            - common/storybook/test-sequencer.js
             - bin/find-affected-stories
             - bin/find-affected-stories.test.mjs
             - .github/workflows/ci-scripts.yml
@@ -62,6 +63,7 @@ jobs:
                   fetch-depth: 1
                   sparse-checkout: |
                       /.github/
+                      /common/storybook/test-sequencer.js
                       /bin/find-affected-stories
                       /bin/find-affected-stories.test.mjs
                       /bin/render-jest-timings-example
