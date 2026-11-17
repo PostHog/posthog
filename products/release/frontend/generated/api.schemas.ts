@@ -181,6 +181,60 @@ export interface BroadcastOptionApi {
     status: string
 }
 
+export interface CatalogUserApi {
+    /** ID of the user. */
+    id: number
+    /** UUID of the user. */
+    uuid: string
+    /** First name of the user. */
+    first_name: string
+    /** Last name of the user. */
+    last_name: string
+    /** Email address of the user. */
+    email: string
+}
+
+export interface CatalogFlagApi {
+    /** ID of the feature flag. */
+    id: number
+    /** Key of the feature flag. */
+    key: string
+    /** True when the flag is enabled. */
+    active: boolean
+    /** When the flag was created. */
+    created_at: string
+    /** Who created the flag, if known. */
+    created_by: CatalogUserApi | null
+}
+
+export interface CatalogFlagsResponseApi {
+    /** Flags the caller can see, in the requested order. */
+    results: CatalogFlagApi[]
+    /** True when more flags follow this page. */
+    has_more: boolean
+}
+
+export interface CatalogReleaseApi {
+    /** ID of the release. */
+    id: string
+    /** Name of the release. */
+    name: string
+    /** When the release was created. */
+    created_at: string
+    /** Who owns the release, if anyone. */
+    owner: CatalogUserApi | null
+}
+
+export interface CatalogReleasesResponseApi {
+    /** Releases of the project, in the requested order. */
+    results: CatalogReleaseApi[]
+    /**
+     * Pass as cursor to fetch the next page. Null when no more releases follow.
+     * @nullable
+     */
+    next_cursor: string | null
+}
+
 export interface ImportAllResponseApi {
     /** How many releases the import created. */
     created_count: number
@@ -201,6 +255,70 @@ export type ReleasesListParams = {
 export type ReleasesBroadcastSearchRetrieveParams = {
     /**
      * Part of the broadcast name to match.
+     * @maxLength 200
+     */
+    search?: string
+}
+
+export type ReleasesCatalogFlagsRetrieveParams = {
+    /**
+     * Comma-separated user IDs. Only flags created by one of them are listed.
+     * @maxLength 1000
+     */
+    created_by?: string
+    /**
+     * How many flags to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * How many flags to skip.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Sort by creation time: -created_at for newest first, created_at for oldest first.
+     *
+     * * `-created_at` - Newest first
+     * * `created_at` - Oldest first
+     * @minLength 1
+     */
+    order?: string
+    /**
+     * Part of the flag key or name to match.
+     * @maxLength 200
+     */
+    search?: string
+}
+
+export type ReleasesCatalogReleasesRetrieveParams = {
+    /**
+     * next_cursor of the previous page.
+     * @maxLength 100
+     */
+    cursor?: string
+    /**
+     * How many releases to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Sort by creation time: -created_at for newest first, created_at for oldest first.
+     *
+     * * `-created_at` - Newest first
+     * * `created_at` - Oldest first
+     * @minLength 1
+     */
+    order?: string
+    /**
+     * Comma-separated user IDs. Only releases owned by one of them are listed.
+     * @maxLength 1000
+     */
+    owner?: string
+    /**
+     * Part of the release name to match.
      * @maxLength 200
      */
     search?: string

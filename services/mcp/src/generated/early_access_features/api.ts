@@ -17,9 +17,18 @@ export const EarlyAccessFeatureListParams = () => zod.object({
 })
 
 export const EarlyAccessFeatureListQueryParams = () => zod.object({
+    created_by_id: zod
+        .string()
+        .optional()
+        .describe('Comma-separated user IDs. Only features created by one of them are listed.'),
     ids: zod.string().optional().describe('Comma-separated early access feature IDs, at most 200.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order: zod
+        .string()
+        .optional()
+        .describe('Sort by creation time: -created_at (default) for newest first, created_at for oldest first.'),
+    search: zod.string().optional().describe('Case-insensitive match on the feature name.'),
 })
 
 export const EarlyAccessFeatureCreateParams = () => zod.object({

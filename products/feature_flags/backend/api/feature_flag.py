@@ -559,6 +559,11 @@ def _validate_behavioral_cohort_for_feature_flag(
                 detail=f"Cohort '{cohort.name}' has an event-based condition{condition_clause} and cannot be used in feature flags.",
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
+        if not cohort.realtime_enabled:
+            raise serializers.ValidationError(
+                detail=f"Realtime is off for cohort '{cohort.name}'. Turn it on from the cohort's page, and feature flags can target the cohort once it's ready.",
+                code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+            )
         raise serializers.ValidationError(
             detail=f"Cohort '{cohort.name}' isn't ready for feature flags yet. Open the cohort to see whether PostHog is still preparing it, and try again once it shows as realtime.",
             code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -833,6 +838,19 @@ def check_flag_limits_for_team(
             f"Maximum of {count_limit:,} feature flags allowed per team. "
             f"Please delete unused flags or contact support to increase this limit."
         )
+
+
+class _JSONNullResponse(Response):
+    # DRF renders Response(None) as an empty body, and the SDKs' JSON parsers reject an empty body.
+    # This response renders the JSON literal null. Its .data stays None, so the Rust shadow comparison,
+    # which reads .data, still sees no payload.
+    def __init__(self) -> None:
+        super().__init__(None, headers={"Content-Type": "application/json"})
+
+    # django-stubs types rendered_content as str, but DRF's Response returns bytes from it.
+    @property
+    def rendered_content(self) -> bytes:  # type: ignore[override]
+        return b"null"
 
 
 # Default per-key and per-team cap for remote_config. Both throttles below respect
@@ -4005,7 +4023,8 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Search by feature flag key or name (case-insensitive). "
-            "Spaces, underscores, and hyphens count as the same separator."
+            "Spaces, underscores, and hyphens count as the same separator. "
+            "The words of the term must appear together and in order, so a shorter term matches more flags."
         ),
     )
     type = serializers.ChoiceField(
@@ -4599,7 +4618,8 @@ class FeatureFlagViewSet(
                 required=False,
                 description=(
                     "Search by feature flag key or name. Case insensitive. "
-                    "Spaces, underscores, and hyphens count as the same separator."
+                    "Spaces, underscores, and hyphens count as the same separator. "
+                    "The words of the term must appear together and in order, so a shorter term matches more flags."
                 ),
             ),
             OpenApiParameter(
@@ -6675,11 +6695,13 @@ class FeatureFlagViewSet(
         # usage numbers.
         should_count = is_service_auth(request)
 
-        if not feature_flag.has_encrypted_payloads:
-            payloads = feature_flag.filters.get("payloads", {})
+        if not feature_flag.active or not feature_flag.has_encrypted_payloads:
             if should_count:
                 increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
-            return Response(payloads.get("true") or None)
+            # A disabled flag evaluates as off in local evaluation and /flags, so it serves no payload here either.
+            if not feature_flag.active:
+                return _JSONNullResponse()
+            return Response(feature_flag.filters.get("payloads", {}).get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
         # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication
