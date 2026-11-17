@@ -49,8 +49,6 @@ export function HedgehogMode({ enabledOverride }: HedgehogModeProps): JSX.Elemen
         // already applied, instead of defaulting to roaming until the first syncGame corrects it.
         state: { options: hedgehogConfig.actor_options },
         platforms: {
-            // HedgehogPlatform has no styles. It marks elements the hedgehog can stand on that match no other entry,
-            // such as the sidebar search row in a pane with no bordered elements.
             selector:
                 '.HedgehogPlatform, .border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable, .LemonSwitch--bordered, .LemonBanner',
             viewportPadding: {
