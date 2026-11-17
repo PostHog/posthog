@@ -2890,12 +2890,12 @@ describe('CDP API', () => {
                 })
             })
 
-            it('inserts a sensitive send without producing it, so its secret stays off Kafka', async () => {
+            it('inserts a sensitive send and produces its shadow copy like any other send', async () => {
                 const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
 
                 expect(res.status).toEqual(202)
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(intakeMessages()).toEqual([])
+                expect(intakeMessages()).toHaveLength(1)
             })
 
             it('claims a run without a key on its own id, so the consumer replays the produced copy', async () => {
