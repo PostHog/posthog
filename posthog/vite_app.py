@@ -9,6 +9,10 @@ Only a staff member can choose it, with `?frontend_build=vite`. The choice is ke
 cookie, so it also holds on the pages that the staff member sees while signed out, such as the
 login page. `?frontend_build=default` clears it.
 
+The cookie is signed but not tied to a user, so any browser that holds it gets this build for 30 days,
+also after logout or after the staff member loses access. That is accepted: the cookie only picks
+the bundler for the same app and grants nothing else.
+
 A page on this build that fails to load a chunk reloads with `?stable_chunks=fallback`, as a page on
 the stable chunk build does, and gets the default esbuild build.
 """
@@ -187,7 +191,7 @@ def _wants_vite_app(request: HttpRequest) -> bool:
     chosen = _chosen(request)
     if chosen is not None:
         return chosen == VITE_BUILD
-    # Only a staff member's request can have set this cookie, because it is signed.
+    # The signature shows that a staff member's request set this cookie. It does not show that the holder is staff now.
     remembered = request.get_signed_cookie(
         FRONTEND_BUILD_COOKIE, default=None, salt=_COOKIE_SALT, max_age=_COOKIE_MAX_AGE_SECONDS
     )
