@@ -83,6 +83,7 @@ products/feature_flags/backend/test/test_flag_windows_baseline.py
 products/feature_flags/backend/test/test_flag_windows_errors.py
 products/feature_flags/backend/test/test_flag_windows_exposure.py
 products/feature_flags/backend/test/test_request_usage.py
+products/growth/backend/tests/test_team_sdk_versions.py
 
 # Other modules that own a *.new_events_schema.ambr snapshot, so the snapshot bot keeps it current
 posthog/api/test/test_event.py
