@@ -22,7 +22,13 @@ export function MetricsIntroStrip(): JSX.Element {
     useOnMountEffect(() => reportIntroShown('strip'))
 
     return (
-        <Item variant="outline" size="xs" className="w-fit max-w-full flex-wrap" data-attr="data-catalog-metrics-intro">
+        <Item
+            variant="outline"
+            size="xs"
+            tone="info"
+            className="w-fit max-w-full flex-wrap"
+            data-attr="data-catalog-metrics-intro"
+        >
             <ItemMedia variant="icon">
                 <IconInfo />
             </ItemMedia>
