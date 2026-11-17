@@ -108,6 +108,9 @@ INVALID_DATA_CENTER_ERROR = (
 
 MAILCHIMP_UNREACHABLE_ERROR = "Couldn't reach Mailchimp to check your API key. Try again in a few minutes."
 
+# The resolver failing (unreachable, timed out, out of memory) says nothing about the name.
+_TEMPORARY_RESOLUTION_ERRNOS = frozenset({socket.EAI_AGAIN, socket.EAI_SYSTEM, socket.EAI_MEMORY})
+
 # urllib3 2.x raises NameResolutionError; 1.x only leaves the socket.gaierror in the chain.
 _DNS_ERROR_TYPES: tuple[type[BaseException], ...] = tuple(
     t for t in (socket.gaierror, getattr(urllib3_exceptions, "NameResolutionError", None)) if t is not None
@@ -115,18 +118,23 @@ _DNS_ERROR_TYPES: tuple[type[BaseException], ...] = tuple(
 
 
 def _is_dns_resolution_failure(error: BaseException) -> bool:
-    """Whether a DNS lookup failure sits anywhere in the exception chain, its args or urllib3's `reason`."""
+    """Whether the host name does not resolve, found anywhere in the exception chain, its args or urllib3's `reason`.
+
+    A resolver outage (EAI_AGAIN and similar) is not a verdict on the name, so it does not count.
+    """
     pending: list[Any] = [error]
     seen: set[int] = set()
+    name_not_found = False
     while pending:
         current = pending.pop()
         if id(current) in seen or not isinstance(current, BaseException):
             continue
         seen.add(id(current))
-        if isinstance(current, _DNS_ERROR_TYPES):
-            return True
+        if isinstance(current, socket.gaierror) and current.errno in _TEMPORARY_RESOLUTION_ERRNOS:
+            return False
+        name_not_found = name_not_found or isinstance(current, _DNS_ERROR_TYPES)
         pending.extend([current.__cause__, current.__context__, getattr(current, "reason", None), *current.args])
-    return False
+    return name_not_found
 
 
 def extract_data_center(api_key: str) -> str:

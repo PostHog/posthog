@@ -92,13 +92,18 @@ class TestIsDnsResolutionFailure:
         [
             (_GAIERROR, True),
             (ConnectionError(_GAIERROR), True),
-            (ConnectionError(MaxRetryError(None, "/3.0/ping", _GAIERROR)), True),
-            (ConnectionError(MaxRetryError(None, "/3.0/ping", reason=NewConnectionError(None, "no host"))), False),
+            (ConnectionError(MaxRetryError(MagicMock(), "/3.0/ping", _GAIERROR)), True),
+            (
+                ConnectionError(MaxRetryError(MagicMock(), "/3.0/ping", reason=NewConnectionError(None, "no host"))),
+                False,
+            ),
             (_raised_from(ConnectionError("failed"), _GAIERROR), True),
             (_raised_during(ConnectionError("failed"), _GAIERROR), True),
             (_raised_from(ConnectionError("failed"), OSError("Connection reset by peer")), False),
             (ConnectionError(OSError("Connection reset by peer")), False),
             (Timeout("read timed out"), False),
+            (ConnectionError(socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")), False),
+            (_raised_from(ConnectionError("failed"), socket.gaierror(socket.EAI_AGAIN, "try again")), False),
         ],
         ids=[
             "bare-gaierror",
@@ -110,6 +115,8 @@ class TestIsDnsResolutionFailure:
             "cause-is-connection-reset",
             "connection-reset-in-args",
             "timeout",
+            "temporary-resolver-failure-in-args",
+            "temporary-resolver-failure-in-cause",
         ],
     )
     def test_walks_the_exception_chain(self, error: BaseException, expected: bool) -> None:
@@ -144,6 +151,7 @@ class TestValidateCredentials:
             RequestException("connection reset"),
             Timeout("read timed out"),
             ConnectionError(OSError("Connection reset by peer")),
+            ConnectionError(socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")),
         ],
     )
     def test_network_errors_return_friendly_message_without_raw_details(self, exception: RequestException) -> None:
@@ -159,7 +167,7 @@ class TestValidateCredentials:
         "exception",
         [
             ConnectionError(_GAIERROR),
-            ConnectionError(MaxRetryError(None, "/3.0/ping", reason=_GAIERROR)),
+            ConnectionError(MaxRetryError(MagicMock(), "/3.0/ping", reason=_GAIERROR)),
         ],
         ids=["gaierror-in-args", "gaierror-as-max-retry-reason"],
     )
