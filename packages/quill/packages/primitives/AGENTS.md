@@ -99,14 +99,17 @@ Every menu-like list marks its active row the same way: the row that keyboard in
 | Tooltip     | Hover-only text hint; never interactive content, never essential information                                                            |
 | Toast       | Async outcome notification (`toast.success({ title })`) — fire and forget                                                               |
 
+Toast vs Callout: a toast reports an outcome and goes away; a Callout stays in the layout next to the content it is about.
+
 ### Status and labels
 
-| Component | Use when                                                                   |
-| --------- | -------------------------------------------------------------------------- |
-| Badge     | Semantic status text — variants info/warning/success/completed/destructive |
-| Chip      | Removable token (selected tags, active filters) — pair with ChipClose      |
-| Dot       | Tiny presence/status indicator next to text; `pulse` for live state        |
-| Kbd       | Keyboard shortcut display, with KbdGroup for combos                        |
+| Component | Use when                                                                                                     |
+| --------- | ------------------------------------------------------------------------------------------------------------ |
+| Badge     | Semantic status text — variants info/warning/success/completed/destructive                                   |
+| Callout   | Static inline message on the page (warning above a form, error after a failed load) — replaces `LemonBanner` |
+| Chip      | Removable token (selected tags, active filters) — pair with ChipClose                                        |
+| Dot       | Tiny presence/status indicator next to text; `pulse` for live state                                          |
+| Kbd       | Keyboard shortcut display, with KbdGroup for combos                                                          |
 
 ### Form controls
 
@@ -810,7 +813,42 @@ For tooltips on the tiles, use one shared tooltip (see Tooltip) so it slides bet
 Item variants: default, outline, muted, menuItem
 Item sizes: default, sm, xs
 `<ItemGroup>` spaces items with a gap by default; pass `combined` to merge them into one flush list (no gap, squared interior corners, collapsed shared borders, rounded outer corners — like CardGroup)
-Item tones (the `tone` prop — named `tone`, not `color`, to avoid colliding with the DOM `color` attribute when Base UI render props are spread onto ItemCheckbox/ItemRadio): default, info, success, warning, completed, destructive — a semantic tint orthogonal to `variant`, for callouts such as a warning or an incident notice (e.g. `<Item variant="outline" tone="warning">`)
+Item tones (the `tone` prop — named `tone`, not `color`, to avoid colliding with the DOM `color` attribute when Base UI render props are spread onto ItemCheckbox/ItemRadio): default, info, success, warning, completed, destructive — a semantic tint orthogonal to `variant`, for tinted rows such as a status list. For an inline message (a warning or an incident notice), use `Callout`, which is built on it
+
+### Callout
+
+A static, inline message that stays in the layout — the quill replacement for `LemonBanner`. `Callout` is an outline `Item` with a `tone`, so it shares Item's tint, tone border and spacing. Use Callout instead of a hand-built `<Item variant="outline" tone>` for a message.
+
+```tsx
+<Callout tone="warning">
+  <CalloutIcon />
+  <CalloutContent>
+    <CalloutTitle>Your event volume is close to the billing limit</CalloutTitle>
+    <CalloutDescription>New events stop when the project reaches the limit.</CalloutDescription>
+  </CalloutContent>
+  <CalloutActions>
+    <Button variant="outline">Increase limit</Button>
+  </CalloutActions>
+  <CalloutClose onClick={dismiss} />
+</Callout>
+```
+
+Callout tones: default, info, success, warning, destructive. The default tone uses a muted surface. Callout has one size and takes no `size` prop.
+`CalloutIcon` renders the tone's default lucide icon when it has no children; pass an icon as children to replace it, or leave `CalloutIcon` out for no icon.
+`CalloutTitle` is optional. `CalloutDescription` is a `div`, so it can hold links, inline code or a list; it does not clamp and uses the foreground colour.
+With a `CalloutTitle`, the icon and close button pin to the first line. Without one, they centre on the text.
+`CalloutClose` is the dismiss X. The caller owns the dismissed state and any persistence, such as a localStorage key.
+Below 28rem wide, `CalloutActions` and the close button move to a row under the text, so the visual order matches the tab order. The callout is a size container, so inside a flex row or another shrink-to-fit parent give it a width.
+For a router link action, pass the app's link through `render`: `<Button variant="outline" render={<Link to={url} />}>`.
+Callout sets no live-region role. Pass `role="alert"` (urgent) or `role="status"` (polite) only when the callout appears after a user action and screen readers must announce it.
+Accessibility:
+
+- A hidden prefix names the tone for screen readers ("Warning: …"), because the tint and icon are visual only. Override it with `toneLabel` (rendered as given, so include the separator), or pass `toneLabel={null}` when the text already names it. The default tone has none.
+- Give `CalloutClose` an `aria-label` that names the callout ("Dismiss retention warning") when a page can show more than one.
+- On dismiss, move focus to a sensible nearby element. Otherwise focus falls back to the page body.
+- Keep the DOM order `CalloutIcon`, `CalloutContent`, `CalloutActions`, `CalloutClose`. It is the reading and tab order, and the layout depends on it.
+
+`LemonBanner` map: `type` info/warning/success → same `tone`, error → `destructive`, ai → `info` with a sparkles icon in `CalloutIcon`; children → `CalloutDescription`; `action` → `Button variant="outline"` in `CalloutActions`; `onClose` / `dismissKey` → `CalloutClose` + caller state; `icon` → `CalloutIcon` children; `hideIcon` → leave out `CalloutIcon`.
 
 ### Avatar
 

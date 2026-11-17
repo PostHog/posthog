@@ -103,6 +103,17 @@ export {
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
 export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'
+export {
+    Callout,
+    CalloutIcon,
+    CalloutContent,
+    CalloutTitle,
+    CalloutDescription,
+    CalloutActions,
+    CalloutClose,
+    type CalloutTone,
+    type CalloutProps,
+} from './callout'
 export { Checkbox, CheckboxIndicator } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'
 export { Collapsible, CollapsibleHeader, CollapsibleTrigger, CollapsibleContent } from './collapsible'

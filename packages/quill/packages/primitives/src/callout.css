@@ -1,0 +1,82 @@
+@layer components {
+    /*
+     * Callout is an outline Item with a tone. Item supplies the tinted surface and
+     * the tone border through --quill-item-tint / --quill-item-accent. These rules
+     * only adapt Item's list-row layout to a block of prose.
+     *
+     * The container query below needs `container-type`. Inline-size containment
+     * means the callout's width no longer comes from its content, so in a
+     * shrink-to-fit parent (a flex row, `w-fit`) the callout needs an explicit width.
+     */
+    .quill-callout {
+        container-type: inline-size;
+    }
+
+    /* The default tone has no tint, so give it a muted surface */
+    .quill-callout:not([data-tone]) {
+        background-color: var(--muted);
+    }
+
+    .quill-callout__icon {
+        color: var(--quill-item-accent, var(--muted-foreground));
+    }
+
+    .quill-callout:has(> [data-slot='callout-content'] > [data-slot='callout-title']) > .quill-callout__icon {
+        translate: 0 0.125rem;
+    }
+
+    .quill-callout__content {
+        min-width: 0;
+    }
+
+    .quill-callout__title {
+        font-size: var(--text-ui, 0.8125rem);
+        font-weight: 500;
+        line-height: 1.375;
+        overflow-wrap: anywhere;
+    }
+
+    /* A callout body is prose: no clamp, full contrast, wraps freely */
+    .quill-callout__description {
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1rem;
+        color: var(--foreground);
+        overflow-wrap: anywhere;
+    }
+
+    /* Plain links only: a Button rendered as a link carries a data-slot and keeps its own style */
+    .quill-callout__description a:not([data-slot]) {
+        text-decoration: underline;
+        text-underline-offset: 4px;
+    }
+
+    .quill-callout__close {
+        flex-shrink: 0;
+
+        /* The ghost box is invisible at rest, so the negative end margin lines the glyph, not the box, up with the action buttons' edge */
+        margin-inline: auto -0.375rem;
+    }
+
+    .quill-callout:has(> [data-slot='callout-content'] > [data-slot='callout-title']) > .quill-callout__close {
+        translate: 0 0.0625rem;
+    }
+
+    /*
+     * In a narrow callout the actions move to a row under the text, so they do
+     * not squeeze it. The close button follows them onto that row instead of
+     * staying top right, so the visual order matches the DOM order and the tab
+     * order (WCAG 2.4.3). A callout without actions keeps the close button on
+     * the first row.
+     */
+    @container (max-width: 28rem) {
+        .quill-callout__actions {
+            /* Too wide to share the first row, but leaves room for the close button (1.5rem) and Item's sm gap after it */
+            flex-basis: calc(100% - 2.125rem);
+        }
+
+        .quill-callout:has(> .quill-callout__icon) > .quill-callout__actions {
+            /* Line the actions up with the text: icon width + Item's sm gap */
+            padding-inline-start: 1.625rem;
+        }
+    }
+}
