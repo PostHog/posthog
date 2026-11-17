@@ -20,7 +20,7 @@ export function MetricBreakdownError({
 }: MetricBreakdownErrorProps): JSX.Element {
     return (
         <tr data-breakdown-row className="hover:bg-bg-hover group">
-            <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
+            <td colSpan={6} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                 <div className="p-1">
                     <MetricBreakdowns
                         metric={metric}

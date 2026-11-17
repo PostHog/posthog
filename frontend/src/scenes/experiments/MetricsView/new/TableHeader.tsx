@@ -90,7 +90,6 @@ export function TableHeader({
                         </span>
                     )}
                 </th>
-                <th className="border-b-2 bg-bg-table p-3 z-10" />
                 <th className="border-b-2 bg-bg-table p-0 z-10">
                     {axisRange && axisRange > 0 ? (
                         <div>
@@ -123,7 +122,7 @@ export function TableHeader({
             {/* Thin loader line spanning the full table width, pinned to the header's bottom edge.
                 Mirrors LemonTable's loader row: a zero-height positioning host for the absolute line. */}
             <tr>
-                <th colSpan={7} className="relative h-0 overflow-visible !border-none !p-0 leading-none">
+                <th colSpan={6} className="relative h-0 overflow-visible !border-none !p-0 leading-none">
                     <LemonTableLoader loading={loading} tag="div" placement="bottom" />
                 </th>
             </tr>

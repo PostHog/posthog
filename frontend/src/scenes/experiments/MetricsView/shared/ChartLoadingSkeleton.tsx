@@ -8,13 +8,10 @@ import { FIXED_HEIGHT_STYLE } from '~/scenes/experiments/MetricsView/shared/rowH
 export function SkeletonResultCells({
     variantKey,
     className,
-    detailsCell,
     chartCell,
 }: {
     variantKey: string
     className: string
-    // Rendered between P-value and Chart, with rowSpan, on the baseline row only; matches the real layout
-    detailsCell?: JSX.Element
     // Replaces the chart-column skeleton: pass a custom cell (e.g. the retry state, with rowSpan, on the
     // baseline row) or null to omit the cell entirely (subsequent rows covered by that rowSpan)
     chartCell?: JSX.Element | null
@@ -52,8 +49,6 @@ export function SkeletonResultCells({
             >
                 <LemonSkeleton className="h-4 w-10 mx-auto" />
             </td>
-
-            {detailsCell}
 
             {/* Chart: mirrors ChartCell's wrapper so the bar lands where the real chart will */}
             {chartCell !== undefined ? (

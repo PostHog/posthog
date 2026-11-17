@@ -15,9 +15,9 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
 
-// The split button each variant row offers. The menu is the feature: it names the populations the
-// Recordings tab can open for this metric, and a funnel names different ones from a mean metric.
-const MAIN_BUTTON = '[data-attr="experiment-metrics-view-recordings"]'
+// The three-dot menu each variant row offers. Its recordings submenu is the feature: it names the populations
+// the Recordings tab can open for this metric, and a funnel names different ones from a mean metric.
+const MAIN_BUTTON = '[data-attr="experiment-variant-actions"]'
 
 const FUNNEL_RECALCULATION = recalculationMocks(
     EXPERIMENT_WITH_FUNNEL_METRIC,
@@ -87,29 +87,38 @@ const meanMetricDecorator = mswDecorator({
 })
 
 /**
- * Opens the first row's menu. Storybook leaves testing-library's test id attribute at its default,
- * unlike jest and Playwright, so a `data-attr` has to be matched as a plain attribute.
+ * Opens the first row's menu, then its recordings submenu. Storybook leaves testing-library's test id
+ * attribute at its default, unlike jest and Playwright, so a `data-attr` has to be matched as a plain
+ * attribute. The menu renders in a portal, so the submenu item is looked up on the document.
  */
 const openFirstRowMenu: Story['play'] = async ({ canvasElement }) => {
-    const caret = await waitFor(() => {
-        const button = canvasElement.querySelector<HTMLElement>('[data-attr="experiment-metrics-recordings-menu"]')
+    const menuButton = await waitFor(() => {
+        const button = canvasElement.querySelector<HTMLElement>(MAIN_BUTTON)
         if (!button) {
-            throw new Error('recordings menu caret not yet rendered')
+            throw new Error('variant menu not yet rendered')
         }
         return button
     })
-    await userEvent.click(caret)
+    await userEvent.click(menuButton)
+    const recordings = await waitFor(() => {
+        const item = document.querySelector<HTMLElement>('[data-attr="experiment-variant-menu-recordings"]')
+        if (!item) {
+            throw new Error('recordings item not yet rendered')
+        }
+        return item
+    })
+    await userEvent.click(recordings)
 }
 
-/** The one-click path: the button names the action, not the population it opens. */
+/** The table at rest: each variant row carries its menu next to the variant name. */
 export const ExperimentResultsRowRecordingLinksFunnel: Story = {}
 
-/** A funnel's menu: the two halves of the funnel, then every recording of the variant. */
+/** A funnel's recordings submenu: the two halves of the funnel, then every recording of the variant. */
 export const ExperimentResultsRowRecordingLinksFunnelMenu: Story = {
     play: openFirstRowMenu,
 }
 
-/** A mean metric's menu names the event a session has to have fired. */
+/** A mean metric's recordings submenu names the event a session has to have fired. */
 export const ExperimentResultsRowRecordingLinksMeanMenu: Story = {
     parameters: { pageUrl: urls.experiment(EXPERIMENT_WITH_MEAN_METRIC.id) },
     decorators: [meanMetricDecorator],
@@ -117,10 +126,9 @@ export const ExperimentResultsRowRecordingLinksMeanMenu: Story = {
 }
 
 /**
- * A metric the Recordings tab can't select: the button stays usable and opens every recording of
- * the variant, while the two modes that name the metric's population stay refused. The menu is open
- * because the button itself looks the same either way, so this is the only state a screenshot
- * separates.
+ * A metric the Recordings tab can't select: the submenu still opens every recording of the variant,
+ * while the two modes that name the metric's population stay refused. The submenu is open because
+ * the menu button looks the same either way, so this is the only state a screenshot separates.
  */
 export const ExperimentResultsRowRecordingLinksUnselectableMetric: Story = {
     parameters: { pageUrl: urls.experiment(EXPERIMENT_WITH_MEAN_METRIC.id) },
@@ -136,8 +144,8 @@ export const ExperimentResultsRowRecordingLinksUnselectableMetric: Story = {
 }
 
 /**
- * The ~520px of scene a nav sidebar and an open side panel leave, where the button has to hold its
- * column rather than push the rest of the table out of reach.
+ * The ~520px of scene a nav sidebar and an open side panel leave, where the variant menu has to stay
+ * next to the variant name rather than be pushed out of reach.
  */
 export const ExperimentResultsRowRecordingLinksNarrow: Story = {
     parameters: {

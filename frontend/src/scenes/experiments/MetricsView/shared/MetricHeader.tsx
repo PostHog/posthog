@@ -2,7 +2,16 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconPencil, IconSort, IconStack, IconTarget, IconTrash } from '@posthog/icons'
+import {
+    IconCopy,
+    IconEllipsis,
+    IconGraph,
+    IconPencil,
+    IconSort,
+    IconStack,
+    IconTarget,
+    IconTrash,
+} from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonMenuItem, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -107,6 +116,7 @@ export const MetricHeader = ({
     onDuplicateAsSingleUseMetricClick,
     onBreakdownChange,
     onDeleteMetricClick,
+    onViewDetailsClick,
     readOnly,
 }: {
     dragHandle?: JSX.Element | null
@@ -118,6 +128,7 @@ export const MetricHeader = ({
     onDuplicateAsSingleUseMetricClick: (metric: ExperimentMetric) => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onDeleteMetricClick?: (metric: ExperimentMetric) => void
+    onViewDetailsClick?: () => void
     readOnly?: boolean
 }): JSX.Element => {
     const { moveMetricsBetweenSections } = useActions(experimentLogic)
@@ -269,6 +280,19 @@ export const MetricHeader = ({
                                 closeOnClickInside={false}
                                 items={
                                     [
+                                        onViewDetailsClick && {
+                                            items: [
+                                                {
+                                                    label: 'View details',
+                                                    icon: <IconGraph />,
+                                                    'data-attr': 'experiment-metric-view-details',
+                                                    onClick: () => {
+                                                        closeMenu()
+                                                        onViewDetailsClick()
+                                                    },
+                                                },
+                                            ],
+                                        },
                                         {
                                             items: [
                                                 canAddBreakdown &&

@@ -8,9 +8,9 @@ interface UseColumnWidthSyncParams {
 }
 
 // Constants for table structure validation
-const BASELINE_ROW_CELL_COUNT = 7
-const VARIANT_ROW_CELL_COUNT = 6
-const EXPECTED_COLUMN_COUNT = 7
+const BASELINE_ROW_CELL_COUNT = 6
+const VARIANT_ROW_CELL_COUNT = 5
+const EXPECTED_COLUMN_COUNT = 6
 const WIDTH_COMPARISON_TOLERANCE = 0.5 // Tolerance for sub-pixel rendering differences
 
 /**
@@ -33,7 +33,7 @@ const getParentColumnIndex = (cellIndex: number, cellCount: number): number | nu
     }
 
     if (cellCount === VARIANT_ROW_CELL_COUNT) {
-        // Variant row: skip breakdown label (col 0), then map 1:1 to columns 1-6
+        // Variant row: skip breakdown label (col 0), then map 1:1 to columns 1-5
         return cellIndex + 1
     }
 
