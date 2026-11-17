@@ -547,9 +547,9 @@ tools:
         title: Create error tracking tag rule
         description: >
             Create a tag rule for the current project. Provide a `label` and at least one event property filter in
-            `filters`. When the first event of a new issue matches the filters, the issue gets the label. Every
-            matching rule applies its own label. Filters can use event properties only. Rules do not change existing issues. The call fails with
-            "Issue tags are off for this project." when the project does not have issue tags.
+            `filters`. When the first event of a new issue matches the filters, the issue gets the label. Every matching
+            rule applies its own label. Filters can use event properties only. Rules do not change existing issues. The
+            call fails with "Issue tags are off for this project." when the project does not have issue tags.
     error-tracking-tag-rules-delete:
         operation: error_tracking_tag_rules_destroy
         enabled: true
@@ -574,10 +574,9 @@ tools:
             idempotent: true
         title: List error tracking tag rules
         description: >
-            List the tag rules of the current project, with the label, filters, key, version and disabled state of
-            each. Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its label on
-            one issue. The call fails with "Issue tags are off for this project." when the project does not have
-            issue tags.
+            List the tag rules of the current project, with the label, filters, key, version and disabled state of each.
+            Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its label on one
+            issue. The call fails with "Issue tags are off for this project." when the project does not have issue tags.
     error-tracking-tag-rules-update:
         operation: error_tracking_tag_rules_partial_update
         enabled: true
@@ -590,8 +589,8 @@ tools:
         title: Update error tracking tag rule
         description: >
             Update a tag rule by ID. Include `label`, `description`, `filters`, or a combination. Omitted fields keep
-            their existing values. A new label shows at once on every issue that has the rule's label. New filters
-            apply only to issues created after the update, and the issues that already have the label keep it.
+            their existing values. A new label shows at once on every issue that has the rule's label. New filters apply
+            only to issues created after the update, and the issues that already have the label keep it.
     query-error-tracking-issue:
         operation: error_tracking_query_issue_create
         enabled: true
