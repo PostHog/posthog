@@ -2868,6 +2868,43 @@ describe('EmailService', () => {
             )
         })
 
+        it.each([
+            [
+                'a suspended team',
+                () =>
+                    hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO workflows_teamworkflowsconfig
+                            (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                             email_sending_suspended_at, email_sending_suspension_reason)
+                         VALUES ($1, false, 'off', now(), 'testing the skip outcome')
+                         ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = now()`,
+                        [team.id],
+                        'test-suspend-email-sending'
+                    ),
+                'warn',
+                false,
+            ],
+            ['a paused workflow', workflowPaused, 'error', true],
+            ['a missing recipient', recipientMissing, 'warn', true],
+            [
+                'a suppressed recipient',
+                () => service['emailSuppressionService'].recordHardBounces(team.id, ['test@example.com']),
+                'info',
+                false,
+            ],
+        ] as const)(
+            'logs the skip for %s at its level and flags the run skipped only where it must not be billed',
+            async (_gate, setup, logLevel, skipped) => {
+                await setup()
+
+                const result = await service.executeSendEmail(invocation)
+
+                const skipLog = result.logs.find((log) => log.message === result.emailSendResult?.reason)
+                expect({ logLevel: skipLog?.level, skipped: result.skipped ?? false }).toEqual({ logLevel, skipped })
+            }
+        )
+
         it('records a send-time metric for normal sends but not for test sends', async () => {
             const normal = await service.executeSendEmail(invocation)
             expect(normal.metrics.map((m) => m.metric_name)).toContain('email_sent')
