@@ -504,9 +504,11 @@ USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.
 
 
 DISTINCT_ID_HELP_TEXT = (
-    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, "
-    "bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. "
-    "The template can't read the person's properties, so pass everything it needs in `message_data`."
+    "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. "
+    "Defaults to the recipient's email address. The events join the person who has this ID, or start a new person "
+    "when nobody has it. No events are captured when the project's engagement events setting is off, or when "
+    "`tracking` turns engagement off for a send with `template_key`. The template can't read the person's "
+    "properties, so pass everything it needs in `message_data`."
 )
 
 
