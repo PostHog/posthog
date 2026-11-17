@@ -5,6 +5,7 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Literal, cast
 from urllib.parse import quote
@@ -12,6 +13,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -52,23 +54,25 @@ from ..facade.github import (
 )
 from ..facade.tasks import create_trigger_label
 from .serializers import (
+    CodeReviewApprovalAddRepositorySerializer,
+    CodeReviewApprovalAvailableRepositoriesQuerySerializer,
+    CodeReviewApprovalAvailableRepositoriesSerializer,
+    CodeReviewApprovalInstallInfoSerializer,
+    CodeReviewApprovalOwnersFileSerializer,
+    CodeReviewApprovalRepositorySerializer,
+    CodeReviewApprovalRepositoryWriteSerializer,
+    CodeReviewApprovalRoutingOwnersQuerySerializer,
+    CodeReviewApprovalRoutingRunsQuerySerializer,
+    CodeReviewApprovalSyncInstallationRequestSerializer,
+    CodeReviewApprovalSyncInstallationResponseSerializer,
     DigestRunSerializer,
     PullRequestSerializer,
     ReviewRequestResponseSerializer,
     ReviewRequestSerializer,
     ReviewRunSerializer,
+    RoutingOwnerCountSerializer,
     RoutingRunDetailSerializer,
     RoutingRunSerializer,
-    StamphogAddRepositorySerializer,
-    StamphogAvailableRepositoriesQuerySerializer,
-    StamphogAvailableRepositoriesSerializer,
-    StamphogInstallInfoSerializer,
-    StamphogOwnersFileSerializer,
-    StamphogRepoConfigSerializer,
-    StamphogRepoConfigWriteSerializer,
-    StamphogRoutingRunsQuerySerializer,
-    StamphogSyncInstallationRequestSerializer,
-    StamphogSyncInstallationResponseSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -88,6 +92,9 @@ REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
 # team's review request on fork pull requests, so it decides who gets asked too.
 # The clean-review switch starts reviews outside review_mode, so it decides when reviews run as well.
 MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode", "routing_fork_labels", "review_on_clean_external_review")
+
+# How far back the owner list looks when the caller names no window.
+ROUTING_OWNERS_WINDOW = timedelta(days=90)
 
 ReviewLevel = Literal["editor", "manager"]
 
@@ -197,7 +204,7 @@ class _StamphogTeamScopedViewSet(TeamAndOrgViewSetMixin):
     @cached_property
     def stamphog_access_level(self) -> str | None:
         """The caller's resource-wide stamphog level, resolved once for the whole response."""
-        access = self.user_access_control.access_level_for_resource("stamphog")
+        access = self.user_access_control.access_level_for_resource("code_review_approval")
         return access.access_level if access else None
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -218,10 +225,10 @@ class _StamphogTeamScopedViewSet(TeamAndOrgViewSetMixin):
 
 
 class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
-    """Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides."""
+    """Per-repository auto-approval settings: enable or disable review, GitHub App installation, policy overrides."""
 
-    scope_object = "stamphog"
-    serializer_class = StamphogRepoConfigSerializer
+    scope_object = "code_review_approval"
+    serializer_class = CodeReviewApprovalRepositorySerializer
 
     def _get_or_404(self, pk: UUID) -> contracts.RepoConfigDTO:
         # A keyed lookup, not a scan: an installation can surface hundreds of repositories.
@@ -239,15 +246,17 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         """
         if level is None:
             return
-        if not is_service_auth(request) and self.user_access_control.check_access_level_for_resource("stamphog", level):
+        if not is_service_auth(request) and self.user_access_control.check_access_level_for_resource(
+            "code_review_approval", level
+        ):
             return
         if level == "manager":
             raise PermissionDenied(
-                "Only a Stamphog manager can turn reviews off, change when they run, or change reviewer requests. "
+                "Only a manager of code review auto-approval can turn reviews off, change when they run, or change reviewer requests. "
                 "Ask an organization admin for manager access."
             )
         raise PermissionDenied(
-            "Only a Stamphog editor can turn reviews on. Ask an organization admin for editor access."
+            "Only an editor of code review auto-approval can turn reviews on. Ask an organization admin for editor access."
         )
 
     def _queue_trigger_label_creation(self, config: contracts.RepoConfigDTO) -> None:
@@ -270,14 +279,18 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
     def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
         return Response(self.get_serializer(self._get_or_404(pk)).data)
 
-    @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={201: StamphogRepoConfigSerializer})
+    @extend_schema(
+        request=CodeReviewApprovalRepositoryWriteSerializer, responses={201: CodeReviewApprovalRepositorySerializer}
+    )
     def create(self, request: Request, **kwargs) -> Response:
         # Naming a review field takes the same level here as it does on update: a caller spelling out
         # a review policy is making the review decision, whichever verb carries it. Leaving them out
         # stays at editor. The row is created without an installation, which binds it disabled at
         # sync time and keeps it out of the digest candidates, so the defaults reach nothing on their
         # own. add_repository is the path that binds a repository from a connected installation.
-        serializer = StamphogRepoConfigWriteSerializer(data=request.data, context=self.get_serializer_context())
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
+            data=request.data, context=self.get_serializer_context()
+        )
         serializer.is_valid(raise_exception=True)
         self._require_review_level(request, _required_review_level(serializer.validated_data))
         try:
@@ -288,10 +301,12 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             )
         return Response(self.get_serializer(config).data, status=201)
 
-    @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={200: StamphogRepoConfigSerializer})
+    @extend_schema(
+        request=CodeReviewApprovalRepositoryWriteSerializer, responses={200: CodeReviewApprovalRepositorySerializer}
+    )
     def update(self, request: Request, pk: UUID, **kwargs) -> Response:
         current = self._get_or_404(pk)
-        serializer = StamphogRepoConfigWriteSerializer(
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
             data=request.data,
             partial=kwargs.get("partial", False),
             partial_update=True,
@@ -305,7 +320,9 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             self._queue_trigger_label_creation(config)
         return Response(self.get_serializer(config).data)
 
-    @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={200: StamphogRepoConfigSerializer})
+    @extend_schema(
+        request=CodeReviewApprovalRepositoryWriteSerializer, responses={200: CodeReviewApprovalRepositorySerializer}
+    )
     def partial_update(self, request: Request, pk: UUID, **kwargs) -> Response:
         return self.update(request, pk=pk, partial=True, **kwargs)
 
@@ -321,44 +338,48 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             "Check whether the repository's default branch has a root owners.yaml. Reviewer requests "
             "(routing_mode) read the code owners from it. Makes one GitHub call, so ask only when needed."
         ),
-        responses={200: StamphogOwnersFileSerializer},
+        responses={200: CodeReviewApprovalOwnersFileSerializer},
     )
-    @action(detail=True, methods=["GET"], url_path="owners_file", required_scopes=["stamphog:read"])
+    @action(detail=True, methods=["GET"], url_path="owners_file", required_scopes=["code_review_approval:read"])
     def owners_file(self, request: Request, pk: UUID, **kwargs) -> Response:
         config = self._get_or_404(pk)
-        return Response(StamphogOwnersFileSerializer({"owners_file": facade_api.check_owners_file(config)}).data)
+        return Response(
+            CodeReviewApprovalOwnersFileSerializer({"owners_file": facade_api.check_owners_file(config)}).data
+        )
 
     @extend_schema(
         description=(
             "List repositories from the project's connected GitHub installations that are not added to "
-            "stamphog yet, so they can be added with add_repository."
+            "auto-approval yet, so they can be added with add_repository."
         ),
-        parameters=[StamphogAvailableRepositoriesQuerySerializer],
-        responses={200: StamphogAvailableRepositoriesSerializer},
+        parameters=[CodeReviewApprovalAvailableRepositoriesQuerySerializer],
+        responses={200: CodeReviewApprovalAvailableRepositoriesSerializer},
     )
-    @action(detail=False, methods=["GET"], url_path="available_repositories", required_scopes=["stamphog:read"])
+    @action(
+        detail=False, methods=["GET"], url_path="available_repositories", required_scopes=["code_review_approval:read"]
+    )
     def available_repositories(self, request: Request, **kwargs) -> Response:
         # Reads the snapshots a sync stored and makes no GitHub call, so the page can load it on every visit.
-        query = StamphogAvailableRepositoriesQuerySerializer(data=request.query_params)
+        query = CodeReviewApprovalAvailableRepositoriesQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         available = facade_api.list_available_repositories(
             self.canonical_team_id, search=query.validated_data["search"], limit=query.validated_data["limit"]
         )
-        return Response(StamphogAvailableRepositoriesSerializer(available).data)
+        return Response(CodeReviewApprovalAvailableRepositoriesSerializer(available).data)
 
     @extend_schema(
         description=(
             "Turn reviews on for a repository from the project's connected GitHub installations. Creates "
-            "the repo config, or turns an existing one back on. Needs the editor level on stamphog."
+            "the repo config, or turns an existing one back on. Needs the editor level on code review auto-approval."
         ),
-        request=StamphogAddRepositorySerializer,
-        responses={200: StamphogRepoConfigSerializer, 201: StamphogRepoConfigSerializer},
+        request=CodeReviewApprovalAddRepositorySerializer,
+        responses={200: CodeReviewApprovalRepositorySerializer, 201: CodeReviewApprovalRepositorySerializer},
     )
-    @action(detail=False, methods=["POST"], url_path="add_repository", required_scopes=["stamphog:write"])
+    @action(detail=False, methods=["POST"], url_path="add_repository", required_scopes=["code_review_approval:write"])
     def add_repository(self, request: Request, **kwargs) -> Response:
         # Turning reviews on takes editor. The installation and the connecting user come from the
         # team's snapshot, never from the request, so an editor can only bind what a member proved.
-        serializer = StamphogAddRepositorySerializer(data=request.data)
+        serializer = CodeReviewApprovalAddRepositorySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self._require_review_level(request, "editor")
         repository = serializer.validated_data["repository"]
@@ -378,8 +399,8 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         self._queue_trigger_label_creation(result.config)
         return Response(self.get_serializer(result.config).data, status=201 if result.created else 200)
 
-    @extend_schema(responses={200: StamphogInstallInfoSerializer})
-    @action(detail=False, methods=["GET"], url_path="install_info", required_scopes=["stamphog:read"])
+    @extend_schema(responses={200: CodeReviewApprovalInstallInfoSerializer})
+    @action(detail=False, methods=["GET"], url_path="install_info", required_scopes=["code_review_approval:read"])
     def install_info(self, request: Request, **kwargs) -> Response:
         # Deep link into GitHub's install page for the "Connect a repository" button. The state token
         # binds the eventual callback to THIS team and user: GitHub round-trips ?state=... back to the
@@ -403,16 +424,18 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             authorize_url = (
                 f"https://github.com/login/oauth/authorize?client_id={quote(client_id)}&state={quote(state)}"
             )
-        data = StamphogInstallInfoSerializer(
+        data = CodeReviewApprovalInstallInfoSerializer(
             {"app_slug": slug, "install_url": install_url, "authorize_url": authorize_url}
         ).data
         return Response(data)
 
     @extend_schema(
-        request=StamphogSyncInstallationRequestSerializer,
-        responses={200: StamphogSyncInstallationResponseSerializer},
+        request=CodeReviewApprovalSyncInstallationRequestSerializer,
+        responses={200: CodeReviewApprovalSyncInstallationResponseSerializer},
     )
-    @action(detail=False, methods=["POST"], url_path="sync_installation", required_scopes=["stamphog:write"])
+    @action(
+        detail=False, methods=["POST"], url_path="sync_installation", required_scopes=["code_review_approval:write"]
+    )
     def sync_installation(self, request: Request, **kwargs) -> Response:
         # Custom action names fall outside the default read/write action classification, so without
         # explicit required_scopes this write would be reachable with no scope check at all.
@@ -428,7 +451,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         #     installed anywhere the user can see, signalled via app_not_installed.
         # Either way ownership is proven by the code, never the caller-supplied (forgeable) id. A repo
         # already owned by another team is skipped, not fatal, so one shared repo can't block the batch.
-        request_serializer = StamphogSyncInstallationRequestSerializer(data=request.data)
+        request_serializer = CodeReviewApprovalSyncInstallationRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         installation_id = request_serializer.validated_data["installation_id"]
         code = request_serializer.validated_data["code"]
@@ -504,7 +527,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             if not discovered:
                 # The App isn't installed anywhere the user can see. Not an error: the frontend routes them
                 # to the GitHub install page (install_url) off app_not_installed.
-                data = StamphogSyncInstallationResponseSerializer(
+                data = CodeReviewApprovalSyncInstallationResponseSerializer(
                     {
                         "synced": [],
                         "skipped": [],
@@ -521,7 +544,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 # here, and via the oldest-wins webhook resolution even blackhole another team's future
                 # connect. Bind nothing; the frontend re-runs the flow with an explicit installation_id
                 # (which the explicit path above verifies).
-                data = StamphogSyncInstallationResponseSerializer(
+                data = CodeReviewApprovalSyncInstallationResponseSerializer(
                     {
                         "synced": [],
                         "skipped": [],
@@ -556,7 +579,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
 
         # The nested repo config serializer reads user_access_level off the view, and DRF hands the
         # root's context down to it. Without the context every synced row reports a null level.
-        data = StamphogSyncInstallationResponseSerializer(
+        data = CodeReviewApprovalSyncInstallationResponseSerializer(
             {
                 "synced": synced,
                 "skipped": skipped,
@@ -585,9 +608,9 @@ class ReviewRequestRefused(APIException):
 
 
 class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
-    """History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests."""
+    """History of auto-approval review runs, filterable by repository, PR number, and status, plus manual review requests."""
 
-    scope_object = "stamphog"
+    scope_object = "code_review_approval"
     serializer_class = ReviewRunSerializer
 
     def _runs(self) -> facade_api.LazyDTOList[contracts.ReviewRunDTO] | None:
@@ -668,7 +691,7 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
                     "event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' "
                     "(someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog "
                     "Review run started a silent review, which posts only an approval), 'self_driving' "
-                    "(stamphog reviewed a bot-authored PR from the inbox), and 'bot_admission' (the repo "
+                    "(auto-approval reviewed a bot-authored PR from the inbox), and 'bot_admission' (the repo "
                     "policy names the bot that authored the PR)."
                 ),
             ),
@@ -682,9 +705,9 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
 
 
 class PullRequestViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
-    """Read-only pull requests stamphog knows about, filterable by PR number and merge state."""
+    """Read-only pull requests auto-approval knows about, filterable by PR number and merge state."""
 
-    scope_object = "stamphog"
+    scope_object = "code_review_approval"
     serializer_class = PullRequestSerializer
 
     def _pull_requests(self) -> facade_api.LazyDTOList[contracts.PullRequestDTO] | None:
@@ -738,7 +761,7 @@ class PullRequestViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
 class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
     """Read-only history of posted (or attempted) digests, filterable by Slack channel."""
 
-    scope_object = "stamphog"
+    scope_object = "code_review_approval"
     serializer_class = DigestRunSerializer
 
     def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
@@ -768,24 +791,47 @@ class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
 class RoutingRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
     """Reviewer routing runs: which owners each run requested, cut or left out, and why."""
 
-    scope_object = "stamphog"
+    scope_object = "code_review_approval"
     serializer_class = RoutingRunSerializer
 
     @extend_schema(
         description=(
-            "List reviewer routing runs, newest first. Each run holds its decision for every owner of the "
-            "changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a "
-            "team or person was or was not asked to review. Get one run for the files each owner owns."
+            "List reviewer routing runs, newest run first by default or newest merge first with ordering=-merged_at. Each run holds its decision for every owner of the "
+            "changed code: requested, cut, or not asked, with the reason, and the pull request it routed. Filter "
+            "by owner to answer why a team or person was or was not asked to review. With latest_per_pr, list "
+            "what landed in an owner's area. Get one run for the files each owner owns."
         ),
-        parameters=[StamphogRoutingRunsQuerySerializer],
+        parameters=[CodeReviewApprovalRoutingRunsQuerySerializer],
         responses={200: RoutingRunSerializer(many=True)},
     )
     def list(self, request: Request, **kwargs) -> Response:
-        query = StamphogRoutingRunsQuerySerializer(data=request.query_params)
+        query = CodeReviewApprovalRoutingRunsQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         runs = facade_api.list_routing_runs(self.canonical_team_id, **query.validated_data)
         page = self.paginate_queryset(runs)
         return self.get_paginated_response(self.get_serializer(page, many=True).data)
+
+    @extend_schema(
+        description=(
+            "List the owners that routing runs decided about, with how many distinct pull requests each one "
+            "touched, most first. Defaults to the last 90 days of runs."
+        ),
+        parameters=[CodeReviewApprovalRoutingOwnersQuerySerializer],
+        responses={200: RoutingOwnerCountSerializer(many=True)},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="owners",
+        pagination_class=None,
+        required_scopes=["code_review_approval:read"],
+    )
+    def owners(self, request: Request, **kwargs) -> Response:
+        query = CodeReviewApprovalRoutingOwnersQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        created_after = query.validated_data.get("created_after") or timezone.now() - ROUTING_OWNERS_WINDOW
+        owners = facade_api.list_routing_owners(self.canonical_team_id, created_after=created_after)
+        return Response(RoutingOwnerCountSerializer(owners, many=True).data)
 
     @extend_schema(
         description="One reviewer routing run, with every changed file each owner owns.",

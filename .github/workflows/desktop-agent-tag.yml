@@ -10,6 +10,11 @@ on:
             - '.github/workflows/desktop-agent-tag.yml'
             - '.github/workflows/desktop-agent-release.yml'
     workflow_dispatch:
+        inputs:
+            ignore_backend_deploy:
+                description: Skip the wait for the backend deploy, for a break-glass release.
+                type: boolean
+                default: false
 
 concurrency:
     group: desktop-agent-tag
@@ -23,8 +28,12 @@ jobs:
         environment: desktop-tagging
         permissions:
             contents: write
-        runs-on: depot-ubuntu-24.04
-        timeout-minutes: 10
+            deployments: read
+        # The job only coordinates: it waits for the backend deploy and pushes a tag. A hosted
+        # runner keeps up to an hour of waiting off the Depot pool.
+        runs-on: ubuntu-24.04
+        # Sized for the 60-minute backend deploy wait plus a margin for the checkout and the tag push.
+        timeout-minutes: 75
         steps:
             - name: Get app token
               id: app-token
@@ -59,14 +68,14 @@ jobs:
               with:
                   fetch-depth: 0
                   filter: blob:none
-                  sparse-checkout: .github/workflows/desktop-agent-tag.yml
+                  sparse-checkout: |
+                      .github/workflows/desktop-agent-tag.yml
+                      .github/scripts/desktop/wait-for-backend-deploy.sh
                   sparse-checkout-cone-mode: false
                   token: ${{ steps.app-token.outputs.token }}
 
-            - name: Compute version and create tag
-              env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  REPOSITORY: ${{ github.repository }}
+            - name: Compute version
+              id: version
               run: |
                   # Find the latest agent base version tag (agent-vX.Y or agent-vX.Y.0 format)
                   LATEST_TAG=$(git tag --list 'agent-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^agent-v[0-9]+\.[0-9]+(\.0)?$' | head -1)
@@ -81,44 +90,110 @@ jobs:
                   MAJOR=$(echo "$VERSION_PART" | cut -d. -f1)
                   MINOR=$(echo "$VERSION_PART" | cut -d. -f2)
 
+                  # The backend wait below checks this commit, so the tag must point at it and
+                  # not at a newer master.
+                  # This fetch runs before the backend wait, so the checkout's App token is still valid.
+                  git fetch --quiet --no-tags origin refs/heads/master
+                  TARGET=$(git rev-parse 'FETCH_HEAD^{commit}')
+
+                  # Count commits touching the agent or harness package since the base tag. In the
+                  # monorepo an unscoped count would include every PostHog commit and
+                  # inflate patch numbers meaninglessly. The old paths stay in the pathspec so
+                  # the count does not restart below versions that are already published.
+                  PATCH=$(git rev-list "$LATEST_TAG".."$TARGET" --count -- \
+                    products/desktop/packages/agent \
+                    products/desktop/packages/harness \
+                    packages/agent/packages/agent \
+                    packages/agent/packages/harness)
+
+                  if [ "$PATCH" -eq 0 ]; then
+                    echo "No agent or harness commits since $LATEST_TAG. Nothing to release."
+                    exit 0
+                  fi
+
+                  TAG="agent-v${MAJOR}.${MINOR}.${PATCH}"
+
+                  if git rev-parse "$TAG" >/dev/null 2>&1; then
+                    echo "Tag $TAG already exists. Nothing new to release."
+                    exit 0
+                  fi
+
+                  echo "Releasing $TAG at $TARGET (from base tag $LATEST_TAG + $PATCH commits)"
+                  {
+                    echo "tag=$TAG"
+                    echo "target=$TARGET"
+                  } >> "$GITHUB_OUTPUT"
+
+            # The agent tag publishes @posthog/agent to npm, and its users call the Django backend,
+            # so the tag must not exist before prod-us and prod-eu run a build with its commit.
+            # The 60-minute wait is a policy: it allows for a prod deploy of the commit plus one more
+            # deploy cycle. This run comes from a push and nothing retries it, so a timeout fails the
+            # job rather than passing quietly: the red run shows that the release did not go out.
+            # The next push to the agent packages releases a newer commit that includes this one.
+            - name: Wait for the backend to run the release commit
+              if: steps.version.outputs.tag != '' && github.event.inputs.ignore_backend_deploy != 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  COMMIT_SHA: ${{ steps.version.outputs.target }}
+                  TAG: ${{ steps.version.outputs.tag }}
+                  TIMEOUT_SECONDS: '3600'
+                  # Polls every two minutes, so a full wait stays well under the hourly GITHUB_TOKEN rate limit.
+                  INTERVAL_SECONDS: '120'
+              run: |
+                  STATUS=0
+                  .github/scripts/desktop/wait-for-backend-deploy.sh || STATUS=$?
+                  case "$STATUS" in
+                    0)
+                      exit 0
+                      ;;
+                    3)
+                      echo "::error::The backend in production does not run ${COMMIT_SHA} yet, so ${TAG} is not released. Re-run this job once the backend deploy is live, or dispatch this workflow from master."
+                      ;;
+                    *)
+                      echo "::error::Could not check the backend deploy for ${COMMIT_SHA}, so ${TAG} is not released. Re-run this job to try again."
+                      ;;
+                  esac
+                  exit 1
+
+            # An App installation token expires after one hour, and the backend wait can outlast it,
+            # so the tag step mints its own token.
+            - name: Get app token for the tag push
+              id: app-token-tag
+              if: steps.version.outputs.tag != ''
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: getsentry/action-github-app-token@v4.0.0
+              with:
+                  app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
+
+            - name: Create tag
+              if: steps.version.outputs.tag != ''
+              env:
+                  GH_TOKEN: ${{ steps.app-token-tag.outputs.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  TAG: ${{ steps.version.outputs.tag }}
+                  TARGET: ${{ steps.version.outputs.target }}
+              run: |
+                  REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY"
+                  # The checkout stored its own, possibly expired, token as an extra header for
+                  # github.com. An empty value clears that header, so git sends the fresh token.
+                  git_with_fresh_token() {
+                    git -c http.https://github.com/.extraheader= "$@"
+                  }
+
                   # Annotated tags need a local tagger identity even when the push uses an app token.
                   git config user.email "github-actions[bot]@users.noreply.github.com"
                   git config user.name "github-actions[bot]"
 
+                  echo "Creating tag: $TAG at $TARGET"
                   for attempt in 1 2 3; do
-                    git fetch --quiet --no-tags origin refs/heads/master
-                    TARGET=$(git rev-parse 'FETCH_HEAD^{commit}')
-
-                    # Count commits touching the agent or harness package since the base tag. In the
-                    # monorepo an unscoped count would include every PostHog commit and
-                    # inflate patch numbers meaninglessly. The old paths stay in the pathspec so
-                    # the count does not restart below versions that are already published.
-                    PATCH=$(git rev-list "$LATEST_TAG".."$TARGET" --count -- \
-                      products/desktop/packages/agent \
-                      products/desktop/packages/harness \
-                      packages/agent/packages/agent \
-                      packages/agent/packages/harness)
-
-                    if [ "$PATCH" -eq 0 ]; then
-                      echo "No agent or harness commits since $LATEST_TAG. Nothing to release."
-                      exit 0
-                    fi
-
-                    NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-                    TAG="agent-v$NEW_VERSION"
-
-                    if git rev-parse "$TAG" >/dev/null 2>&1; then
-                      echo "Tag $TAG already exists. Nothing new to release."
-                      exit 0
-                    fi
-
-                    echo "Creating tag: $TAG at $TARGET (from base tag $LATEST_TAG + $PATCH commits)"
                     git tag -a "$TAG" -m "Agent release $TAG" "$TARGET"
-                    if git push "https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY" "$TAG"; then
+                    if git_with_fresh_token push "$REPO_URL" "$TAG"; then
                       exit 0
                     fi
                     # The remote can accept a tag before the connection fails.
-                    if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+                    if git_with_fresh_token ls-remote --exit-code --tags "$REPO_URL" "refs/tags/$TAG" >/dev/null; then
                       echo "Tag $TAG already exists on origin. Nothing new to release."
                       exit 0
                     fi

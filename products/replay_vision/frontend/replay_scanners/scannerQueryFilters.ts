@@ -59,8 +59,7 @@ export function applySavedFilterToScannerQuery(
         status: 'applied',
         query: {
             ...overlayEditorFilters(query, { ...merged, duration: merged.duration.map(clampDurationFilter) }),
-            // The editor hides these selection settings, but scans still apply them.
-            recommended_only: merged.recommended_only,
+            // The editor hides this selection setting, but scans still apply it.
             event_match_scope: merged.event_match_scope,
         },
     }
