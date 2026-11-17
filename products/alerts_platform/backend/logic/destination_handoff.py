@@ -12,7 +12,7 @@ PagerDuty destination to a routed receiver with the same integration key moves n
 
 import json
 import uuid
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
 from typing import Final, cast
@@ -56,8 +56,9 @@ logger = structlog.get_logger(__name__)
 
 # Sends run one after another in a delivery activity, which has `DELIVERY_START_TO_CLOSE` for all of them.
 MAX_SENDS_PER_HANDOFF: Final = 10
-# Resolves one edit sends from its own web request, so a large edit cannot hold a web worker for minutes.
-MAX_INLINE_RESOLVES_PER_EDIT: Final = 20
+# Sends one edit makes from its own web request, so a large edit cannot hold a web worker for minutes.
+# Resolves take them first. A handoff whose workflow cannot start takes what is left.
+MAX_INLINE_SENDS_PER_EDIT: Final = 20
 
 
 @frozen
@@ -69,10 +70,19 @@ class _InlineResolve:
 
 
 class _InlineBudget:
-    """The inline resolves an edit has left, shared by every configuration the edit touches."""
+    """The inline sends an edit has left, shared by every configuration the edit touches."""
 
     def __init__(self) -> None:
-        self.remaining = MAX_INLINE_RESOLVES_PER_EDIT
+        self.remaining = MAX_INLINE_SENDS_PER_EDIT
+
+
+@frozen
+class _Handoff:
+    """What one configuration's firings are owed after an edit."""
+
+    request: AlertDeliveryRequest
+    queued: tuple[HandoffSend, ...]
+    inline: tuple[_InlineResolve, ...]
 
 
 # The fields that say which incident a send reaches. Two destinations that agree on them hold the same
@@ -214,14 +224,23 @@ def hand_over_after_commit(before: Snapshot) -> None:
     )
     budget = _InlineBudget()
     endpoints_before = {watched.configuration_id: watched.endpoints for watched in before.watched}
-    for configuration_id, still_firing in running.items():
-        _schedule(
-            configurations[configuration_id],
-            still_firing,
-            endpoints_before[configuration_id],
-            after[configuration_id],
-            budget,
+    handoffs = [
+        handoff
+        for configuration_id, still_firing in running.items()
+        if (
+            handoff := _schedule(
+                configurations[configuration_id],
+                still_firing,
+                endpoints_before[configuration_id],
+                after[configuration_id],
+                budget,
+            )
         )
+        is not None
+    ]
+    if handoffs:
+        left = budget.remaining
+        transaction.on_commit(lambda: _send(handoffs, inline_left=left), robust=True)
 
 
 def _schedule(
@@ -230,7 +249,7 @@ def _schedule(
     before: Mapping[str, Mapping[str, _Endpoint]],
     after: Mapping[str, Mapping[str, _Endpoint]],
     budget: _InlineBudget,
-) -> None:
+) -> _Handoff | None:
     queued: list[HandoffSend] = []
     # Resolves go from this process with the settings read before the edit, up to the edit's budget. A
     # later edit can delete or repoint the row before a workflow would read it by id, and the settings
@@ -238,7 +257,7 @@ def _schedule(
     # through the workflow by id, which a row deleted in that window loses.
     inline: list[_InlineResolve] = []
     stranded = 0
-    lost: list[tuple[HandoffSend, _Endpoint, bool]] = []
+    lost: list[tuple[HandoffSend, _Endpoint, str]] = []
     for key, group in firing.items():
         was, now = before.get(key, {}), after.get(key, {})
         for where, endpoint in now.items():
@@ -246,10 +265,16 @@ def _schedule(
                 queued.append(_send_for(endpoint, key, group.started_at, gained=True))
         for where, endpoint in was.items():
             if where not in now:
-                send = _send_for(endpoint, key, group.started_at, gained=False)
-                lost.append((send, endpoint, _still_sends_there(configuration, endpoint, where)))
+                lost.append((_send_for(endpoint, key, group.started_at, gained=False), endpoint, where))
+    held = _addresses_held(configuration, [endpoint for _, endpoint, _ in lost])
     # A destination this edit deleted or repointed has no other path, so it takes the inline sends first.
-    for send, endpoint, still_there in sorted(lost, key=lambda item: item[2]):
+    for send, endpoint, still_there in sorted(
+        (
+            (send, endpoint, held.get((endpoint.routed, endpoint.destination_id)) == where)
+            for send, endpoint, where in lost
+        ),
+        key=lambda item: item[2],
+    ):
         if budget.remaining > 0:
             budget.remaining -= 1
             inline.append(_InlineResolve(send=send, data=endpoint.data, readable_by_id=still_there))
@@ -262,7 +287,7 @@ def _schedule(
             "alerts_platform_handoff_resolves_dropped", configuration_id=str(configuration.id), dropped=stranded
         )
     if not queued and not inline:
-        return
+        return None
     request = _request(configuration, queued or [resolve.send for resolve in inline])
     gained = sum(send.gained for send in queued)
     logger.info(
@@ -271,14 +296,10 @@ def _schedule(
         gained=gained,
         lost=len(queued) + len(inline) - gained,
     )
-    transaction.on_commit(lambda: _send(request, queued, inline), robust=True)
+    return _Handoff(request=request, queued=tuple(queued), inline=tuple(inline))
 
 
-def _send(
-    request: AlertDeliveryRequest,
-    queued: list[HandoffSend],
-    inline: list[_InlineResolve],
-) -> None:
+def _send(handoffs: list[_Handoff], *, inline_left: int) -> None:
     # Imported here because this module loads in processes that never send, and the sender loads the
     # Temporal client and every transport.
     from products.alerts_platform.backend.delivery.handoff import (  # noqa: PLC0415 - keeps Temporal and the transports off the import path
@@ -286,33 +307,56 @@ def _send(
         send_handoff,
     )
     from products.alerts_platform.backend.temporal.web_start import (  # noqa: PLC0415 - keeps Temporal and the transports off the import path
-        hand_over,
+        hand_over_inline,
+        start_hand_overs,
     )
 
     # Started first, so the inline sends below never hold back a new destination's page.
-    _hand_over_in_parts(request, queued, hand_over)
-    if not inline:
-        return
-    inline_request = _with_sends(request, [resolve.send for resolve in inline])
-    try:
-        send_handoff(inline_request, [HandoffTarget(send=resolve.send, data=resolve.data) for resolve in inline])
-    except Exception as error:
-        capture_exception(error, {"configuration_id": request.configuration_id})
-        # A held thread or a provider error gets the workflow's retries where the row still holds this
-        # destination. Under the same evaluation key, the thread claims skip the resolves that did land.
-        retry = [resolve.send for resolve in inline if resolve.readable_by_id]
-        if retry:
-            hand_over(_with_sends(inline_request, retry))
+    unstarted = start_hand_overs([part for handoff in handoffs for part in _parts(handoff.request, handoff.queued)])
+    for request in unstarted:
+        sends = request.handoff[: max(inline_left, 0)]
+        inline_left -= len(sends)
+        if sends:
+            hand_over_inline(_with_sends(request, list(sends)))
+        _log_dropped(request, len(request.handoff) - len(sends))
+    retries: list[AlertDeliveryRequest] = []
+    for handoff in handoffs:
+        if not handoff.inline:
+            continue
+        inline_request = _with_sends(handoff.request, [resolve.send for resolve in handoff.inline])
+        try:
+            send_handoff(
+                inline_request, [HandoffTarget(send=resolve.send, data=resolve.data) for resolve in handoff.inline]
+            )
+        except Exception as error:
+            capture_exception(error, {"configuration_id": inline_request.configuration_id})
+            # A held thread or a provider error gets the workflow's retries where the row still holds this
+            # destination. Under the same evaluation key, the thread claims skip the resolves that did land.
+            retry = [resolve.send for resolve in handoff.inline if resolve.readable_by_id]
+            if retry:
+                retries.append(_with_sends(inline_request, retry))
+    # Not sent inline again: this edit already tried them, and its budget is spent.
+    for request in start_hand_overs(retries):
+        _log_dropped(request, len(request.handoff))
 
 
-def _hand_over_in_parts(
-    request: AlertDeliveryRequest, sends: list[HandoffSend], hand_over: Callable[[AlertDeliveryRequest], None]
-) -> None:
+def _log_dropped(request: AlertDeliveryRequest, dropped: int) -> None:
+    if dropped:
+        logger.warning(
+            "alerts_platform_handoff_sends_dropped", configuration_id=request.configuration_id, dropped=dropped
+        )
+
+
+def _parts(request: AlertDeliveryRequest, sends: Sequence[HandoffSend]) -> list[AlertDeliveryRequest]:
     # In parts, so each fits one delivery attempt's deadline and the payload stays small however many
-    # groups and receivers an edit moves.
-    for start in range(0, len(sends), MAX_SENDS_PER_HANDOFF):
-        part = replace(request, evaluation_key=f"{request.evaluation_key}:{start // MAX_SENDS_PER_HANDOFF}")
-        hand_over(_with_sends(part, sends[start : start + MAX_SENDS_PER_HANDOFF]))
+    # groups and receivers an edit moves. Each part has its own key, so each gets its own workflow.
+    return [
+        _with_sends(
+            replace(request, evaluation_key=f"{request.evaluation_key}:{start // MAX_SENDS_PER_HANDOFF}"),
+            list(sends[start : start + MAX_SENDS_PER_HANDOFF]),
+        )
+        for start in range(0, len(sends), MAX_SENDS_PER_HANDOFF)
+    ]
 
 
 def _with_sends(request: AlertDeliveryRequest, sends: list[HandoffSend]) -> AlertDeliveryRequest:
@@ -471,14 +515,24 @@ def _firing_groups(team_id: int, configuration_ids: Collection[UUID] | None) -> 
     return firing
 
 
-def _still_sends_there(configuration: PlatformAlertConfiguration, endpoint: _Endpoint, expected: str) -> bool:
-    """Whether the destination's row still holds this address, for a workflow to read it by id."""
-    rows = (
-        AlertReceiver.objects.for_team(configuration.team_id).filter(id=endpoint.destination_id)
-        if endpoint.routed
-        else AlertDestination.objects.for_team(configuration.team_id).filter(
-            id=endpoint.destination_id, configuration_id=configuration.id
-        )
-    )
-    config = rows.values_list("config", flat=True).first()
-    return config is not None and address(cast(AlertDestinationData, config)) == expected
+def _addresses_held(
+    configuration: PlatformAlertConfiguration, endpoints: Collection[_Endpoint]
+) -> dict[tuple[bool, str], str]:
+    """Where each destination's row sends now, by (routed, id), for a workflow to read it by id. One read
+    per kind, however many groups an edit moves."""
+    routed = {endpoint.destination_id for endpoint in endpoints if endpoint.routed}
+    own = {endpoint.destination_id for endpoint in endpoints if not endpoint.routed}
+    held: dict[tuple[bool, str], str] = {}
+    if routed:
+        for destination_id, config in (
+            AlertReceiver.objects.for_team(configuration.team_id).filter(id__in=routed).values_list("id", "config")
+        ):
+            held[(True, str(destination_id))] = address(cast(AlertDestinationData, config))
+    if own:
+        for destination_id, config in (
+            AlertDestination.objects.for_team(configuration.team_id)
+            .filter(id__in=own, configuration_id=configuration.id)
+            .values_list("id", "config")
+        ):
+            held[(False, str(destination_id))] = address(cast(AlertDestinationData, config))
+    return held

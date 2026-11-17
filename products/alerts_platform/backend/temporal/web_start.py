@@ -4,6 +4,7 @@ Kept out of the workflow modules, which Temporal loads into its sandbox, because
 client.
 """
 
+from collections.abc import Sequence
 from dataclasses import replace
 
 from django.conf import settings
@@ -66,14 +67,16 @@ async def _start(delivery: AlertDeliveryRequest) -> None:
     )
 
 
-def hand_over(request: AlertDeliveryRequest) -> None:
-    """Starts a handoff's workflow, or sends it inline when Temporal cannot be reached, because
-    nothing else will ever send it."""
+def start_hand_overs(requests: Sequence[AlertDeliveryRequest]) -> list[AlertDeliveryRequest]:
+    """Starts each handoff's workflow over one connection, and returns the ones it could not start, for
+    the caller to send inline as far as its budget allows."""
+    if not requests:
+        return []
     try:
-        async_to_sync(_start_hand_over)(request)
+        return async_to_sync(_start_hand_overs)(list(requests))
     except Exception as error:
-        capture_exception(error, {"configuration_id": request.configuration_id})
-        hand_over_inline(request)
+        capture_exception(error, {"configuration_id": requests[0].configuration_id})
+        return list(requests)
 
 
 def hand_over_inline(request: AlertDeliveryRequest) -> None:
@@ -83,13 +86,20 @@ def hand_over_inline(request: AlertDeliveryRequest) -> None:
         capture_exception(error, {"configuration_id": request.configuration_id})
 
 
-async def _start_hand_over(request: AlertDeliveryRequest) -> None:
+async def _start_hand_overs(requests: list[AlertDeliveryRequest]) -> list[AlertDeliveryRequest]:
     client = await async_connect()
-    await client.start_workflow(
-        AlertsPlatformHandOverWorkflow.run,
-        request,
-        id=hand_over_workflow_id(request),
-        task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
-        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-        execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
-    )
+    unstarted: list[AlertDeliveryRequest] = []
+    for request in requests:
+        try:
+            await client.start_workflow(
+                AlertsPlatformHandOverWorkflow.run,
+                request,
+                id=hand_over_workflow_id(request),
+                task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
+            )
+        except Exception as error:
+            capture_exception(error, {"configuration_id": request.configuration_id})
+            unstarted.append(request)
+    return unstarted

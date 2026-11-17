@@ -64,6 +64,20 @@ class IncidentIoTransport(RecordingTransport):
         return str(target.get("incident_io_alert_source_config_id", ""))
 
 
+def _start_inline(requests: list[AlertDeliveryRequest]) -> list[AlertDeliveryRequest]:
+    for request in requests:
+        web_start.hand_over_inline(request)
+    return []
+
+
+def _start_into(started: list[AlertDeliveryRequest]) -> Callable[[list[AlertDeliveryRequest]], list[Any]]:
+    def start(requests: list[AlertDeliveryRequest]) -> list[Any]:
+        started.extend(requests)
+        return []
+
+    return start
+
+
 def _data(kind: str, address: str) -> AlertDestinationData:
     if kind == "pagerduty":
         return cast(AlertDestinationData, {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": address})
@@ -110,7 +124,7 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
                 },
             ),
             # The workflow runs the same two sends, so the test runs them inline.
-            patch.object(web_start, "hand_over", side_effect=web_start.hand_over_inline),
+            patch.object(web_start, "start_hand_overs", side_effect=_start_inline),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -158,6 +172,33 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
                 event_kinds=["firing", "resolved"],
             )
         return receiver
+
+    def _fire(self, grouping_key: str, labels: dict[str, str]) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).get(id=self.configuration_id)
+        alert = PlatformAlert.objects.for_team(self.team.id).create(
+            team=self.team,
+            configuration=configuration,
+            grouping_key=grouping_key,
+            labels=labels,
+            state=PlatformAlertState.FIRING,
+            firing_started_at=FIRING_STARTED,
+        )
+        insert_events(
+            self.team.id,
+            [
+                event_row(
+                    configuration,
+                    alert=alert,
+                    evaluation_key="opening-check",
+                    kind=AlertEventKind.FIRING.value,
+                    previous_state=PlatformAlertState.NOT_FIRING.value,
+                    state=PlatformAlertState.FIRING.value,
+                    episode_started_at=FIRING_STARTED,
+                    consecutive_failures=0,
+                    now=FIRING_STARTED,
+                )
+            ],
+        )
 
     def _sends(self) -> list[tuple[str, IncidentAction | None, AlertEventKind]]:
         return sorted(
@@ -229,7 +270,7 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
 
     def test_a_handoff_a_later_edit_undid_does_not_undo_that_edit(self) -> None:
         started: list[AlertDeliveryRequest] = []
-        with patch.object(web_start, "hand_over", side_effect=started.append):
+        with patch.object(web_start, "start_hand_overs", side_effect=_start_into(started)):
             with self.captureOnCommitCallbacks(execute=True):
                 self._route_edit("pagerduty")
             old = AlertReceiver.objects.for_team(self.team.id).get(name="old")
@@ -271,7 +312,7 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
 
     def test_a_receiver_deleted_before_its_handoff_runs_still_gets_its_resolve(self) -> None:
         started: list[AlertDeliveryRequest] = []
-        with patch.object(web_start, "hand_over", side_effect=started.append):
+        with patch.object(web_start, "start_hand_overs", side_effect=_start_into(started)):
             with self.captureOnCommitCallbacks(execute=True):
                 self._route_edit("pagerduty")
             with self.captureOnCommitCallbacks(execute=True):
@@ -285,7 +326,7 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
 
     def test_an_unreadable_routing_flag_retries_a_routed_trigger(self) -> None:
         started: list[AlertDeliveryRequest] = []
-        with patch.object(web_start, "hand_over", side_effect=started.append):
+        with patch.object(web_start, "start_hand_overs", side_effect=_start_into(started)):
             with self.captureOnCommitCallbacks(execute=True):
                 self._route_edit("pagerduty")
         RecordingTransport.sends = []
@@ -302,32 +343,8 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
         assert self._sends() == []
 
     def test_a_route_on_a_group_label_hands_over_only_the_groups_it_matches(self) -> None:
-        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).get(id=self.configuration_id)
         PlatformAlert.objects.for_team(self.team.id).filter(grouping_key="").update(labels={"service": "api"})
-        web = PlatformAlert.objects.for_team(self.team.id).create(
-            team=self.team,
-            configuration=configuration,
-            grouping_key="web",
-            labels={"service": "web"},
-            state=PlatformAlertState.FIRING,
-            firing_started_at=FIRING_STARTED,
-        )
-        insert_events(
-            self.team.id,
-            [
-                event_row(
-                    configuration,
-                    alert=web,
-                    evaluation_key="opening-check",
-                    kind=AlertEventKind.FIRING.value,
-                    previous_state=PlatformAlertState.NOT_FIRING.value,
-                    state=PlatformAlertState.FIRING.value,
-                    episode_started_at=FIRING_STARTED,
-                    consecutive_failures=0,
-                    now=FIRING_STARTED,
-                )
-            ],
-        )
+        self._fire("web", {"service": "web"})
         receiver = self._receiver("pagerduty", "new", None)
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -350,7 +367,7 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
     )
     def test_resolves_past_the_inline_budget(self, _name: str, edit: str, expected: list[Any]) -> None:
         with (
-            patch.object(destination_handoff, "MAX_INLINE_RESOLVES_PER_EDIT", 0),
+            patch.object(destination_handoff, "MAX_INLINE_SENDS_PER_EDIT", 0),
             self.captureOnCommitCallbacks(execute=True),
         ):
             cast(Callable[[str], None], getattr(self, edit))("pagerduty")
@@ -399,5 +416,44 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
                     grouping_key="",
                     defaults={"state": PlatformAlertState.FIRING, "firing_started_at": FIRING_STARTED},
                 )
+
+        assert queries() == one
+
+    def test_each_part_of_a_handoff_gets_its_own_workflow(self) -> None:
+        self._fire("web", {})
+        started: list[AlertDeliveryRequest] = []
+        with (
+            patch.object(destination_handoff, "MAX_SENDS_PER_HANDOFF", 1),
+            patch.object(web_start, "start_hand_overs", side_effect=_start_into(started)),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self._destination_add("pagerduty")
+
+        assert [len(request.handoff) for request in started] == [1, 1]
+        assert len({request.evaluation_key for request in started}) == 2
+
+    def test_handoffs_temporal_cannot_start_send_inline_only_within_the_edit_budget(self) -> None:
+        self._fire("web", {})
+        with (
+            patch.object(destination_handoff, "MAX_INLINE_SENDS_PER_EDIT", 1),
+            patch.object(web_start, "start_hand_overs", side_effect=list),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self._destination_add("pagerduty")
+
+        assert self._sends() == [self._TRIGGER_NEW]
+
+    def test_an_edit_reads_the_same_number_of_queries_however_many_groups_it_moves(self) -> None:
+        def queries() -> int:
+            receiver = self._receiver("pagerduty", "old", "infra")
+            before = destination_handoff.snapshot(self.team.id, routes_only=True)
+            receiver.delete()
+            with CaptureQueriesContext(connection) as captured, self.captureOnCommitCallbacks():
+                destination_handoff.hand_over_after_commit(before)
+            return len(captured.captured_queries)
+
+        one = queries()
+        for key in ("web", "worker"):
+            self._fire(key, {})
 
         assert queries() == one
