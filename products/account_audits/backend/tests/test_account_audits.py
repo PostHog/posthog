@@ -138,7 +138,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertFalse(run.state["pending_dispatch"]["create_pr"])
         self.assertEqual(
             run.state["pending_dispatch"]["posthog_mcp_scopes"],
-            ["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"],
+            ["user:read", "query:read", "insight:read", "notebook:read", "notebook:write", "billing:read"],
         )
         env = SandboxEnvironment.objects.get(id=run.state["sandbox_environment_id"])
         self.assertTrue(env.internal)
