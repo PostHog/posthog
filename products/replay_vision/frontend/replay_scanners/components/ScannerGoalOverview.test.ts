@@ -11,7 +11,6 @@ const scanner = (overrides: Partial<ReplayScanner> = {}): ReplayScanner =>
         scanner_type: 'monitor',
         scanner_config: { prompt: 'Did the user struggle?' },
         sampling_rate: 1,
-        sampling_mode: 'comprehensive',
         model: 'gemini-3-flash-preview',
         experiment_targeting: null,
         query: null,
