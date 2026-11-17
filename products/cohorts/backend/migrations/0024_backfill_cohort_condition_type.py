@@ -81,6 +81,7 @@ def backfill_condition_type(apps, schema_editor):
     classified = 0
     refreshes = 0
     refresh_stalled = False
+    unrefreshed_team_ids: set[int] = set()
     while True:
         # Keyset pagination over the primary key, because a cohort without leaf conditions stays
         # null and would come back in every batch of a plain `IS NULL ... LIMIT` loop.
@@ -92,6 +93,7 @@ def backfill_condition_type(apps, schema_editor):
                 classified=classified,
                 refreshes=refreshes,
                 refresh_stalled=refresh_stalled,
+                unrefreshed_team_ids=sorted(unrefreshed_team_ids),
             )
             return
         last_id = batch[-1].id
@@ -116,12 +118,15 @@ def backfill_condition_type(apps, schema_editor):
         # between the two batches read this batch's rows while they were still null. Refreshing per
         # batch also covers a retry after a partial run, which finds these rows classified.
         teams = {cohort.team_id for cohort in changed if _flags_routing_can_change(cohort)}
-        if teams and not refresh_stalled:
+        if teams and refresh_stalled:
+            unrefreshed_team_ids |= teams
+        elif teams:
             dispatched = _refresh_flags_caches(teams)
             if dispatched is None:
                 # Later refreshes would wait on the same unresponsive Redis. The skipped teams pick up
                 # the new value when their cache entries expire.
                 refresh_stalled = True
+                unrefreshed_team_ids |= teams
                 logger.warning("cohort_condition_type_backfill_cache_refresh_stalled", batch=batches + 1)
             else:
                 refreshes += dispatched
