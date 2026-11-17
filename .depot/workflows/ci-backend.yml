@@ -1721,7 +1721,6 @@ jobs:
                   FAILED_JOB_SHA: ${{ github.event.pull_request.head.sha }}
                   FAILED_JOB_BRANCH: ${{ github.head_ref }}
                   FAILED_JOB_EVENT: ${{ github.event_name }}
-                  FAILED_JOB_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.event.pull_request.head.sha }}/checks
               run: uv run --script .github/scripts/report_workflow_run_traces.py --failed-job
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
             - name: Cancel run

@@ -892,7 +892,6 @@ FAILED_JOB_ENV_VARS = (
     "FAILED_JOB_SHA",
     "FAILED_JOB_BRANCH",
     "FAILED_JOB_EVENT",
-    "FAILED_JOB_URL",
 )
 
 
@@ -905,12 +904,14 @@ def failed_job_run(env: Mapping[str, str], now: datetime) -> WorkflowRun:
     if missing := [var for var in FAILED_JOB_ENV_VARS if not env.get(var)]:
         raise ValueError(f"missing {', '.join(missing)}")
     run_id = f"depot:{env['FAILED_JOB_RUN_ID']}"
+    repository = env.get("GITHUB_REPOSITORY") or DEFAULT_REPO
+    checks_url = f"https://github.com/{repository}/commit/{env['FAILED_JOB_SHA']}/checks"
     job = Job(
         id=f"{run_id}:{env['FAILED_JOB_NAME']}",
         name=env["FAILED_JOB_NAME"],
         status="completed",
         conclusion="failure",
-        url=env["FAILED_JOB_URL"],
+        url=checks_url,
         runner_name="depot-ci",
         runner_group_name="",
         labels=(),
@@ -934,34 +935,14 @@ def failed_job_run(env: Mapping[str, str], now: datetime) -> WorkflowRun:
         head_branch=env["FAILED_JOB_BRANCH"],
         actor="",
         triggering_actor="",
-        repository=env.get("GITHUB_REPOSITORY") or DEFAULT_REPO,
-        html_url=env["FAILED_JOB_URL"],
+        repository=repository,
+        html_url=checks_url,
         created=now,
         start=now,
         end=now,
         jobs=(job,),
         provider="depot",
     )
-
-
-def report_failed_job(endpoint: str, env: Mapping[str, str], now: datetime) -> int:
-    try:
-        run = failed_job_run(env, now)
-    except ValueError:
-        logger.exception("could not describe the failed job; nothing was emitted")
-        return EXIT_INCOMPLETE
-    tokens = emission_tokens(env)
-    if not tokens:
-        logger.error("none of %s set; nothing was emitted", ", ".join(TOKEN_ENV_VARS))
-        return EXIT_INCOMPLETE
-    complete = True
-    for token in tokens:
-        try:
-            emit_trace(run, endpoint, token, entry_jobs=True)
-        except Exception:
-            logger.exception("failed to emit the failed job span for run %s", run.id)
-            complete = False
-    return EXIT_OK if complete else EXIT_INCOMPLETE
 
 
 def emission_tokens(env: Mapping[str, str]) -> list[str]:
@@ -1058,18 +1039,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
     if args.failed_job:
-        return report_failed_job(args.otlp_endpoint, os.environ, datetime.now(UTC))
-
-    github_token = os.environ.get("GITHUB_TOKEN", "")
-    if not github_token:
-        logger.error("GITHUB_TOKEN is not set; nothing was traced")
-        return EXIT_INCOMPLETE
-
-    try:
-        collection = collect_runs(args, github_token, datetime.now(UTC))
-    except Exception:
-        logger.exception("failed to collect workflow runs")
-        return EXIT_INCOMPLETE
+        try:
+            collection = Collection(runs=(failed_job_run(os.environ, datetime.now(UTC)),))
+        except ValueError:
+            logger.exception("could not describe the failed job; nothing was emitted")
+            return EXIT_INCOMPLETE
+        args.entry_jobs = True
+    else:
+        github_token = os.environ.get("GITHUB_TOKEN", "")
+        if not github_token:
+            logger.error("GITHUB_TOKEN is not set; nothing was traced")
+            return EXIT_INCOMPLETE
+        try:
+            collection = collect_runs(args, github_token, datetime.now(UTC))
+        except Exception:
+            logger.exception("failed to collect workflow runs")
+            return EXIT_INCOMPLETE
 
     if not collection.runs:
         logger.info("no completed master runs to trace")

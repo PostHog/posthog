@@ -803,7 +803,6 @@ class TestSpanTree:
             "FAILED_JOB_SHA": "e1718d9c",
             "FAILED_JOB_BRANCH": "trunk-merge/pr-1/uuid",
             "FAILED_JOB_EVENT": "pull_request",
-            "FAILED_JOB_URL": "https://github.com/PostHog/posthog/commit/e1718d9c/checks",
         }
         run = reporter.failed_job_run(env, RUN_START)
         exporter = InMemorySpanExporter()
