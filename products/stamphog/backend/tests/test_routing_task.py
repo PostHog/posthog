@@ -1072,7 +1072,7 @@ def test_fallback_routes_each_pull_request_once_in_full(
 
 _PROOF_APP_ID = 4242
 _PROOF_PUBLISHER = ".github/workflows/dependency-proof.yml"
-_PROOF_ISSUER = "tools/dependency-proof/issuer.yml"
+_PROOF_ISSUER = "tools/change-prover/issuer.yml"
 _PROOF_ISSUER_MANIFEST = f"paths:\n  - {_PROOF_PUBLISHER}\n  - {_PROOF_ISSUER}\n"
 _ALL_FILES = ["products/alpha/a.py", "products/alpha/new/b.py", "products/beta/b.py", "products/gamma/c.py"]
 
