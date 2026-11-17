@@ -1893,6 +1893,20 @@ class TestSystemTablesTaskSummaries(NonAtomicBaseTest):
             str(no_runs.pk): (None, []),
         }
 
+    @parameterized.expand(
+        [
+            ("runs", "SELECT id FROM system.task_runs"),
+            ("latest_run_of_tasks", "SELECT task_summary FROM system.tasks"),
+        ]
+    )
+    def test_team_guard_stays_next_to_the_task_runs_postgres_read(self, _name: str, query: str) -> None:
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+
+        printed, _ = prepare_and_print_ast(parse_select(query), context, dialect="clickhouse")
+
+        assert f"WHERE team_id = {self.team.pk}) AS system__task_runs" in printed
+
 
 class TestSystemTablesFileSystemWorkflowExclusion(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False

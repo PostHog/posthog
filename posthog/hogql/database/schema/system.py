@@ -4090,7 +4090,13 @@ class _TaskRunsTable(PostgresTable):
 
     def to_printed_clickhouse(self, context):
         source = build_function_call(self.postgres_table_name, context)
-        return f"(SELECT *, {_TASK_RUN_SUMMARY_SQL} AS task_summary, {_TASK_RUN_TAGS_SQL} AS task_tags FROM {source})"
+        # ClickHouse does not send a filter on this subquery to Postgres. Without the team filter inside
+        # the subquery, Postgres returns the runs of every team and ClickHouse drops them afterwards.
+        team_filter = f" WHERE team_id = {int(context.team_id)}" if context.team_id is not None else ""
+        return (
+            f"(SELECT *, {_TASK_RUN_SUMMARY_SQL} AS task_summary, {_TASK_RUN_TAGS_SQL} AS task_tags "
+            f"FROM {source}{team_filter})"
+        )
 
 
 task_runs: _TaskRunsTable = _TaskRunsTable(
