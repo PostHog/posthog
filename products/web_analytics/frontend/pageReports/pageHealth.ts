@@ -46,6 +46,7 @@ export interface PageHealthInput {
     page: WebPageDirectoryRow | null
     site: WebPageDirectorySiteTotals | null
     searchConsole: GoogleSearchConsoleState
+    crawlsPending?: boolean
 }
 
 export const PAGE_HEALTH_STATUS_LABEL: Record<PageHealthStatus, string> = {
@@ -155,9 +156,9 @@ export function computeSearchHealth({ page, site, searchConsole }: PageHealthInp
 export const areCrawlersMeasured = (site: WebPageDirectorySiteTotals): boolean =>
     site.serverLogs > 0 || (site.aiCrawls?.current ?? 0) > 0
 
-export function computeAiHealth({ page, site }: PageHealthInput): PageHealthCard {
+export function computeAiHealth({ page, site, crawlsPending }: PageHealthInput): PageHealthCard {
     const title = 'AI visibility'
-    if (!page || !site) {
+    if (!page || !site || crawlsPending) {
         return loadingCard('ai', title)
     }
     const visitors = page.visitors?.current ?? 0

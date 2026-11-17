@@ -67,12 +67,9 @@ export const buildSiteTotalsQuery = (baseQuery: WebPageDirectoryQuery): WebPageD
 })
 
 export const buildSiteCrawlTotalsQuery = (baseQuery: WebPageDirectoryQuery): WebPageDirectoryQuery => ({
-    ...baseQuery,
-    conversionGoal: null,
-    pageKeys: [],
+    ...buildSiteTotalsQuery(baseQuery),
     metrics: [WebPageDirectoryMetric.AiCrawls],
     sortBy: WebPageDirectorySortBy.AiCrawls,
-    includeSiteTotals: true,
 })
 
 export const valueChange = (value: WebPageDirectoryValue | null | undefined): number | null =>

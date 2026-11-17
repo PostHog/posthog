@@ -572,6 +572,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
             onSuccess: (totals: WebPageDirectorySiteTotals | null) => void,
             onFailure: () => void
         ): Promise<void> => {
+            await breakpoint(300)
             try {
                 const response = (await runCancellableRequest(
                     cache.disposables,
@@ -656,7 +657,6 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 }
             },
             loadSiteTotals: async ({ refresh }, breakpoint) => {
-                await breakpoint(300)
                 await loadTotals(
                     'siteTotalsRequest',
                     values.siteTotalsQuery,
@@ -667,7 +667,6 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 )
             },
             loadSiteCrawlTotals: async ({ refresh }, breakpoint) => {
-                await breakpoint(300)
                 await loadTotals(
                     'siteCrawlTotalsRequest',
                     values.siteCrawlTotalsQuery,

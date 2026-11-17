@@ -75,6 +75,7 @@ export function PageDirectorySummary(): JSX.Element {
     } = useValues(pageDirectoryLogic)
     const { loadSiteTotals, loadSiteCrawlTotals } = useActions(pageDirectoryLogic)
     const loading = !siteTotals
+    const crawlsUnavailable = siteCrawlTotalsError || hasServerLogs === false
 
     if (siteTotalsError) {
         return (
@@ -122,11 +123,7 @@ export function PageDirectorySummary(): JSX.Element {
             />
             <SummaryCell
                 label="AI crawls"
-                value={
-                    siteCrawlTotalsError || hasServerLogs === false
-                        ? '-'
-                        : humanFriendlyLargeNumber(siteCrawlTotals?.aiCrawls?.current ?? 0)
-                }
+                value={crawlsUnavailable ? '-' : humanFriendlyLargeNumber(siteCrawlTotals?.aiCrawls?.current ?? 0)}
                 detail={
                     siteCrawlTotalsError ? (
                         <Link onClick={() => loadSiteCrawlTotals(true)} data-attr="page-reports-directory-crawls-retry">
@@ -138,7 +135,7 @@ export function PageDirectorySummary(): JSX.Element {
                         `by ${pluralize(siteCrawlTotals?.aiCrawlers ?? 0, 'AI crawler')}`
                     )
                 }
-                change={siteCrawlTotalsError || hasServerLogs === false ? undefined : siteCrawlTotals?.aiCrawls}
+                change={crawlsUnavailable ? undefined : siteCrawlTotals?.aiCrawls}
                 loading={!siteCrawlTotalsError && (!siteCrawlTotals || siteCrawlTotalsLoading)}
             />
         </div>

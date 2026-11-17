@@ -471,6 +471,9 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
             target["aiCrawlerNames"] = list(values.names) if values else []
 
     def _ready_dimensional_builder(self) -> Optional[DimensionalPageDirectoryQueryBuilder]:
+        web_query_modifiers = self.query.webQueryModifiers
+        if not (web_query_modifiers and web_query_modifiers.useDimensionalTables):
+            return None
         metrics = set(self.requested_metrics)
         if self.query.pageKeys is None or self.query.includeSiteTotals:
             metrics.add(SORT_METRIC[self.sort_by])

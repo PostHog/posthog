@@ -38,11 +38,12 @@ def dimensional_tables_for(
     tables = {METRIC_TABLES[metric] for metric in metrics if metric in METRIC_TABLES}
     if runner.pathname_property_filter is not None:
         tables.discard(WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
-    if not tables:
-        return frozenset()
-    if not WebAnalyticsPreAggregatedQueryBuilder(runner, STATS_TABLE_SUPPORTED_FILTERS).can_use_preaggregated_tables():
-        return frozenset()
-    return frozenset(tables)
+    if (
+        tables
+        and WebAnalyticsPreAggregatedQueryBuilder(runner, STATS_TABLE_SUPPORTED_FILTERS).can_use_preaggregated_tables()
+    ):
+        return frozenset(tables)
+    return frozenset()
 
 
 class DimensionalPageDirectoryQueryBuilder(DimensionalTablesMixin, WebAnalyticsPreAggregatedQueryBuilder):
@@ -87,8 +88,8 @@ class DimensionalPageDirectoryQueryBuilder(DimensionalTablesMixin, WebAnalyticsP
         table = self.bounces_table
         periods = self.get_date_ranges(table)
         select = (
-            "sumMergeIf(bounces_count_state, {current}) / nullIf(sumMergeIf(total_session_count_state, {current}), 0) AS current, "
-            "sumMergeIf(total_session_count_state, {current}) AS previous, 0 AS extra"
+            "sumMerge(bounces_count_state) / nullIf(sumMerge(total_session_count_state), 0) AS current, "
+            "sumMerge(total_session_count_state) AS previous, 0 AS extra"
         )
         return self._build(
             select,
