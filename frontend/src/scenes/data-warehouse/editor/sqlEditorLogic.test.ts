@@ -1850,6 +1850,39 @@ describe('sqlEditorLogic', () => {
                 })
         })
 
+        it('names the breadcrumb and title after the opened metric', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/my_metric/': [
+                        200,
+                        {
+                            name: 'my_metric',
+                            definition: { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events' },
+                        },
+                    ],
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'my_metric' })
+
+            await expectLogic(logic).toDispatchActions(['createTab', 'setQueryInput'])
+
+            expect(editorRootLogic.values.titleSectionProps).toMatchObject({
+                name: 'my_metric',
+                forceBackTo: { path: urls.dataCatalogMetric('my_metric') },
+            })
+            expect(editorRootLogic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(['SQL query', 'my_metric'])
+        })
+
         it('opens another metric when the editor already holds a query', async () => {
             useMocks({
                 get: {
