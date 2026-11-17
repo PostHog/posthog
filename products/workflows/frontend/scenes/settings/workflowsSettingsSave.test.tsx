@@ -17,6 +17,8 @@ import { WorkflowsEngagementEventsSettings } from './WorkflowsEngagementEventsSe
 import { WorkflowsFrequencyCapSettings } from './WorkflowsFrequencyCapSettings'
 
 const OTHER_TAB_CONFIG = { capture_workflows_engagement_events: true, email_tracking_consent_mode: 'opt_in' }
+// Engagement stays off here, so a save that drops the flag it turns on fails too.
+const OTHER_TAB_CONSENT_ONLY = { capture_workflows_engagement_events: false, email_tracking_consent_mode: 'opt_in' }
 
 function setNumber(dataAttr: string, value: string): void {
     fireEvent.change(document.querySelector(`[data-attr="${dataAttr}"]`) as HTMLInputElement, { target: { value } })
@@ -68,6 +70,7 @@ describe('workflows settings save', () => {
             setting: 'engagement events',
             renderSetting: () => render(<WorkflowsEngagementEventsSettings />),
             save: () => fireEvent.click(screen.getByText('Capture email engagement events')),
+            otherTab: OTHER_TAB_CONSENT_ONLY,
             saved: { capture_workflows_engagement_events: true },
         },
         {
@@ -142,14 +145,16 @@ describe('workflows settings save', () => {
                 )
             },
             save: async () => fireEvent.click(await screen.findByText('Enable engagement events')),
+            otherTab: OTHER_TAB_CONSENT_ONLY,
             saved: { capture_workflows_engagement_events: true },
         },
-    ])('saving $setting keeps what another tab saved', async ({ renderSetting, save, saved }) => {
+    ])('saving $setting keeps what another tab saved', async ({ renderSetting, save, otherTab, saved }) => {
+        storedConfig = { ...(otherTab ?? OTHER_TAB_CONFIG) }
         await renderSetting()
 
         await save()
 
         await waitFor(() => expect(saves).toBe(1))
-        expect(storedConfig).toEqual({ ...OTHER_TAB_CONFIG, ...saved })
+        expect(storedConfig).toEqual({ ...(otherTab ?? OTHER_TAB_CONFIG), ...saved })
     })
 })
