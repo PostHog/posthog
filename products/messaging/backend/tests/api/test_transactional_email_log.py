@@ -11,7 +11,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.client.execute import default_settings, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.models import Element, OrganizationMembership, Team
@@ -46,6 +46,8 @@ NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 SLOW_SEND_MINUTES_AGO = 12 * 24 * 60
 DELAYED_SEND_MINUTES_AGO = 15 * 24 * 60
 IMPACT_COUNTS = {"sent": 8, "delivered": 7, "opened": 5, "clicked": 4, "window_days": 7}
+LONG_ID_SENDS = 15
+SMALL_MAX_QUERY_SIZE = 16 * 1024
 
 
 @time_machine.travel(NOW, tick=False)
@@ -615,20 +617,38 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "without_click": None,
         }
 
-    @parameterized.expand([("in_one_query", 4 * 1024 * 1024), ("one_query_per_send", 1)])
-    def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(
-        self, _flag, _name, query_bytes
-    ):
+    def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(self, _flag):
         self._seed_impact_sends()
 
-        with patch("products.messaging.backend.services.transactional_email_log._CONVERSION_QUERY_BYTES", query_bytes):
-            impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=29)).isoformat())
-
-        assert impact == {
+        assert self._impact(event="purchase", date_from=(NOW - timedelta(days=29)).isoformat()) == {
             **IMPACT_COUNTS,
             "after_click": {"sends": 3, "converted": 2},
             "without_click": {"sends": 3, "converted": 2},
         }
+
+    def test_counts_conversions_of_sends_whose_ids_overflow_one_clickhouse_query(self, _flag):
+        long_distinct_ids = [f"long-{index:02d}-{'x' * 370}" for index in range(LONG_ID_SENDS)]
+        for minutes_ago, distinct_id in enumerate(long_distinct_ids, start=10):
+            create_person(team=self.team, distinct_ids=[distinct_id])
+            message_id = self._send(minutes_ago, f"{distinct_id}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+            sent_at = NOW - timedelta(minutes=minutes_ago)
+            self._record_distinct_id(message_id, distinct_id, f"{distinct_id}@example.com", sent_at)
+            _create_event(
+                team=self.team, event="purchase", distinct_id=distinct_id, timestamp=sent_at + timedelta(hours=1)
+            )
+        flush_persons_and_events()
+        small_clickhouse_queries = {**default_settings(), "max_query_size": SMALL_MAX_QUERY_SIZE}
+
+        with (
+            patch("posthog.clickhouse.client.execute.default_settings", return_value=small_clickhouse_queries),
+            patch(
+                "products.messaging.backend.services.transactional_email_log._CONVERSION_QUERY_BYTES",
+                SMALL_MAX_QUERY_SIZE // 4,
+            ),
+        ):
+            impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert impact["without_click"] == {"sends": LONG_ID_SENDS, "converted": LONG_ID_SENDS}
 
     def test_impact_follows_a_click_and_its_conversion_past_the_end_of_the_period(self, _flag):
         self._seed_impact_sends()
