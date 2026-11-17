@@ -92,6 +92,7 @@ class AnomalyGroupBy(models.TextChoices):
 class AnomalyOrder(models.TextChoices):
     UNUSUAL = "unusual", "Unusual"
     RECENT = "recent", "Recent"
+    RATE = "rate", "Rate"
 
 
 class AnomalyDashboardNotFound(Exception):
@@ -314,6 +315,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         prior=prior_rate(readable),
         importance=_importance(team, {summary.insight_id for summary in in_range}, now),
         recent_first=filters.order == AnomalyOrder.RECENT,
+        rate_first=filters.order == AnomalyOrder.RATE,
     )
     scored_in_range = len({summary.insight_id for summary in in_range})
 

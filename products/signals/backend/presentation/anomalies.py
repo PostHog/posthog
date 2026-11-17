@@ -87,7 +87,8 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         default=AnomalyOrder.UNUSUAL,
         help_text=(
             "`unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged "
-            "bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series."
+            "bucket first, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts "
+            "as `unusual`. With `group_by: insight`, each insight sorts by its first series."
         ),
     )
     search = serializers.CharField(

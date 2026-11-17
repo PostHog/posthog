@@ -23,7 +23,7 @@ const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterva
 
 const ORDER_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveOrder> = [
     { value: SignalsAnomaliesSearchRetrieveOrder.Recent, label: 'Most recent' },
-    { value: SignalsAnomaliesSearchRetrieveOrder.Unusual, label: 'Most unusual' },
+    { value: SignalsAnomaliesSearchRetrieveOrder.Rate, label: 'Highest anomaly rate' },
 ]
 
 export function AnomaliesFilters(): JSX.Element {

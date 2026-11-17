@@ -106,6 +106,18 @@ class TestAnomalyRanking(SimpleTestCase):
 
         assert [summary.series_key for summary in ranked] == expected
 
+    @parameterized.expand(
+        [("unusual", False, ["three_of_ten", "one_of_one"]), ("rate", True, ["one_of_one", "three_of_ten"])]
+    )
+    def test_ranks_by_the_plain_rate_only_when_rate_first(
+        self, _name: str, rate_first: bool, expected: list[str]
+    ) -> None:
+        series = [_summary("three_of_ten", scored=10, flagged=3), _summary("one_of_one", scored=1, flagged=1)]
+
+        ranked = rank_series(series, prior=prior_rate(series), importance={}, rate_first=rate_first)
+
+        assert [summary.series_key for summary in ranked] == expected
+
     def test_rollup_sums_buckets_instead_of_averaging_rates(self) -> None:
         insight = rollup(
             [_summary("a", scored=1, flagged=1), _summary("b", scored=9, flagged=1), _summary("c", scored=5, flagged=0)]
@@ -263,6 +275,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         [
             ("unusual", "unusual", ["burst", "steady", "blip"]),
             ("recent", "recent", ["blip", "steady", "burst"]),
+            ("rate", "rate", ["burst", "steady", "blip"]),
         ]
     )
     def test_search_pages_through_rows_in_the_requested_order(
