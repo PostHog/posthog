@@ -65086,6 +65086,49 @@ export namespace Schemas {
       completed_at: string | null;
     }
 
+    /**
+     * * `not_started` - Not started
+     * * `in_progress` - In progress
+     * * `active` - Active
+     * * `paused` - Paused
+     * * `ai_disabled` - AI data processing disabled
+     */
+    export type InboxSetupStateEnum = typeof InboxSetupStateEnum[keyof typeof InboxSetupStateEnum];
+
+
+    export const InboxSetupStateEnum = {
+      NotStarted: 'not_started',
+      InProgress: 'in_progress',
+      Active: 'active',
+      Paused: 'paused',
+      AiDisabled: 'ai_disabled',
+    } as const;
+
+    export interface InboxStatus {
+      /** Current project setup state.
+       *
+       * * `not_started` - Not started
+       * * `in_progress` - In progress
+       * * `active` - Active
+       * * `paused` - Paused
+       * * `ai_disabled` - AI data processing disabled */
+      setup_state: InboxSetupStateEnum;
+      /** Whether a report has surfaced in this project, including reports already handled or assigned to someone else. */
+      has_report_history: boolean;
+      /** First investigation outcome, when known and the project has no report history. Does not expose scout run details.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `no_data` - No data
+       * * `report_created` - Report created
+       * * `insufficient_data` - Insufficient data
+       * * `no_actionable_finding` - No actionable finding
+       * * `incomplete` - Incomplete */
+      first_report_status: FirstReportStatusEnum | null;
+      /** Whether the user has inbox and scout configuration access on the web. Integration and organization settings may require additional permissions. */
+      can_configure: boolean;
+    }
+
     export interface InboxSummaryPullRequest {
       /** GitHub repository in owner/name format. */
       repository: string;

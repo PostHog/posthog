@@ -31,6 +31,7 @@ import type {
     InboxOnboardingDraftApi,
     InboxOnboardingExposureApi,
     InboxOnboardingStateApi,
+    InboxStatusApi,
     InboxSummaryApi,
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
@@ -407,6 +408,17 @@ export const signalsConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalTeamConfigApi),
+    })
+}
+
+export const getSignalsInboxStatusListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/inbox_status/`
+}
+
+export const signalsInboxStatusList = async (projectId: string, options?: RequestInit): Promise<InboxStatusApi> => {
+    return apiMutator<InboxStatusApi>(getSignalsInboxStatusListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -9,8 +9,10 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxPanelViewed } from '../../inboxAnalytics'
 import { inboxActivationLogic } from '../../logics/inboxActivationLogic'
+import { getMobileInboxReturn } from '../../utils/mobileInboxReturn'
 import { ScoutSuggestionCard } from '../config/scouts/ScoutSuggestionCard'
 import { ScoutSuggestionCreateHost } from '../config/scouts/ScoutSuggestionCreateHost'
+import { MobileInboxReturn } from './MobileInboxReturn'
 
 interface InboxActivationPanelProps {
     hasReports?: boolean
@@ -39,7 +41,9 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                 <h3 className="m-0 flex items-center gap-2 text-base">
                     <IconCheckCircle className="text-success" />
                     <span>
-                        {savedState?.completed_at && searchParams.agent_setup === 'complete'
+                        {savedState?.completed_at &&
+                        searchParams.agent_setup === 'complete' &&
+                        !getMobileInboxReturn(currentTeamId)
                             ? 'Setup complete. Continue in your agent.'
                             : 'Your setup is complete'}
                     </span>
@@ -54,6 +58,7 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                     {expanded ? 'Show less' : 'Explore what’s enabled'}
                 </LemonButton>
             </div>
+            <MobileInboxReturn />
             {expanded && (
                 <>
                     <p className="m-0 text-sm text-secondary">

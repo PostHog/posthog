@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { getIntegrationsAuthorizeRetrieveUrl } from 'products/integrations/frontend/generated/api'
 
+import { rememberMobileInboxReturn } from '../utils/mobileInboxReturn'
 import { inboxSetupLogic } from './inboxSetupLogic'
 
 export type InboxAgentActivationView = 'connecting' | 'activating' | 'confirm' | 'done' | 'error'
@@ -131,6 +132,7 @@ export const inboxAgentActivationLogic = kea<inboxAgentActivationLogicType>([
             if (!projectId || inboxSetupLogic.values.saving) {
                 return
             }
+            rememberMobileInboxReturn(projectId, values.searchParams.mobile_return)
             inboxSetupLogic.actions.setError(null)
             await inboxSetupLogic.asyncActions.loadSetup()
             breakpoint()
