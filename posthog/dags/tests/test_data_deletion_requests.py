@@ -11,6 +11,7 @@ from typing import NoReturn
 from uuid import UUID, uuid4
 
 import pytest
+import time_machine
 from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
@@ -2403,6 +2404,22 @@ def test_delete_refuses_a_run_whose_marker_the_request_no_longer_holds(cluster: 
     all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
     assert len(all_props) == len(events)
     assert all("secret" in row for row in all_props)
+
+
+@pytest.mark.django_db
+@time_machine.travel("2026-11-06T12:00:00Z", tick=False)
+def test_fan_out_refuses_a_run_whose_marker_the_request_no_longer_holds(cluster: ClickhouseCluster):
+    request = _property_removal_request(
+        start_time=datetime.now(UTC) - timedelta(days=7), property_removal_marker=timezone.now()
+    )
+    ctx = _request_context(request)
+
+    # A first attempt that fails in the fan-out releases the marker. Re-executing from that failure reuses
+    # the load op's output, which still carries the old marker.
+    DataDeletionRequest.objects.filter(pk=request.pk).update(property_removal_marker=None)
+
+    with pytest.raises(dagster.Failure, match="no longer holds"):
+        list(get_property_removal_shards(build_op_context(), cluster, ctx))
 
 
 @pytest.mark.django_db

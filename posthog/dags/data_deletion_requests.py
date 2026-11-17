@@ -1218,6 +1218,18 @@ def _marker_str(deletion_request: DeletionRequestContext) -> str:
     return _datetime64_str(deletion_request.inserted_at_marker)
 
 
+def _holds_marker(deletion_request: DeletionRequestContext) -> bool:
+    """Whether the request still holds the marker that this run's load op read.
+
+    A criteria edit or a failure before the copy clears the marker, and then another property removal on
+    the team may start. Ops of a re-executed run reuse the load op's output, so they still carry the old
+    marker.
+    """
+    return DataDeletionRequest.objects.filter(
+        pk=deletion_request.request_id, property_removal_marker=deletion_request.inserted_at_marker
+    ).exists()
+
+
 def _compile_predicate(deletion_request: DeletionRequestContext, json_schema: bool) -> tuple[str, dict]:
     # HogQL compilation reaches into the Django ORM (Team lookup), so it runs on the op's own thread
     # before the shard work is dispatched to a cluster worker thread. Property access lowers
@@ -1569,6 +1581,12 @@ def get_property_removal_shards(
     anything, is what stops the request completing while matching rows survive elsewhere. It lives
     in this op rather than the load op because this is the first one holding a cluster handle.
     """
+    # Refusing here stops a re-executed run before it stages a copy that no delete step would accept.
+    if not _holds_marker(deletion_request):
+        raise dagster.Failure(
+            description=f"Request {deletion_request.request_id} no longer holds this run's marker. Nothing was "
+            "staged. Retry the request to start a new run."
+        )
     placements = resolve_placements(cluster)
     # Bound by the same marker as the sweep and the verify gate, so a row ingested after the
     # marker, which the sweep would never touch, cannot refuse the request forever.
@@ -1709,12 +1727,10 @@ def delete_property_removal_shard(
     hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
-    # A criteria edit clears the marker, and then another removal on the team may start and rewrite these
-    # rows. A re-executed step of this run still carries the old marker, so it must not delete them. The
-    # read happens here because the shard work runs on threads with their own database connections.
-    holds_marker = DataDeletionRequest.objects.filter(
-        pk=deletion_request.request_id, property_removal_marker=deletion_request.inserted_at_marker
-    ).exists()
+    # Another removal on the team may rewrite these rows once the marker is gone, so a stale run must not
+    # delete them. The read happens here because the shard work runs on threads with their own database
+    # connections.
+    holds_marker = _holds_marker(deletion_request)
 
     def delete(client: Client) -> int:
         steps = staging.finished_steps(client)
@@ -2496,7 +2512,8 @@ def data_deletion_request_property_removal():
 
     A failed step is re-executed individually via the Dagster UI's "Re-execute from failure".
     Progress files in S3 make every step skip work that already finished, so a fresh run from the
-    admin Retry button is safe too. finalize accepts the FAILED status the failure hook set, so the
+    admin Retry button is safe too. A first attempt that fails in the load or fan-out op releases its
+    marker, and a re-execution reuses the old one, so recover that case with the admin Retry button. finalize accepts the FAILED status the failure hook set, so the
     re-executed run completes the request.
     """
     request = load_property_removal_request()
