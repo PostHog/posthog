@@ -258,6 +258,7 @@ export interface mcpAnalyticsToolQualityLogicValues {
     toolQualityPageIndex: number
     toolQualitySort: SortState
     toolRows: MCPToolQualityRowItem[]
+    toolRowsLoadFailed: boolean
     toolRowsPage: ToolRowsPage | null
     toolRowsPageLoading: boolean
     toolRowsPreviousTotalSessions: number
@@ -554,6 +555,20 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             },
         ],
     })),
+
+    reducers({
+        // A failed request drops the rows on screen, because they answered an earlier filter or page.
+        toolRowsPage: {
+            loadToolRowsPageFailure: (): ToolRowsPage | null => null,
+        },
+        toolRowsLoadFailed: [
+            false,
+            {
+                loadToolRowsPage: () => false,
+                loadToolRowsPageFailure: () => true,
+            },
+        ],
+    }),
 
     selectors({
         // Human-readable label for the active window (e.g. "Last 7 days"), used by
