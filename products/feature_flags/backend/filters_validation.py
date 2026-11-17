@@ -62,6 +62,9 @@ LIST_VALUE_OPERATORS: frozenset[str] = frozenset({"icontains_multi", "not_iconta
 # non-match, so a condition that stores one of the others never matches.
 COHORT_OPERATORS: frozenset[str] = frozenset({"in", "not_in"})
 PERSON_AGGREGATED_PROPERTY_TYPES: tuple[str, ...] = ("person", "cohort", "flag")
+# The evaluator reads a flag dependency from that flag's own result for the request.
+# A flag dependency therefore fits either aggregation.
+GROUP_AGGREGATED_PROPERTY_TYPES: tuple[str, ...] = ("group", "flag")
 
 
 @dataclass(frozen=True)
@@ -174,15 +177,15 @@ def check_property_types_match_aggregation(filters: Mapping[str, Any]) -> list[V
                             message="Person-aggregated conditions can only use person, cohort, and flag properties.",
                         )
                     )
-            elif prop.get("type") != "group":
+            elif prop.get("type") not in GROUP_AGGREGATED_PROPERTY_TYPES:
                 violations.append(
                     Violation(
                         rule_id="cross_field.group_aggregation_property_type",
                         path=path,
-                        message="Group-aggregated conditions can only use group properties.",
+                        message="Group-aggregated conditions can only use group and flag properties.",
                     )
                 )
-            elif prop.get("group_type_index") != aggregation:
+            elif prop.get("type") == "group" and prop.get("group_type_index") != aggregation:
                 violations.append(
                     Violation(
                         rule_id="cross_field.group_property_type_index_mismatch",

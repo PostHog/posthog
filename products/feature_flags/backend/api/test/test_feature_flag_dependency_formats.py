@@ -17,7 +17,7 @@ from posthog.models.team.team import Team
 
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.api.test.feature_flag_write_test_helpers import TURN_ON_MODES, turn_flag_on
-from products.feature_flags.backend.dependency_formats import DEPENDENCY_BATCH_SIZE
+from products.feature_flags.backend.dependency_formats import DEPENDENCY_BATCH_SIZE, validate_dependency_formats
 from products.feature_flags.backend.facade.api import create_flag, set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -305,36 +305,81 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
         assert not source.active
         assert source.filters == filters
 
-    @parameterized.expand(
-        [("person", False, 2, 8), ("group", True, 2, 2), ("wide_group", True, DEPENDENCY_BATCH_SIZE + 1, 3)]
-    )
+    @parameterized.expand([("person", None), ("group", 0)])
     @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
-    def test_diamond_preserves_dependency_query_bound(
-        self, _name: str, group_only: bool, width: int, query_limit: int
-    ) -> None:
+    def test_diamond_preserves_dependency_query_bound(self, _name: str, aggregation: int | None) -> None:
         leaf = self.make_flag("leaf", filters={"version": 1.0, "groups": []})
         branches = FeatureFlag.objects.bulk_create(
-            [
-                FeatureFlag(team=self.team, key=f"branch-{index}", filters=dependency_filters(leaf))
-                for index in range(width)
-            ]
+            [FeatureFlag(team=self.team, key=f"branch-{index}", filters=dependency_filters(leaf)) for index in range(2)]
         )
         candidate = dependency_filters(*branches)
-        if group_only:
-            groups = candidate["groups"]
-            assert isinstance(groups, list) and isinstance(groups[0], dict)
-            groups[0]["aggregation_group_type_index"] = 0
-            FeatureFlag.objects.filter(id=leaf.id).update(filters=dependency_filters(leaf))
+        groups = candidate["groups"]
+        assert isinstance(groups, list) and isinstance(groups[0], dict)
+        groups[0]["aggregation_group_type_index"] = aggregation
         serializer = FeatureFlagSerializer(
             data={"key": "source"}, context={"project_id": self.team.project_id, "request": ServiceRequest(self.user)}
         )
         with CaptureQueriesContext(connection) as queries:
             filters = serializer.validate_filters(candidate)
         assert [prop["key"] for prop in filters["groups"][0]["properties"]] == [str(flag.id) for flag in branches]
-        assert len(queries) <= query_limit
+        assert len(queries) <= 8
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {"key": "source", "filters": candidate},
             format="json",
         )
         assert response.status_code == 201, response.json()
+
+    def test_wide_format_traversal_batches_queries_and_stops_at_cycles(self) -> None:
+        leaf = self.make_flag("leaf", filters={"version": 1.0, "groups": []})
+        FeatureFlag.objects.filter(id=leaf.id).update(filters=dependency_filters(leaf))
+        branches = FeatureFlag.objects.bulk_create(
+            [
+                FeatureFlag(team=self.team, key=f"branch-{index}", filters=dependency_filters(leaf))
+                for index in range(DEPENDENCY_BATCH_SIZE + 1)
+            ]
+        )
+        with CaptureQueriesContext(connection) as queries:
+            validate_dependency_formats(dependency_filters(*branches), project_id=self.team.project_id)
+        assert len(queries) <= 3
+
+    @parameterized.expand(
+        [
+            ("valid", "target", {}, False, 200, None),
+            ("self", "self", {}, False, 400, "cannot depend on itself"),
+            ("disabled", "target", {"active": False}, False, 400, "disabled flag"),
+            ("deleted", "target", {"deleted": True}, False, 400, "non-existent flag"),
+            ("flag_key", "key", {}, False, 400, "must reference flag IDs"),
+            ("cycle", "target", {}, True, 400, "Circular dependency detected"),
+        ]
+    )
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"})
+    def test_group_condition_dependency_references_are_checked(
+        self,
+        _name: str,
+        reference: str,
+        target_state: dict[str, bool],
+        target_depends_on_source: bool,
+        expected: int,
+        detail: str | None,
+    ) -> None:
+        source = self.make_flag("source", filters={"groups": []})
+        target = self.make_flag("target", filters={"groups": []}, **target_state)
+        if target_depends_on_source:
+            FeatureFlag.objects.filter(id=target.id).update(filters=dependency_filters(source))
+        key = {"self": source.id, "target": target.id, "key": target.key}[reference]
+        filters = {
+            "groups": [
+                {
+                    "aggregation_group_type_index": 0,
+                    "properties": [{"key": key, "type": "flag", "value": True, "operator": "flag_evaluates_to"}],
+                    "rollout_percentage": 100,
+                }
+            ]
+        }
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{source.id}/", {"filters": filters}, format="json"
+        )
+        assert response.status_code == expected, response.json()
+        if detail is not None:
+            assert detail in response.json()["detail"]

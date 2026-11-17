@@ -9,6 +9,7 @@ import {
 } from '@/tools/featureFlags/preserveGroupTargeting'
 
 const PERSON_AGGREGATED_PROPERTY_TYPES = ['person', 'cohort', 'flag']
+const GROUP_AGGREGATED_PROPERTY_TYPES = ['group', 'flag']
 
 function setAggregation(group: FlagConditionGroup, flagLevel: number | null | undefined): number | null | undefined {
     return 'aggregation_group_type_index' in group ? group.aggregation_group_type_index : flagLevel
@@ -64,9 +65,9 @@ function aggregationViolations(existing: FlagFilters, merged: FlagFilters | null
                 ) {
                     violations.push(`${path}: person_aggregation_property_type`)
                 }
-            } else if (property.type !== 'group') {
+            } else if (!GROUP_AGGREGATED_PROPERTY_TYPES.includes(property.type)) {
                 violations.push(`${path}: group_aggregation_property_type`)
-            } else if (property.group_type_index !== aggregation) {
+            } else if (property.type === 'group' && property.group_type_index !== aggregation) {
                 violations.push(`${path}: group_property_type_index_mismatch`)
             }
         }
@@ -256,6 +257,24 @@ describe('preserveGroupTargetingFilters', () => {
         expect(merged?.groups?.[0]?.properties?.[0]?.type).toBe('person')
         expect(merged?.groups?.[0]?.properties?.[0]?.group_type_index).toBeUndefined()
         expect(merged?.groups?.[0]?.aggregation_group_type_index).toBeNull()
+    })
+
+    it('keeps group aggregation when the agent sends a typed flag dependency', () => {
+        const flagDependency = { key: '12', type: 'flag', operator: 'flag_evaluates_to', value: true }
+        const merged = preserveGroupTargetingFilters(existingGroupFlag, {
+            groups: [
+                {
+                    properties: [{ key: 'plan', operator: 'exact', value: 'pro' }, flagDependency],
+                    rollout_percentage: 100,
+                },
+            ],
+        })
+
+        expect(aggregationViolations(existingGroupFlag, merged)).toEqual([])
+        expect(merged?.groups?.[0]?.properties).toEqual([
+            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'pro' },
+            flagDependency,
+        ])
     })
 
     // The agent moves a set that aggregates on group type 0 to persons. The stored group property

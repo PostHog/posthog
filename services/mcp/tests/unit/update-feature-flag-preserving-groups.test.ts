@@ -276,7 +276,7 @@ describe('update-feature-flag preserving groups', () => {
             },
             {
                 scenario: 'another rule on a property path',
-                detail: 'groups[1].properties[0]: Group-aggregated conditions can only use group properties.',
+                detail: 'groups[1].properties[0]: Group-aggregated conditions can only use group and flag properties.',
                 code: 'cross_field.group_aggregation_property_type',
             },
         ])('rethrows the API error unchanged for $scenario', async ({ detail, code }) => {

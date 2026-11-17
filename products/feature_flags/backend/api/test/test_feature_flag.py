@@ -6201,7 +6201,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "cross_field.group_aggregation_property_type",
-                "detail": "groups[0].properties[0]: Group-aggregated conditions can only use group properties.",
+                "detail": "groups[0].properties[0]: Group-aggregated conditions can only use group and flag properties.",
                 "attr": "filters",
             },
         )

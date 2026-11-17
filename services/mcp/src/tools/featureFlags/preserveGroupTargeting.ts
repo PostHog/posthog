@@ -19,12 +19,12 @@
  * whose stored sets aggregate on different group types, nothing else tells a moved set from an
  * edited one. The merge therefore refuses any other edit to such a flag, unless the payload changes
  * the flag-level aggregation or each set without a source states, clears, or implies its own: it
- * sends aggregation_group_type_index, carries an explicit person-aggregated property, or carries a
- * group property with a group_type_index. A set loses its source on such a flag when another stored
- * set on a different aggregation has the same keys and the incoming operators or values differ from
- * the stored ones, because a swap of the two sets and an in-place edit of their filters send the
- * same payload. On a flag whose sets all aggregate the same way, a set that keeps its keys at its
- * index keeps its source even when other sets change.
+ * sends aggregation_group_type_index, carries an explicit person-aggregated property other than a
+ * flag dependency, or carries a group property with a group_type_index. A set loses its source on
+ * such a flag when another stored set on a different aggregation has the same keys and the incoming
+ * operators or values differ from the stored ones, because a swap of the two sets and an in-place
+ * edit of their filters send the same payload. On a flag whose sets all aggregate the same way, a
+ * set that keeps its keys at its index keeps its source even when other sets change.
  *
  * A group-aggregated set on an older flag can hold a group property on another group type than its
  * own. A deletion or a swap can pair a set with the wrong stored set. On such a flag the pairing
@@ -56,7 +56,7 @@
  * On a flag whose stored sets all aggregate on persons, a set without a source compares its echo
  * against every stored set instead. An appended set also has no source.
  * check_property_types_match_aggregation in products/feature_flags/backend/filters_validation.py
- * reports a group property in a person set, a person-aggregated property in a group set, and a group
+ * reports a group property in a person set, a person or cohort property in a group set, and a group
  * property on another group type than its set. The evaluator supports these shapes. The merge keeps
  * them where the stored flag already has them.
  *
@@ -83,8 +83,8 @@
  *
  * A condition set pinned to person aggregation never gains group aggregation. A set is
  * pinned when it clears its own aggregation, when the payload changes the flag level to null, or
- * when it carries an explicit property of any type except `group` without setting a group index
- * itself.
+ * when it carries an explicit property of any type except `group` and `flag` without setting a group
+ * index itself.
  *
  * `super_groups` is ignored: the flags API drops it from writes
  * (LEGACY_UNKNOWN_FILTER_KEYS in products/feature_flags/backend/api/filters_schema.py).
@@ -144,20 +144,30 @@ function isPersonAggregatedType(type: unknown): type is string {
     return isPresentType(type) && type !== 'group'
 }
 
-function hasExplicitPersonProperty(group: FlagConditionGroup): boolean {
-    return Array.isArray(group.properties) && group.properties.some((p) => isPersonAggregatedType(p?.type))
+/**
+ * Mirrors GROUP_AGGREGATED_PROPERTY_TYPES in filters_validation.py. A Python test there keeps the
+ * two in step. A flag dependency fits either aggregation. It therefore does not pin a set to persons.
+ */
+const GROUP_AGGREGATED_PROPERTY_TYPES: readonly string[] = ['group', 'flag']
+
+function pinsPersonAggregation(type: unknown): boolean {
+    return isPresentType(type) && !GROUP_AGGREGATED_PROPERTY_TYPES.includes(type)
+}
+
+function hasPersonPinningProperty(group: FlagConditionGroup): boolean {
+    return Array.isArray(group.properties) && group.properties.some((p) => pinsPersonAggregation(p?.type))
 }
 
 /**
  * A set that carries its own group index is never pinned, which matches the backend's per-set
  * fallback in filters_validation.py. Any other set is pinned when it clears its own aggregation,
  * when the payload changes the flag level to null, or when it carries an explicit person-aggregated
- * property.
+ * property other than a flag dependency.
  */
 function isPinnedToPerson(group: FlagConditionGroup, flagClearsAggregation: boolean): boolean {
     return (
         !isPresentGroupIndex(group.aggregation_group_type_index) &&
-        (hasKey(group, 'aggregation_group_type_index') || flagClearsAggregation || hasExplicitPersonProperty(group))
+        (hasKey(group, 'aggregation_group_type_index') || flagClearsAggregation || hasPersonPinningProperty(group))
     )
 }
 
@@ -526,10 +536,10 @@ function resolveSetAggregation(
 ): FlagConditionGroup {
     const out: FlagConditionGroup = { ...incoming }
 
-    // One explicit property of a person-aggregated type stops this set from keeping or
-    // gaining group targeting. An explicit incoming group index still wins. The API then
+    // One explicit property of a person-aggregated type other than a flag dependency stops this
+    // set from keeping or gaining group targeting. An explicit incoming group index still wins. The API then
     // reports the contradiction in the agent's own payload.
-    if (hasExplicitPersonProperty(incoming) && !isPresentGroupIndex(out.aggregation_group_type_index)) {
+    if (hasPersonPinningProperty(incoming) && !isPresentGroupIndex(out.aggregation_group_type_index)) {
         out.aggregation_group_type_index = null
     }
 

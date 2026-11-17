@@ -2576,15 +2576,8 @@ class FeatureFlagSerializer(
                 "Cannot use group aggregation in any condition set when the flag is linked to an Early Access Feature."
             )
 
-        # Circular dependency checks only apply to person-aggregated conditions
-        # since flag-based property filters only work with person aggregation
-        # The cycle walk checks target formats through _validate_flag_reference as it
-        # resolves each edge. Group-only conditions skip that walk, so check them separately.
-        has_person_condition = any(c.get("aggregation_group_type_index") is None for c in well_formed_groups)
-        if has_person_condition:
-            self._check_flag_circular_dependencies(merged)
-        else:
-            self._validate_dependency_formats(merged, traverse=True)
+        # The walk also checks each target's config format through _validate_flag_reference.
+        self._check_flag_circular_dependencies({**merged, "groups": well_formed_groups})
 
         if structurally_valid:
             # Cross-field tier (#50084): variant sums, key uniqueness, payload/variant

@@ -1809,6 +1809,9 @@ describe('the feature flag release conditions logic', () => {
             expect(logic.values.taxonomicGroupTypesForCondition(undefined)).not.toContain(
                 TaxonomicFilterGroupType.PersonProperties
             )
+            expect(logic.values.taxonomicGroupTypesForCondition(undefined)).toContain(
+                TaxonomicFilterGroupType.FeatureFlags
+            )
         })
     })
 

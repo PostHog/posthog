@@ -1029,6 +1029,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     targetGroupTypes.push(
                         `${TaxonomicFilterGroupType.GroupNamesPrefix}_${filters.aggregation_group_type_index}` as unknown as TaxonomicFilterGroupType
                     )
+                    targetGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)
                 } else {
                     targetGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
                     targetGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
@@ -1077,8 +1078,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     const targetGroupTypes: TaxonomicFilterGroupType[] = []
 
                     if (effectiveIndex != null) {
-                        // Group-aggregated condition: only show group properties
-                        // for the target group type. Condition sets are homogeneous.
                         const targetGroup = groupTypes.get(effectiveIndex as GroupTypeIndex)
                         if (targetGroup) {
                             targetGroupTypes.push(
@@ -1088,6 +1087,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                                 `${TaxonomicFilterGroupType.GroupNamesPrefix}_${effectiveIndex}` as unknown as TaxonomicFilterGroupType
                             )
                         }
+                        targetGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)
                     } else {
                         // Person-aggregated condition: show person, cohort, flag, and metadata properties
                         targetGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)

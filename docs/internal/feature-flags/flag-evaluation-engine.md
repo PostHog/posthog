@@ -410,6 +410,8 @@ Holdout evaluation happens after feature enrollment but before normal conditions
 
 Flags can depend on other flags via `PropertyFilter` with `prop_type: Flag` and `operator: flag_evaluates_to`.
 
+A dependency filter can appear in a user-targeted or a group-targeted condition. The matcher compares it against the dependency's own result for the request. The condition's aggregation does not change that comparison.
+
 ### Dependency graph
 
 The dependency graph determines evaluation order so that flags are evaluated after their dependencies.

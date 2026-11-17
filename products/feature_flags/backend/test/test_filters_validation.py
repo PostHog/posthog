@@ -14,6 +14,7 @@ from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_PROPE
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.filters_validation import (
     CROSS_FIELD_CHECKS,
+    GROUP_AGGREGATED_PROPERTY_TYPES,
     PERSON_AGGREGATED_PROPERTY_TYPES,
     Violation,
     check_groups_non_empty_for_create,
@@ -84,6 +85,32 @@ class TestFiltersValidation(SimpleTestCase):
             (
                 "flag_level_aggregation_fallback_applies",
                 {"aggregation_group_type_index": 0, "groups": [{"properties": [_person_prop()]}]},
+                ["cross_field.group_aggregation_property_type"],
+            ),
+            (
+                "flag_dependency_in_group_aggregation",
+                {
+                    "groups": [
+                        {
+                            "aggregation_group_type_index": 0,
+                            "properties": [
+                                {"key": "12", "type": "flag", "operator": "flag_evaluates_to", "value": True}
+                            ],
+                        }
+                    ]
+                },
+                [],
+            ),
+            (
+                "cohort_in_group_aggregation",
+                {
+                    "groups": [
+                        {
+                            "aggregation_group_type_index": 0,
+                            "properties": [{"key": "id", "type": "cohort", "operator": "in", "value": 3}],
+                        }
+                    ]
+                },
                 ["cross_field.group_aggregation_property_type"],
             ),
             (
@@ -374,7 +401,7 @@ class TestFiltersValidation(SimpleTestCase):
         ]
         assert check_groups_non_empty_for_create({"groups": [{"properties": []}]}) == []
 
-    def test_group_is_the_only_property_type_outside_person_aggregation(self) -> None:
+    def test_mcp_merge_helper_property_type_rules_match_backend(self) -> None:
         assert set(FEATURE_FLAG_PROPERTY_TYPES) - set(PERSON_AGGREGATED_PROPERTY_TYPES) == {"group"}, (
             "services/mcp/src/tools/featureFlags/preserveGroupTargeting.ts encodes the person-aggregation rule as "
             "`type !== 'group'` (in isPersonAggregatedType). That is the complement of "
@@ -386,6 +413,12 @@ class TestFiltersValidation(SimpleTestCase):
             "`!== 'group'` check no longer separates the two aggregations at all; that change needs its own "
             "review, not a wider tuple here. Otherwise update the merge helper and "
             "services/mcp/tests/unit/preserve-group-targeting.test.ts, then this assertion."
+        )
+        assert set(GROUP_AGGREGATED_PROPERTY_TYPES) & set(PERSON_AGGREGATED_PROPERTY_TYPES) == {"flag"}, (
+            "services/mcp/src/tools/featureFlags/preserveGroupTargeting.ts and "
+            "services/mcp/tests/unit/preserve-group-targeting.test.ts each copy GROUP_AGGREGATED_PROPERTY_TYPES. "
+            "The merge helper treats a property of any type outside it as pinning a condition set to persons, "
+            "so a type valid in both aggregations must be in both TypeScript copies. Update them, then this assertion."
         )
 
     @parameterized.expand([("serde_guard", set()), ("structural", {"*"})])

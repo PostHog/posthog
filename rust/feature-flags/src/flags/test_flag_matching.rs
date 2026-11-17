@@ -897,6 +897,85 @@ mod tests {
         }
     }
 
+    #[rstest::rstest]
+    #[case::person_dependency_matches("override@example.com", true)]
+    #[case::person_dependency_fails("other@example.com", false)]
+    #[tokio::test]
+    async fn test_group_condition_depends_on_person_flag(
+        #[case] email: &str,
+        #[case] expected: bool,
+    ) {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let person_flag = mock!(FeatureFlag,
+            id: 23,
+            team_id: team.id,
+            key: "person_flag".mock_into(),
+            filters: mock!(crate::properties::property_models::PropertyFilter,
+                key: "email".mock_into(),
+                value: Some(json!("override@example.com"))
+            ).mock_into()
+        );
+        let group_flag = mock!(FeatureFlag,
+            id: 42,
+            team_id: team.id,
+            key: "group_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![
+                        organization_tier_filter(OperatorType::Exact),
+                        dep_filter(person_flag.id, FlagValue::Boolean(true)),
+                    ])
+                )],
+                aggregation_group_type_index: Some(1)
+            )
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect()),
+            Some(HashMap::from([(
+                "organization".to_string(),
+                json!("org_123"),
+            )])),
+        );
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![person_flag, group_flag]),
+                Some(HashMap::from([("email".to_string(), json!(email))])),
+                Some(HashMap::from([(
+                    "organization".to_string(),
+                    HashMap::from([
+                        ("tier".to_string(), json!("enterprise")),
+                        ("$group_key".to_string(), json!("org_123")),
+                    ]),
+                )])),
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        assert_eq!(
+            result.flags.get("group_flag").unwrap().to_value(),
+            FlagValue::Boolean(expected)
+        );
+    }
+
     #[tokio::test]
     async fn test_flags_that_depends_on_other_multivariate_flag_variant_match() {
         let context = TestContext::new(None).await;
