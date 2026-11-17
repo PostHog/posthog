@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from celery.exceptions import Retry, SoftTimeLimitExceeded
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models.instance_setting import override_instance_config
 from posthog.tasks.calculate_cohort import (
@@ -88,6 +89,7 @@ class TestStaticCohortReconciliation(BaseTest):
             ("calculated_within_settle_delay", 0, 3, {"last_calculation_ago": timedelta(minutes=10)}, False),
             ("errored_within_settle_delay", 0, 3, {"last_error_at_ago": timedelta(minutes=10)}, False),
             ("deleted", 0, 3, {"deleted": True}, False),
+            ("last_population_failed", 0, 3, {"errors_calculating": 1}, False),
         ]
     )
     @patch.object(static_reconciliation, "RECONCILE_MAX_MEMBERS", 250)
@@ -119,6 +121,24 @@ class TestStaticCohortReconciliation(BaseTest):
 
         self.assertEqual(passes, [[newest.pk], [middle.pk], [oldest.pk], [newest.pk]])
 
+    @patch.object(static_reconciliation, "RECONCILE_PAGE_SIZE", 2)
+    def test_cursor_moves_past_a_full_page_with_nothing_to_repair(self) -> None:
+        lagging = self._static_cohort(clickhouse_members=1)
+        for _ in range(2):
+            self._static_cohort(clickhouse_members=1, count=1)
+
+        self.assertEqual([self._dispatched_ids(), self._dispatched_ids()], [[], [lagging.pk]])
+
+    @patch.object(static_reconciliation, "RECONCILE_MAX_COHORTS_PER_RUN", 2)
+    @patch.object(static_reconciliation, "RECONCILE_MAX_RECENT_PER_RUN", 1)
+    def test_recent_cohorts_leave_part_of_the_budget_to_the_backlog(self) -> None:
+        old = self._static_cohort(clickhouse_members=1)
+        recent = [
+            self._static_cohort(clickhouse_members=1, last_calculation=self.now - timedelta(hours=3)) for _ in range(2)
+        ]
+
+        self.assertEqual(self._dispatched_ids(), [recent[1].pk, old.pk])
+
     def test_does_not_dispatch_a_recent_cohort_again_within_the_retry_window(self) -> None:
         cohort = self._static_cohort(clickhouse_members=3, last_calculation=self.now - timedelta(hours=3))
 
@@ -147,9 +167,12 @@ class TestStaticCohortReconciliation(BaseTest):
                 reconcile_static_cohort(target)
             self._forget_attempts(cohort)
 
+        insert_static_cohort([uuid.uuid4()], cohort.pk, team_id=self.team.pk)
+        passes.append(self._dispatched_ids())
+
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 1)
-        self.assertEqual(passes, [[cohort.pk], [cohort.pk], []])
+        self.assertEqual(passes, [[cohort.pk], [cohort.pk], [], [cohort.pk]])
 
     def test_a_repair_that_finds_the_cohort_busy_copies_nothing_and_the_next_pass_retries(self) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])
@@ -173,11 +196,12 @@ class TestStaticCohortReconciliation(BaseTest):
 
         with patch.object(
             static_reconciliation, "insert_cohort_people_into_pg", side_effect=copy_while_an_import_finishes
-        ):
+        ) as copy:
             reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
 
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 5)
+        self.assertEqual(copy.call_args.kwargs["min_rows"], 1)
 
     def test_stuck_cohort_sweep_leaves_a_repair_in_progress_alone(self) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])
@@ -207,6 +231,18 @@ class TestStaticCohortReconciliation(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 1)
 
+    def test_parks_a_complete_cohort_with_duplicate_clickhouse_rows(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["member"])
+        cohort = self._static_cohort(person_uuids=(person.uuid, person.uuid))
+        cohort.insert_users_list_by_uuid_into_pg_only([str(person.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=cohort.pk).update(count=1, last_calculation=self.now - timedelta(days=7))
+
+        [target] = self._dispatched()
+        reconcile_static_cohort(target)
+        self._forget_attempts(cohort)
+
+        self.assertEqual(self._dispatched(), [])
+
     def test_a_failed_recount_does_not_park_the_cohort(self) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])
         cohort = self._static_cohort(person_uuids=(person.uuid,))
@@ -233,6 +269,7 @@ class TestStaticCohortReconciliation(BaseTest):
     ) -> None:
         repair.side_effect = error
         task = reconcile_static_cohort_membership
+        failed_before = REGISTRY.get_sample_value("cohort_static_reconcile_total", {"outcome": "failed"}) or 0
         task.push_request(retries=0, called_directly=False, is_eager=True)
         try:
             if retries:
@@ -242,3 +279,6 @@ class TestStaticCohortReconciliation(BaseTest):
                 task.run(team_id=self.team.pk, cohort_id=1)
         finally:
             task.pop_request()
+
+        failed_after = REGISTRY.get_sample_value("cohort_static_reconcile_total", {"outcome": "failed"}) or 0
+        self.assertEqual(failed_after - failed_before, 0 if retries else 1)

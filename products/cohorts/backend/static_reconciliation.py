@@ -32,7 +32,8 @@ RECONCILE_MAX_COHORTS_PER_RUN = 10
 # The rest of the budget stays with the backlog, so a burst of recent cohorts cannot stop the cursor.
 RECONCILE_MAX_RECENT_PER_RUN = 5
 RECONCILE_PAGE_SIZE = 200
-# A larger cohort holds the personhog insert path for too long in one task.
+# No known failure above this. It keeps one repair to about 100 personhog pages, so the extra write load stays
+# predictable while the backlog drains. Larger cohorts are logged for a person to decide.
 RECONCILE_MAX_MEMBERS = 1_000_000
 # Persons deleted after the population stay in ClickHouse but cannot be copied, so a small gap never closes.
 RECONCILE_MIN_MISSING_RATIO = 0.01
@@ -106,7 +107,8 @@ def decide(*, stored_count: int | None, clickhouse_count: int) -> ReconcileDecis
 def _settled_static_cohorts(now: datetime) -> QuerySet[Cohort]:
     settled_before = now - RECONCILE_SETTLE_DELAY
     return (
-        Cohort.objects.filter(is_static=True, deleted=False, is_calculating=False)
+        # A failed population leaves a partial set in ClickHouse, and copying it would make flags match that set.
+        Cohort.objects.filter(is_static=True, deleted=False, is_calculating=False, errors_calculating=0)
         .filter(
             Q(last_calculation__lte=settled_before) | Q(last_calculation__isnull=True, created_at__lte=settled_before)
         )
@@ -116,12 +118,11 @@ def _settled_static_cohorts(now: datetime) -> QuerySet[Cohort]:
     )
 
 
-def _candidates(queryset: QuerySet[Cohort]) -> list[_Candidate]:
+def _candidates(queryset: QuerySet[Cohort], *, limit: int | None) -> list[_Candidate]:
+    rows = queryset.order_by("-id").values_list("team_id", "id", "count")
     return [
         _Candidate(team_id=team_id, cohort_id=cohort_id, stored_count=count)
-        for team_id, cohort_id, count in queryset.order_by("-id").values_list("team_id", "id", "count")[
-            :RECONCILE_PAGE_SIZE
-        ]
+        for team_id, cohort_id, count in (rows[:limit] if limit is not None else rows)
     ]
 
 
@@ -177,10 +178,12 @@ def run_reconciliation_pass(*, now: datetime, dispatch: Callable[[StaticCohortTo
     with a cursor, one page per run, and starts again from the newest after the oldest.
     """
     settled = _settled_static_cohorts(now)
-    recent = _candidates(settled.filter(last_calculation__gte=now - RECONCILE_RECENT_WINDOW))
+    # The whole window, so held cohorts cannot fill the page and hide an older recent one.
+    recent_window = _candidates(settled.filter(last_calculation__gte=now - RECONCILE_RECENT_WINDOW), limit=None)
     cursor = cache.get(RECONCILE_CURSOR_CACHE_KEY)
-    backlog = _candidates(settled.filter(id__lt=cursor) if cursor is not None else settled)
-    held, parked = _skipped_cohort_ids(recent + backlog)
+    backlog = _candidates(settled.filter(id__lt=cursor) if cursor is not None else settled, limit=RECONCILE_PAGE_SIZE)
+    held, parked = _skipped_cohort_ids(recent_window + backlog)
+    recent = [candidate for candidate in recent_window if candidate.cohort_id not in held][:RECONCILE_PAGE_SIZE]
     clickhouse_counts = _clickhouse_row_counts([c for c in recent + backlog if c.cohort_id not in held])
     recent_ids = {candidate.cohort_id for candidate in recent}
     dispatched = 0
@@ -240,18 +243,17 @@ def run_reconciliation_pass(*, now: datetime, dispatch: Callable[[StaticCohortTo
         cache.set(RECONCILE_CURSOR_CACHE_KEY, next_cursor, timeout=int(RECONCILE_CURSOR_TTL.total_seconds()))
 
 
-def _write_count(row: Cohort, count: int) -> bool:
-    # A population or CSV import that holds the cohort, or that finished since `row` was read, writes its own count.
-    return bool(
-        Cohort.objects.filter(
-            team_id=row.team_id,
-            id=row.pk,
-            is_static=True,
-            deleted=False,
-            is_calculating=False,
-            last_calculation=row.last_calculation,
-        ).update(count=count)
-    )
+def _write_count(row: Cohort, count: int) -> None:
+    # A population or CSV import that has set `is_calculating`, or that finished since `row` was read, writes its own
+    # count.
+    Cohort.objects.filter(
+        team_id=row.team_id,
+        id=row.pk,
+        is_static=True,
+        deleted=False,
+        is_calculating=False,
+        last_calculation=row.last_calculation,
+    ).update(count=count)
 
 
 def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
@@ -272,6 +274,8 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
     decision = decide(stored_count=postgres_count, clickhouse_count=members.people)
     if decision == ReconcileDecision.IN_SYNC:
         _write_count(row, postgres_count)
+        # Duplicate ClickHouse rows keep the selection's row count above the people, so it would pick the cohort again.
+        _park(cohort.cohort_id, members.rows)
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="already_complete").inc()
         return
     if decision == ReconcileDecision.TOO_LARGE:

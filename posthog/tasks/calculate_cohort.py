@@ -1515,6 +1515,8 @@ def reconcile_static_cohorts() -> None:
 )
 @with_team_scope()
 def reconcile_static_cohort_membership(self: Task, team_id: int, cohort_id: int) -> None:
+    if not get_instance_setting("STATIC_COHORT_RECONCILIATION_ENABLED"):
+        return
     try:
         reconcile_static_cohort(StaticCohortToReconcile(team_id=team_id, cohort_id=cohort_id))
     except Exception as err:
@@ -1524,6 +1526,7 @@ def reconcile_static_cohort_membership(self: Task, team_id: int, cohort_id: int)
             err, StaticCohortReadBackIncomplete | SoftTimeLimitExceeded
         )
         if not _is_final_attempt(self, retryable):
+            # Not _schedule_population_retry: it stamps last_error_at, and the retry would then skip the cohort as busy.
             raise self.retry(
                 exc=err,
                 countdown=get_exponential_backoff_interval(
