@@ -306,6 +306,7 @@ That call is necessary. [#62707](https://github.com/PostHog/posthog/pull/62707) 
 Frozen objects do not get the final cyclic collections of `Py_FinalizeEx`. Thus their finalizers run late in the teardown, after Python removes the extension modules.
 
 Backend CI skips `Py_FinalizeEx` on green shards. With `POSTHOG_PYTEST_HARD_EXIT=1`, the root conftest runs the `atexit` handlers and calls `os._exit` after `pytest_unconfigure`, so the `gc.unfreeze()` still runs first.
+The warehouse vendor test step uses the same guard on pull requests; its scheduled runs keep normal interpreter shutdown.
 One run each: each shard saved 8 to 29 seconds ([before](https://github.com/PostHog/posthog/actions/runs/35777473197), [after](https://github.com/PostHog/posthog/actions/runs/35777464934)).
 A failing shard, the hourly scheduled run and local runs keep the normal exit, so a teardown crash still shows there. Do not delete the `gc.unfreeze()`.
 
