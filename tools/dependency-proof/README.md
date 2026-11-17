@@ -38,13 +38,15 @@ The prover reads the head from the git object database and writes its dependency
 The pnpm version comes from the merge base, and the settings come from the default branch.
 
 The proof pins the code it ran.
-`PROVER_FILES` in `dependency_proof/prove.py` lists every file the workflows run from.
-The proof reports the blob SHA of each of those files at the workflow commit.
+`issuer.yml` is the prover's own manifest: it lists every path the workflows run from.
+A path that ends in `/` is a directory, so a new file in the package is covered without an edit.
+The proof reports the tree SHA of each listed directory and the blob SHA of each listed file, at the workflow commit.
 It also reports the blob SHA of each pnpm settings file it read.
-`.stamphog/policy.yml` repeats the same list as `publisher_files` on the `dependency_proof` attestation, so change both together.
-stamphog accepts a proof only when the proof pins every listed file, and only while the default branch still holds each pinned blob.
+`.stamphog/policy.yml` names the manifest as `issuer` on the `dependency_proof` attestation, and holds no copy of the list.
+The policy keeps only who may attest (the check name and the App) and what the proof may lift.
+stamphog reads the manifest from the default branch, and accepts a proof only when the proof pins every listed path, and only while the default branch still holds each pinned object.
 A proof made by an older prover, or under older settings, therefore lifts nothing.
-`tests/test_package.py` fails when a package module, `pyproject.toml` or `uv.lock` is missing from `PROVER_FILES`.
+`tests/test_package.py` fails when a path the workflows check out or run is not covered by `issuer.yml`.
 
 Every decision lives in a pure core.
 `dependency_proof/core/` holds pure functions over plain values, and every refusal is raised there.
