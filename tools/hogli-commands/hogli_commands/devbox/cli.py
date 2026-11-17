@@ -2193,6 +2193,8 @@ def devbox_claude_login(workspace: str | None) -> None:
     if _claude_token_secret_is_set():
         _offer_to_delete_claude_token_secret()
     click.echo(f"Starting `claude auth login` on '{name}'. Run this command again to switch accounts.")
+    # Waiting replays the box's whole startup log when a startup script failed, which buries the login link.
+    os.environ["CODER_SSH_WAIT"] = "no"
     exec_replace(name, _remote_claude_auth("login"), tty=True)
 
 
