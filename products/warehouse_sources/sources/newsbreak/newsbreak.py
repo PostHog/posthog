@@ -1,11 +1,11 @@
 import re
 from collections.abc import Iterator
 from datetime import date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.sources.newsbreak.settings import (
@@ -20,8 +20,10 @@ from products.warehouse_sources.sources.newsbreak.settings import (
 )
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
+    SourceCursorManager,
     SourceResponse,
     frozen,
+    interruptible_wait,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -51,7 +53,12 @@ CODE_INVALID_TOKEN = 4033
 CODE_RATE_LIMITED = 4034
 
 REQUEST_TIMEOUT = (10, 120)
-MAX_ATTEMPTS = 5
+MAX_ATTEMPTS = 6
+# NewsBreak suspends a throttled app for 5 minutes (https://advertising-api.newsbreak.com/hc/en-us/articles/40262642898701).
+# A throttled request retries once a minute until the shared request deadline (5 minutes). If it is
+# still throttled, the attempt fails with a retryable error, and the next attempt resumes from the
+# staged cursor after the suspension ends.
+RATE_LIMIT_RETRY_SECONDS = 60
 
 
 class NewsBreakAPIError(Exception):
@@ -62,12 +69,26 @@ class NewsBreakRetryableError(Exception):
     pass
 
 
+class NewsBreakRateLimitError(NewsBreakRetryableError):
+    def __init__(self, message: str, retry_after: Optional[float] = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 @frozen
 class NewsBreakResumeConfig:
     # The ad account the next request reads, and its next page or report window.
     account_id: Optional[str] = None
     page: Optional[int] = None
     window_start: Optional[str] = None
+
+
+@frozen
+class NewsBreakReportCursor:
+    cursor_kind: ClassVar[str] = "newsbreak_report_backfill"
+    # The ad accounts whose report history this table has read back to the creation of the account.
+    # An account that is not in the list reads its full history, also on an incremental run.
+    backfilled_account_ids: tuple[str, ...] = ()
 
 
 def parse_org_ids(value: Optional[str]) -> list[str]:
@@ -93,7 +114,7 @@ def _data_of(body: Any, path: str) -> Any:
     if code is None or code == CODE_OK:
         return body.get("data")
     if code == CODE_RATE_LIMITED:
-        raise NewsBreakRetryableError(f"NewsBreak rate limit reached for {path}")
+        raise NewsBreakRateLimitError(f"NewsBreak rate limit reached for {path}")
     if code in (CODE_NOT_LOGGED_IN, CODE_INVALID_TOKEN):
         raise NewsBreakAPIError(INVALID_TOKEN_ERROR)
     if code == CODE_PERMISSION_DENIED:
@@ -104,6 +125,24 @@ def _data_of(body: Any, path: str) -> Any:
 def _list_of(data: Any, key: str) -> list[dict[str, Any]]:
     items = data.get(key) if isinstance(data, dict) else None
     return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+
+def _retry_after(response: requests.Response) -> Optional[float]:
+    try:
+        return float(response.headers.get("Retry-After", ""))
+    except ValueError:
+        return None
+
+
+_backoff = wait_exponential_jitter(initial=5, max=60)
+
+
+def _retry_wait(state: RetryCallState) -> float:
+    error = state.outcome.exception() if state.outcome is not None else None
+    if isinstance(error, NewsBreakRateLimitError):
+        # A wait past the request deadline stops the retries and fails the attempt.
+        return max(RATE_LIMIT_RETRY_SECONDS, error.retry_after or 0)
+    return _backoff(state)
 
 
 class NewsBreakClient:
@@ -138,7 +177,9 @@ class NewsBreakClient:
             raise NewsBreakAPIError(INVALID_TOKEN_ERROR)
         if response.status_code == 403:
             raise NewsBreakAPIError(PERMISSION_ERROR)
-        if response.status_code == 429 or response.status_code >= 500:
+        if response.status_code == 429:
+            raise NewsBreakRateLimitError(f"NewsBreak returned HTTP 429 for {path}", retry_after=_retry_after(response))
+        if response.status_code >= 500:
             raise NewsBreakRetryableError(f"NewsBreak returned HTTP {response.status_code} for {path}")
         response.raise_for_status()
         try:
@@ -147,11 +188,11 @@ class NewsBreakClient:
             raise NewsBreakAPIError(f"NewsBreak returned a response that is not JSON for {path}") from error
         return _data_of(body, path)
 
-    # A rate-limited call must wait minutes before NewsBreak accepts the next one, so the waits are long.
     _request_with_retries = retry_with_deadline(
         retry=retry_if_exception_type((NewsBreakRetryableError, requests.ConnectionError, requests.Timeout)),
         stop=stop_after_attempt(MAX_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=15, max=120),
+        wait=_retry_wait,
+        sleep=interruptible_wait,
         reraise=True,
     )(_request)
 
@@ -201,8 +242,14 @@ def _account_start(account: dict[str, Any], tz: ZoneInfo, today: date) -> date:
         created = int(account.get("createTime") or 0)
     except (TypeError, ValueError):
         created = 0
+    if created > 10**11:
+        # Milliseconds, not seconds.
+        created //= 1000
     if created > 0:
-        return min(datetime.fromtimestamp(created, tz).date(), today)
+        try:
+            return min(datetime.fromtimestamp(created, tz).date(), today)
+        except (OverflowError, OSError, ValueError):
+            pass
     return today - timedelta(days=DEFAULT_BACKFILL_DAYS)
 
 
@@ -236,7 +283,7 @@ def _list_rows(
             data = client.get(config.path, {"adAccountId": account_id, "pageNo": page, "pageSize": PAGE_SIZE})
             rows = _list_of(data, "rows")
             # A page with no rows ends the walk, also when `hasNext` says otherwise.
-            has_next = bool(rows) and isinstance(data, dict) and data.get("hasNext") is True
+            has_next = bool(rows) and isinstance(data, dict) and str(data.get("hasNext")).lower() in ("true", "1")
             if has_next:
                 manager.save_state(NewsBreakResumeConfig(account_id=account_id, page=page + 1))
             elif index + 1 < len(accounts):
@@ -258,13 +305,21 @@ def _report_rows(
     manager: ResumableSourceManager[NewsBreakResumeConfig],
     resume: Optional[NewsBreakResumeConfig],
     watermark: Optional[date],
+    cursor_manager: Optional[SourceCursorManager[NewsBreakReportCursor]],
 ) -> Iterator[list[dict[str, Any]]]:
     today = datetime.now(tz).date()
     start_index, resume = _resume_position(accounts, resume)
+    stored = cursor_manager.load() if cursor_manager is not None else None
+    backfilled = set(stored.backfilled_account_ids) if stored is not None else set()
+    # An earlier attempt of this job read the accounts before the resume point to today, from their
+    # creation date when they were not backfilled yet.
+    backfilled.update(account["id"] for account in accounts[:start_index])
     for index in range(start_index, len(accounts)):
         account_id = accounts[index]["id"]
         start = _account_start(accounts[index], tz, today)
-        if watermark is not None and watermark > start:
+        # The watermark covers only the accounts that were already read back to their creation, so an
+        # account that the token can newly see still gets its full history.
+        if watermark is not None and watermark > start and account_id in backfilled:
             start = watermark
         if index == start_index and resume is not None:
             resumed = _to_date(resume.window_start)
@@ -301,6 +356,10 @@ def _report_rows(
                 manager.safe_point()
             start = next_start
 
+        backfilled.add(account_id)
+        if cursor_manager is not None:
+            cursor_manager.stage(NewsBreakReportCursor(backfilled_account_ids=tuple(sorted(backfilled))))
+
 
 def get_rows(
     access_token: str,
@@ -310,6 +369,7 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[NewsBreakResumeConfig],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
+    cursor_manager: Optional[SourceCursorManager[NewsBreakReportCursor]],
 ) -> Iterator[list[dict[str, Any]]]:
     config = NEWSBREAK_ENDPOINTS[endpoint]
     client = NewsBreakClient(access_token)
@@ -326,7 +386,7 @@ def get_rows(
         return
 
     watermark = _to_date(db_incremental_field_last_value) if should_use_incremental_field else None
-    yield from _report_rows(client, config, accounts, tz, resumable_source_manager, resume, watermark)
+    yield from _report_rows(client, config, accounts, tz, resumable_source_manager, resume, watermark, cursor_manager)
 
 
 def newsbreak_source(
@@ -337,6 +397,7 @@ def newsbreak_source(
     resumable_source_manager: ResumableSourceManager[NewsBreakResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    cursor_manager: Optional[SourceCursorManager[NewsBreakReportCursor]] = None,
 ) -> SourceResponse:
     config = NEWSBREAK_ENDPOINTS.get(endpoint)
     if config is None:
@@ -353,10 +414,12 @@ def newsbreak_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            cursor_manager=cursor_manager,
         ),
         primary_keys=list(config.primary_keys),
-        partition_count=1,
-        partition_size=1,
+        # Without a partition key, a partition count would put the whole table into one md5 bucket.
+        partition_count=1 if config.partition_key else None,
+        partition_size=1 if config.partition_key else None,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,

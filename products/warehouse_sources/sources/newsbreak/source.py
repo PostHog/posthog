@@ -6,6 +6,7 @@ from products.warehouse_sources.sources.newsbreak.newsbreak import (
     INVALID_TOKEN_ERROR,
     NO_ORGANIZATIONS_ERROR,
     PERMISSION_ERROR,
+    NewsBreakReportCursor,
     NewsBreakResumeConfig,
     newsbreak_source,
     validate_credentials as validate_newsbreak_credentials,
@@ -13,12 +14,14 @@ from products.warehouse_sources.sources.newsbreak.newsbreak import (
 from products.warehouse_sources.sources.newsbreak.settings import ENDPOINTS, INCREMENTAL_FIELDS, REPORT_LOOKBACK_DAYS
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
+    CursorSource,
     DataWarehouseSourceCategory,
     FieldType,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
     SourceConfig,
+    SourceCursorManager,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceInputs,
@@ -35,7 +38,9 @@ SOURCE_KEY = "NewsBreak"
 
 
 @SourceRegistry.register
-class NewsBreakSource(ResumableSource[NewsBreakSourceConfig, NewsBreakResumeConfig]):
+class NewsBreakSource(
+    ResumableSource[NewsBreakSourceConfig, NewsBreakResumeConfig], CursorSource[NewsBreakReportCursor]
+):
     # The NewsBreak pixel loads from this host.
     codebase_detection = detect(script_hosts=("static.newsbreak.com",))
 
@@ -51,6 +56,17 @@ class NewsBreakSource(ResumableSource[NewsBreakSourceConfig, NewsBreakResumeConf
     def credential_kind(self) -> str:
         # The kebab-case default splits the brand name into "news-break".
         return "newsbreak"
+
+    def cursor_class(self) -> type[NewsBreakReportCursor]:
+        return NewsBreakReportCursor
+
+    def merge_cursors(self, current: NewsBreakReportCursor, candidate: NewsBreakReportCursor) -> NewsBreakReportCursor:
+        # A run that reads fewer accounts never drops an account that an earlier run backfilled.
+        return NewsBreakReportCursor(
+            backfilled_account_ids=tuple(
+                sorted(set(current.backfilled_account_ids) | set(candidate.backfilled_account_ids))
+            )
+        )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return dict.fromkeys(
@@ -108,6 +124,8 @@ class NewsBreakSource(ResumableSource[NewsBreakSourceConfig, NewsBreakResumeConf
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            # The pipeline always passes a cursor manager. A caller outside it can pass none.
+            cursor_manager=cast(Optional[SourceCursorManager[NewsBreakReportCursor]], inputs.source_cursor),
         )
 
     @property

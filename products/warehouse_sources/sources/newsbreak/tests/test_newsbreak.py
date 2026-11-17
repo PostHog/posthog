@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 import time_machine
 
+import structlog
+
 from products.warehouse_sources.sources.newsbreak._config import NewsBreakSourceConfig
 from products.warehouse_sources.sources.newsbreak.newsbreak import (
     INVALID_TIMEZONE_ERROR,
@@ -12,10 +14,12 @@ from products.warehouse_sources.sources.newsbreak.newsbreak import (
     NO_ORGANIZATIONS_ERROR,
     PERMISSION_ERROR,
     UNREACHABLE_ERROR,
+    NewsBreakReportCursor,
     NewsBreakResumeConfig,
     validate_credentials,
 )
 from products.warehouse_sources.sources.newsbreak.source import NewsBreakSource
+from products.warehouse_sources.sources.sdk import SourceCursorManager
 from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -63,12 +67,22 @@ def _accounts(*account_ids: str, created: str = CREATED_2024_03_01) -> ScriptedR
     )
 
 
-def _page(ids: list[str], has_next: bool) -> ScriptedResponse:
+def _page(ids: list[str], has_next: Any) -> ScriptedResponse:
     return _ok({"rows": [{"id": row_id} for row_id in ids], "hasNext": has_next, "pageNo": 1, "pageSize": 500})
 
 
 def _report(rows: list[dict[str, Any]]) -> ScriptedResponse:
     return _ok({"rows": rows, "aggregateData": []})
+
+
+def _cursor(*backfilled_account_ids: str) -> SourceCursorManager[NewsBreakReportCursor]:
+    payload = {
+        "kind": NewsBreakReportCursor.cursor_kind,
+        "data": {"backfilled_account_ids": list(backfilled_account_ids)},
+    }
+    return SourceCursorManager.from_sync_type_config(
+        NewsBreakSource(), {"source_cursor": payload}, structlog.get_logger()
+    )
 
 
 def _bodies(requests: list[RecordedRequest], path: str) -> list[Any]:
@@ -116,16 +130,17 @@ class TestAdAccounts:
 
 
 class TestListEndpoints:
-    def test_walks_pages_of_each_account(self) -> None:
+    @pytest.mark.parametrize("has_next", [True, "true", 1])
+    def test_walks_pages_of_each_account(self, has_next: Any) -> None:
         result = _driver().run(
             "campaigns",
             route(
                 {
                     ACCOUNTS: [_accounts("1", "2", "3")],
                     CAMPAIGNS: [
-                        _page(["c1", "c2"], has_next=True),
+                        _page(["c1", "c2"], has_next=has_next),
                         # `hasNext` on a page with no rows does not keep the walk going.
-                        _page([], has_next=True),
+                        _page([], has_next=has_next),
                         _page(["c3"], has_next=False),
                         _page(["c4"], has_next=False),
                     ],
@@ -143,6 +158,9 @@ class TestListEndpoints:
             ("3", "1"),
         ]
         assert {request.param("pageSize") for request in campaign_requests} == {"500"}
+        # A list table has no partition key, so it is not bucketed.
+        assert result.response is not None
+        assert result.response.partition_count is None
         assert result.saved_states == [
             NewsBreakResumeConfig(account_id="1", page=2),
             NewsBreakResumeConfig(account_id="2", page=1),
@@ -204,7 +222,12 @@ class TestReports:
         responses = [_report([{"date": "2024-03-01", "adAccountId": "123", "adId": "9", "cost": 5}])] + [
             _report([]) for _ in expected_windows[1:]
         ]
-        result = _driver().run("ad_daily_report", route({ACCOUNTS: [_accounts("123")], REPORT: responses}), **inputs)
+        result = _driver().run(
+            "ad_daily_report",
+            route({ACCOUNTS: [_accounts("123")], REPORT: responses}),
+            source_cursor=_cursor("123"),
+            **inputs,
+        )
 
         assert result.raised is None
         bodies = _bodies(result.requests, REPORT)
@@ -222,8 +245,72 @@ class TestReports:
         }
         assert {"COST", "IMPRESSION", "CLICK", "CONVERSION", "VALUE", "SALE_ROAS"} <= set(bodies[0]["metrics"])
         assert result.rows == [{"date": "2024-03-01", "adAccountId": "123", "adId": "9", "cost": 5}]
+        assert result.response is not None
         assert result.response.primary_keys == ["date", "adAccountId", "campaignId", "adSetId", "adId"]
         assert result.response.sort_mode is None
+
+    @pytest.mark.parametrize(
+        ("created", "expected_start"),
+        [
+            ("1709251200000", "2024-03-01"),  # milliseconds
+            ("", "2022-03-17"),  # no creation time: the default backfill
+            ("99999999999999999999", "2022-03-17"),  # out of range
+        ],
+    )
+    def test_account_creation_time_sets_the_backfill_start(self, created: str, expected_start: str) -> None:
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            return _accounts("1", created=created) if request.path.endswith(ACCOUNTS) else _report([])
+
+        result = _driver().run("ad_account_daily_report", script, should_use_incremental_field=False)
+
+        assert result.raised is None
+        assert _bodies(result.requests, REPORT)[0]["startDate"] == expected_start
+
+    @pytest.mark.parametrize(
+        ("stored_account_ids", "expected_starts"),
+        [
+            # Account 2 became visible after account 1 was backfilled, so it reads its full history.
+            (("1",), [(1, "2024-03-12"), (2, "2024-03-01"), (2, "2024-03-08"), (2, "2024-03-15")]),
+            (("1", "2"), [(1, "2024-03-12"), (2, "2024-03-12")]),
+            # No stored cursor: no account is known to be backfilled.
+            (
+                None,
+                [
+                    (1, "2024-03-01"),
+                    (1, "2024-03-08"),
+                    (1, "2024-03-15"),
+                    (2, "2024-03-01"),
+                    (2, "2024-03-08"),
+                    (2, "2024-03-15"),
+                ],
+            ),
+        ],
+    )
+    def test_watermark_applies_only_to_backfilled_accounts(
+        self, stored_account_ids: tuple[str, ...] | None, expected_starts: list[tuple[int, str]]
+    ) -> None:
+        cursor_manager = (
+            SourceCursorManager.from_sync_type_config(NewsBreakSource(), {}, structlog.get_logger())
+            if stored_account_ids is None
+            else _cursor(*stored_account_ids)
+        )
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            return _accounts("1", "2") if request.path.endswith(ACCOUNTS) else _report([])
+
+        result = _driver().run(
+            "ad_account_daily_report",
+            script,
+            incremental_field="date",
+            db_incremental_field_last_value="2024-03-12",
+            source_cursor=cursor_manager,
+        )
+
+        assert result.raised is None
+        assert [
+            (body["filterIds"][0], body["startDate"]) for body in _bodies(result.requests, REPORT)
+        ] == expected_starts
+        assert cursor_manager.staged == NewsBreakReportCursor(backfilled_account_ids=("1", "2"))
 
     def test_report_dates_follow_the_report_time_zone(self) -> None:
         # At 2024-03-16 12:00 UTC it is already 2024-03-17 in Auckland.
@@ -232,6 +319,7 @@ class TestReports:
             route({ACCOUNTS: [_accounts("1")], REPORT: [_report([])]}),
             incremental_field="date",
             db_incremental_field_last_value="2024-03-15",
+            source_cursor=_cursor("1"),
         )
 
         assert result.raised is None
@@ -248,6 +336,7 @@ class TestReports:
             route({ACCOUNTS: [_accounts("7", created="")], REPORT: [_report([{"date": "2024-03-16", "cost": 1}])]}),
             incremental_field="date",
             db_incremental_field_last_value="2024-03-16",
+            source_cursor=_cursor("7"),
         )
 
         assert result.raised is None
@@ -275,6 +364,21 @@ class TestReports:
         ]
         assert result.committed_states == result.saved_states
 
+    def test_resumed_run_counts_accounts_read_by_an_earlier_attempt_as_backfilled(self) -> None:
+        cursor_manager = _cursor()
+        result = _driver().run(
+            "ad_account_daily_report",
+            route({ACCOUNTS: [_accounts("1", "2")], REPORT: [_report([])]}),
+            resume_state=NewsBreakResumeConfig(account_id="2", window_start="2024-03-15"),
+            source_cursor=cursor_manager,
+        )
+
+        assert result.raised is None
+        assert [(body["filterIds"], body["startDate"]) for body in _bodies(result.requests, REPORT)] == [
+            ([2], "2024-03-15")
+        ]
+        assert cursor_manager.staged == NewsBreakReportCursor(backfilled_account_ids=("1", "2"))
+
 
 class TestErrors:
     @pytest.mark.parametrize(
@@ -288,7 +392,6 @@ class TestErrors:
                 ScriptedResponse(json={"code": -1, "errMsg": "Unknown error"}),
                 "NewsBreak API error -1 for /ad-account/getGroupsByOrgIds: Unknown error",
             ),
-            (ScriptedResponse(json={"code": 4034, "errMsg": "Rate limit exceeded"}), "NewsBreak rate limit reached"),
             (ScriptedResponse(status=503, json={}), "NewsBreak returned HTTP 503"),
         ],
     )
@@ -297,6 +400,34 @@ class TestErrors:
 
         assert result.raised is not None
         assert str(result.raised).startswith(expected)
+
+    @pytest.mark.parametrize(
+        ("throttled", "tries"),
+        [
+            # Body code 4034 retries once a minute, so 5 tries fit into the 5-minute request deadline.
+            (ScriptedResponse(json={"code": 4034, "errMsg": "Rate limit exceeded"}), 5),
+            # A longer `Retry-After` stretches each wait, so fewer tries fit.
+            (ScriptedResponse(status=429, json={}, headers={"Retry-After": "120"}), 3),
+        ],
+    )
+    @pytest.mark.parametrize("lifts", [True, False])
+    def test_rate_limit_retries_until_the_request_deadline(
+        self, throttled: ScriptedResponse, tries: int, lifts: bool
+    ) -> None:
+        answers = [_accounts("1")] + [throttled] * (tries - 1 if lifts else tries)
+        if lifts:
+            answers.append(_page(["c1"], has_next=False))
+
+        result = _driver().run("campaigns", answers)
+
+        assert len([request for request in result.requests if request.path.endswith(CAMPAIGNS)]) == tries
+        if lifts:
+            assert result.raised is None
+            assert [row["id"] for row in result.rows] == ["c1"]
+        else:
+            # The attempt fails with a retryable error, and the next attempt resumes from the staged cursor.
+            assert str(result.raised).startswith("NewsBreak")
+            assert "rate limit" in str(result.raised) or "429" in str(result.raised)
 
     def test_invalid_time_zone_fails_before_any_request(self) -> None:
         result = _driver(report_timezone="Mars/Olympus").run("ad_daily_report", always(_ok({})))
