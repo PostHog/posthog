@@ -44,6 +44,10 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     ExternalDataSourceDestination,
 )
+from products.warehouse_sources.backend.facade.pipelines import (
+    destination_named_in_failure,
+    is_configuration_failure_of,
+)
 from products.warehouse_sources.backend.presentation.destination_connect_tokens import (
     ConnectTokenInvalidIntegration,
     ConnectTokenNotFound,
@@ -71,10 +75,6 @@ from products.warehouse_sources.backend.presentation.destination_connection_test
 from products.warehouse_sources.backend.presentation.views.destination_links import MAX_DESTINATIONS_PER_LINK
 from products.warehouse_sources.backend.presentation.views.external_data_schema import resync_schema
 from products.warehouse_sources.backend.presentation.views.external_data_source import helpers as source_helpers
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
-    destination_named_in_failure,
-    is_configuration_failure_of,
-)
 
 # Which Integration kind holds the credentials for each destination type. A type absent from
 # this map needs no integration; the PostHog warehouse is the only such type today.
