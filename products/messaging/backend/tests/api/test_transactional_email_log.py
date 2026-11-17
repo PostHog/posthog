@@ -45,6 +45,7 @@ RANK = {
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 SLOW_SEND_MINUTES_AGO = 12 * 24 * 60
 DELAYED_SEND_MINUTES_AGO = 15 * 24 * 60
+IMPACT_COUNTS = {"sent": 8, "delivered": 7, "opened": 5, "clicked": 4, "window_days": 7}
 
 
 @time_machine.travel(NOW, tick=False)
@@ -560,9 +561,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"recipients": 4, "converted": 2, "revenue": 55.0, "median_hours_to_convert": 5.0}
 
-    def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(self, _flag):
+    def _seed_impact_sends(self) -> None:
         create_person(team=self.team, distinct_ids=["clicker", "clicker-phone"])
-        for name in ["early", "slow", "delayed", "reader", "late", "bounced"]:
+        for name in ["early", "slow", "sent-two-days-late", "reader", "late", "bounced"]:
             create_person(team=self.team, distinct_ids=[name])
         delivered = [("sent", 1, ""), ("delivered", 2, "")]
         clicked_an_hour_in = [*delivered, ("opened", 60, ""), ("clicked", 3600, "")]
@@ -576,10 +577,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 timedelta(days=9),
             ),
             (1_000, None, clicked_an_hour_in, None),
-            # Sent two days after it was queued, so its week runs from the send, not the queue.
             (
                 DELAYED_SEND_MINUTES_AGO,
-                "delayed",
+                "sent-two-days-late",
                 [("sent", 2 * 86400, ""), ("delivered", 2 * 86400 + 1, "")],
                 timedelta(days=8),
             ),
@@ -600,33 +600,39 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         other_workflow = create_workflow_for_test(team_id=self.team.id, name="Welcome").id
         self._send(500, "clicker@example.com", clicked_an_hour_in, workflow_id=other_workflow)
         flush_persons_and_events()
-        date_from = (NOW - timedelta(days=29)).isoformat()
 
-        funnel = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id, "date_from": date_from})
-        converted = self.client.get(
-            self._url("impact/"), {"workflow_id": self.workflow_id, "event": "purchase", "date_from": date_from}
-        )
-        # The send falls in the period while its click and the conversion come days after it ends.
-        slow_sent_at = NOW - timedelta(minutes=SLOW_SEND_MINUTES_AGO)
-        clicked_after_the_period = self.client.get(
-            self._url("impact/"),
-            {
-                "workflow_id": self.workflow_id,
-                "event": "purchase",
-                "date_from": (slow_sent_at - timedelta(hours=1)).isoformat(),
-                "date_to": (slow_sent_at + timedelta(days=1)).isoformat(),
-            },
-        )
+    def _impact(self, **params: str) -> dict:
+        response = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id, **params})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
 
-        assert funnel.status_code == status.HTTP_200_OK, funnel.json()
-        counts = {"sent": 8, "delivered": 7, "opened": 5, "clicked": 4, "window_days": 7}
-        assert funnel.json() == {**counts, "after_click": None, "without_click": None}
-        assert converted.json() == {
-            **counts,
+    def test_impact_counts_how_far_this_workflows_sends_got(self, _flag):
+        self._seed_impact_sends()
+
+        assert self._impact(date_from=(NOW - timedelta(days=29)).isoformat()) == {
+            **IMPACT_COUNTS,
+            "after_click": None,
+            "without_click": None,
+        }
+
+    def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(self, _flag):
+        self._seed_impact_sends()
+
+        assert self._impact(event="purchase", date_from=(NOW - timedelta(days=29)).isoformat()) == {
+            **IMPACT_COUNTS,
             "after_click": {"sends": 3, "converted": 2},
             "without_click": {"sends": 3, "converted": 2},
         }
-        assert clicked_after_the_period.json() == {
+
+    def test_impact_follows_a_click_and_its_conversion_past_the_end_of_the_period(self, _flag):
+        self._seed_impact_sends()
+        slow_sent_at = NOW - timedelta(minutes=SLOW_SEND_MINUTES_AGO)
+
+        assert self._impact(
+            event="purchase",
+            date_from=(slow_sent_at - timedelta(hours=1)).isoformat(),
+            date_to=(slow_sent_at + timedelta(days=1)).isoformat(),
+        ) == {
             "sent": 1,
             "delivered": 1,
             "opened": 1,

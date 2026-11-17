@@ -453,7 +453,6 @@ class TransactionalEmailResults:
 
 @frozen
 class TransactionalEmailConversions:
-    # Sends that named a person, so their conversions can be followed.
     sends: int
     converted: int
 
@@ -465,7 +464,6 @@ class TransactionalEmailImpact:
     opened: int
     clicked: int
     window_days: int
-    # None when no conversion event was asked for.
     after_click: TransactionalEmailConversions | None
     without_click: TransactionalEmailConversions | None
 

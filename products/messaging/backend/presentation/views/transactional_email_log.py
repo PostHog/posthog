@@ -532,7 +532,6 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if workflow_id not in self._workflow_access().viewable_ids:
             raise NotFound()
         event = query.get("event") or None
-        # Session users skip API scopes, and access control checks only the hog_flow scope_object.
         if event and not self.user_access_control.check_access_level_for_resource("query", "viewer"):
             raise PermissionDenied("You need access to querying events to count conversions.")
         with query_concurrency_slots(self.team):
