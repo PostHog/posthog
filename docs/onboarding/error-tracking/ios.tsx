@@ -183,8 +183,9 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                   host: "<ph_client_api_host>"
                               )
                               
-                              // Mark your own dynamic frameworks as in-app
-                              config.errorTrackingConfig.inAppIncludes = [
+                              // Mark your own dynamic frameworks as in-app.
+                              // Append, so your app's own entries stay in the list.
+                              config.errorTrackingConfig.inAppIncludes += [
                                   "MySharedFramework",
                                   "MyUtilityLib"
                               ]
