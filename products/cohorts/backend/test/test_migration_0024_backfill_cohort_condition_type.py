@@ -47,15 +47,15 @@ STAMP = datetime(2026, 1, 1, tzinfo=UTC)
 
 class TestBackfillCohortConditionType(TestMigrations):
     app = "cohorts"
-    migrate_from = "0021_cohort_backfill_refusal"
+    migrate_from = "0023_turn_on_realtime_for_processed_teams"
     migrate_to = "0024_backfill_cohort_condition_type"
 
     def setUpBeforeMigration(self, apps: Any) -> None:
         Cohort = apps.get_model("cohorts", "Cohort")
         other_team = Team.objects.create(organization=self.organization, name="Other")
 
-        def create(team_id: int = self.team.id, **fields: Any) -> int:
-            return Cohort.objects.create(team_id=team_id, cohort_type="realtime", **fields).id
+        def create(team_id: int = self.team.id, cohort_type: str = "realtime", **fields: Any) -> int:
+            return Cohort.objects.create(team_id=team_id, cohort_type=cohort_type, **fields).id
 
         self.unclassified = create(filters=BEHAVIORAL_FILTERS, last_backfill_events_at=STAMP)
         self.unclassified_lifecycle = create(filters=LIFECYCLE_FILTERS, last_realtime_cohort_calculation_at=STAMP)
@@ -68,6 +68,11 @@ class TestBackfillCohortConditionType(TestMigrations):
         )
         create(team_id=other_team.id, filters=BEHAVIORAL_FILTERS)
         create(team_id=other_team.id, filters=PERSON_FILTERS, last_backfill_person_properties_at=STAMP)
+        self.other_team_id = other_team.id
+        stamped = {"team_id": other_team.id, "filters": BEHAVIORAL_FILTERS, "last_backfill_events_at": STAMP}
+        create(cohort_type="behavioral", **stamped)
+        create(cohort_type="behavioral", is_static=True, **stamped)
+        create(cohort_type="analytical", **stamped)
 
         backfill = importlib.import_module("products.cohorts.backend.migrations.0024_backfill_cohort_condition_type")
         mock.patch.object(backfill, "BATCH_SIZE", 1).start()
@@ -93,7 +98,8 @@ class TestBackfillCohortConditionType(TestMigrations):
 
     def test_refreshes_the_flags_cache_only_where_routing_can_change(self) -> None:
         refresh = mock.call(FLAGS_CACHE_TASK, args=(self.team.id,), queue="feature_flags")
-        assert self.celery.send_task.call_args_list == [refresh, refresh]
+        refresh_other = mock.call(FLAGS_CACHE_TASK, args=(self.other_team_id,), queue="feature_flags")
+        assert self.celery.send_task.call_args_list == [refresh, refresh, refresh_other]
 
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379/1")
@@ -111,25 +117,52 @@ class TestBackfillAfterAStalledRefresh(BaseTest):
         release = threading.Event()
         self.addCleanup(release.set)
         refreshed: list[int] = []
-        first_refresh = threading.Event()
+        refresh_threads: list[threading.Thread] = []
+        real_thread = threading.Thread
 
         def unanswered_refresh(team_id: int) -> None:
             refreshed.append(team_id)
-            first_refresh.set()
             # Bounded, so that a refresh without a deadline fails the test instead of hanging it.
             release.wait(timeout=5)
+
+        def tracked_thread(*args: Any, **kwargs: Any) -> threading.Thread:
+            thread = real_thread(*args, **kwargs)
+            refresh_threads.append(thread)
+            return thread
 
         backfill = importlib.import_module("products.cohorts.backend.migrations.0024_backfill_cohort_condition_type")
         with (
             mock.patch.object(backfill, "BATCH_SIZE", 1),
             mock.patch.object(backfill, "REFRESH_DEADLINE_SECONDS", 0),
             mock.patch("products.cohorts.backend.backfill.finalize.refresh_readiness_caches", unanswered_refresh),
+            mock.patch.object(backfill.threading, "Thread", tracked_thread),
         ):
             backfill.backfill_condition_type(django_apps, SimpleNamespace(connection=connection))
+            # Every refresh the backfill started has to finish before `refreshed` says which teams it tried.
+            release.set()
+            for thread in refresh_threads:
+                thread.join(timeout=5)
 
-        assert first_refresh.wait(timeout=5)
         assert refreshed == [self.team.id]
         assert list(Cohort.objects.filter(id__in=ids).order_by("id").values_list("condition_type", flat=True)) == [
             BEHAVIORAL_CONDITION_TYPE,
             BEHAVIORAL_CONDITION_TYPE,
         ]
+
+
+class TestBackfillRacingASave(BaseTest):
+    def test_keeps_the_value_a_concurrent_save_wrote(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, cohort_type="realtime", filters=BEHAVIORAL_FILTERS)
+        Cohort.objects.filter(id=cohort.id).update(condition_type=None)
+        classify = Cohort.compute_condition_type
+
+        def classify_after_a_save(filters: Any) -> Any:
+            Cohort.objects.filter(id=cohort.id).update(condition_type=LIFECYCLE_CONDITION_TYPE)
+            return classify(filters)
+
+        backfill = importlib.import_module("products.cohorts.backend.migrations.0024_backfill_cohort_condition_type")
+        with mock.patch.object(Cohort, "compute_condition_type", side_effect=classify_after_a_save):
+            backfill.backfill_condition_type(django_apps, SimpleNamespace(connection=connection))
+
+        cohort.refresh_from_db()
+        assert cohort.condition_type == LIFECYCLE_CONDITION_TYPE
