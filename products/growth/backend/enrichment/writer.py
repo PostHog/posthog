@@ -8,9 +8,7 @@ projection. The at-signup person-event snapshot is a separate write-once store.
 One writer per field: this owns the provider-derived registry keys. It never touches
 `company_type_deterministic`, which the signup classifier owns.
 
-Two score families ride along: the legacy clay-parity `icp_score` (kept while its
-threshold-tuned consumers migrate) and the ICP fit score on its own `icp_fit_*` keys.
-The two never share a key, so neither can misattribute the other's values.
+The ICP fit score rides along on its own `icp_fit_*` keys.
 """
 
 import hashlib
@@ -27,7 +25,6 @@ from posthog.exceptions_capture import capture_exception
 
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.fit_score import IcpFitResult
-from products.growth.backend.enrichment.score import SCORE_VERSION
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
 ORGANIZATION_GROUP_TYPE = "organization"
@@ -165,8 +162,6 @@ def write_organization_enrichment(
     organization_id: str,
     fields: Optional[EnrichmentFields],
     pha_client: Client,
-    icp_score: Optional[int] = None,
-    mirror_distinct_id: Optional[str] = None,
     fit: Optional[IcpFitResult] = None,
     fit_evaluation_kind: Optional[str] = None,
     fit_evaluated_at: Optional[dt.datetime] = None,
@@ -179,21 +174,13 @@ def write_organization_enrichment(
       any keys owned by other writers (e.g. company_type_deterministic).
     - ClickHouse: project `enrichment_*` group properties via group_identify.
 
-    The legacy clay score rides along on both stores when the caller computed one,
-    version-stamped so a later formula revision is distinguishable. `mirror_distinct_id`,
-    when the caller passes one, also sets that score on the person's profile: that is
-    where Clay writes its own score, and the legacy consumers (the ICP-threshold cohorts
-    and their dashboards) read the person property. The caller decides whether mirroring
-    is safe here — this function just writes what it's told; see enrich_organization for
-    the policy (never sent when it would overwrite a Clay-written person score).
-
     The fit evaluation writes its own `icp_fit_*` family — status always, numeric keys
     only when this evaluation produced them (see _fit_record_writes) — and mirrors the
     same (score, version, status) or status-only shape onto the person via
-    `fit_mirror_distinct_id`, a blind write since nothing else owns that key. Any of the
-    three groups (fields / clay score / fit) may be absent: a fields-only write is the
-    field backfill, a fit-only write (fields=None) is the score backfill and the
-    miss-path status stamp.
+    `fit_mirror_distinct_id`, a blind write since nothing else owns that key. Either of
+    the two groups (fields / fit) may be absent: a fields-only write is the field
+    backfill, a fit-only write (fields=None) is the score backfill and the miss-path
+    status stamp.
 
     `fit_evaluation_kind` (initial | recheck | backfill | sweep | enrichment) is required whenever
     `fit` is given. It and `fit_evaluated_at` (defaulting to now) land on every evaluation,
@@ -207,8 +194,6 @@ def write_organization_enrichment(
     values = fields.to_dict() if fields is not None else {}
     remove: list[str] = []
 
-    if icp_score is not None:
-        values = {**values, "icp_score": icp_score, "icp_score_version": SCORE_VERSION}
     if fit is not None:
         if fit_evaluation_kind is None:
             raise ValueError("fit_evaluation_kind is required when fit is provided")
@@ -226,8 +211,6 @@ def write_organization_enrichment(
             organization_id=organization_id,
             fields=fields,
             pha_client=pha_client,
-            icp_score=icp_score,
-            mirror_distinct_id=mirror_distinct_id,
             fit=fit,
             fit_mirror_distinct_id=fit_mirror_distinct_id,
         )
@@ -254,8 +237,6 @@ def project_organization_enrichment(
     organization_id: str,
     fields: Optional[EnrichmentFields],
     pha_client: Client,
-    icp_score: Optional[int] = None,
-    mirror_distinct_id: Optional[str] = None,
     fit: Optional[IcpFitResult] = None,
     fit_mirror_distinct_id: Optional[str] = None,
 ) -> bool:
@@ -264,8 +245,6 @@ def project_organization_enrichment(
             organization_id=organization_id,
             fields=fields,
             pha_client=pha_client,
-            icp_score=icp_score,
-            mirror_distinct_id=mirror_distinct_id,
             fit=fit,
             fit_mirror_distinct_id=fit_mirror_distinct_id,
         )
@@ -286,14 +265,10 @@ def _enqueue_enrichment_projection(
     organization_id: str,
     fields: Optional[EnrichmentFields],
     pha_client: Client,
-    icp_score: Optional[int] = None,
-    mirror_distinct_id: Optional[str] = None,
     fit: Optional[IcpFitResult] = None,
     fit_mirror_distinct_id: Optional[str] = None,
 ) -> None:
     properties = fields.to_group_properties() if fields is not None else {}
-    if icp_score is not None:
-        properties = {**properties, "icp_score": icp_score, "icp_score_version": SCORE_VERSION}
     if fit is not None:
         properties = {**properties, **_fit_projection(fit)}
 
@@ -305,12 +280,6 @@ def _enqueue_enrichment_projection(
         )
         if fit is not None and event_id is None:
             raise RuntimeError("ICP fit group projection was not queued")
-
-    if icp_score is not None and mirror_distinct_id:
-        pha_client.set(
-            distinct_id=mirror_distinct_id,
-            properties={"icp_score": icp_score, "icp_score_version": SCORE_VERSION},
-        )
 
     if fit is not None and fit_mirror_distinct_id:
         event_id = pha_client.set(
