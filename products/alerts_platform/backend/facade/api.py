@@ -846,6 +846,13 @@ def delete_source_destination_rows(
     )
 
 
+def copied_by_source_rows(*, team_id: int, public_id: UUID, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The ids among `hog_function_ids` that one of the alert's rows copies, deleted HogFunctions included."""
+    return alert_destinations.copied_by_source_rows(
+        team_id=team_id, public_id=public_id, hog_function_ids=hog_function_ids
+    )
+
+
 def set_subscriber_destinations(
     *,
     team_id: int,

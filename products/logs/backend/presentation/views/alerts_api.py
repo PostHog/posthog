@@ -49,6 +49,7 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts_platform.backend.facade.api import (
+    copied_by_source_rows,
     delete_source_destination_rows,
     history_by_public_id,
     list_source_destinations,
@@ -231,11 +232,18 @@ class LogsAlertDestinationResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text=(
+            "The HogFunction IDs that delete this destination as a group. A destination moved off HogFunctions "
+            "keeps the IDs it had, though those HogFunctions are deleted."
+        ),
+    )
     id = serializers.UUIDField(
         allow_null=True,
         help_text=(
             "The destination's ID on the alerts platform. Null for a destination added before the platform kept "
-            "one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an "
+            "one, which `hog_function_ids` identifies instead. A destination added with no HogFunctions has an "
             "empty `hog_function_ids`, and is deleted by this ID."
         ),
     )
@@ -1270,7 +1278,7 @@ class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
         return [
             {
                 "id": destination.destination_id,
-                "hog_function_ids": list(destination.hog_function_ids),
+                "hog_function_ids": list(destination.hog_function_ids or destination.retired_hog_function_ids),
                 "enabled": destination.enabled,
                 "message_customized": not customized.isdisjoint(destination.hog_function_ids),
                 # Field-wide, because a row-only destination's stored config is not read through its type.
@@ -1918,11 +1926,21 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if len(hog_function_ids) > max(MAX_DESTINATION_IDS_PER_DELETE_REQUEST, largest_server_group):
                 raise ValidationError({"hog_function_ids": "Too many destination IDs."})
             try:
+                retired = copied_by_source_rows(
+                    team_id=self.team_id, public_id=alert.id, hog_function_ids=hog_function_ids
+                ).difference(
+                    owned_alert_destination_ids(
+                        team_id=self.team_id,
+                        alert_id=str(alert.id),
+                        allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+                        hog_function_ids=hog_function_ids,
+                    )
+                )
                 soft_delete_alert_destinations(
                     team_id=self.team_id,
                     alert_id=str(alert.id),
                     allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-                    hog_function_ids=hog_function_ids,
+                    hog_function_ids=[i for i in hog_function_ids if i not in retired],
                 )
                 deleted = delete_source_destination_rows(
                     team_id=self.team_id,
