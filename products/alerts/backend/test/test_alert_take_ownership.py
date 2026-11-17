@@ -1,8 +1,11 @@
+from collections.abc import Callable
 from datetime import timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -215,6 +218,34 @@ class TestAlertTakeOwnership(APIBaseTest):
                 ).user
                 == self.user
             )
+
+    def test_take_ownership_refuses_when_query_access_check_fails(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        alert = self._disabled_alert_of_a_former_member()
+        previous_owner = alert.created_by
+
+        failed = False
+
+        def fail_query(execute: Callable, sql: str, params: Any, many: bool, context: dict) -> Any:
+            nonlocal failed
+            if not failed and "posthog_datawarehousesavedquery" in sql.lower():
+                failed = True
+                return execute("SELECT 1 / 0", None, False, context)
+            return execute(sql, params, many, context)
+
+        alert.insight.query = {"kind": "HogQLQuery", "query": "SELECT value FROM governed_view"}
+        alert.insight.save()
+        with connection.execute_wrapper(fail_query):
+            response = self.client.post(f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert response.json()["code"] == "ownership_access_check_unavailable"
+        alert.refresh_from_db()
+        assert alert.created_by == previous_owner
+        assert alert.enabled is False
 
     def test_take_ownership_of_an_ai_alert_needs_the_rollout(self) -> None:
         former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)

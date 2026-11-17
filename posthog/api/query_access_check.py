@@ -6,6 +6,8 @@ artifact, and saving a subscription all ask this one question about the acting p
 
 from typing import Any
 
+from django.db import DatabaseError
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
@@ -49,6 +51,8 @@ def denied_query_resources(user: User, team: Team, queries: list[dict[str, Any]]
             denied_resources.add(e.resource)
         except TableAccessDeniedError as e:
             denied_resources.add(e.table_name)
+        except DatabaseError:
+            raise
         except Exception:
             # Only access denials gate publishing; anything else is the query's own problem.
             continue

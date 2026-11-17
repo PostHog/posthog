@@ -8,7 +8,7 @@ from operator import or_
 from typing import Annotated, Any, Final, cast
 from zoneinfo import ZoneInfo
 
-from django.db import models, transaction
+from django.db import DatabaseError, models, transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery, Value
 from django.http import Http404
 from django.utils import timezone
@@ -241,6 +241,12 @@ class AlertConditionField(serializers.JSONField):
     pass
 
 
+class OwnershipAccessCheckUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Couldn't check access for this ownership change. Try again."
+    default_code = "ownership_access_check_unavailable"
+
+
 class LLMDetectorUnavailable(APIException):
     # The preview makes a live model call. Without this a model outage surfaces as a bare
     # 500 on the button, indistinguishable from a bug in the simulation itself.
@@ -343,7 +349,11 @@ def _validate_ownership_query_access(alert: AlertConfiguration, owner: User, act
         query = alert.insight.query
     if query is None:
         return
-    denied = denied_query_resources(owner, alert.team, [query])
+    try:
+        with transaction.atomic():
+            denied = denied_query_resources(owner, alert.team, [query])
+    except DatabaseError as error:
+        raise OwnershipAccessCheckUnavailable() from error
     if denied:
         denied_names = ", ".join(f"`{name}`" for name in denied)
         subject = "You need" if owner.pk == actor.pk else "The new owner needs"
