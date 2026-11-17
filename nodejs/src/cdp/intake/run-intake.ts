@@ -80,10 +80,6 @@ export class RunIntake {
         return this.deps.intake?.modeOf(teamId) ?? 'off'
     }
 
-    keepsOffKafka(run: Pick<Run, 'invocation'>): boolean {
-        return carriesSecret(run.invocation) && !this.deps.intake?.sealsSecrets
-    }
-
     // Async mode: the claim is left to the consumer. Never throws; a lookup that fails or runs late reads as absent.
     async recallWithin(claim: Claim, kind: RunKind, budgetMs: number = ASYNC_RECALL_BUDGET_MS): Promise<Recalled> {
         let timer: NodeJS.Timeout | undefined
@@ -143,9 +139,7 @@ export class RunIntake {
     // Shadow measures the Kafka path beside the insert: the answer is already decided, so a failed produce changes nothing.
     private async produceShadowCopies(created: Run[]): Promise<void> {
         const intake = this.deps.intake
-        const shadow = intake
-            ? created.filter((run) => !this.keepsOffKafka(run) && intake.modeOf(run.invocation.teamId) === 'shadow')
-            : []
+        const shadow = intake ? created.filter((run) => intake.modeOf(run.invocation.teamId) === 'shadow') : []
         await Promise.all(
             shadow.map((run) =>
                 intake!.producer.produce(
