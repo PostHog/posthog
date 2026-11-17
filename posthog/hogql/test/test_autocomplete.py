@@ -930,16 +930,42 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
         assert "stripe.prefix.some_table" in [x.label for x in results.suggestions]
 
-    def test_autocomplete_warehouse_view(self):
-        DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="some_view",
-            query={"query": "select * from events"},
+    @parameterized.expand(
+        [
+            (
+                "",
+                ["models.revenue", "models.marts.revenue", "models.clash", "clash", "charge", "my_endpoint_v1"],
+                ["revenue", "marts.revenue", "models.charge", "models.my_endpoint_v1"],
+            ),
+            ("models.", ["revenue", "marts.revenue", "clash"], ["models.revenue", "charge"]),
+            ("models.marts.", ["revenue"], []),
+            ("marts.", ["revenue"], []),
+        ]
+    )
+    def test_autocomplete_suggests_authored_models_under_the_models_root(
+        self, typed: str, suggested: list[str], not_suggested: list[str]
+    ) -> None:
+        for name, origin in [
+            ("revenue", None),
+            ("marts.revenue", None),
+            ("clash", None),
+            ("charge", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET),
+            ("my_endpoint_v1", DataWarehouseSavedQuery.Origin.ENDPOINT),
+        ]:
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, origin=origin, query={"query": "select * from events"}
+            )
+        credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team, name="clash", format="CSV", url_pattern="http://localhost/file.csv", credential=credentials
         )
-        query = "select * from "
-        results = self._select(query=query, start=14, end=14)
+        query = f"select * from {typed}"
 
-        assert "some_view" in [x.label for x in results.suggestions]
+        results = self._select(query=query, start=len(query), end=len(query))
+
+        insert_texts = {x.label: x.insertText for x in results.suggestions}
+        assert {label: insert_texts.get(label) for label in suggested} == {label: label for label in suggested}
+        assert not set(not_suggested) & insert_texts.keys()
 
     def test_autocomplete_deleted_warehouse_view(self):
         DataWarehouseSavedQuery.objects.create(

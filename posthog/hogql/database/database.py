@@ -1023,20 +1023,24 @@ class Database(BaseModel):
         """The name listings show: `models.<stored name>` for an authored model, any other name unchanged."""
         return self._models_listed_names.get(name, name)
 
+    def get_listed_table_names_for(self, name: str) -> list[str]:
+        """The names listings show for one resolvable name: its `models.` name for an authored model, else the name."""
+        alias = self._models_listed_names.get(name)
+        alias_node = self._models_alias_nodes.get(alias) if alias is not None else None
+        if alias is None or alias_node is None:
+            return [name]
+        # A warehouse table merged in first can hold the bare name. It keeps that name, and the model is listed beside it.
+        if self.tables.get_child(name.split(".")).table is not alias_node.table:
+            return [name, alias]
+        return [alias]
+
     def get_visible_table_names(self) -> list[str]:
         """`tables.resolve_visible_table_names()`, with each authored model listed under its `models.` name."""
-        names: list[str] = []
-        for name in self.tables.resolve_visible_table_names():
-            alias = self._models_listed_names.get(name)
-            alias_node = self._models_alias_nodes.get(alias) if alias is not None else None
-            if alias is None or alias_node is None:
-                names.append(name)
-                continue
-            # A warehouse table merged in first can hold the bare name. It keeps that name, and the model is listed beside it.
-            if self.tables.get_child(name.split(".")).table is not alias_node.table:
-                names.append(name)
-            names.append(alias)
-        return names
+        return [
+            listed
+            for name in self.tables.resolve_visible_table_names()
+            for listed in self.get_listed_table_names_for(name)
+        ]
 
     def _models_alias_node(self, table_name: list[str]) -> TableNode | None:
         # The deny check comes before the alias, so a denied query stored as `models.x` is never

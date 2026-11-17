@@ -972,7 +972,12 @@ def _suggest_table_names(
             *(name for name in database.tables.resolve_visible_table_names() if "." in name),
         ]
     )
-    table_names = [name for name in candidates if database.has_table(name) and not database.get_table_node(name).hidden]
+    stored_names = [
+        name for name in candidates if database.has_table(name) and not database.get_table_node(name).hidden
+    ]
+    table_names = list(
+        dict.fromkeys(listed for name in stored_names for listed in database.get_listed_table_names_for(name))
+    )
     posthog_table_names = [name for name in database.get_posthog_table_names() if database.has_table(name)]
 
     if len(node.chain) == 1:
@@ -995,9 +1000,14 @@ def _suggest_table_names(
         pass
     else:
         namespace = ".".join(str(x) for x in node.chain[:-1]) + "."
-        filtered_table_names = [
-            name[len(namespace) :] for name in table_names if name.lower().startswith(namespace.lower())
-        ]
+        # A dotted model's stored namespace stays completable: once `marts.` is typed, `models.` can't be inserted before it.
+        filtered_table_names = list(
+            dict.fromkeys(
+                name[len(namespace) :]
+                for name in [*table_names, *stored_names]
+                if name.lower().startswith(namespace.lower())
+            )
+        )
 
         extend_responses(
             keys=filtered_table_names,
