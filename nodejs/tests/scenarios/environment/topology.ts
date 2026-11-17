@@ -73,11 +73,6 @@ const roleOfClient = (client: string): Role | undefined => {
     return role.success ? role.data : undefined
 }
 
-const roleOfSession = (application: string): Role | undefined => {
-    const role = CdpRole.safeParse(application)
-    return role.success ? role.data : roleOfClient(application)
-}
-
 const topicsOf = (partitions: readonly Partition[]): string[] => [...new Set(partitions.map(({ topic }) => topic))]
 
 export const scenarioGroupsOf = (groups: KafkaGroup[]): ConsumerGroup[] =>
@@ -103,9 +98,9 @@ export async function postgresClients(postgresUrl: string): Promise<PostgresClie
         const { rows } = await client.query<PostgresClient>(
             `SELECT application_name AS application, datname AS database, count(*)::int AS connections
              FROM pg_stat_activity
-             WHERE (application_name = ANY($1) OR starts_with(application_name, $2)) AND datname IS NOT NULL
+             WHERE starts_with(application_name, $1) AND datname IS NOT NULL
              GROUP BY 1, 2 ORDER BY 1, 2`,
-            [CdpRole.options, SCENARIO_SESSION_PREFIX]
+            [SCENARIO_SESSION_PREFIX]
         )
         return rows
     }, postgresUrl)
@@ -143,7 +138,7 @@ const lagOf = (partitions: readonly Partition[]): number | null =>
 function databasesOf(adapter: string, clients: readonly PostgresClient[]): Wiring['databases'] {
     const rows = new Map<string, Wiring['databases'][number]>()
     for (const { application, database, connections } of clients) {
-        const role = roleOfSession(application)
+        const role = roleOfClient(application)
         if (role) {
             const key = `${role} ${database}`
             const seen = rows.get(key)?.connections ?? 0
