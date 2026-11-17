@@ -349,6 +349,7 @@ from products.signals.backend.serializers import (
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
+    SourceFilterCatalogListSerializer,
     personal_ranking_payload,
 )
 from products.signals.backend.signal_metadata import (
@@ -362,6 +363,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
+from products.signals.backend.source_filters import writable_sources
 from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.spend_reporting import SpendReporting
@@ -672,6 +674,34 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 }
             ).data
         )
+
+    @extend_schema(
+        responses={200: OpenApiResponse(response=SourceFilterCatalogListSerializer)},
+        summary="List source filter catalogs",
+        description=(
+            "List the sources whose filter this project can set, each with the fields a filter expression can use and "
+            "example expressions. A filter is a boolean expression saved in a source config's `config.hogql_filter`. "
+            "It excludes records before any AI processing. Available before the source is connected or synced."
+        ),
+    )
+    @action(
+        detail=False, methods=["get"], url_path="filter_catalogs", required_scopes=["inbox:read"], pagination_class=None
+    )
+    def filter_catalogs(self, request: Request, **kwargs: Any) -> Response:
+        catalogs = [
+            {
+                "source_product": source.source_product,
+                "source_type": source.source_type,
+                "catalog_version": source.catalog_version,
+                "filter_fields": [
+                    {"name": field.name, "type": field.type, "description": field.description}
+                    for field in source.bundle.fields
+                ],
+                "starter_expressions": source.bundle.starter_expressions,
+            }
+            for source in writable_sources(str(self.team.organization_id))
+        ]
+        return Response(SourceFilterCatalogListSerializer({"results": catalogs}).data)
 
     def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
         return (
