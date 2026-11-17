@@ -5,6 +5,7 @@ __all__ = ["django_db_setup"]
 
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 from posthog.test.base import reset_clickhouse_database_if_dirty, truncate_or_reset_clickhouse_database
@@ -27,7 +28,11 @@ from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
     _dagster_postgres_instance,
     _use_postgres_dagster_instance,
 )
+from posthog.dataclasses import frozen
+from posthog.models import Organization, Team
 from posthog.persons_db import persons_db_connection, persons_db_url
+
+from products.cdp.backend.models.hog_functions import HogFunction
 
 
 def insert_flag_evaluations(rows: list[tuple], client: Client) -> None:
@@ -138,3 +143,33 @@ def persons_database() -> Iterator[psycopg2.extensions.connection]:
         yield conn
     finally:
         conn.close()
+
+
+def geoip_template_source() -> str:
+    """The Hog source of the current GeoIP template, as a function saved from it holds it."""
+    template = (
+        Path(__file__).parents[3] / "nodejs/src/cdp/templates/_transformations/geoip/geoip.template.ts"
+    ).read_text()
+    return template.split("code: `", 1)[1].split("`,", 1)[0].strip()
+
+
+@frozen
+class GeoipTeams:
+    with_geoip: int
+    without_geoip: int
+
+
+@pytest.fixture
+def geoip_teams(django_db_setup) -> Iterator[GeoipTeams]:
+    organization = Organization.objects.create(name="geoip-backfill")
+    with_geoip = Team.objects.create(organization=organization, name="with geoip")
+    without_geoip = Team.objects.create(organization=organization, name="without geoip")
+    HogFunction.objects.create(
+        team=with_geoip,
+        name="GeoIP",
+        type="transformation",
+        template_id="template-geoip",
+        enabled=True,
+        hog=geoip_template_source(),
+    )
+    yield GeoipTeams(with_geoip=with_geoip.id, without_geoip=without_geoip.id)
