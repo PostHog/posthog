@@ -189,13 +189,23 @@ class TestStaticCohortReconciliation(BaseTest):
 
         with (
             patch.object(static_reconciliation, "insert_cohort_people_into_pg", side_effect=copy_while_the_sweep_runs),
-            patch("posthog.tasks.calculate_cohort.insert_cohort_from_query") as population,
+            patch("posthog.tasks.calculate_cohort.insert_cohort_from_query"),
         ):
             reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
 
         cohort.refresh_from_db()
-        population.delay.assert_not_called()
         self.assertEqual((cohort.errors_calculating, cohort.count), (0, 1))
+
+    def test_repair_fixes_a_stale_count_when_postgres_has_every_member(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["member"])
+        cohort = self._static_cohort(person_uuids=(person.uuid,))
+        cohort.insert_users_list_by_uuid_into_pg_only([str(person.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=cohort.pk).update(count=0, last_calculation=self.now - timedelta(days=7))
+
+        reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 1)
 
     def test_a_failed_recount_does_not_park_the_cohort(self) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])

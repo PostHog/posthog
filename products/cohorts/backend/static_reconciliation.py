@@ -86,8 +86,8 @@ def _park_cache_key(cohort_id: int) -> str:
     return f"static-cohort-reconcile:parked:{cohort_id}"
 
 
-def _park(cohort_id: int, clickhouse_count: int) -> None:
-    cache.set(_park_cache_key(cohort_id), clickhouse_count, timeout=int(RECONCILE_PARK_FOR.total_seconds()))
+def _park(cohort_id: int, clickhouse_rows: int) -> None:
+    cache.set(_park_cache_key(cohort_id), clickhouse_rows, timeout=int(RECONCILE_PARK_FOR.total_seconds()))
 
 
 def _postgres_lags_clickhouse(postgres_count: int | None, clickhouse_count: int) -> bool:
@@ -125,13 +125,21 @@ def _candidates(queryset: QuerySet[Cohort]) -> list[_Candidate]:
     ]
 
 
-def _clickhouse_member_counts(candidates: list[_Candidate]) -> dict[int, int]:
+@frozen
+class _ClickHouseMembers:
+    rows: int
+    people: int
+
+
+def _clickhouse_row_counts(candidates: list[_Candidate]) -> dict[int, int]:
+    """Count rows, not distinct people: count() keeps no per-member state, and it is never below the distinct count,
+    so the size cap stays safe on a page of very large cohorts."""
     if not candidates:
         return {}
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
     # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
     rows = sync_execute(
-        f"SELECT cohort_id, uniqExact(person_id) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id IN %(team_ids)s AND cohort_id IN %(cohort_ids)s GROUP BY cohort_id",
+        f"SELECT cohort_id, count() FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id IN %(team_ids)s AND cohort_id IN %(cohort_ids)s GROUP BY cohort_id",
         {
             "team_ids": sorted({candidate.team_id for candidate in candidates}),
             "cohort_ids": sorted({candidate.cohort_id for candidate in candidates}),
@@ -139,7 +147,19 @@ def _clickhouse_member_counts(candidates: list[_Candidate]) -> dict[int, int]:
         workload=Workload.OFFLINE,  # background sweep, no person waits for it
         ch_user=ClickHouseUser.COHORTS,
     )
-    return {int(cohort_id): int(member_count) for cohort_id, member_count in rows}
+    return {int(cohort_id): int(row_count) for cohort_id, row_count in rows}
+
+
+def _clickhouse_members(cohort: StaticCohortToReconcile) -> _ClickHouseMembers:
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+    [(row_count, people)] = sync_execute(
+        f"SELECT count(), uniqExact(person_id) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+        {"team_id": cohort.team_id, "cohort_id": cohort.cohort_id},
+        workload=Workload.OFFLINE,  # background repair, no person waits for it
+        ch_user=ClickHouseUser.COHORTS,
+    )
+    return _ClickHouseMembers(rows=int(row_count), people=int(people))
 
 
 def _skipped_cohort_ids(candidates: list[_Candidate]) -> tuple[set[int], dict[int, int]]:
@@ -161,7 +181,7 @@ def run_reconciliation_pass(*, now: datetime, dispatch: Callable[[StaticCohortTo
     cursor = cache.get(RECONCILE_CURSOR_CACHE_KEY)
     backlog = _candidates(settled.filter(id__lt=cursor) if cursor is not None else settled)
     held, parked = _skipped_cohort_ids(recent + backlog)
-    clickhouse_counts = _clickhouse_member_counts([c for c in recent + backlog if c.cohort_id not in held])
+    clickhouse_counts = _clickhouse_row_counts([c for c in recent + backlog if c.cohort_id not in held])
     recent_ids = {candidate.cohort_id for candidate in recent}
     dispatched = 0
 
@@ -247,11 +267,9 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="skipped_busy").inc()
         return
     # Rows deleted since the selection would make its count unreachable, and every read-back wait would copy again.
-    clickhouse_count = _clickhouse_member_counts(
-        [_Candidate(team_id=cohort.team_id, cohort_id=cohort.cohort_id, stored_count=None)]
-    ).get(cohort.cohort_id, 0)
+    members = _clickhouse_members(cohort)
     postgres_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
-    decision = decide(stored_count=postgres_count, clickhouse_count=clickhouse_count)
+    decision = decide(stored_count=postgres_count, clickhouse_count=members.people)
     if decision == ReconcileDecision.IN_SYNC:
         _write_count(row, postgres_count)
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="already_complete").inc()
@@ -261,12 +279,13 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
         return
 
     # min_rows makes the copy wait for a replica that holds every row instead of storing a partial copy.
-    insert_cohort_people_into_pg(row, team_id=cohort.team_id, min_rows=clickhouse_count)
+    insert_cohort_people_into_pg(row, team_id=cohort.team_id, min_rows=members.people)
     # Recount here: the copy logs a failed recount and keeps the old count, which would park a repaired cohort.
     reconciled_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
     _write_count(row, reconciled_count)
     if reconciled_count == postgres_count:
-        _park(cohort.cohort_id, clickhouse_count)
+        # The selection compares a parked cohort by its row count, so that is what the park records.
+        _park(cohort.cohort_id, members.rows)
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="parked").inc()
     else:
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="reconciled").inc()
@@ -276,5 +295,5 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
         cohort_id=cohort.cohort_id,
         postgres_count=postgres_count,
         reconciled_count=reconciled_count,
-        clickhouse_count=clickhouse_count,
+        clickhouse_count=members.people,
     )
