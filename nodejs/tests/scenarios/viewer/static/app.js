@@ -333,9 +333,14 @@ function valveState(window) {
     }
 }
 
+const bucketHolding = (points, t, bucketMs) => {
+    const point = atOrBefore(points, t)
+    return point && t - point.at < bucketMs ? point : null
+}
+
 function viewAt(detail, windows, t) {
     const perSecond = 1000 / detail.series.bucketMs
-    const flow = atOrBefore(detail.series.flow, t) ?? {}
+    const flow = bucketHolding(detail.series.flow, t, detail.series.bucketMs) ?? {}
     const rate = (key) => (flow[key] ?? 0) * perSecond
     const nodes = {}
     const roleRate = {}
