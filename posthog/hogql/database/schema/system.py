@@ -3906,10 +3906,8 @@ class _TaskPublicSlackTasksTable(PostgresTable):
         )
 
 
-# A Slack task sits in its creator's personal space, so it is judged by its threads instead, as
-# `_readable_by_team_q` in products/tasks/backend/logic/team_task_summaries.py does: only when every
-# thread it answers in is a public Slack channel. A private channel, a direct message, a group direct
-# message, and a thread nobody classified keep the task out.
+# A Slack task sits in its creator's personal space, so it qualifies on its threads instead, as in
+# `_readable_by_team_q`: only when every thread it answers in is a public Slack channel.
 task_public_slack_tasks: _TaskPublicSlackTasksTable = _TaskPublicSlackTasksTable(
     name="_task_public_slack_tasks",
     postgres_table_name="slack_app_slackthreadtaskmapping",
@@ -4069,14 +4067,11 @@ def _task_run_state_tags(key: str) -> str:
     return f"JSONExtractArrayRaw(state, '{key}')"
 
 
-# A run that carries `analytics_query_context` keeps its summary private, because reading it needs the
-# viewer's own access to the queries behind it. A workflow run's summary can hold private trigger
-# context. Both match `list_team_task_summaries` and the run state stream. A run with no recorded
-# origin is treated as a workflow run.
+# Matches `list_team_task_summaries`: these summaries need the viewer's own query access, or hold private
+# workflow trigger context. A run with no recorded origin counts as a workflow run.
 _TASK_RUN_SUMMARY_HIDDEN = "(JSONHas(state, 'analytics_query_context') OR origin_product IN ('workflow', ''))"
 
-# Same fallback rules as `TaskRun.task_summary` and `task_tags_from_state` in products/tasks/backend/models.py:
-# the run's own value, else the one it inherited from the run it resumed. An explicit tag list wins, even an empty one.
+# Same fallback rules as `TaskRun.task_summary` and `task_tags_from_state`. An explicit tag list wins, even an empty one.
 _TASK_RUN_SUMMARY_SQL = (
     f"if({_TASK_RUN_SUMMARY_HIDDEN}, NULL, "
     f"coalesce({_task_run_state_text('task_summary')}, {_task_run_state_text('prior_run_summary')}))"
