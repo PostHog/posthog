@@ -61,6 +61,11 @@ export const TopToolsPerServer: Story = {}
 
 export const CustomerImages: Story = {
     tags: ['hogqlx-images'],
+    beforeEach: () => {
+        // Keep capture within the viewport so Playwright does not resize Monaco and change query wrapping.
+        document.body.classList.add('storybook-viewport-layout')
+        return () => document.body.classList.remove('storybook-viewport-layout')
+    },
     parameters: {
         pageUrl: urls.sqlEditor({ query: IMAGE_QUERY }),
         testOptions: { waitForSelector: 'img[alt="Custom SVG"]', viewport: { width: 1600, height: 900 } },
