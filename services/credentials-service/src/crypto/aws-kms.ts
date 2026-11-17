@@ -31,7 +31,7 @@ const REJECTED_ERRORS = new Set([
 ])
 
 /** `node:https` AgentOptions, plus `proxyEnv` (Node 24.5+), which the Node 22 types do not have yet. */
-interface ProxyAwareAgentOptions extends https.AgentOptions {
+export interface ProxyAwareAgentOptions extends https.AgentOptions {
     proxyEnv?: { HTTPS_PROXY: string }
 }
 

@@ -39,7 +39,6 @@ clickhouse_precalculated_person_properties
 clickhouse_prefiltered_events
 clickhouse_property_values
 clickhouse_session_replay_events
-clickhouse_session_replay_features
 clickhouse_tophog
 clickhouse_traces
 cohort_membership_changed
