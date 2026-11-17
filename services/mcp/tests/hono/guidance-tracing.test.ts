@@ -47,7 +47,6 @@ describe('tracing empty-result guidance', () => {
             { search: 'api' },
             'services-empty-to-no-spans',
         ],
-        ['a trace in a project with none', 'apm-trace-get', false, { trace_id: 'a' }, 'trace-empty-to-no-spans'],
         [
             'spans with filters',
             'query-apm-spans',
@@ -56,7 +55,6 @@ describe('tracing empty-result guidance', () => {
             'spans-empty-to-no-match',
         ],
         ['services with a search', 'apm-services-list', true, { search: 'api' }, 'services-empty-to-no-match'],
-        ['a trace', 'apm-trace-get', true, { trace_id: 'a' }, 'trace-empty-to-no-match'],
         [
             'a later page of spans',
             'query-apm-spans',
@@ -64,7 +62,6 @@ describe('tracing empty-result guidance', () => {
             { query: { serviceNames: ['api'], offset: 100 } },
             undefined,
         ],
-        ['a later page of a trace', 'apm-trace-get', true, { trace_id: 'a', offset: 2000 }, undefined],
     ])('handles %s', async (_label, tool, hasSpans, args, expected) => {
         expect(await noticeFor(tool, hasSpans, args)).toBe(expected && `tracing-${expected}`)
     })

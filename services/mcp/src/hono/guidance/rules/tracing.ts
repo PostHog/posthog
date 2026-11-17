@@ -10,14 +10,10 @@ const NO_SPANS = [
 const NO_MATCH = {
     'query-apm-spans': 'This project has spans, but none matched this query in this date range.',
     'apm-services-list': 'This project has spans, but no service matched in this date range.',
-    'apm-trace-get': [
-        'This project has spans, but none matched this trace ID.',
-        'This result does not show whether the service sent this trace.',
-    ].join(' '),
 }
 
 const rules: GuidanceRule[] = Object.entries(NO_MATCH).flatMap(([tool, noMatch]) => {
-    const name = { 'query-apm-spans': 'spans', 'apm-services-list': 'services', 'apm-trace-get': 'trace' }[tool]
+    const name = { 'query-apm-spans': 'spans', 'apm-services-list': 'services' }[tool]
     return [
         emptyResultRule({
             id: `tracing-${name}-empty-to-no-spans`,
