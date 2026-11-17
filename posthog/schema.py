@@ -6799,11 +6799,11 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=(
             "Read events from the native JSON events table (`true`) or the legacy"
-            " events table (`false`). When unset, a staff person's"
-            " `ph_new_events_schema` cookie applies, then the project's listing in the"
-            " `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the"
-            " `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an"
-            " internal rollout switch, and the project settings API ignores it."
+            " events table (`false`). When unset, a staff person's tab switch or"
+            " `ph_new_events_schema` cookie applies, then the project. A project reads"
+            " the native table once PostHog has moved it there. Before that, it can opt"
+            " in early by storing `true` here in its project settings. A stored `false`"
+            " is ignored."
         ),
     )
     usePreaggregatedIntermediateResults: bool | None = None
@@ -35230,10 +35230,6 @@ class RecordingsQuery(BaseModel):
     )
     person_uuid: str | None = None
     properties: list[AnyPropertyFilterDiscriminated] | None = None
-    recommended_only: bool | None = Field(
-        default=None,
-        description=("Restrict results to recordings above the replay relevance threshold."),
-    )
     response: RecordingsQueryResponse | None = None
     session_ids: list[str] | None = None
     session_recording_id: str | None = Field(

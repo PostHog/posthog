@@ -7,6 +7,7 @@ import { classifyAuthMethod } from '@/lib/auth-method'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
+import { METRIC_LIST_TOOL, resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     buildMCPAnalyticsGroups,
@@ -88,6 +89,10 @@ function buildBaseProperties(
                   $mcp_project_name: analyticsContext.projectName,
                   ...buildMCPContextProperties(analyticsContext),
               }
+            : {}),
+        // `unknown` means the catalog read failed, which the prompt treats as `lookup`.
+        ...(state.allTools.some(({ name }) => name === METRIC_LIST_TOOL)
+            ? { metric_catalog_mode: state.metricCatalog ? resolveMetricCatalogMode(state.metricCatalog) : 'unknown' }
             : {}),
         mcp_runtime: 'hono',
         $mcp_vendor_client: clientIdentity.mcpVendorClient,
@@ -388,6 +393,8 @@ const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new M
     ['opt-outs-list', 'arguments-and-result'],
     ['opt-outs-remove', 'arguments-and-result'],
     ['opt-outs-add', 'arguments'],
+    ['suppressions-list', 'arguments-and-result'],
+    ['suppressions-remove', 'arguments-and-result'],
     ['suppressions-add', 'arguments'],
 ])
 

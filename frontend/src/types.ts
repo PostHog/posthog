@@ -948,6 +948,7 @@ export interface TeamType extends TeamBasicType {
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    flag_calls_only_in_flag_evaluations: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     realtime_cohorts?: TeamRealtimeCohortsApi
     receive_org_level_activity_logs: boolean | null
@@ -1684,7 +1685,6 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
-    recommended_only?: boolean
     event_match_scope?: RecordingsQuery['event_match_scope']
     /**
      * Server-resolved population narrowing (sessions of persons exposed to the experiment).
@@ -5909,6 +5909,7 @@ export type ExportContext = (
     row_limit?: number // Some exports have different row limits, e.g. logs
     columns?: string[]
     variables_override?: Record<string, any>
+    filters_override?: DashboardFilter
 }
 
 export interface ExportedAssetType {
