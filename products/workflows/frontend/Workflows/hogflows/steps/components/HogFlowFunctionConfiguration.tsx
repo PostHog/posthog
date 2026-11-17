@@ -6,6 +6,8 @@ import { IconCheck } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -216,6 +218,10 @@ export function HogFlowFunctionConfiguration({
     const { sampleGlobals: realSampleGlobals } = useValues(hogFlowEditorTestLogic(logicProps))
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const engagementEventsRestrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const template = hogFunctionTemplatesById[templateId]
     const isEmailStep = templateId === 'template-email'
@@ -357,6 +363,10 @@ export function HogFlowFunctionConfiguration({
                                     type="primary"
                                     size="xsmall"
                                     loading={currentTeamLoading}
+                                    disabledReason={
+                                        engagementEventsRestrictedReason &&
+                                        'Ask a project admin to turn on engagement events.'
+                                    }
                                     onClick={() =>
                                         updateCurrentTeam({
                                             workflows_config: {
