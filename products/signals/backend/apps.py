@@ -7,6 +7,8 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
+    from products.skills.backend.models.skills import LLMSkill
+
 
 class SignalsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
@@ -32,6 +34,7 @@ class SignalsConfig(AppConfig):
         self._register_signal_emission_gate()
         self._register_scout_skill_archive_guard()
         self._register_scout_skill_rename_hook()
+        self._register_trial_scout_edit_guard()
 
     def _register_task_spend_updates(self) -> None:
         from products.tasks.backend.facade.task_run_signals import connect_task_run_cost_updated
@@ -72,6 +75,27 @@ class SignalsConfig(AppConfig):
                 raise SkillArchiveRefused(str(err)) from err
 
         register_skill_archive_guard(_guard)
+
+    def _register_trial_scout_edit_guard(self) -> None:
+        """Let the skills product refuse an edit that leaves a free trial over its scout limit.
+
+        Editing an operational scout makes it take a trial slot without any config write. Refusing
+        the edit means no scout is ever paused on an editor's behalf, because a pause would bypass
+        the scout's lifecycle lock. The check is imported lazily so the harness stays off the
+        django.setup() path.
+        """
+        from products.skills.backend.api.archive_guards import SkillPublishRefused, register_skill_publish_guard
+
+        def _guard(team: "Team", skill: "LLMSkill", user: "User") -> None:
+            from products.signals.backend.trial.scouts import (  # noqa: PLC0415
+                TRIAL_SLOT_EDIT_REFUSED,
+                edit_needs_unavailable_trial_slot,
+            )
+
+            if edit_needs_unavailable_trial_slot(skill):
+                raise SkillPublishRefused(TRIAL_SLOT_EDIT_REFUSED)
+
+        register_skill_publish_guard(_guard)
 
     def _register_scout_skill_rename_hook(self) -> None:
         """Let the skills product move or refuse a scout's config on rename without importing this one."""

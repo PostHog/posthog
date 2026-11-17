@@ -6,7 +6,7 @@ import { CdpRole, ValveEntry } from '../cards/schema'
 import { durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
-import { WEBHOOK_HOST } from '../provider-edge'
+import { SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
 import { ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
@@ -82,7 +82,35 @@ export const destStatus: ValveDefinition = {
     },
 }
 
-export const VALVES: ValveDefinition[] = [roleKill, roleFreeze, pgDropConnections, destStatus]
+export const sesThrottle: ValveDefinition = {
+    name: 'ses.throttle',
+    params: SesThrottleParams,
+    target: z.literal('ses'),
+    strandsRunningJobs: false,
+    apply: ({ environment }, _target, dose) =>
+        environment.actuate({
+            kind: 'edge.fault',
+            rule: ruleOf({ name: 'ses.throttle', params: SesThrottleParams.parse(dose) }),
+        }),
+}
+
+const SesRejectDose = z.object({ type: SesRejectParams.shape.type, share: z.number().gt(0).max(1).default(1) }).strict()
+
+export const sesReject: ValveDefinition = {
+    name: 'ses.reject',
+    params: SesRejectDose,
+    target: z.literal('ses'),
+    strandsRunningJobs: false,
+    apply: ({ environment }, _target, dose) => {
+        const { type, share } = SesRejectDose.parse(dose)
+        return environment.actuate({
+            kind: 'edge.fault',
+            rule: ruleOf({ name: 'ses.reject', params: { type }, dose: { share } }),
+        })
+    },
+}
+
+export const VALVES: ValveDefinition[] = [roleKill, roleFreeze, pgDropConnections, destStatus, sesThrottle, sesReject]
 
 const POLL_MS = 1000
 
@@ -159,8 +187,12 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             record.error = (error as Error).message
         } finally {
             if (actuation) {
-                await actuation.release()
-                record.releasedAt = now()
+                try {
+                    await actuation.release()
+                    record.releasedAt = now()
+                } catch (error) {
+                    record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
+                }
             }
         }
     }

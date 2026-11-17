@@ -16,12 +16,15 @@ const PENDING_TTL_SECONDS = 60
 const QUEUED_TTL_SECONDS = 24 * 60 * 60
 // A hung Valkey must not hold the caller's request open. Each route decides what an unavailable store means.
 const VALKEY_TIMEOUT_MS = 1000
+// A reservation stores the request's lease token in `invocationId`, because every retry of a key shares its run id.
 // Deletes the key only while it still holds this request's reservation, so a late release never frees
 // a key that another request reserved after this one expired.
 const RELEASE_SCRIPT = `local v = redis.call('GET', KEYS[1]) if v and cjson.decode(v).invocationId == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`
 // Records the queued run when the key is absent or still holds this request's reservation. The key is
 // absent when the queue write took longer than the pending TTL, and the run is queued all the same.
-const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) if (not v) or cjson.decode(v).invocationId == ARGV[2] then redis.call('SET', KEYS[1], ARGV[1], 'PX', math.max(tonumber(ARGV[3]) * 1000, redis.call('PTTL', KEYS[1]))) return 1 end return 0`
+// It also rewrites a record of the same run, which an earlier attempt can leave without its answer.
+// It never shortens the record's expiry, to the millisecond, so a scheduled send keeps its longer replay window.
+const MARK_QUEUED_SCRIPT = `local v = redis.call('GET', KEYS[1]) local owner = v and cjson.decode(v).invocationId if (not v) or owner == ARGV[2] or owner == ARGV[4] then local ttl = tonumber(ARGV[3]) local current = redis.call('PTTL', KEYS[1]) if current == -2 then redis.call('SET', KEYS[1], ARGV[1], 'PX', ttl) else redis.call('SET', KEYS[1], ARGV[1], 'KEEPTTL') if current >= 0 and ttl > current then redis.call('PEXPIRE', KEYS[1], ttl) end end return 1 end return 0`
 const CLIENT_NAMES = { mark_queued: 'idempotency-mark-queued', replay_until: 'idempotency-replay-until' }
 const MARK_QUEUED_INLINE_ATTEMPTS = 2
 const MARK_QUEUED_RETRY_FIRST_DELAY_MS = 250
@@ -41,7 +44,7 @@ const idempotencyValkeyDurationSeconds = new Histogram({
     buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
 })
 
-type IdempotencyOperation = 'reserve' | 'mark_queued' | 'release' | 'replay_until'
+type IdempotencyOperation = 'reserve' | 'mark_queued' | 'release' | 'replay_until' | 'read'
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
     let timeoutId: NodeJS.Timeout | undefined
@@ -135,7 +138,7 @@ export type SenderKind = 'email_sandbox'
 
 export type FingerprintWithPreviousShape = { current: string; previousShape: string }
 
-type Fingerprint = string | FingerprintWithPreviousShape
+export type Fingerprint = string | FingerprintWithPreviousShape
 
 type StoredKey = {
     fingerprint: string
@@ -157,12 +160,12 @@ const sameRequest = (stored: StoredKey, fingerprint: Fingerprint): boolean =>
         ? stored.fingerprint === fingerprint
         : stored.fingerprint === fingerprint.previousShape || stored.currentFingerprint === fingerprint.current
 
-type PendingCompletion = { redisKey: string; value: StoredKey; expiresAt: number }
+type PendingCompletion = { redisKey: string; value: StoredKey; leaseToken: string; expiresAt: number }
 
 // Keyed by run, not by Redis key. Several runs of one key can wait at once, for example a webhook
 // retry that queued without a reservation during the outage. Only the store knows which run owns
 // the key, so every run keeps its entry until its own write succeeds, loses ownership, or expires.
-const pendingCompletionKey = ({ redisKey, value }: PendingCompletion): string => `${redisKey}/${value.invocationId}`
+const pendingCompletionKey = ({ redisKey, leaseToken }: PendingCompletion): string => `${redisKey}/${leaseToken}`
 
 /**
  * Caller-supplied idempotency keys, scoped to a team. A key reserves a run before it is queued, and
@@ -189,9 +192,9 @@ export class IdempotencyKeys {
         teamId: number,
         key: string,
         fingerprint: Fingerprint,
-        invocationId: string
+        leaseToken: string
     ): Promise<IdempotencyReservation> {
-        const reservation = await this.reserveInStore(teamId, key, fingerprint, invocationId)
+        const reservation = await this.reserveInStore(teamId, key, fingerprint, leaseToken)
         this.count('reserve', reservation.status)
         return reservation
     }
@@ -200,13 +203,13 @@ export class IdempotencyKeys {
         teamId: number,
         key: string,
         fingerprint: Fingerprint,
-        invocationId: string
+        leaseToken: string
     ): Promise<IdempotencyReservation> {
         const valkey = this.valkey
         if (!valkey) {
             return { status: 'unavailable' }
         }
-        const value: StoredKey = { ...storedFingerprint(fingerprint), invocationId, queued: false }
+        const value: StoredKey = { ...storedFingerprint(fingerprint), invocationId: leaseToken, queued: false }
         let existing: string | null
         try {
             // SET ... NX GET sets the key when absent and returns the existing value when present.
@@ -250,7 +253,8 @@ export class IdempotencyKeys {
         teamId: number,
         key: string,
         fingerprint: Fingerprint,
-        invocationId: string,
+        runId: string,
+        leaseToken: string,
         replayFields?: ReplayFields,
         scheduledAt?: string,
         latestDueAt?: Date,
@@ -261,12 +265,13 @@ export class IdempotencyKeys {
             redisKey: this.redisKey(teamId, key),
             value: {
                 ...storedFingerprint(fingerprint),
-                invocationId,
+                invocationId: runId,
                 queued: true,
                 ...(senderKind ? { senderKind } : {}),
                 ...(replayFields && { replayFields }),
                 ...(scheduledAt && { scheduledAt }),
             },
+            leaseToken,
             expiresAt: Math.max(Date.now(), dueAt) + QUEUED_TTL_SECONDS * 1000,
         }
         for (let attempt = 1; attempt <= MARK_QUEUED_INLINE_ATTEMPTS; attempt++) {
@@ -331,15 +336,23 @@ export class IdempotencyKeys {
     }
 
     private async writeQueued(
-        { redisKey, value, expiresAt }: PendingCompletion,
+        { redisKey, value, leaseToken, expiresAt }: PendingCompletion,
         operation: 'mark_queued' | 'replay_until' = 'mark_queued'
     ): Promise<void> {
-        const ttlSeconds = Math.ceil((expiresAt - Date.now()) / 1000)
+        const ttlMs = Math.max(1, Math.ceil(expiresAt - Date.now()))
         const written = await this.timed(
             operation,
             () =>
                 this.valkey?.useClient({ name: CLIENT_NAMES[operation] }, (client) =>
-                    client.eval(MARK_QUEUED_SCRIPT, 1, redisKey, JSON.stringify(value), value.invocationId, ttlSeconds)
+                    client.eval(
+                        MARK_QUEUED_SCRIPT,
+                        1,
+                        redisKey,
+                        JSON.stringify(value),
+                        leaseToken,
+                        ttlMs,
+                        value.invocationId
+                    )
                 ) ?? Promise.resolve(null)
         )
         if (written === 0) {
@@ -348,13 +361,13 @@ export class IdempotencyKeys {
         this.count(operation, written === 0 ? 'not_owned' : 'written')
     }
 
-    async release(teamId: number, key: string, invocationId: string): Promise<void> {
+    async release(teamId: number, key: string, leaseToken: string): Promise<void> {
         try {
             const released = await this.timed(
                 'release',
                 () =>
                     this.valkey?.useClient({ name: 'idempotency-release' }, (client) =>
-                        client.eval(RELEASE_SCRIPT, 1, this.redisKey(teamId, key), invocationId)
+                        client.eval(RELEASE_SCRIPT, 1, this.redisKey(teamId, key), leaseToken)
                     ) ?? Promise.resolve(null)
             )
             this.count('release', released === 1 ? 'released' : 'not_owned')
@@ -396,6 +409,7 @@ export class IdempotencyKeys {
                         ...(replayFields && { replayFields }),
                         ...(scheduledAt && { scheduledAt }),
                     },
+                    leaseToken: invocationId,
                     expiresAt,
                 },
                 'replay_until'
@@ -408,6 +422,31 @@ export class IdempotencyKeys {
             })
             this.count('replay_until', 'failed')
             return false
+        }
+    }
+
+    // What a queued key holds besides its run, for a retry answered from the cyclotron database, which keeps neither.
+    async queuedReplay(
+        teamId: number,
+        key: string
+    ): Promise<Pick<StoredKey, 'replayFields' | 'scheduledAt' | 'senderKind'> | undefined> {
+        try {
+            const stored = await this.timed(
+                'read',
+                () =>
+                    this.valkey?.useClient({ name: 'idempotency-read' }, (client) =>
+                        client.get(this.redisKey(teamId, key))
+                    ) ?? Promise.resolve(null)
+            )
+            const value = stored ? (parseJSON(stored) as StoredKey) : undefined
+            this.count('read', value?.queued ? 'found' : 'absent')
+            return value?.queued
+                ? { replayFields: value.replayFields, scheduledAt: value.scheduledAt, senderKind: value.senderKind }
+                : undefined
+        } catch (error) {
+            logger.error('🔑', 'idempotency key read failed', { scope: this.scope, error: String(error) })
+            this.count('read', 'failed')
+            return undefined
         }
     }
 

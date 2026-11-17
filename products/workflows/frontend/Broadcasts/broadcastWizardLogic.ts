@@ -378,6 +378,17 @@ function changedElsewhere<T>(latest: HogFlowApi, base: HogFlowApi | null, read: 
 
 export type BroadcastSummaryTab = 'overview' | 'content' | 'runs'
 
+/** About how long `remaining` emails take at `limit`. Empty when nothing is left or no limit applies. */
+export function remainingSendDuration(remaining: number | null, limit: HogFlowEmailSendingRateLimitApi | null): string {
+    if (!limit || !remaining) {
+        return ''
+    }
+    // An estimate: the worker holds sends under the limit by rescheduling them, and it
+    // retries on a jittered delay, so the real send runs a little longer than this.
+    const perSecond = limit.count / (limit.period === 'hour' ? 3600 : 60)
+    return humanFriendlyDuration(Math.ceil(remaining / perSecond), { maxUnits: 2 })
+}
+
 export interface BroadcastWizardLogicProps {
     id: string // 'new' for new broadcasts, or a UUID for editing/viewing
 }
@@ -1846,14 +1857,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 blastRadius: BlastRadiusApi | null,
                 channel: BroadcastChannel
             ): string => {
-                const recipients = blastRadius?.affected
-                if (!emailRateLimit || !recipients || channel !== 'email') {
-                    return ''
-                }
-                // An estimate: the worker holds sends under the limit by rescheduling them, and it
-                // retries on a jittered delay, so the real send runs a little longer than this.
-                const perSecond = emailRateLimit.count / (emailRateLimit.period === 'hour' ? 3600 : 60)
-                return humanFriendlyDuration(Math.ceil(recipients / perSecond), { maxUnits: 2 })
+                return channel === 'email' ? remainingSendDuration(blastRadius?.affected ?? null, emailRateLimit) : ''
             },
         ],
         breadcrumbs: [

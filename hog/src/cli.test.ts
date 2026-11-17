@@ -117,6 +117,7 @@ describe('hog', () => {
             'api schema',
             'api call',
             'api access',
+            'api refresh',
             'api agents-md',
             'skills',
             'skills list',

@@ -1061,7 +1061,8 @@ export class CyclotronV2Manager {
     async rescheduleUnclaimed(
         teamId: number,
         id: string,
-        scheduled: Date
+        scheduled: Date,
+        { maxAheadOfCreatedMs }: { maxAheadOfCreatedMs?: number } = {}
     ): Promise<CyclotronV2RescheduleUnclaimedResult> {
         const client = await this.pool.connect()
         try {
@@ -1075,6 +1076,12 @@ export class CyclotronV2Manager {
             const row = locked.rows[0]
             if (!row) {
                 await client.query('ROLLBACK')
+            } else if (
+                maxAheadOfCreatedMs !== undefined &&
+                scheduled.getTime() > toDateTime(row.created).toMillis() + maxAheadOfCreatedMs
+            ) {
+                await client.query('ROLLBACK')
+                return { outcome: 'too_far' }
             } else {
                 const clock = await client.query<{ now: string }>('SELECT clock_timestamp() AS now')
                 const { state, rescheduledAt } = withReschedule(
@@ -1087,6 +1094,12 @@ export class CyclotronV2Manager {
                     scheduled,
                     state,
                 ])
+                // The janitor deletes the job once it runs, and then only the claim answers retries, so the claim
+                // lasts as long past the new time as it did past the old one.
+                await client.query(
+                    `UPDATE cyclotron_idempotency_keys SET expires_at = GREATEST(expires_at, $2) WHERE id = $1`,
+                    [id, new Date(scheduled.getTime() + IDEMPOTENCY_KEY_TTL_MS)]
+                )
                 await client.query('COMMIT')
                 return { outcome: 'rescheduled', job: unclaimedJob({ ...row, scheduled, state }), rescheduledAt }
             }

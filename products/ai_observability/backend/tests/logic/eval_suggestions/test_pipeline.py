@@ -71,6 +71,7 @@ def _chat_traffic(team: Team, end: datetime) -> None:
     for index in range(60):
         at = end - timedelta(hours=1 + index * 1.1)
         trace = {"$ai_trace_id": f"turn-{index}", "ai_product": "chat_assistant"}
+        model = {"$ai_model": "gpt-5-mini"}
         messages: list[dict[str, Any]] = [{"role": "user", "content": "Move my meeting notes to the archive."}]
         for step in range(3):
             call = {
@@ -85,6 +86,7 @@ def _chat_traffic(team: Team, end: datetime) -> None:
                 at,
                 {
                     **trace,
+                    **model,
                     "$ai_input": messages,
                     "$ai_output_choices": [assistant],
                     "$ai_tools_called": "run_action",
@@ -128,7 +130,7 @@ def _chat_traffic(team: Team, end: datetime) -> None:
             team,
             "$ai_generation",
             at + timedelta(seconds=1),
-            {**trace, "$ai_input": messages, "$ai_output_choices": [answer]},
+            {**trace, **model, "$ai_input": messages, "$ai_output_choices": [answer]},
         )
 
 

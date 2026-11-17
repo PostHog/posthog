@@ -1605,6 +1605,7 @@ class UserViewSet(
         detail=True,
         throttle_classes=[],
         authentication_classes=[
+            IDJagAccessTokenAuthentication,
             SessionAuthentication,
             PersonalAPIKeyAuthentication,
             OAuthAccessTokenAuthentication,
