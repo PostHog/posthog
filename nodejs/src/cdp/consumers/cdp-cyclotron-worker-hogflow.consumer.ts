@@ -73,7 +73,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     const hogFlow = hogFlows[item.functionId] ?? ({ id: item.functionId } as HogFlow)
                     canceledResults.push(
                         createInvocationResult<CyclotronJobInvocationHogFlow>(
-                            { ...item, hogFlow } as CyclotronJobInvocationHogFlow,
+                            // Marked sensitive so its snapshot, which lacks the sealed fields, is never re-run.
+                            {
+                                ...item,
+                                state: { ...item.state, sensitive: true },
+                                hogFlow,
+                            } as CyclotronJobInvocationHogFlow,
                             {},
                             { error: 'The run state could not be decrypted' }
                         )

@@ -1,4 +1,4 @@
-import { get, has, omit, set } from 'lodash'
+import { get, omit, set } from 'lodash'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -34,10 +34,9 @@ const SEALED_PATHS = [
 
 /** Moves the content fields of an invocation into a `sealed` token, and leaves the invocation in memory unchanged. */
 export function sealInvocation(invocation: CyclotronJobInvocation, sealer: StateSealer): CyclotronJobInvocation {
-    const fields = SEALED_PATHS.filter((path) => has(invocation, path)).map((path): [string[], unknown] => [
-        path,
-        get(invocation, path),
-    ])
+    const fields = SEALED_PATHS.filter((path) => get(invocation, path) !== undefined).map(
+        (path): [string[], unknown] => [path, get(invocation, path)]
+    )
     if (!fields.length) {
         return invocation
     }
@@ -76,6 +75,9 @@ export function openSealedState<T extends Sealable>(
         const content: SealedContent | undefined = decrypted.ok ? parseJSON(decrypted.value) : undefined
         if (content?.teamId === job.teamId && content.id === job.id) {
             for (const [path, value] of content.fields) {
+                if (path[0] !== 'state' && path[0] !== 'queueParameters') {
+                    throw new Error('Sealed field outside the sealable roots')
+                }
                 set(opened, path, value)
             }
             return opened as T
