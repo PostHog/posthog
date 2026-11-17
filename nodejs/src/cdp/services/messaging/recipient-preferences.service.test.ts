@@ -818,6 +818,16 @@ describe('RecipientPreferencesService', () => {
                     'test-cap-one-message-a-week'
                 )
             }
+            const push: Extract<HogFlowAction, { type: 'function_push' }> = {
+                id: 'push',
+                name: 'Send push',
+                description: '',
+                type: 'function_push',
+                filters: null,
+                config: { template_id: 'template-native-push', inputs: {} },
+                created_at: Date.now(),
+                updated_at: Date.now(),
+            }
             const pausedWorkflowEmail = (): Promise<FrequencyCapCheck> => {
                 const action = emailAction()
                 const invocation = createFunctionStepInvocation(action)
@@ -859,7 +869,7 @@ describe('RecipientPreferencesService', () => {
                 ],
             ])('takes no slot for %s', async (_, checkUnsendable) => {
                 expect(await checkUnsendable()).toEqual({ capped: false })
-                expect(await sendAt(emailAction(), at + 1)).toBe(false)
+                expect(await sendAt(push, at + 1)).toBe(false)
             })
 
             it('lets it through at the cap, so the email worker records why it did not send', async () => {
@@ -872,16 +882,6 @@ describe('RecipientPreferencesService', () => {
 
             it('still counts a push on a team with suspended email', async () => {
                 await capOneMessageAWeek(['email_sending_suspended_at', 'now()'])
-                const push: Extract<HogFlowAction, { type: 'function_push' }> = {
-                    id: 'push',
-                    name: 'Send push',
-                    description: '',
-                    type: 'function_push',
-                    filters: null,
-                    config: { template_id: 'template-native-push', inputs: {} },
-                    created_at: Date.now(),
-                    updated_at: Date.now(),
-                }
 
                 expect(await sendAt(push, at)).toBe(false)
                 expect(await sendAt(push, at + 1)).toBe(true)
