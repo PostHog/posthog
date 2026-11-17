@@ -3901,8 +3901,7 @@ describe('EmailService', () => {
                 sensitive: boolean
                 send?: { sensitive: boolean }
                 teamOptedOut?: boolean
-                html?: string
-                tagged: boolean
+                runIds: string[]
             }>([
                 {
                     case: 'tags the links of a tracked send',
@@ -3910,7 +3909,7 @@ describe('EmailService', () => {
                     allowlisted: true,
                     isTest: false,
                     sensitive: false,
-                    tagged: true,
+                    runIds: ['invocation-1'],
                 },
                 {
                     case: 'leaves the links of a team off the allowlist',
@@ -3918,8 +3917,15 @@ describe('EmailService', () => {
                     allowlisted: false,
                     isTest: false,
                     sensitive: false,
-                    html: '<a href="https://app.posthog-test.com/">a</a>',
-                    tagged: false,
+                    runIds: ['earlier-run'],
+                },
+                {
+                    case: 'leaves the links of an untracked send from a team off the allowlist',
+                    trackingEnabled: false,
+                    allowlisted: false,
+                    isTest: false,
+                    sensitive: false,
+                    runIds: ['earlier-run'],
                 },
                 {
                     case: 'drops the run ids of earlier sends from the links of a team that turned link tagging off',
@@ -3928,7 +3934,7 @@ describe('EmailService', () => {
                     isTest: false,
                     sensitive: false,
                     teamOptedOut: true,
-                    tagged: false,
+                    runIds: [],
                 },
                 {
                     case: 'drops the run ids of earlier sends from an untracked send',
@@ -3936,7 +3942,7 @@ describe('EmailService', () => {
                     allowlisted: true,
                     isTest: false,
                     sensitive: false,
-                    tagged: false,
+                    runIds: [],
                 },
                 {
                     case: 'drops the run ids of earlier sends from a test send',
@@ -3944,7 +3950,7 @@ describe('EmailService', () => {
                     allowlisted: true,
                     isTest: true,
                     sensitive: false,
-                    tagged: false,
+                    runIds: [],
                 },
                 {
                     case: 'drops the run ids of earlier sends from a sensitive email',
@@ -3952,7 +3958,7 @@ describe('EmailService', () => {
                     allowlisted: true,
                     isTest: false,
                     sensitive: true,
-                    tagged: false,
+                    runIds: [],
                 },
                 {
                     case: "drops the run ids of earlier sends from a code send marked sensitive on a workflow that isn't sensitive",
@@ -3961,7 +3967,7 @@ describe('EmailService', () => {
                     isTest: false,
                     sensitive: false,
                     send: { sensitive: true },
-                    tagged: false,
+                    runIds: [],
                 },
                 {
                     case: 'tags the links of a code send marked not sensitive on a sensitive workflow',
@@ -3970,11 +3976,11 @@ describe('EmailService', () => {
                     isTest: false,
                     sensitive: true,
                     send: { sensitive: false },
-                    tagged: true,
+                    runIds: ['invocation-1'],
                 },
             ])(
                 '$case with the workflow run id',
-                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, html, tagged }) => {
+                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, runIds }) => {
                     if (teamOptedOut) {
                         await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
@@ -3993,15 +3999,16 @@ describe('EmailService', () => {
                     invocation.state.send = send && { ...send, tracking: { captureEngagement: true } }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
-                        html:
-                            html ??
-                            '<a href="https://app.posthog-test.com/?ph_workflow_run=earlier-run">a</a><a href="https://example.com/">b</a>',
+                        html: '<a href="https://app.posthog-test.com/?ref=email&ph_workflow_run=earlier-run">a</a><a href="https://example.com/">b</a>',
                     })
                     const result = await taggingService.executeSendEmail(invocation, isTest)
                     expect(result.error).toBeUndefined()
                     const sentHtml = ses.sent[0].html!
                     expect(sentHtml.match(/ph_workflow_run=[^"&]*/g) ?? []).toEqual(
-                        tagged ? ['ph_workflow_run=invocation-1'] : []
+                        runIds.map((runId) => `ph_workflow_run=${runId}`)
+                    )
+                    expect(sentHtml).toContain(
+                        `href="https://app.posthog-test.com/?ref=email${runIds.length ? '&' : '"'}`
                     )
                 }
             )
@@ -4023,14 +4030,14 @@ describe('EmailService', () => {
                     }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
-                        html: '<a href="https://app.posthog-test.com/?ph_workflow_run=earlier-run">b</a>',
+                        html: '<a href="https://app.posthog-test.com/?ref=email&ph_workflow_run=earlier-run">b</a>',
                     })
 
                     const result = await taggingService.executeSendEmail(invocation).finally(() => teamConfigDb.close())
 
                     expect(result.error).toBeUndefined()
                     expect(ses.sent).toHaveLength(1)
-                    expect(ses.sent[0].html).not.toContain('ph_workflow_run')
+                    expect(ses.sent[0].html).toContain('href="https://app.posthog-test.com/?ref=email"')
                 }
             )
 
