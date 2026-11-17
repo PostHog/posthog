@@ -1,5 +1,7 @@
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { triggersOnInternalEvent } from './internalEventTriggerConfig'
+
 /** pinned: internal event an insight alert emits each time it notifies */
 export const INSIGHT_ALERT_FIRING_EVENT = '$insight_alert_firing'
 
@@ -13,25 +15,8 @@ export type InternalEventInsightAlertTriggerConfig = {
     }
 }
 
-// Callers pass whatever trigger a workflow carries, including malformed shapes, so every level is
-// checked before it is read.
 export function isInsightAlertTriggerConfig(config: unknown): config is InternalEventInsightAlertTriggerConfig {
-    if (!config || typeof config !== 'object') {
-        return false
-    }
-    const { type, filters } = config as { type?: unknown; filters?: unknown }
-    if (type !== 'internal-event' || !filters || typeof filters !== 'object') {
-        return false
-    }
-    const { source, events } = filters as { source?: unknown; events?: unknown }
-    return (
-        source === 'internal-events' &&
-        Array.isArray(events) &&
-        events.some(
-            (event) =>
-                event && typeof event === 'object' && (event as { id?: unknown }).id === INSIGHT_ALERT_FIRING_EVENT
-        )
-    )
+    return triggersOnInternalEvent(config, INSIGHT_ALERT_FIRING_EVENT)
 }
 
 export interface InsightAlertTriggerFilters {
