@@ -78,8 +78,13 @@ class SendTally:
         self._failures: list[str] = []
         self._retryable = False
 
+    @property
+    def problems(self) -> int:
+        return len(self._busy) + len(self._failures)
+
     @contextmanager
-    def attempt(self) -> Iterator[None]:
+    def attempt(self, *, counted: bool = True) -> Iterator[None]:
+        """With `counted` False the caller counts its own successes, such as one per destination."""
         try:
             yield
         except ThreadBusy as error:
@@ -92,7 +97,8 @@ class SendTally:
             self._failures.append(type(error).__name__)
             self._retryable = True
         else:
-            self.sent += 1
+            if counted:
+                self.sent += 1
 
     def raise_failures(self, noun: str) -> None:
         # A held thread wins over a failure, as in `deliver_evaluation`: the workflow waits it out and

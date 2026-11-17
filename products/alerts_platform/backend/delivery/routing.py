@@ -174,8 +174,10 @@ def _deliver_to(
         transport_class = _TRANSPORTS.get(receiver.data.get("type"))
         if transport_class is None:
             continue
-        with tally.attempt():
-            for heard, action in _sends(receiver, transitions, request):
+        # Each send fails on its own, so a refused trigger cannot cost another group its resolve.
+        problems = tally.problems
+        for heard, action in _sends(receiver, transitions, request):
+            with tally.attempt(counted=False):
                 deliver(
                     transport=transport_class(),
                     thread_store=thread_store,
@@ -189,5 +191,7 @@ def _deliver_to(
                     source_alert_url=request.source_alert_url,
                     project=project,
                 )
-    tally.raise_failures("receiver")
+        if tally.problems == problems:
+            tally.sent += 1
+    tally.raise_failures("send")
     return tally.sent
