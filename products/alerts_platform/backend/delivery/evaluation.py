@@ -65,7 +65,7 @@ from products.alerts_platform.backend.facade.contracts import (
     StoredAlertDestination,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.alerts_platform.backend.logic import delivery_holds
+from products.alerts_platform.backend.logic import delivery_holds, source_configs
 from products.alerts_platform.backend.logic.alert_destinations import (
     INCIDENT_DESTINATION_TYPES,
     enabled_alert_destinations,
@@ -555,8 +555,8 @@ def _split_by_path(
     a person built, and the source also emits every transition for it. That includes a function
     from a custom template or one with no `alert_id` filter, which no destination lookup lists, so
     the source emits without asking who listens, as its own stack did. No destination is on both
-    paths, so nothing is sent twice. Moving an existing alert's destinations onto the platform must
-    therefore disable the HogFunctions it copies, or each of them hears every transition as well.
+    paths, so nothing is sent twice. A row that copies a live HogFunction is skipped, so that
+    HogFunction alone sends.
     """
     if delivery_paths.emitter_for(request.source) is None:
         return announced, ()
@@ -705,13 +705,7 @@ class _PlatformDestinations:
 def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinations:
     """The alert's `AlertDestination` rows, and whether they are all of its destinations. Read once per
     delivery, and after the check, so a destination removed in between is not sent to."""
-    owner = (
-        PlatformAlertConfiguration.objects.for_team(request.team_id)
-        .filter(id=request.configuration_id)
-        .values_list("destinations_owner", flat=True)
-        .first()
-    )
-    owns_destinations = owner == PlatformAlertOwner.PLATFORM
+    owns_destinations = source_configs.keeps_platform_destinations(request.source)
     incident_kinds = {
         event_id: INCIDENT_KINDS[IncidentAction(action)]
         for action, event_id in request.event_ids_by_incident_action.items()
@@ -720,7 +714,7 @@ def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinatio
     return _PlatformDestinations(
         destinations=_with_subscribers_resolved(request, destinations),
         owns_destinations=owns_destinations,
-        copies=frozenset() if owns_destinations else _copies_of_live_hog_functions(request.team_id, destinations),
+        copies=_copies_of_live_hog_functions(request.team_id, destinations),
         holds_subscribers=any(_names_users(destination.data) for destination in destinations),
         # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
         recipients=recipients.addresses(
@@ -807,7 +801,11 @@ def _destinations(
     are left out. Both are decided from the rows this delivery read, so a backfill that lands in
     between cannot leave a subscriber out of both.
     """
-    rows = _platform_subscribers(event_id, platform_destinations)
+    rows = [
+        row
+        for row in _platform_subscribers(event_id, platform_destinations)
+        if row.id not in platform_destinations.copies
+    ]
     if platform_destinations.owns_destinations:
         return rows
     groups = list_alert_destination_groups(
@@ -825,7 +823,7 @@ def _destinations(
             for group in groups
             if group.fully_enabled and not (platform_destinations.holds_subscribers and _is_subscriber_group(group))
         ),
-        *(row for row in rows if row.id not in platform_destinations.copies),
+        *rows,
     ]
 
 

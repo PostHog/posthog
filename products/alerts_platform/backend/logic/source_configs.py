@@ -34,3 +34,10 @@ def spec(source: SourceKind) -> SourceConfigSpec | None:
 def specs() -> dict[SourceKind, SourceConfigSpec]:
     """Every registered kind's schema, in a stable order so the published schema does not reorder."""
     return {source: _loaded(source, _loaders[source]) for source in sorted(_loaders, key=lambda s: s.value)}
+
+
+def keeps_platform_destinations(source: SourceKind) -> bool:
+    """Whether every destination of the kind's alerts is an `AlertDestination` row. Its source keeps
+    no HogFunction destinations, so delivery sends to the rows alone."""
+    registered = spec(source)
+    return registered is not None and registered.native is not None and registered.native.platform_destinations

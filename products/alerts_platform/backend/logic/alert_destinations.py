@@ -332,15 +332,9 @@ def record_source_destination(
     keeps_legacy_webhook_body: bool = False,
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
-    destination outlives them. None when the platform has no alert under `public_id`, or when it keeps
-    the alert's destinations itself: delivery then sends every row and emits to every HogFunction, so a
-    row beside these HogFunctions would send each message twice."""
-    configuration_id = (
-        _configurations_by_public_id(team_id, public_id)
-        .filter(destinations_owner=PlatformAlertOwner.SOURCE)
-        .values_list("id", flat=True)
-        .first()
-    )
+    destination outlives them. None when the platform has no alert under `public_id`. Delivery skips
+    the row while any of these HogFunctions exists, so the destination sends once."""
+    configuration_id = _configurations_by_public_id(team_id, public_id).values_list("id", flat=True).first()
     if configuration_id is None:
         return None
     (created,) = create_alert_destinations(
