@@ -162,9 +162,7 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules) -> 
         if tagger.tagger_type == TaggerType.HOG:
             hog_config = HogTaggerConfig.model_validate(tagger.tagger_config)
             if not hog_config.tags:
-                return _Planned(
-                    step=step(MigrationAction.SKIP, "Hog tagger without a tag list. It needs one to become categories.")
-                )
+                return _Planned(step=step(MigrationAction.SKIP, "It has no tag list to turn into categories."))
             payload = hog_payload(hog_config)
         else:
             llm_config = LLMTaggerConfig.model_validate(tagger.tagger_config)
@@ -179,7 +177,9 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules) -> 
             model_configuration = _model_configuration(tagger, team)
             if model_configuration is None:
                 return _Planned(
-                    step=step(MigrationAction.SKIP, "No model on the tagger and no active provider key to pick one.")
+                    step=step(
+                        MigrationAction.SKIP, "It has no model, and the team has no active provider key to pick one."
+                    )
                 )
     except PydanticValidationError as error:
         return _Planned(step=step(MigrationAction.SKIP, f"Its saved config is no longer valid: {error}"))

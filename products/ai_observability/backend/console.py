@@ -372,13 +372,17 @@ def preview_tagger_migration(request: HttpRequest, obj: Model, form: forms.Form)
         blocks=(
             Notice(
                 text="Each tagger that sent tags in the last 30 days becomes an enabled categorical evaluation with "
-                "the same name, filters, sampling and model, and the tagger is switched off. Taggers that sent no "
-                "tags are only switched off. Old tag data stays. Results arrive as evaluation events from now on, so "
-                "insights built on tags stop updating."
+                "the same name, filters, sampling, and model, and the migration switches the tagger off. It only "
+                "switches off taggers that sent no tags. Old tag data stays. Results arrive as evaluation events from "
+                "now on, so insights built on tags stop updating."
             ),
             _steps_table(plan_tagger_migration(cast(Team, obj))),
         )
     )
+
+
+def _taggers(count: int) -> str:
+    return "tagger" if count == 1 else "taggers"
 
 
 def run_tagger_migration(request: HttpRequest, obj: Model, form: forms.Form | None) -> Page:
@@ -387,7 +391,9 @@ def run_tagger_migration(request: HttpRequest, obj: Model, form: forms.Form | No
     switched_off = sum(step.action == MigrationAction.SWITCH_OFF for step in steps)
     skipped = len(steps) - moved - switched_off
     messages.success(
-        request, f"Moved {moved} taggers to evaluations, switched off {switched_off}, and left {skipped} as they are."
+        request,
+        f"Moved {moved} {_taggers(moved)} to evaluations, switched off {switched_off}, and left {skipped} as "
+        f"{'it is' if skipped == 1 else 'they are'}.",
     )
     return Page(blocks=(_steps_table(steps),))
 
@@ -420,8 +426,8 @@ class TaggersPanel(Panel):
                 form_class=ReasonForm,
                 description="Replaces the team's switched-on taggers with categorical evaluations and switches the "
                 "taggers off. The evaluations run on the team's own provider key.",
-                undo_hint="Switch the new evaluations off in the project's evaluations list. Taggers cannot be "
-                "switched back on.",
+                undo_hint="Switch the new evaluations off in the project's evaluations list. There is no way to switch "
+                "a tagger back on.",
                 pending_label="Migrating taggers",
             )
         ]

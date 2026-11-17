@@ -23,7 +23,7 @@ function bannerContent({ migratedToEvaluationId, someMigrated }: TaggersDeprecat
     if (migratedToEvaluationId) {
         return {
             title: 'This tagger is now an evaluation',
-            body: 'The evaluation has the same name, filters, sampling and model. New results go there. The tags this tagger already sent stay here.',
+            body: "The evaluation keeps this tagger's name, filters, sampling, and model. New results go there, and the tags this tagger already sent stay here.",
             actionLabel: 'Open evaluation',
             to: urls.aiObservabilityEvaluation(migratedToEvaluationId),
             dataAttr: 'taggers-deprecation-banner-open-evaluation',
@@ -31,8 +31,8 @@ function bannerContent({ migratedToEvaluationId, someMigrated }: TaggersDeprecat
     }
     if (someMigrated) {
         return {
-            title: 'Your taggers are now evaluations',
-            body: 'Each tagger that was still sending tags became an evaluation with a categorical output. New results go there. The tags already sent stay here.',
+            title: 'Some of your taggers are now evaluations',
+            body: 'Taggers marked "Moved to evaluation" now run as evaluations with a categorical output. New results go to those evaluations, and the tags already sent stay here.',
             actionLabel: 'Go to evaluations',
             to: urls.aiObservabilityEvaluations(),
             dataAttr: 'taggers-deprecation-banner-go-to-evaluations',
