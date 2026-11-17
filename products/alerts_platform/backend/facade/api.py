@@ -803,10 +803,12 @@ def record_source_destination(
     hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
     enabled: bool = True,
+    keeps_legacy_webhook_body: bool = False,
 ) -> StoredAlertDestination | None:
     """Adds the `AlertDestination` row for a destination a source has just written as HogFunctions, in the
     caller's transaction. `hog_function_groups` are the alert's HogFunction destinations, from the source. Raises `AlertDestinationValidationError` when the alert already sends there.
-    None when the platform has no alert under `public_id`."""
+    None when the platform has no alert under `public_id`. With `keeps_legacy_webhook_body`, a webhook row
+    sends its source's legacy body whatever the team's webhook body flags say."""
     return alert_destinations.record_source_destination(
         team_id=team_id,
         public_id=public_id,
@@ -815,6 +817,7 @@ def record_source_destination(
         hog_function_ids=hog_function_ids,
         hog_function_groups=hog_function_groups,
         enabled=enabled,
+        keeps_legacy_webhook_body=keeps_legacy_webhook_body,
     )
 
 
