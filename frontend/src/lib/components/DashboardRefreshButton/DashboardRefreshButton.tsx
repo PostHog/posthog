@@ -4,11 +4,14 @@ import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import type { ShortcutType } from 'lib/components/Shortcuts/shortcutLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import type { Dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { AUTO_REFRESH_INTERVAL_OPTIONS } from './autoRefreshIntervalOptions'
+import { QuillDashboardRefreshButton } from './QuillDashboardRefreshButton'
 
 export interface DashboardAutoRefresh {
     enabled: boolean
@@ -21,25 +24,23 @@ export interface DashboardRefreshButtonProps {
     onRefresh: () => void
     /** Without it, a running refresh shows as loading instead of offering to cancel. */
     onCancel?: () => void
-    /** Set while the results are too fresh to refresh again. */
-    disabledReason?: string
+    /** Disables the button and marks the results as up to date. */
+    upToDateReason?: string
     /** Without it, the button has no auto refresh menu. */
     autoRefresh?: DashboardAutoRefresh
     dataAttr: string
     shortcutName: string
     shortcutScope?: ShortcutType['scope']
+    lastRefresh?: Dayjs | string | null
 }
 
-export function DashboardRefreshButton({
-    loading,
-    onRefresh,
-    onCancel,
-    disabledReason,
-    autoRefresh,
-    dataAttr,
-    shortcutName,
-    shortcutScope,
-}: DashboardRefreshButtonProps): JSX.Element {
+export function DashboardRefreshButton(props: DashboardRefreshButtonProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return <QuillDashboardRefreshButton {...props} />
+    }
+
+    const { loading, onRefresh, onCancel, upToDateReason, autoRefresh, dataAttr, shortcutName, shortcutScope } = props
     const cancellable = loading && !!onCancel
 
     return (
@@ -54,12 +55,12 @@ export function DashboardRefreshButton({
                 <LemonButton
                     onClick={cancellable ? onCancel : onRefresh}
                     type="secondary"
-                    icon={cancellable ? <IconX /> : disabledReason ? <IconCheck /> : <IconRefresh />}
+                    icon={cancellable ? <IconX /> : upToDateReason ? <IconCheck /> : <IconRefresh />}
                     size="small"
                     data-attr={dataAttr}
                     loading={loading && !onCancel}
                     tooltip={cancellable ? 'Cancel refresh' : undefined}
-                    disabledReason={disabledReason || undefined}
+                    disabledReason={upToDateReason}
                     sideAction={
                         autoRefresh
                             ? {

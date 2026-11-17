@@ -2,11 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import {
-    DashboardRefreshButton,
-    type DashboardRefreshButtonProps,
-} from 'lib/components/DashboardRefreshButton/DashboardRefreshButton'
-import { QuillDashboardRefreshButton } from 'lib/components/DashboardRefreshButton/QuillDashboardRefreshButton'
+import { DashboardRefreshButton } from 'lib/components/DashboardRefreshButton/DashboardRefreshButton'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -67,24 +63,27 @@ export function DashboardReloadAction(): JSX.Element {
 
     usePageVisibilityCb(setPageVisibility)
 
-    const refreshDisabledReason =
+    const upToDateReason =
         !itemsLoading &&
         blockRefresh &&
         nextAllowedDashboardRefresh &&
         dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
             ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
-            : ''
-    const refreshButtonProps: DashboardRefreshButtonProps = {
-        loading: itemsLoading,
-        onRefresh: triggerDashboardRefresh,
-        onCancel: cancelDashboardRefresh,
-        disabledReason: refreshDisabledReason,
-        autoRefresh: { ...autoRefresh, onChange: setAutoRefresh },
-        // pinned: data-attr values feed autocapture dashboards
-        dataAttr: 'dashboard-items-action-refresh',
-        shortcutName: 'DashboardRefresh',
-        shortcutScope: Scene.Dashboard,
-    }
+            : undefined
+    const refreshButton = (
+        <DashboardRefreshButton
+            loading={itemsLoading}
+            onRefresh={triggerDashboardRefresh}
+            onCancel={cancelDashboardRefresh}
+            upToDateReason={upToDateReason}
+            autoRefresh={{ ...autoRefresh, onChange: setAutoRefresh }}
+            lastRefresh={effectiveLastRefresh}
+            // pinned: data-attr values feed autocapture dashboards
+            dataAttr="dashboard-items-action-refresh"
+            shortcutName="DashboardRefresh"
+            shortcutScope={Scene.Dashboard}
+        />
+    )
 
     const activitySummary = dashboard && (
         <DashboardActivitySummary
@@ -103,7 +102,7 @@ export function DashboardReloadAction(): JSX.Element {
                 ) : (
                     <QuillLastRefreshText className="@max-5xl/dashboard-filters:hidden" />
                 )}
-                <QuillDashboardRefreshButton {...refreshButtonProps} lastRefresh={effectiveLastRefresh} />
+                {refreshButton}
             </div>
         )
     }
@@ -112,7 +111,7 @@ export function DashboardReloadAction(): JSX.Element {
         <div className="relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
             {activitySummary}
             <DashboardRefreshStatusText />
-            <DashboardRefreshButton {...refreshButtonProps} />
+            {refreshButton}
         </div>
     )
 }

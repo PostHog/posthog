@@ -47,7 +47,6 @@ export interface CrossProjectDashboardGridProps {
     missingPropertyKeys: Record<number, string[]>
     dashboardFilters: CrossProjectDashboardFilters
     refreshToken: number
-    /** Passed to every tile as is, so it must keep its identity between renders. */
     onTileRefreshSettled: (tileId: string) => void
     onLayoutsChange: (layouts: Partial<ResponsiveTileLayouts>) => void
     onSetTileColor: (tileId: string, color: InsightColor | null) => void

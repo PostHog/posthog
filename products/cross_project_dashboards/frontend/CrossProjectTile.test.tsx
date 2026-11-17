@@ -151,7 +151,6 @@ describe('CrossProjectTile', () => {
         await waitFor(() => expect(spy).toHaveBeenCalledWith(99, 3, { date_from: '-7d', interval: 'week' }, false))
     })
 
-    // A filter change reruns the same fetch, and must keep reading the cache.
     it('forces a recalculation only for a new refresh token, and reports when it settles', async () => {
         const spy = jest
             .spyOn(tileFetch, 'fetchCrossProjectTile')
@@ -159,17 +158,18 @@ describe('CrossProjectTile', () => {
         const onRefreshSettled = jest.fn()
         const props = { tile: tile(), onRefreshSettled }
 
-        const { rerender } = render(<CrossProjectTile {...props} refreshToken={0} />)
+        // Mounting after an earlier refresh still reads the cache.
+        const { rerender } = render(<CrossProjectTile {...props} refreshToken={1} />)
         await waitFor(() => expect(screen.getByText('Signups')).toBeInTheDocument())
+        expect(spy).toHaveBeenLastCalledWith(42, 7, undefined, false)
 
-        rerender(<CrossProjectTile {...props} refreshToken={0} dashboardFilters={{ date_from: '-7d' }} />)
-        await waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
-        expect(spy).toHaveBeenLastCalledWith(42, 7, { date_from: '-7d' }, false)
-        expect(onRefreshSettled).not.toHaveBeenCalled()
-
-        rerender(<CrossProjectTile {...props} refreshToken={1} dashboardFilters={{ date_from: '-7d' }} />)
+        rerender(<CrossProjectTile {...props} refreshToken={2} />)
         await waitFor(() => expect(onRefreshSettled).toHaveBeenCalledWith('tile-1'))
-        expect(spy).toHaveBeenLastCalledWith(42, 7, { date_from: '-7d' }, true)
+        expect(spy).toHaveBeenLastCalledWith(42, 7, undefined, true)
+
+        rerender(<CrossProjectTile {...props} refreshToken={2} dashboardFilters={{ date_from: '-7d' }} />)
+        await waitFor(() => expect(spy).toHaveBeenCalledTimes(3))
+        expect(spy).toHaveBeenLastCalledWith(42, 7, { date_from: '-7d' }, false)
         expect(onRefreshSettled).toHaveBeenCalledTimes(1)
     })
 })

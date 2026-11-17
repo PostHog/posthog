@@ -15,27 +15,22 @@ import {
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
-import type { Dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { AUTO_REFRESH_INTERVAL_OPTIONS } from './autoRefreshIntervalOptions'
 import type { DashboardRefreshButtonProps } from './DashboardRefreshButton'
 
-export interface QuillDashboardRefreshButtonProps extends DashboardRefreshButtonProps {
-    lastRefresh?: Dayjs | string | null
-}
-
 export function QuillDashboardRefreshButton({
     loading,
     onRefresh,
     onCancel,
-    disabledReason,
+    upToDateReason,
     autoRefresh,
     dataAttr,
     shortcutName,
     shortcutScope,
     lastRefresh,
-}: QuillDashboardRefreshButtonProps): JSX.Element {
+}: DashboardRefreshButtonProps): JSX.Element {
     const cancellable = loading && !!onCancel
     const optionsLabel = autoRefresh?.enabled
         ? `Refresh options (auto refresh every ${humanFriendlyDuration(autoRefresh.interval)})`
@@ -65,9 +60,9 @@ export function QuillDashboardRefreshButton({
                             </span>
                         ) : undefined
                     }
-                    disabledReason={disabledReason || undefined}
+                    disabledReason={upToDateReason}
                 >
-                    {cancellable ? <IconX /> : disabledReason ? <IconCheck /> : <IconRefresh />}
+                    {cancellable ? <IconX /> : upToDateReason ? <IconCheck /> : <IconRefresh />}
                     <span>{cancellable ? 'Cancel' : 'Refresh'}</span>
                 </Button>
             </Shortcut>

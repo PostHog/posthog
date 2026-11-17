@@ -120,8 +120,8 @@ export interface crossProjectDashboardLogicActions {
             value: true
         }
     }
-    refreshTiles: () => {
-        value: true
+    refreshTiles: (tileIds: string[]) => {
+        tileIds: string[]
     }
     removeTile: (tileId: string) => {
         tileId: string
@@ -170,9 +170,6 @@ export interface crossProjectDashboardLogicActions {
     }
     tileRefreshSettled: (tileId: string) => {
         tileId: string
-    }
-    tileRefreshesStarted: (tileIds: string[]) => {
-        tileIds: string[]
     }
     updateDashboard: (details: CrossProjectDashboardDetails) => {
         details: CrossProjectDashboardDetails
@@ -237,8 +234,7 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
         setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         updateDashboard: (details: CrossProjectDashboardDetails) => ({ details }),
         deleteDashboard: true,
-        refreshTiles: true,
-        tileRefreshesStarted: (tileIds: string[]) => ({ tileIds }),
+        refreshTiles: (tileIds: string[]) => ({ tileIds }),
         tileRefreshSettled: (tileId: string) => ({ tileId }),
     }),
     reducers({
@@ -248,7 +244,7 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
         refreshingTileIds: [
             [] as string[],
             {
-                tileRefreshesStarted: (_, { tileIds }) => tileIds,
+                refreshTiles: (_, { tileIds }) => tileIds,
                 tileRefreshSettled: (state, { tileId }) => state.filter((id) => id !== tileId),
                 removeTile: (state, { tileId }) => state.filter((id) => id !== tileId),
             },
@@ -436,10 +432,6 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                 if (saved) {
                     crossProjectDashboardTracking.edited(props.id, 'interval')
                 }
-            },
-            refreshTiles: () => {
-                actions.tileRefreshesStarted(values.tiles.map((tile) => tile.id))
-                crossProjectDashboardTracking.refreshed(props.id, values.tiles)
             },
             enterLayoutEdit: () => {
                 lemonToast.info('Now editing the dashboard. Press E or click Save to persist changes.')

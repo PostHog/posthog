@@ -17,13 +17,13 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import { QuillDashboardRefreshButton } from 'lib/components/DashboardRefreshButton/QuillDashboardRefreshButton'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import type { IntervalType } from '~/types'
 
 import { addCrossProjectTileLogic } from './addCrossProjectTileLogic'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
+import { CrossProjectDashboardRefreshAction } from './CrossProjectDashboardRefreshAction'
 import { QuillCrossProjectDashboardLayoutActions } from './QuillCrossProjectDashboardLayoutActions'
 
 const INTERVAL_OPTIONS: { value: IntervalType | null; label: string }[] = [
@@ -35,8 +35,8 @@ const INTERVAL_OPTIONS: { value: IntervalType | null; label: string }[] = [
 ]
 
 export function QuillCrossProjectDashboardActions(): JSX.Element | null {
-    const { dashboard, dashboardFilters, tiles, tilesRefreshing } = useValues(crossProjectDashboardLogic)
-    const { setDates, setInterval, deleteDashboard, refreshTiles } = useActions(crossProjectDashboardLogic)
+    const { dashboard, dashboardFilters } = useValues(crossProjectDashboardLogic)
+    const { setDates, setInterval, deleteDashboard } = useActions(crossProjectDashboardLogic)
     const { requestOpenModal } = useActions(addCrossProjectTileLogic({ dashboardId: dashboard?.id ?? '' }))
 
     if (!dashboard) {
@@ -66,14 +66,7 @@ export function QuillCrossProjectDashboardActions(): JSX.Element | null {
                     ))}
                 </SelectContent>
             </Select>
-            {tiles.length > 0 && (
-                <QuillDashboardRefreshButton
-                    loading={tilesRefreshing}
-                    onRefresh={refreshTiles}
-                    dataAttr="cross-project-dashboard-refresh"
-                    shortcutName="CrossProjectDashboardRefresh"
-                />
-            )}
+            <CrossProjectDashboardRefreshAction />
             <QuillCrossProjectDashboardLayoutActions />
             <Button variant="primary" onClick={requestOpenModal} data-attr="cross-project-add-tile">
                 <IconPlus />

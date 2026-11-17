@@ -66,7 +66,6 @@ describe('fetchCrossProjectTile', () => {
         expect(JSON.parse(mockedRetrieve.mock.calls[0][2].filters_override)).toEqual({ date_from: '-7d' })
     })
 
-    // `blocking` answers from a fresh cache, so a refresh that sent it would change nothing on screen.
     it.each([
         ['reads the cache on an ordinary load', undefined, 'blocking'],
         ['recalculates when a refresh is forced', true, 'force_blocking'],

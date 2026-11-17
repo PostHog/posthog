@@ -52,7 +52,7 @@ export interface CrossProjectTileProps extends React.HTMLAttributes<HTMLDivEleme
     dashboardFilters?: CrossProjectDashboardFilters
     /** Changes when the reader asks for a refresh. The tile then recalculates instead of reading the cache. */
     refreshToken?: number
-    /** Called once per requested refresh, when its fetch answers or the tile gives up on it. Must keep its identity between renders. */
+    /** Called once per requested refresh, when its fetch answers or the tile gives up on it. */
     onRefreshSettled?: (tileId: string) => void
     canEnterEditModeFromEdge?: boolean
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
@@ -95,6 +95,8 @@ function CrossProjectTileInternal(
 
     // Starts at the mounting token, so a tile added after a refresh still reads the cache.
     const lastRefreshToken = useRef(refreshToken)
+    const onRefreshSettledRef = useRef(onRefreshSettled)
+    onRefreshSettledRef.current = onRefreshSettled
 
     useEffect(() => {
         // The effect also runs for a filter change, and only a new token is a request to recalculate.
@@ -105,7 +107,7 @@ function CrossProjectTileInternal(
         const settle = (): void => {
             if (!settled) {
                 settled = true
-                onRefreshSettled?.(tile.id)
+                onRefreshSettledRef.current?.(tile.id)
             }
         }
         setLoading(true)
@@ -124,7 +126,7 @@ function CrossProjectTileInternal(
             // A filter change or an unmount drops this fetch, and the dashboard must not wait on it.
             settle()
         }
-    }, [tile.id, tile.project_id, tile.insight_id, filtersKey, refreshToken, onRefreshSettled])
+    }, [tile.id, tile.project_id, tile.insight_id, filtersKey, refreshToken])
 
     // Each tile answers from one project, so the project has to stay visible: without it two
     // tiles side by side read as one combined number. An unreachable insight gets no label,
