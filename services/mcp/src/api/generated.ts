@@ -108913,12 +108913,6 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export interface SentryFeedbackSignalExtra {
-      project_slug: string | null;
-      event_id: string | null;
-      date_created: string | null;
-    }
-
     export interface RootlyIncidentSignalExtra {
       status: string | null;
       severity_name: string | null;
@@ -108951,6 +108945,12 @@ export namespace Schemas {
       source: string | null;
       url: string | null;
       created_at: string | null;
+    }
+
+    export interface SentryFeedbackSignalExtra {
+      project_slug: string | null;
+      event_id: string | null;
+      date_created: string | null;
     }
 
     export interface SonarcloudScannerFindingSignalExtra {
