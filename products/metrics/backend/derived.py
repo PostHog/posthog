@@ -45,6 +45,7 @@ from products.metrics.backend.facade.enums import (
 from products.metrics.backend.metric_query_runner import (
     AttributeScope,
     _align_to_interval,
+    _bucket_time_text,
     _finite_or_none,
     _interval_expr,
     _interval_step,
@@ -373,7 +374,7 @@ class DerivedMetricQueryRunner:
         group_keys = [group.key for group in self.clause.group_by]
         return [
             {
-                "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
+                "time": _bucket_time_text(row[0], self.team.timezone_info),
                 "value": _finite_or_none(row[1 + len(group_keys)]),
                 "labels": {key: row[1 + index] for index, key in enumerate(group_keys)},
                 "series_fingerprints": [],

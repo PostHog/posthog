@@ -44,6 +44,11 @@ from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics
 STALE_NAN = struct.unpack("<d", struct.pack("<Q", STALE_NAN_BITS))[0]
 
 
+def _week_start(moment: dt.datetime, tzinfo: ZoneInfo) -> dt.datetime:
+    local = moment.astimezone(tzinfo)
+    return dt.datetime.combine(local.date() - dt.timedelta(days=local.weekday()), dt.time(), tzinfo=tzinfo)
+
+
 @pytest.mark.usefixtures("clickhouse_database")
 class TestAlignToInterval(ClickhouseTestMixin, SimpleTestCase):
     @parameterized.expand(
@@ -329,6 +334,25 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(rows[0]["value"], 3.0)
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, bucket_start)
+
+    def test_week_buckets_are_iso_datetimes_at_project_midnight(self):
+        # ClickHouse returns week buckets as dates, which the response schema rejects.
+        self.team.timezone = "Asia/Kolkata"
+        self.team.save()
+        point = timezone.now().replace(microsecond=0) - dt.timedelta(days=1)
+        seed_metric(team_id=self.team.id, metric_name="m1", points=[(point, 3.0)])
+
+        rows = self.runner_class(
+            team=self.team,
+            metric_name="m1",
+            aggregation="sum",
+            date_from=point - dt.timedelta(hours=1),
+            date_to=point + dt.timedelta(hours=1),
+            interval="week",
+        ).run()
+
+        week_start = _week_start(point, ZoneInfo("Asia/Kolkata"))
+        self.assertEqual([(row["time"], row["value"]) for row in rows], [(week_start.isoformat(), 3.0)])
 
     def test_synthetic_original_timestamp_does_not_split_a_series(self):
         anchor = timezone.now().replace(second=0, microsecond=0)
@@ -1872,6 +1896,14 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(rows[0]["value"], 0.3)
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
+
+    def test_week_buckets_are_iso_datetimes(self):
+        self._seed_histogram([(self.anchor, [10, 10, 10, 0])], temporality="delta")
+        rows = self._run(0.5, date_from=self.anchor - dt.timedelta(hours=1), interval="week")
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["time"], _week_start(self.anchor, ZoneInfo("UTC")).isoformat())
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
 
     def test_unaligned_date_from_keeps_the_first_buckets_full_distribution(self):
         # Include growth from the first partial bucket.

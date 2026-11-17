@@ -377,6 +377,15 @@ def _resolve_interval(date_from: dt.datetime, date_to: dt.datetime, interval: st
     return names[index]
 
 
+def _bucket_time_text(value: Any, tzinfo: ZoneInfo) -> Any:
+    if isinstance(value, dt.datetime):
+        return value.isoformat()
+    if isinstance(value, dt.date):
+        # ClickHouse returns week buckets as dates. Use project midnight so every time in a grid has one format.
+        return dt.datetime.combine(value, dt.time(), tzinfo=tzinfo).isoformat()
+    return value
+
+
 def _interval_expr(name: str) -> ast.Call:
     for entry_name, _, expr in _INTERVAL_LADDER:
         if entry_name == name:
@@ -761,7 +770,7 @@ class MetricQueryRunner:
         for row in response.results:
             rows.append(
                 {
-                    "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
+                    "time": _bucket_time_text(row[0], self.team.timezone_info),
                     "value": _finite_or_none(row[1 + group_count]),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
                     "series_fingerprints": row[2 + group_count],
@@ -794,7 +803,7 @@ class MetricQueryRunner:
                 continue
             rows.append(
                 {
-                    "time": key[0].isoformat() if isinstance(key[0], dt.datetime) else key[0],
+                    "time": _bucket_time_text(key[0], self.team.timezone_info),
                     "value": _finite_or_none(_histogram_quantile(self.quantile, bounds, counts)),
                     "labels": {group.key: key[1 + index] for index, group in enumerate(self.group_by)},
                     "series_fingerprints": sorted(merged.fingerprints),
