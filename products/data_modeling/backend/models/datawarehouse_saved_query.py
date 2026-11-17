@@ -506,7 +506,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @tracer.start_as_current_span("saved_query.infer_columns")
     def get_columns(
-        self, user: Optional["User"] = None, *, bypass_warehouse_access_control: bool = False
+        self,
+        user: Optional["User"] = None,
+        *,
+        bypass_warehouse_access_control: bool = False,
+        database: Database | None = None,
     ) -> dict[str, dict[str, Any]]:
         from products.data_modeling.backend.logic.describe_columns import (  # noqa: PLC0415 — keeps the heavy dep off the import path
             describe_query_columns,
@@ -523,6 +527,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     team=self.team,
                     user=user,
                     bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    database=database,
                 )
 
         return {

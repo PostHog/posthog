@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import RevenueAnalyticsEventItem
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
@@ -125,3 +126,16 @@ class TestViewColumnRefresh(ClickhouseTestMixin, BaseTest):
         assert changed == set()
         view.refresh_from_db()
         assert view.column_order == ["edited_id"]
+
+    def test_refresh_of_unchanged_views_builds_the_database_once(self) -> None:
+        views = [
+            self._create_view("upstream_view", "SELECT 1 AS id"),
+            self._create_view("middle_view", "SELECT * FROM upstream_view"),
+            self._create_view("downstream_view", "SELECT * FROM middle_view"),
+        ]
+
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            changed = refresh_view_columns(self.team, [view.id for view in views], self.user)
+
+        assert changed == set()
+        assert create_for.call_count == 1

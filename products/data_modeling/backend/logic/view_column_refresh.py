@@ -8,6 +8,8 @@ from django.utils import timezone
 import structlog
 from opentelemetry import trace
 
+from posthog.hogql.database.database import Database
+
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.uuidt import UUIDT
 
@@ -41,11 +43,15 @@ def refresh_view_columns(team: "Team", saved_query_ids: Collection[UUID | str], 
         .filter(team_id=team.pk, id__in=_saved_query_uuids(saved_query_ids), managed_viewset__isnull=True)
         .exclude(deleted=True)
     }
-    return {
-        view_id
-        for view_id in saved_query_ids_upstream_first(team.pk, set(views))
-        if _refresh_columns(views[view_id], user)
-    }
+    changed: set[UUID] = set()
+    database: Database | None = None
+    for view_id in saved_query_ids_upstream_first(team.pk, set(views)):
+        if database is None:
+            database = Database.create_for(team=team, user=user, bypass_warehouse_access_control=user is None)
+        if _refresh_columns(views[view_id], user, database):
+            changed.add(view_id)
+            database = None
+    return changed
 
 
 def views_updated_since(team: "Team", saved_query_ids: Collection[UUID | str], since: datetime) -> bool:
@@ -76,22 +82,22 @@ def _infers_masked_columns(team: "Team", user: "User | None") -> bool:
     return bool(get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk))
 
 
-def _refresh_columns(view: DataWarehouseSavedQuery, user: "User | None") -> bool:
+def _refresh_columns(view: DataWarehouseSavedQuery, user: "User | None", database: Database) -> bool:
     with tracer.start_as_current_span(
         "view_column_refresh.view", attributes={"saved_query_id": str(view.id)}
     ) as view_span:
-        columns_changed = _infer_and_store_columns(view, user)
+        columns_changed = _infer_and_store_columns(view, user, database)
         view_span.set_attribute("columns_changed", columns_changed)
         return columns_changed
 
 
-def _infer_and_store_columns(view: DataWarehouseSavedQuery, user: "User | None") -> bool:
+def _infer_and_store_columns(view: DataWarehouseSavedQuery, user: "User | None", database: Database) -> bool:
     # Inference uses the team's default modifiers, so a materialized upstream view is read from its backing table.
     # A query with useMaterializedViews=False reads that view's SQL instead. When the SQL changed and the view has
     # not materialized again, such a query can still fail on stale columns after this refresh. The refresh that
     # runs when materialization publishes the new backing table fixes it.
     try:
-        columns = view.get_columns(user=user, bypass_warehouse_access_control=user is None)
+        columns = view.get_columns(user=user, bypass_warehouse_access_control=user is None, database=database)
     except ConcurrencyLimitExceeded:
         raise
     except Exception:
