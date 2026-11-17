@@ -1905,8 +1905,9 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         if (!values.reviewsEnabled) {
             return
         }
-        // urlToAction has already set the tab from the URL here.
-        if (isReviewTab(values.activeTab)) {
+        // urlToAction has already set the tab from the URL here, and a tab change from the URL has
+        // already loaded the data.
+        if (isReviewTab(values.activeTab) && !values.reviewDataRequested) {
             actions.loadAll()
         }
         // One immediate list check on tab return. The poll's own interval is paused while hidden
