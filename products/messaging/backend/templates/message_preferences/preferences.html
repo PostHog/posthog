@@ -156,7 +156,6 @@
                             headers: {
                                 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
                             },
-                            signal: AbortSignal.timeout(15000),
                         })
 
                         const data = await response.json()
@@ -174,12 +173,7 @@
                         toggles.forEach(t => { t.checked = t.defaultChecked })
                         showTopicsForAllMarketing()
                         toggles.forEach(showSavedStatus)
-                        showToast(
-                            error.name === 'TimeoutError'
-                                ? 'Saving took too long. Try again.'
-                                : error.message || 'Failed to update preferences',
-                            true
-                        )
+                        showToast(error.message || 'Failed to update preferences', true)
                     } finally {
                         saveInFlight = false
                         form.removeAttribute('aria-busy')
