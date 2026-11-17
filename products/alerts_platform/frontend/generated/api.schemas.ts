@@ -1129,15 +1129,15 @@ export interface LogsPlatformAlertConfigurationCreateApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm?: number
     /**
@@ -1236,15 +1236,15 @@ export interface MetricsPlatformAlertConfigurationCreateApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm?: number
     /**
@@ -1257,6 +1257,11 @@ export interface MetricsPlatformAlertConfigurationCreateApi {
     labels?: MetricsPlatformAlertConfigurationCreateApiLabels
     /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
     annotations?: MetricsPlatformAlertConfigurationCreateApiAnnotations
+    /**
+     * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+     * @minimum 1
+     */
+    check_interval_minutes?: number
 }
 
 /**
@@ -1363,15 +1368,15 @@ export interface TracesPlatformAlertConfigurationCreateApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm?: number
     /**
@@ -1436,15 +1441,15 @@ export interface WarehouseDestinationPlatformAlertConfigurationCreateApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm?: number
     /**
@@ -1521,15 +1526,15 @@ export interface WarehouseSourcePlatformAlertConfigurationCreateApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm?: number
     /**
@@ -1672,15 +1677,15 @@ export interface InsightPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm: number
     /**
@@ -1735,15 +1740,15 @@ export interface LogsPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm: number
     /**
@@ -1798,15 +1803,15 @@ export interface MetricsPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm: number
     /**
@@ -1819,6 +1824,11 @@ export interface MetricsPlatformAlertConfigurationEditApi {
     labels?: MetricsPlatformAlertConfigurationEditApiLabels
     /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
     annotations?: MetricsPlatformAlertConfigurationEditApiAnnotations
+    /**
+     * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+     * @minimum 1
+     */
+    check_interval_minutes?: number
 }
 
 /**
@@ -1861,15 +1871,15 @@ export interface TracesPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm: number
     /**
@@ -1924,15 +1934,15 @@ export interface WarehouseDestinationPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm: number
     /**
@@ -1987,15 +1997,15 @@ export interface WarehouseSourcePlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm: number
     /**
@@ -2058,15 +2068,15 @@ export interface PatchedInsightPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm?: number
     /**
@@ -2121,15 +2131,15 @@ export interface PatchedLogsPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm?: number
     /**
@@ -2184,15 +2194,15 @@ export interface PatchedMetricsPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm?: number
     /**
@@ -2205,6 +2215,11 @@ export interface PatchedMetricsPlatformAlertConfigurationEditApi {
     labels?: PatchedMetricsPlatformAlertConfigurationEditApiLabels
     /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
     annotations?: PatchedMetricsPlatformAlertConfigurationEditApiAnnotations
+    /**
+     * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+     * @minimum 1
+     */
+    check_interval_minutes?: number
 }
 
 /**
@@ -2247,15 +2262,15 @@ export interface PatchedTracesPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm?: number
     /**
@@ -2310,15 +2325,15 @@ export interface PatchedWarehouseDestinationPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm?: number
     /**
@@ -2373,15 +2388,15 @@ export interface PatchedWarehouseSourcePlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 60
      */
     datapoints_to_alarm?: number
     /**

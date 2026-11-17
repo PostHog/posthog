@@ -1,10 +1,11 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { Avatar, AvatarFallback, Button, Card, CardContent, Text } from '@posthog/quill'
+import { Avatar, AvatarFallback, Card, CardContent, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { releaseLogic } from './releaseLogic'
+import { ReleaseOwnerPicker } from './ReleaseOwnerPicker'
 import { ReleaseRow } from './releaseUtils'
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
@@ -19,14 +20,15 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 }
 
 export function ReleaseDetailsCard({ row }: { row: ReleaseRow }): JSX.Element {
-    const { user, canEditReleases } = useValues(releaseLogic)
-    const { updateRelease } = useActions(releaseLogic)
+    const { canEditReleases } = useValues(releaseLogic)
 
     return (
         <Card size="sm" data-attr="release-details">
             <CardContent className="flex flex-col gap-1">
                 <DetailRow label="Owner">
-                    {row.owner ? (
+                    {canEditReleases ? (
+                        <ReleaseOwnerPicker row={row} />
+                    ) : row.owner ? (
                         <>
                             <Avatar size="xs">
                                 <AvatarFallback>{row.owner.first_name.charAt(0).toUpperCase()}</AvatarFallback>
@@ -35,19 +37,10 @@ export function ReleaseDetailsCard({ row }: { row: ReleaseRow }): JSX.Element {
                                 {row.owner.first_name}
                             </Text>
                         </>
-                    ) : !canEditReleases ? (
+                    ) : (
                         <Text size="xs" variant="muted">
                             No owner
                         </Text>
-                    ) : (
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            data-attr="release-assign"
-                            onClick={() => updateRelease(row.id, { owner_id: user?.id ?? null })}
-                        >
-                            Assign to me
-                        </Button>
                     )}
                 </DetailRow>
                 <DetailRow label="Created">

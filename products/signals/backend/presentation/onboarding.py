@@ -19,7 +19,7 @@ from posthog.exceptions import InsufficientScope
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission, get_authenticator_scopes
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.onboarding import (

@@ -434,13 +434,22 @@ impl PersonHogLeaderService {
 
         let started = Instant::now();
         let result = load_person_from_pg(&fallback.pool, &fallback.table, key).await;
-        histogram!("personhog_leader_person_load_duration_ms", "source" => "pg")
-            .record(started.elapsed().as_secs_f64() * 1000.0);
+        // A stub is a row the writer has not written yet, so no cache size could have held it.
+        let loaded = match &result {
+            Ok(Some(person)) if person.has_no_properties() => "stub",
+            Ok(Some(_)) => "existing",
+            Ok(None) | Err(_) => "none",
+        };
+        histogram!(
+            "personhog_leader_person_load_duration_ms",
+            "source" => "pg", "person" => loaded
+        )
+        .record(started.elapsed().as_secs_f64() * 1000.0);
         match result {
             Ok(Some(person)) => {
                 counter!(
                     "personhog_leader_person_loads_total",
-                    "source" => "pg", "outcome" => "ok"
+                    "source" => "pg", "outcome" => "ok", "person" => loaded
                 )
                 .increment(1);
                 record_pg_load_ages(&person, Utc::now().timestamp_millis());
