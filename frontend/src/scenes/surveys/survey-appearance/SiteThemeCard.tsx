@@ -104,16 +104,15 @@ function SiteCard({
         <>
             <div className="mb-1.5 flex h-14 w-full items-center justify-center rounded border text-2xl text-secondary">
                 {loading ? <Spinner /> : <IconBrowser />}
-            </div>
-            <span className="text-sm font-medium">Match my site</span>
-            <span className="text-xs text-muted">
-                <span role={onClick ? undefined : 'status'}>{description}</span>
                 {elapsedSeconds !== undefined && (
-                    <span aria-hidden className="tabular-nums">
-                        {' '}
-                        · {elapsedSeconds}s
+                    <span aria-hidden className="ml-2 text-xs tabular-nums">
+                        {elapsedSeconds}s
                     </span>
                 )}
+            </div>
+            <span className="text-sm font-medium">Match my site</span>
+            <span className="text-xs text-muted" role={onClick ? undefined : 'status'}>
+                {description}
             </span>
             {children}
         </>
