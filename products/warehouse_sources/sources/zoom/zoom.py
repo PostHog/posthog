@@ -18,6 +18,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     create_response_hooks,
+    frozen,
     make_parent_key_name,
     make_tracked_session,
     reach_safe_point,
@@ -57,6 +58,17 @@ _PER_PARENT_RESPONSE_ACTIONS: list[ResponseAction] = [
     {"status_code": 400, "action": "ignore"},
     {"status_code": 404, "action": "ignore"},
 ]
+
+# Zoom documents only 404 for a user without recordings (codes 1001 and 3301). Any 400, such as a
+# missing scope, must fail the sync instead of returning an empty table.
+_RECORDING_RESPONSE_ACTIONS: list[ResponseAction] = [
+    _PER_PARENT_RESPONSE_ACTIONS[0],
+    {"status_code": 404, "action": "ignore"},
+]
+# The users list defaults to active users, but deactivated users keep their cloud recordings.
+_RECORDING_USER_STATUSES = ("active", "inactive")
+# Appended to `share_url` or `play_url`, this passcode opens a protected recording.
+_RECORDING_SECRET_FIELDS = ("recording_play_passcode",)
 
 
 @dataclasses.dataclass(frozen=False)
@@ -253,12 +265,18 @@ def _next_month_start(day: date) -> date:
     return (day.replace(day=1) + timedelta(days=32)).replace(day=1)
 
 
-def month_windows(start: date, end: date) -> Iterator[tuple[date, date]]:
+@frozen
+class DateWindow:
+    start: date
+    end: date
+
+
+def month_windows(start: date, end: date) -> Iterator[DateWindow]:
     """Calendar-month windows from `start` to `end`, both inclusive. The first window starts at `start`."""
     current = start
     while current <= end:
         next_start = _next_month_start(current)
-        yield current, min(next_start - timedelta(days=1), end)
+        yield DateWindow(start=current, end=min(next_start - timedelta(days=1), end))
         current = next_start
 
 
@@ -307,20 +325,20 @@ def _report_users_rows(
     cursor = _as_date(last_value)
     start = max(earliest, _month_start(cursor)) if cursor else earliest
 
-    for window_start, window_end in month_windows(start, today):
+    for window in month_windows(start, today):
         for report_type in _REPORT_TYPES:
             params = {
                 "type": report_type,
-                "from": window_start.isoformat(),
-                "to": window_end.isoformat(),
+                "from": window.start.isoformat(),
+                "to": window.end.isoformat(),
                 "page_size": config.page_size,
             }
             for page in _pages(client, config.path, params, config.data_key):
                 yield [
                     {
                         **row,
-                        "period_start": window_start.isoformat(),
-                        "period_end": window_end.isoformat(),
+                        "period_start": window.start.isoformat(),
+                        "period_end": window.end.isoformat(),
                         "report_type": report_type,
                     }
                     for row in page
@@ -332,19 +350,32 @@ def _recordings_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     users = ZOOM_ENDPOINTS["users"]
     cursor = _as_date(last_value)
-    for user_page in _pages(client, users.path, {"page_size": users.page_size}, users.data_key):
-        for user in user_page:
-            user_id = user.get("id")
-            if not user_id:
-                continue
-            # No recording predates the user, so a first sync starts at the user's creation date.
-            start = _as_date(user.get("created_at")) or _EARLIEST_RECORDING_DATE
-            if cursor is not None:
-                start = max(start, cursor)
-            path = config.path.format(**{config.parent_param: quote(str(user_id), safe="")})
-            for window_start, window_end in month_windows(start, today):
-                params = {"from": window_start.isoformat(), "to": window_end.isoformat(), "page_size": config.page_size}
-                yield from _pages(client, path, params, config.data_key, _PER_PARENT_RESPONSE_ACTIONS)
+    for status in _RECORDING_USER_STATUSES:
+        user_params = {"status": status, "page_size": users.page_size}
+        for user_page in _pages(client, users.path, user_params, users.data_key):
+            for user in user_page:
+                user_id = user.get("id")
+                if not user_id:
+                    continue
+                # No recording predates the user, so a first sync starts at the user's creation date.
+                start = _as_date(user.get("created_at")) or _EARLIEST_RECORDING_DATE
+                if cursor is not None:
+                    start = max(start, cursor)
+                path = config.path.format(**{config.parent_param: quote(str(user_id), safe="")})
+                for window in month_windows(start, today):
+                    params = {
+                        "from": window.start.isoformat(),
+                        "to": window.end.isoformat(),
+                        "page_size": config.page_size,
+                    }
+                    for page in _pages(client, path, params, config.data_key, _RECORDING_RESPONSE_ACTIONS):
+                        yield [_without_secrets(row) for row in page]
+
+
+def _without_secrets(row: dict[str, Any]) -> dict[str, Any]:
+    for field_name in _RECORDING_SECRET_FIELDS:
+        row.pop(field_name, None)
+    return row
 
 
 _WINDOWED_ITERATORS: dict[

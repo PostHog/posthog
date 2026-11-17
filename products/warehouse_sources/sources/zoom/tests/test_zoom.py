@@ -268,7 +268,7 @@ class TestMonthlyWindowRows:
         ],
     )
     def test_month_windows(self, start: dt.date, end: dt.date, expected: list[tuple[str, str]]) -> None:
-        assert [(a.isoformat(), b.isoformat()) for a, b in month_windows(start, end)] == expected
+        assert [(w.start.isoformat(), w.end.isoformat()) for w in month_windows(start, end)] == expected
 
     @pytest.mark.parametrize(
         "inputs,expected_starts",
@@ -339,23 +339,25 @@ class TestMonthlyWindowRows:
         self, inputs: dict[str, Any], expected_u1_ranges: list[tuple[str, str]]
     ) -> None:
         recording = {"uuid": "rec==", "start_time": "2026-11-05T10:00:00Z", "total_size": 1024}
-        users = [
-            {"id": "u1", "created_at": "2026-09-20T08:00:00Z"},
-            # A user without cloud recording gets a 400 from Zoom and is skipped.
-            {"id": "u2", "created_at": "2026-11-10T08:00:00Z"},
-        ]
+        users_by_status = {
+            "active": [{"id": "u1", "created_at": "2026-09-20T08:00:00Z"}],
+            # A deactivated user keeps their recordings; this one has none, which Zoom answers with a 404.
+            "inactive": [{"id": "u2", "created_at": "2026-11-10T08:00:00Z"}],
+        }
 
         def respond(request: RecordedRequest) -> ScriptedResponse:
             if request.path == "/oauth/token":
                 return _TOKEN
             if request.path == "/v2/users":
-                return ScriptedResponse(json={"users": users, "next_page_token": ""})
+                return ScriptedResponse(json={"users": users_by_status[request.param("status")], "next_page_token": ""})
             if request.path == "/v2/users/u2/recordings":
-                return ScriptedResponse(status=400, json={"code": 3301, "message": "Cloud recording not enabled."})
+                return ScriptedResponse(status=404, json={"code": 3301, "message": "There is no recording."})
             assert request.path == "/v2/users/u1/recordings", f"unexpected request {request.url}"
             if request.param("from") == "2026-11-01" or request.param("from") == "2026-11-03":
                 if request.param("next_page_token") is None:
-                    return ScriptedResponse(json={"meetings": [recording], "next_page_token": "t1"})
+                    return ScriptedResponse(
+                        json={"meetings": [{**recording, "recording_play_passcode": "pass"}], "next_page_token": "t1"}
+                    )
                 return ScriptedResponse(json={"meetings": [{**recording, "uuid": "rec2=="}], "next_page_token": ""})
             return ScriptedResponse(json={"meetings": [], "next_page_token": ""})
 
@@ -365,8 +367,26 @@ class TestMonthlyWindowRows:
             r for r in result.requests if r.path == "/v2/users/u1/recordings" and r.param("next_page_token") is None
         ]
         assert [(r.param("from"), r.param("to")) for r in u1_first_pages] == expected_u1_ranges
-        assert [row["uuid"] for row in result.rows] == ["rec==", "rec2=="]
+        assert result.rows == [recording, {**recording, "uuid": "rec2=="}]
+        assert "/v2/users/u2/recordings" in result.paths
         assert result.raised is None
+
+    def test_recordings_fail_on_missing_scope_instead_of_returning_nothing(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return _TOKEN
+            if request.path == "/v2/users":
+                return ScriptedResponse(
+                    json={"users": [{"id": "u1", "created_at": "2026-11-01T08:00:00Z"}], "next_page_token": ""}
+                )
+            return ScriptedResponse(
+                status=400, json={"code": 4711, "message": "Invalid access token, does not contain scopes."}
+            )
+
+        result = _driver().run("recordings", respond)
+
+        assert result.raised is not None
+        assert result.rows == []
 
 
 class TestZoomSourceResponse:
