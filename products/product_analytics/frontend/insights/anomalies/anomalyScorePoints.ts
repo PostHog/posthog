@@ -60,3 +60,18 @@ export function buildAnomalyScorePoints(
     }
     return points
 }
+
+/** Groups indices into inclusive `[start, end]` runs of neighbours, so adjacent buckets shade as one band. */
+export function contiguousRuns(indices: number[]): [number, number][] {
+    const sorted = [...new Set(indices)].sort((a, b) => a - b)
+    const runs: [number, number][] = []
+    for (const index of sorted) {
+        const last = runs[runs.length - 1]
+        if (last && index === last[1] + 1) {
+            last[1] = index
+        } else {
+            runs.push([index, index])
+        }
+    }
+    return runs
+}

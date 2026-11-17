@@ -3,7 +3,7 @@ import { CompareLabelType } from '~/types'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 import type { AnomalyBucketApi, AnomalyInsightSeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { buildAnomalyScorePoints } from './anomalyScorePoints'
+import { buildAnomalyScorePoints, contiguousRuns } from './anomalyScorePoints'
 
 function makeResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {
     return {
@@ -43,8 +43,8 @@ function makeScored(overrides: Partial<AnomalyInsightSeriesApi> = {}): AnomalyIn
     } as AnomalyInsightSeriesApi
 }
 
-describe('buildAnomalyScorePoints', () => {
-    it('marks only the flagged buckets that the chart shows', () => {
+describe('anomalyScorePoints', () => {
+    it('buildAnomalyScorePoints marks only the flagged buckets that the chart shows', () => {
         const scored = makeScored({
             buckets: [
                 makeBucket('2026-11-13T00:00:00+00:00', true),
@@ -85,5 +85,13 @@ describe('buildAnomalyScorePoints', () => {
         expect(buildAnomalyScorePoints([scored], results).map((point) => point.seriesIndex)).toEqual(
             expected === null ? [] : [expected]
         )
+    })
+
+    it('joins neighbouring flagged buckets into one run', () => {
+        expect(contiguousRuns([7, 3, 4, 4, 9, 5])).toEqual([
+            [3, 5],
+            [7, 7],
+            [9, 9],
+        ])
     })
 })
