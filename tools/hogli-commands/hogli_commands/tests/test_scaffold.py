@@ -9,7 +9,7 @@ from hogli_commands.product.scaffold import _render_template, flatten_structure
 
 def _write_scaffold(product_dir: Path) -> None:
     # Renders every template like bootstrap_product does, minus the repo-file edits
-    # (tach.toml, settings, db routing) that must not run inside a test.
+    # (settings, frontend package.json, db routing) that must not run inside a test.
     structure = load_structure()
     for path, config in flatten_structure(structure.get("root_files", {})).items():
         if not config.get("scaffold", True):
