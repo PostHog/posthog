@@ -3,7 +3,7 @@ import { dayjs } from 'lib/dayjs'
 import type { EvaluationBackfillApi } from '../generated/api.schemas'
 import {
     backfillCoveredCount,
-    backfillIsWaitingToStart,
+    backfillIsWaitingForProgress,
     backfillLateArrivalCount,
     backfillLiveCoveredCount,
     backfillRangeDateFormat,
@@ -24,8 +24,8 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
 
 describe('backfillConditions', () => {
     it.each([
-        ['a running backfill before any work', {}, true],
-        ['a legacy backfill before any work', { completed_count: null }, true],
+        ['a running backfill with no reported progress', {}, true],
+        ['a legacy backfill with no reported progress', { completed_count: null }, true],
         ['a backfill with dispatched evaluations', { dispatched_count: 1 }, false],
         ['a backfill skipping already handled units', { skipped_count: 1 }, false],
         ['a backfill with completed evaluations', { completed_count: 1 }, false],
@@ -35,10 +35,10 @@ describe('backfillConditions', () => {
         ['a cancelled backfill', { status: 'cancelled' }, false],
         ['an interrupted backfill', { status: 'interrupted' }, false],
     ] satisfies [string, Partial<EvaluationBackfillApi>, boolean][])(
-        'identifies whether %s is waiting to start',
+        'identifies whether %s is waiting for progress',
         (_name, overrides, expected) => {
             expect(
-                backfillIsWaitingToStart(
+                backfillIsWaitingForProgress(
                     backfill({
                         status: 'running',
                         dispatched_count: 0,

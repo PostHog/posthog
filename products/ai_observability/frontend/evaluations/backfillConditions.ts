@@ -46,8 +46,8 @@ function backfillHandledCount(backfill: EvaluationBackfillApi): number {
         : backfill.dispatched_count
 }
 
-export function backfillIsWaitingToStart(backfill: EvaluationBackfillApi): boolean {
-    // boffin: Skipping units is progress even when no evaluation has been dispatched.
+export function backfillIsWaitingForProgress(backfill: EvaluationBackfillApi): boolean {
+    // boffin: Zero counters can persist while the first batch runs.
     return (
         backfill.status === 'running' &&
         backfill.dispatched_count === 0 &&
