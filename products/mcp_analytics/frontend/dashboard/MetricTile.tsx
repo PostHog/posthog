@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { type ChartTheme } from '@posthog/quill-charts'
 import {
@@ -17,6 +17,7 @@ import { formatBucketLabel } from 'lib/utils/timeBuckets'
 
 import { IntervalType } from '~/types'
 
+import { dimWhileLoading } from '../components/loadingFeedback'
 import { CardError } from './Card'
 import { SKELETON_COLOR, SKELETON_TRACK_COLOR } from './ChartSkeleton'
 
@@ -68,12 +69,20 @@ export function MetricTile({
     sparklineDashedFromIndex,
     className,
 }: MetricTileProps): JSX.Element {
+    const settled = !loading && !failed
+    const [hasShownValue, setHasShownValue] = useState(settled)
+    useEffect(() => {
+        if (settled) {
+            setHasShownValue(true)
+        }
+    }, [settled])
+    const showSkeleton = loading && !hasShownValue
     const hasSparkline = data != null && data.length > 0
-    const flush = sparklineHeight != null || (!loading && !failed && hasSparkline)
+    const flush = sparklineHeight != null || (!showSkeleton && !failed && hasSparkline)
     // A stable identity per interval, so `Metric`'s memoized context does not rebuild every render.
     const formatLabel = useMemo(() => (label: string) => formatBucketLabel(label, interval), [interval])
     return (
-        <Card size="sm" flush={flush} className={cn('flex-1', className)}>
+        <Card size="sm" flush={flush} className={cn('flex-1', className)} aria-busy={loading}>
             {failed ? (
                 <div className="grid flex-1 px-3">
                     <div className="invisible col-start-1 row-start-1" aria-hidden>
@@ -86,13 +95,13 @@ export function MetricTile({
                         </div>
                     </div>
                 </div>
-            ) : loading ? (
+            ) : showSkeleton ? (
                 <div className="px-3">
                     <MetricTileSkeleton sparklineHeight={sparklineHeight} />
                 </div>
             ) : (
                 <Metric
-                    className="px-3 text-primary"
+                    className={cn('px-3 text-primary', dimWhileLoading(loading))}
                     value={value}
                     data={hasSparkline ? data : undefined}
                     labels={hasSparkline ? labels : undefined}
