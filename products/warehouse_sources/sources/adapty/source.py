@@ -65,7 +65,7 @@ class AdaptySource(ResumableSource[AdaptySourceConfig, AdaptyResumeConfig]):
             caption="Import daily reports and paywalls for one Adapty app. Reports use UTC and exclude the current day.",
             docsUrl="https://posthog.com/docs/cdp/sources/adapty",
             iconPath="/static/services/adapty.png",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from contextlib import suppress
 from datetime import datetime
 from typing import Any, Literal
 
@@ -54,6 +53,32 @@ def get_cohort_ref(*, team_id: int, cohort_id: int) -> CohortRef | None:
         is_static=cohort.is_static,
         deleted=cohort.deleted,
     )
+
+
+def find_cohort_ref_by_description(*, team_id: int, description: str) -> CohortRef | None:
+    """The oldest cohort with this description, deleted or not, so an import can respect a cohort someone deleted."""
+    cohort = (
+        Cohort.objects.filter(team_id=team_id, description=description)
+        .only("id", "team_id", "created_by_id", "is_static", "deleted")
+        .order_by("id")
+        .first()
+    )
+    if cohort is None:
+        return None
+    return CohortRef(
+        id=cohort.id,
+        team_id=cohort.team_id,
+        created_by_id=cohort.created_by_id,
+        is_static=cohort.is_static,
+        deleted=cohort.deleted,
+    )
+
+
+def create_empty_static_cohort(*, team_id: int, name: str, description: str, created_by_id: int) -> CohortRef:
+    cohort = Cohort.objects.create(
+        team_id=team_id, name=name, description=description, is_static=True, count=0, created_by_id=created_by_id
+    )
+    return CohortRef(id=cohort.id, team_id=cohort.team_id, created_by_id=created_by_id, is_static=True, deleted=False)
 
 
 def add_person_to_static_cohort(*, team_id: int, cohort_id: int, person_uuid: str) -> bool:
@@ -257,7 +282,7 @@ def create_cohort_from_filters(
     from posthog.models import User
     from posthog.models.activity_logging.activity_log import Detail, log_activity
 
-    from products.cohorts.backend.cohort_enablement import RealtimeTurnOnRefused, turn_realtime_on
+    from products.cohorts.backend.cohort_enablement import RealtimeLimitReached, RealtimeTurnOnRefused, turn_realtime_on
 
     team = Team.objects.get(id=team_id)
     user = User.objects.get(id=user_id)
@@ -276,8 +301,23 @@ def create_cohort_from_filters(
     cohort.enqueue_calculation(initiating_user=user)
     if cohort.cohort_type == CohortType.REALTIME:
         # Only the new cohort may be turned on, so a cohort its filters include stays as its owner left it.
-        with suppress(RealtimeTurnOnRefused):
+        try:
             turn_realtime_on(team_id, cohort.id, can_edit=lambda each: each.id == cohort.id)
+        except RealtimeLimitReached as error:
+            report_user_action(
+                user,
+                "cohort realtime limit reached",
+                {
+                    **cohort.get_analytics_metadata(),
+                    "limit": error.limit,
+                    "allowed": error.allowed,
+                    "used": error.used,
+                    "source": "workflow_import",
+                },
+                team=team,
+            )
+        except RealtimeTurnOnRefused:
+            pass
         cohort.refresh_from_db(fields=["realtime_enabled_at"])
     report_user_action(user, "cohort created", cohort.get_analytics_metadata(), team=team)
     log_activity(

@@ -192,6 +192,7 @@ export interface cohortEditLogicActions {
         existingCohort: CohortType
         newCohort: CohortType
     } // eventUsageLogic
+    refreshCurrentTeam: () => any // teamLogic
     addFilter: (groupIndex?: number) => {
         groupIndex: number | undefined
     }
@@ -619,6 +620,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     connect(() => ({
         values: [teamLogic, ['currentProjectId'], preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
         actions: [
+            teamLogic,
+            ['refreshCurrentTeam'],
             eventUsageLogic,
             ['reportExperimentExposureCohortEdited'],
             cohortBlockingWorkflowsModalLogic,
@@ -949,6 +952,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     case 'needs_attention':
                         return 'turn_off'
                     case 'person_properties':
+                        // A cohort that is on counts against the plan's limit, so anyone who sees it can turn it off.
+                        if (cohort.realtime_enabled) {
+                            return 'turn_off'
+                        }
                         // Flags read person criteria straight off the person, so only workflows read this
                         // cohort's realtime membership. A cohort whose criteria can't be realtime can't be turned on.
                         if (
@@ -957,7 +964,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         ) {
                             return null
                         }
-                        return cohort.realtime_enabled ? 'turn_off' : 'turn_on'
+                        return 'turn_on'
                     default:
                         return null
                 }
@@ -1078,6 +1085,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 cohortFormData as Partial<CohortType>
                             )
                             cohortsModel.actions.updateCohort(savedCohort)
+                            // Saving the criteria of a cohort that is on can turn on the cohorts they include, and the
+                            // usage line reads `cohorts_used` from the current team, so reload it.
+                            if (savedCohort.realtime_enabled) {
+                                actions.refreshCurrentTeam()
+                            }
 
                             if (
                                 !csvOnlyFormData &&
@@ -1101,10 +1113,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.cohortCreated(cohort)
                             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpCohorts)
-                            if (cohortFormData.get('realtime_enabled') && !cohort.realtime_enabled) {
-                                lemonToast.warning(
-                                    "The cohort was saved, but realtime couldn't be turned on for it. Its page says why."
-                                )
+                            if (cohortFormData.get('realtime_enabled')) {
+                                // The usage line reads `cohorts_used` from the current team, so reload it.
+                                actions.refreshCurrentTeam()
+                                if (!cohort.realtime_enabled) {
+                                    lemonToast.warning(
+                                        "The cohort was saved, but realtime couldn't be turned on for it. Its page says why."
+                                    )
+                                }
                             }
                         }
                     } catch (error: any) {
@@ -1487,6 +1503,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             }
             cache.realtimeReadinessGeneration = (cache.realtimeReadinessGeneration ?? 0) + 1
             actions.armRealtimeReadinessPoll()
+            // Turning one cohort on can turn on the cohorts it includes, and the usage line reads `cohorts_used` from the
+            // current team, so reload it.
+            actions.refreshCurrentTeam()
+        },
+        // A refusal at the plan's limit can come from usage that changed since the team loaded.
+        switchRealtimeFailure: () => {
+            actions.refreshCurrentTeam()
         },
         // Both entry points already carry a fresh readiness, the fetch from the page load and the
         // save from its own response, so they only have to start the clock. Bumping the generation

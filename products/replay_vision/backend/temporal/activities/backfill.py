@@ -165,6 +165,18 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         record_backfill_tick_outcome("throttled")
         return FindBackfillCandidatesOutput(candidates=[], more_work_below_cursor=True)
 
+    # The quoted count is the backfill's credit ceiling, so it caps dispatches even when the candidate set
+    # grows after the quote, as it does for a backfill quoted under a since-retired quality filter.
+    remaining = max(0, backfill.total_count - backfill.dispatched_count - backfill.skipped_count)
+    if remaining == 0:
+        # The advance matches on the starting cursor, so the completing output must carry it.
+        return FindBackfillCandidatesOutput(
+            candidates=[],
+            started_from_cursor_end_time=backfill.cursor_end_time,
+            started_from_cursor_session_id=backfill.cursor_session_id,
+            more_work_below_cursor=False,
+        )
+
     snapshot = BackfillScannerSnapshot.load_for_backfill(backfill.id, backfill.scanner_snapshot)
     try:
         query = RecordingsQuery.model_validate({**snapshot.query, "kind": "RecordingsQuery"})
@@ -198,7 +210,6 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         # Same salt as the live sweep, so a sampled scanner backfills the same deterministic bucket it scans live.
         sampling_salt=str(backfill.scanner_id),
         scanner_id=str(backfill.scanner_id),
-        sampling_mode=snapshot.sampling_mode,
         cursor_end_time=backfill.cursor_end_time,
         cursor_session_id=backfill.cursor_session_id or None,
         candidate_limit=inputs.candidate_limit,
@@ -248,6 +259,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     # cursor steps over it exactly like an excluded session.
     stuck = read_stuck_session_ids(inputs.team_id, [c.session_id for c in unobserved])
     dispatchable = [c for c in unobserved if c.session_id not in excluded and c.session_id not in stuck]
+    dispatchable = dispatchable[:remaining]
     # Only sessions the live sweep reached after this backfill was quoted were in its total, so only those
     # count as work done; earlier successes were already excluded at creation.
     overtaken = {
@@ -299,8 +311,11 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         next_cursor_end_time=walked_to.session_end if walked_to else None,
         next_cursor_session_id=walked_to.session_id if walked_to else "",
         # Held-back candidates are still work below the cursor, so a truncated batch must not look
-        # like a drained window; that would complete the backfill with sessions left unscanned.
-        more_work_below_cursor=len(candidates) == inputs.candidate_limit or truncated_by_caps,
+        # like a drained window; that would complete the backfill with sessions left unscanned. A batch
+        # that spends the rest of the quote completes it now, because the next tick's quota gate could
+        # otherwise hold the finished backfill active.
+        more_work_below_cursor=(len(candidates) == inputs.candidate_limit or truncated_by_caps)
+        and admitted + skipped < remaining,
     )
 
 
