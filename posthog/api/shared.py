@@ -24,6 +24,24 @@ from posthog.models.project import Project
 tracer = trace.get_tracer(__name__)
 
 
+class ImageSizeSerializer(serializers.Serializer):
+    width = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=320,
+        max_value=4000,
+        help_text="Output width in pixels, from 320 to 4000. Omit or use null for automatic width.",
+    )
+    height = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=200,
+        max_value=5000,
+        help_text="Output height in pixels, from 200 to 5000. Omit or use null for automatic height. "
+        "Content fits inside the requested size without stretching or cropping.",
+    )
+
+
 # Adds the read-only `search_match_type` field to a saved-list serializer whose viewset runs
 # `apply_trigram_search`. The helper annotates each matched row with `_is_exact`; this surfaces it
 # as `exact` / `similar`, and strips the field entirely when the list was not filtered by `search`
