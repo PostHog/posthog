@@ -43,6 +43,42 @@ CREATE TABLE posthog.kafka_events_json_native_json (
   dmat_string_9 Nullable(String),
   captured_at Nullable(DateTime64(6, 'UTC'))
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_events_json_native_json', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_events_json';
+CREATE TABLE posthog.kafka_events_json_recent (
+  uuid UUID,
+  event String,
+  properties String CODEC(ZSTD(3)),
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  elements_chain String,
+  created_at DateTime64(6, 'UTC'),
+  person_id UUID,
+  person_created_at DateTime64(3),
+  person_properties String CODEC(ZSTD(3)),
+  group0_properties String CODEC(ZSTD(3)),
+  group1_properties String CODEC(ZSTD(3)),
+  group2_properties String CODEC(ZSTD(3)),
+  group3_properties String CODEC(ZSTD(3)),
+  group4_properties String CODEC(ZSTD(3)),
+  group0_created_at DateTime64(3),
+  group1_created_at DateTime64(3),
+  group2_created_at DateTime64(3),
+  group3_created_at DateTime64(3),
+  group4_created_at DateTime64(3),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
+  historical_migration Bool,
+  dmat_string_0 Nullable(String),
+  dmat_string_1 Nullable(String),
+  dmat_string_2 Nullable(String),
+  dmat_string_3 Nullable(String),
+  dmat_string_4 Nullable(String),
+  dmat_string_5 Nullable(String),
+  dmat_string_6 Nullable(String),
+  dmat_string_7 Nullable(String),
+  dmat_string_8 Nullable(String),
+  dmat_string_9 Nullable(String),
+  captured_at Nullable(DateTime64(6, 'UTC'))
+) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_events_json_recent', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.kafka_logs_avro (
   uuid String,
   trace_id String,
@@ -314,11 +350,89 @@ CREATE TABLE posthog.writable_person_group_membership (
   first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
   last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
-CREATE MATERIALIZED VIEW posthog.events_json_recent_mv TO posthog.writable_events_json_recent (uuid UUID, event String, properties String, temporary_properties String, properties_null_keys Array(LowCardinality(String)), temporary_properties_null_keys Array(LowCardinality(String)), timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), _timestamp DateTime, _offset UInt64, elements_chain String, person_id UUID, person_properties String, person_properties_null_keys Array(LowCardinality(String)), group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, person_created_at DateTime64(3), group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), inserted_at DateTime64(6, 'UTC'), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), consumer_breadcrumbs Array(String), historical_migration Bool, total_event_size UInt32, captured_at DateTime64(6, 'UTC'), _partition UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.events_json_recent_mv TO posthog.writable_events_json_recent (uuid UUID, event String, properties String, temporary_properties String, properties_null_keys Array(String), temporary_properties_null_keys Array(String), inserted_at DateTime64(3), timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, person_properties_null_keys Array(String), person_created_at DateTime64(3), group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, captured_at DateTime64(6, 'UTC'), _timestamp DateTime, _offset UInt64, _partition UInt64, consumer_breadcrumbs Array(String), total_event_size UInt32) AS SELECT
   * REPLACE(toJSONString(properties) AS properties, toJSONString(temporary_properties) AS temporary_properties, toJSONString(person_properties) AS person_properties)
-FROM posthog.writable_events_json
+FROM
+  (
+    SELECT
+      *,
+      accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+    FROM
+      (
+        SELECT
+          uuid,
+          event,
+          ifNull(
+            accurateCastOrNull(
+              cleaned.properties,
+              'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)'
+            ),
+            CAST(concat('{"$unparseable_properties":', toJSONString(source.properties), '}'), 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)')
+          ) AS properties,
+          ifNull(
+            accurateCastOrNull(cleaned.temporary_properties, 'JSON(max_dynamic_paths = 32)'),
+            CAST('{}', 'JSON(max_dynamic_paths = 32)')
+          ) AS temporary_properties,
+          cleaned.properties_null_keys AS properties_null_keys,
+          cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
+          now64() AS inserted_at,
+          timestamp,
+          team_id,
+          distinct_id,
+          elements_chain,
+          created_at,
+          person_id,
+          ifNull(
+            accurateCastOrNull(
+              cleaned.person_properties,
+              'JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))'
+            ),
+            CAST(concat('{"$unparseable_properties":', toJSONString(source.person_properties), '}'), 'JSON(max_dynamic_paths = 256, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$device_type` LowCardinality(String), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$initial_browser` LowCardinality(String), `$initial_browser_language` LowCardinality(String), `$initial_browser_version` LowCardinality(String), `$initial_device_type` LowCardinality(String), `$initial_geoip_city_name` LowCardinality(String), `$initial_geoip_continent_code` LowCardinality(String), `$initial_geoip_continent_name` LowCardinality(String), `$initial_geoip_country_code` LowCardinality(String), `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_time_zone` LowCardinality(String), `$initial_os` LowCardinality(String), `$initial_os_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String))')
+          ) AS person_properties,
+          cleaned.person_properties_null_keys AS person_properties_null_keys,
+          person_created_at,
+          group0_properties,
+          group1_properties,
+          group2_properties,
+          group3_properties,
+          group4_properties,
+          group0_created_at,
+          group1_created_at,
+          group2_created_at,
+          group3_created_at,
+          group4_created_at,
+          person_mode,
+          historical_migration,
+          coalesce(captured_at, created_at) AS captured_at,
+          _timestamp,
+          _offset,
+          _partition,
+          consumer_breadcrumbs
+        FROM
+          (
+            SELECT
+              *,
+              _timestamp,
+              _offset,
+              _partition,
+              arrayMap(
+                i -> (_headers.value[i]),
+                arrayFilter(
+                  i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+                  arrayEnumerate(_headers.name)
+                )
+              ) AS consumer_breadcrumbs,
+              JSONCleanPostHogEvent(properties, person_properties) AS cleaned
+            FROM posthog.kafka_events_json_recent
+            WHERE event != '$feature_flag_called'
+          ) AS source
+      )
+  )
 SETTINGS
+  input_format_try_infer_dates = 0,
+  input_format_try_infer_datetimes = 0,
   json_type_escape_dots_in_keys = 1,
+  type_json_skip_duplicated_paths = 1,
   output_format_json_escape_forward_slashes = 0;
 CREATE MATERIALIZED VIEW posthog.events_json_table_mv TO posthog.writable_events_json (uuid UUID, event String, properties String, temporary_properties String, inserted_at DateTime64(3), timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, person_created_at DateTime64(3), group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, captured_at DateTime64(6, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64, consumer_breadcrumbs Array(String), total_event_size UInt32) AS SELECT
   *,
