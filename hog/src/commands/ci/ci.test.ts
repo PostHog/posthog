@@ -2,6 +2,7 @@ import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { z } from 'zod'
 
 import * as providers from '@/ci/providers/registry'
+import { EXIT_NEEDS_PERSON, EXIT_SUCCESS } from '@/core/errors'
 import { FAKE_WORKLOAD_PROVIDER, readJson, runHog, TEST_CREDENTIALS, type FakeRuntimeOptions } from '@/testing'
 
 mock.module('@/ci/providers/registry', () => ({ ...providers, WORKLOAD_PROVIDERS: [FAKE_WORKLOAD_PROVIDER] }))
@@ -115,7 +116,7 @@ describe('hog ci setup', () => {
             }
         )
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(run.requests.find((request) => request.url === REQUESTS)?.body).toEqual({
             name: 'Acme/Web on Fake CI',
             issuer: 'https://ci.example.com',
@@ -138,7 +139,12 @@ describe('hog ci setup', () => {
     })
 
     test.each([
-        ['an admin waits at the terminal until they approve it', true, 'Approved.', 2],
+        [
+            'an admin waits at the terminal until they approve it',
+            true,
+            'Fake CI jobs can now use hog in this project',
+            2,
+        ],
         [
             'a member gets the link to send an admin and does not wait',
             false,
@@ -151,7 +157,7 @@ describe('hog ci setup', () => {
             respond: policyApi({ canApprove, pendingPolls: 1 }),
         })
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(canApprove ? EXIT_SUCCESS : EXIT_NEEDS_PERSON)
         expect(run.stdout).toContain(shown)
         expect(run.stdout).toContain('the job also needs HOG_HOST=https://ph.example.com')
         expect(run.requests.filter((request) => request.url === `${REQUESTS}req-1/`)).toHaveLength(polls)
@@ -166,7 +172,7 @@ describe('hog ci setup', () => {
             respond: policyApi({ pendingPolls: 2 }),
         })
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(EXIT_SUCCESS)
         expect(run.json(z.object({ status: z.string(), policyId: z.string() }).loose())).toMatchObject({
             status: 'approved',
             policyId: 'pol-1',
@@ -194,7 +200,7 @@ describe('hog ci setup', () => {
         const api = policyApi({ final: lastStatus })
         const run = await setup(args([...presets].reverse()), { files: first.files, respond: api })
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(run.requests.filter((request) => request.url === REQUESTS && request.method === 'POST')).toHaveLength(
             created - 1
         )
@@ -207,7 +213,7 @@ describe('hog ci setup', () => {
 
         const run = await runHog(['ci', 'setup', '--wait'], { env: TEST_CREDENTIALS, files, respond: policyApi() })
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(EXIT_SUCCESS)
         expect(PENDING_FILE in run.files).toBe(false)
     })
 
@@ -232,7 +238,7 @@ describe('hog ci setup', () => {
                 url === `${REQUESTS}providers/` ? { status: 503, body: { detail: 'Unavailable.' } } : policyApi()(url),
         })
 
-        expect(run.exitCode).not.toBe(0)
+        expect(run.exitCode).not.toBe(EXIT_SUCCESS)
         expect(PENDING_FILE in run.files).toBe(true)
     })
 
@@ -278,7 +284,7 @@ describe('hog ci setup', () => {
     ])('stops before asking PostHog when it has %s', async (_name, args, files, code) => {
         const run = await setup(args, { files, respond: policyApi() })
 
-        expect(run.exitCode).not.toBe(0)
+        expect(run.exitCode).not.toBe(EXIT_SUCCESS)
         expect(run.error().code).toBe(code)
         expect(run.requests.some((request) => request.url === REQUESTS)).toBe(false)
     })
@@ -286,7 +292,7 @@ describe('hog ci setup', () => {
     test("without a preset, an agent gets the choices with PostHog's explanations and nothing is requested", async () => {
         const run = await setup(['--scope', 'query:read'], { respond: policyApi() })
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(EXIT_SUCCESS)
         expect(run.json()).toEqual({
             status: 'input_required',
             provider: 'Fake CI',
@@ -317,7 +323,7 @@ describe('hog ci setup', () => {
             respond: policyApi(),
         })
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(
             (run.requests.find((request) => request.url === REQUESTS)?.body as { conditions?: unknown } | undefined)
                 ?.conditions
@@ -376,7 +382,7 @@ describe('hog ci setup', () => {
             respond: policyApi(),
         })
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(JSON.stringify(run.requests)).not.toContain('secret')
         expect(run.requests.find((request) => request.url.includes('resolve_subject'))?.url).toContain(
             'subject_name=acme%2Fweb'

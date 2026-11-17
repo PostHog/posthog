@@ -93,6 +93,16 @@ fn not_served(partition: u32) -> Status {
     Status::failed_precondition(format!("partition {partition} is not served by this pod"))
 }
 
+fn record_pg_load_ages(person: &CachedPerson, now_ms: i64) {
+    let seconds_since = |ms: i64| (now_ms - ms).max(0) as f64 / 1000.0;
+    histogram!("personhog_leader_pg_load_person_age_seconds")
+        .record(seconds_since(person.created_at));
+    if let Some(last_seen_at) = person.last_seen_at {
+        histogram!("personhog_leader_pg_load_last_seen_age_seconds")
+            .record(seconds_since(last_seen_at));
+    }
+}
+
 /// A committed document, with the locks the handler took for it, so the
 /// handler keeps them until it is done with the document.
 struct Committed {
@@ -424,15 +434,25 @@ impl PersonHogLeaderService {
 
         let started = Instant::now();
         let result = load_person_from_pg(&fallback.pool, &fallback.table, key).await;
-        histogram!("personhog_leader_person_load_duration_ms", "source" => "pg")
-            .record(started.elapsed().as_secs_f64() * 1000.0);
+        // A stub is a row the writer has not written yet, so no cache size could have held it.
+        let loaded = match &result {
+            Ok(Some(person)) if person.has_no_properties() => "stub",
+            Ok(Some(_)) => "existing",
+            Ok(None) | Err(_) => "none",
+        };
+        histogram!(
+            "personhog_leader_person_load_duration_ms",
+            "source" => "pg", "person" => loaded
+        )
+        .record(started.elapsed().as_secs_f64() * 1000.0);
         match result {
             Ok(Some(person)) => {
                 counter!(
                     "personhog_leader_person_loads_total",
-                    "source" => "pg", "outcome" => "ok"
+                    "source" => "pg", "outcome" => "ok", "person" => loaded
                 )
                 .increment(1);
+                record_pg_load_ages(&person, Utc::now().timestamp_millis());
                 self.cache.put(partition, key.clone(), person.clone());
                 Ok(person)
             }
@@ -1293,6 +1313,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         // rendering would otherwise be unparseable on the way back). The
         // measured size is then the stored size.
         let sanitize_stats = sanitize_for_jsonb(&mut new_properties);
+        let mut properties_changed = actually_updated
+            || sanitize_stats.nul_strings > 0
+            || sanitize_stats.clamped_numbers > 0;
         if sanitize_stats.nul_strings > 0 {
             counter!("personhog_leader_properties_nul_sanitized_total")
                 .increment(sanitize_stats.nul_strings);
@@ -1330,6 +1353,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                                 .to_string(),
                         });
                         new_properties = trimmed;
+                        properties_changed = true;
                     }
                     // Reachable only when trim_target == threshold and the
                     // stored size sits exactly on it: nothing to trim, but
@@ -1337,6 +1361,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                     // state, discarding the update like the arm above.
                     TrimResult::Fits => {
                         new_properties = person_properties.clone();
+                        properties_changed = false;
                     }
                     TrimResult::CannotFit => {
                         counter!(
@@ -1377,6 +1402,11 @@ impl PersonHogLeader for PersonHogLeaderService {
             }
         }
 
+        let properties_outcome = if properties_changed {
+            "changed"
+        } else {
+            "unchanged"
+        };
         let properties_bytes = serde_json::to_vec(&new_properties)
             .map_err(|e| Status::internal(format!("serialize updated properties: {e}")))?;
         // A version this pod already put on the wire is spent even when
@@ -1402,7 +1432,17 @@ impl PersonHogLeader for PersonHogLeaderService {
         let committed = self
             .commit_document(partition, &cache_key, updated_person, guard, inflight_guard)
             .await?;
-        counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
+        counter!(
+            "personhog_leader_updates_total",
+            "outcome" => "updated",
+            "properties" => properties_outcome
+        )
+        .increment(1);
+        counter!(
+            "personhog_leader_updated_properties_bytes_total",
+            "properties" => properties_outcome
+        )
+        .increment(jsonb_size as u64);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {
             person: Some(committed.proto),
@@ -2147,6 +2187,7 @@ mod tests {
                     pod_name: "test".to_string(),
                     recv_timeout: Duration::from_millis(10),
                     pool_size: 1,
+                    cluster: None,
                 })
                 .expect("build recovery pool"),
             ),

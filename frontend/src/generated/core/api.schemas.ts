@@ -441,6 +441,11 @@ export interface IdentityProviderConfigApi {
      * @items.maxLength 256
      */
     id_jag_allowed_clients?: string[]
+    /**
+     * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+     * @nullable
+     */
+    readonly id_jag_registered_by_application_name: string | null
 }
 
 export interface PaginatedIdentityProviderConfigListApi {
@@ -542,6 +547,11 @@ export interface PatchedIdentityProviderConfigApi {
      * @items.maxLength 256
      */
     id_jag_allowed_clients?: string[]
+    /**
+     * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+     * @nullable
+     */
+    readonly id_jag_registered_by_application_name?: string | null
 }
 
 export interface SCIMTokenResponseApi {
@@ -2931,6 +2941,36 @@ export const AvailableSetupTaskIdsEnumApi = {
     UsePosthogInSlack: 'use_posthog_in_slack',
 } as const
 
+/**
+ * * `off` - Off
+ * * `serving` - Serving
+ */
+export type RealtimeCohortsAccessEnumApi =
+    (typeof RealtimeCohortsAccessEnumApi)[keyof typeof RealtimeCohortsAccessEnumApi]
+
+export const RealtimeCohortsAccessEnumApi = {
+    Off: 'off',
+    Serving: 'serving',
+} as const
+
+export interface TeamRealtimeCohortsApi {
+    /** `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+     *
+     * * `off` - Off
+     * * `serving` - Serving */
+    access: RealtimeCohortsAccessEnumApi
+    /**
+     * How many cohorts in this project have realtime on. Null when `access` is `off`.
+     * @nullable
+     */
+    cohorts_used: number | null
+    /**
+     * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+     * @nullable
+     */
+    max_cohorts: number | null
+}
+
 export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
 
 export const FlagEvaluationsModeEnumApi = {
@@ -3772,8 +3812,12 @@ export interface ProjectBackwardCompatApi {
      */
     readonly user_access_level: string | null
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
+    /** Realtime cohorts as the request's user sees them in this project. */
+    readonly realtime_cohorts: TeamRealtimeCohortsApi
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+    readonly flag_calls_only_in_flag_evaluations: boolean
     /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
     readonly api_host: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
@@ -4668,8 +4712,12 @@ export interface PatchedProjectBackwardCompatApi {
      */
     readonly user_access_level?: string | null
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
+    /** Realtime cohorts as the request's user sees them in this project. */
+    readonly realtime_cohorts?: TeamRealtimeCohortsApi
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
+    /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+    readonly flag_calls_only_in_flag_evaluations?: boolean
     /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
     readonly api_host?: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
@@ -5210,6 +5258,11 @@ export interface PatchedFileSystemApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface FileSystemMoveRequestApi {
+    /** Full new path for the entry, including its own name as the last segment, such as 'Experiments/Q4/Weekly signups'. Missing parent folders are created. Escape a '/' inside a name as '\/'. */
+    new_path: string
 }
 
 export interface FileSystemHomeFolderApi {
@@ -7555,9 +7608,30 @@ export type FileSystemListParams = {
      */
     offset?: number
     /**
+     * Only entries under this folder path, at any depth, such as 'Experiments/Q4'.
+     */
+    parent?: string
+    /**
+     * Only the entry at exactly this path.
+     */
+    path?: string
+    /**
+     * Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. Combine with type to find an item's entry in the project tree.
+     */
+    ref?: string
+    /**
      * A search term.
      */
     search?: string
+    /**
+     * A JSON array of tag names, such as ["growth", "weekly"]. Keeps only the dashboards and insights that carry at least one of them.
+     * @minLength 1
+     */
+    tags?: string
+    /**
+     * Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.
+     */
+    type?: string
 }
 
 export type FileSystemDestroyParams = {

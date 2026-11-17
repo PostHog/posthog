@@ -20,6 +20,7 @@ import { FeaturePreviews, FeaturePreviewsComingSoon } from 'lib/components/Featu
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, GitLab, Linear, Slack } from 'scenes/integrations/definitions'
 import { AgentPersonalInstructionsSettings } from 'scenes/settings/environment/AgentPersonalInstructionsSettings'
@@ -55,14 +56,15 @@ import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm 
 
 import { DevModeSetting } from 'products/ai_gateway/frontend/components/DevModeSetting'
 import { DevModeTeamUsage } from 'products/ai_gateway/frontend/components/DevModeTeamUsage'
+import { ConnectAgentSetting } from 'products/business_knowledge/frontend/scenes/settings/ConnectAgentSetting'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
+import { ImportsSection } from 'products/conversations/frontend/scenes/settings/ImportsSection'
 import { LearnFromSupportSection } from 'products/conversations/frontend/scenes/settings/LearnFromSupportSection'
 import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
-import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
 import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
@@ -83,8 +85,8 @@ import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMe
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
 import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
+import { ProjectEventsTableSetting } from 'products/product_analytics/frontend/settings/ProjectEventsTableSetting'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
-import { AiVisibilityBrandsSetting } from 'products/web_analytics/frontend/contentAutopilot/AiVisibilityBrandsSetting'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsDailyLimitsSettings'
@@ -106,6 +108,7 @@ import { CloudImagesSettings } from './environment/CloudImagesSettings'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { DataDeletionRequests } from './environment/DataDeletion/DataDeletionRequests'
 import { DefaultCupedEnabled } from './environment/DefaultCupedEnabled'
 import { DefaultCupedLookbackDays } from './environment/DefaultCupedLookbackDays'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
@@ -511,7 +514,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Bring your own subscription',
         group: 'AI',
-        flag: ['POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', 'TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', 'TODAY_RAIL_NAV'],
         keywords: ['subscriptions', 'byos', 'plan & usage'],
         settings: [
             {
@@ -535,7 +538,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Subscriptions',
         group: 'AI',
-        flag: ['POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', '!TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', '!TODAY_RAIL_NAV'],
         settings: [
             {
                 id: 'ai-subscription-codex',
@@ -1441,6 +1444,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
             },
             {
+                id: 'project-events-table',
+                title: 'New events table',
+                component: <ProjectEventsTableSetting />,
+                flag: 'NEW_EVENTS_TABLE_SELF_SERVE',
+                keywords: ['events', 'table', 'storage', 'migration'],
+            },
+            {
                 id: 'human-friendly-comparison-periods',
                 title: 'Human friendly comparison periods',
                 description:
@@ -1700,9 +1710,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'conversations-imports',
                 title: 'Imports',
                 description: 'Import historical support data from external tools into Support.',
-                component: <ZendeskImportSection />,
+                component: <ImportsSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['import', 'zendesk', 'migrate', 'ticket', 'support', 'conversation'],
+                keywords: ['import', 'zendesk', 'intercom', 'pylon', 'migrate', 'ticket', 'support', 'conversation'],
             },
             {
                 id: 'conversations-macros',
@@ -1737,6 +1747,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Let business knowledge read these repositories when answering a question. It searches file names and the README, then reads a file. It does not index the code.',
                 component: <GithubReposSetting />,
                 keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
+            },
+            {
+                id: 'business-knowledge-connect-agent',
+                title: 'Connect your agent',
+                description:
+                    'Let your own AI agent search this business knowledge through the PostHog MCP server. The agent signs in with a project secret API key, so it works without a user.',
+                component: <ConnectAgentSetting />,
+                flag: 'BUSINESS_KNOWLEDGE_MCP',
+                keywords: ['business', 'knowledge', 'agent', 'mcp', 'api key', 'secret', 'search'],
             },
         ],
     },
@@ -1897,16 +1916,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.webVitals,
                 component: <WebVitalsAutocaptureSettings />,
                 keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance', 'core web vitals'],
-            },
-            {
-                id: 'ai-visibility-brands',
-                title: 'AI visibility brands',
-                description:
-                    'Label the companies behind the sites AI answers cite. The competitors you confirm are the ones AI visibility ranks you against.',
-                component: <AiVisibilityBrandsSetting />,
-                // The brands API answers only with the AEO flag on, so the setting needs it as well as the page flag.
-                flag: ['AEO_CITATION_TRACKING', 'WEB_ANALYTICS_CONTENT_AUTOPILOT'],
-                keywords: ['competitors', 'brands', 'aeo', 'ai visibility', 'rankings'],
             },
         ],
     },
@@ -2279,6 +2288,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Move this project to a different organization.',
                 component: <ProjectMove />,
                 keywords: ['transfer', 'move', 'organization'],
+            },
+            {
+                id: 'data-deletion-requests',
+                title: 'Deletion requests',
+                description:
+                    'Delete events that a SQL query selects. PostHog reviews each request before any events are deleted.',
+                component: <DataDeletionRequests />,
+                flag: 'SELF_SERVICE_DATA_DELETION',
+                // A setting has no accessControl field, so hide it here. Without this, a member without
+                // data_deletion access sees the list load and fail with a 403.
+                allowForTeam: () => userHasAccess(AccessControlResourceType.DataDeletion, AccessControlLevel.Editor),
+                keywords: ['delete', 'remove', 'erase', 'gdpr', 'events'],
             },
             {
                 id: 'environment-delete',

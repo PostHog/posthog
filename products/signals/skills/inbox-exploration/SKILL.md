@@ -7,8 +7,8 @@ description: >
   ID or title, wants to act on / fix / implement a report (turn it into a PR), wants to resolve,
   dismiss, or snooze a report, or wants to see which signal sources are configured. Also use before you
   investigate an error, bug, metric change, or support ticket in code, to find research the Inbox already did.
-  Covers listing, filtering, drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
-  or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`,
+  Covers listing, searching by topic, filtering, drilling into, and acting on reports, plus pointers to the deeper `signals` skill
+  when raw signals are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`,
   which starts from the stored personal ranking (`view=for_you`, `sort=personal`).
 ---
 
@@ -75,7 +75,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | Tool                                  | Purpose                                                                                                       |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)                                                 |
-| `inbox-reports-search`                | Reports ranked by how well they match a query, by keywords and by meaning. Behind a rollout flag              |
+| `inbox-reports-search`                | Reports about a topic, ranked by keywords and by meaning, across every status                                 |
 | `inbox-reports-retrieve`              | Full detail for a single report                                                                               |
 | `inbox-reports-claim`                 | Claim or release a report, and optionally attach its implementation PR                                        |
 | `inbox-reports-create`                | File a finding of your own as a report. It never starts an implementation run on its own                      |
@@ -113,15 +113,21 @@ What each report status means (in roughly the order a triage agent should care a
 - `failed` — processing errored
 - `suppressed` — out of the inbox; not surfaced by default. A person or agent dismissed it, or a
   judge held it back before anyone reviewed it. See _Dismissed and held-back reports_ below
+- `monitoring` — the fix shipped, and the report's follow-up checks are verifying that it worked.
+  Only where the organization has Monitoring on.
+  See [Monitoring](references/report-state.md#monitoring)
 - `resolved` — the work the report asked for is done. Terminal: a resolved report never re-promotes,
-  so a recurrence starts a fresh report linked back to it. Set automatically when a linked
-  implementation PR merges, or directly via `inbox-reports-set-state` (see the [report state workflow](references/report-state.md))
+  so a recurrence starts a fresh report linked back to it.
+  Set automatically when a linked implementation PR merges, or with Monitoring on, when its checks confirm the fix.
+  Also set directly via `inbox-reports-set-state` (see the [report state workflow](references/report-state.md))
+- `closed` — Monitoring could not show that the fix worked.
+  A linked follow-up report researches why
 
 By default `inbox-reports-list` excludes `suppressed` reports and orders results by
 `-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by
 status, then most recently updated. Refer to the tool's input schema for filter mechanics.
 
-To find the reports about a topic, such as before filing one, use `inbox-reports-search` when it is present.
+To find the reports about a topic, such as before filing one, use `inbox-reports-search`.
 It ranks reports by relevance across every status, and matches a report that describes the topic in other words.
 The `search` filter on `inbox-reports-list` matches the exact text only.
 
@@ -342,8 +348,17 @@ inbox-reports-list
 }
 ```
 
-Otherwise, search with a short term such as the error type, the page, or the feature name.
-`search` matches report titles and summaries only, so try one or two short terms instead of a full sentence:
+Otherwise, call `inbox-reports-search` with a `query` that names the error, the page, or the feature.
+It matches by keywords and by meaning across every status, so search again in other words before you decide that nothing matches.
+Read each result's `status`:
+
+```json
+inbox-reports-search
+{ "query": "checkout payment fails", "limit": 10 }
+```
+
+When `inbox-reports-search` is not present or returns 404, call `inbox-reports-list` with `search` instead.
+That filter matches the exact text of titles and summaries only, so try one or two short terms instead of a full sentence:
 
 ```json
 inbox-reports-list
@@ -415,19 +430,23 @@ inbox-reports-list
 
 ## Workflow: filter by topic or source
 
-"Are there any reports about <topic>?" — start with `search`:
+"Are there any reports about <topic>?" — start with `inbox-reports-search`:
 
 ```json
-inbox-reports-list
+inbox-reports-search
 {
-  "search": "checkout",
+  "query": "checkout",
   "status": "ready,in_progress,pending_input",
   "limit": 20
 }
 ```
 
-`search` matches title and summary. If the user is asking about a product area rather than a
-keyword, use `source_product`:
+Without `status`, the search covers every status, dismissed reports included, so read each result's `status`.
+Search again in other words before you tell the user that no report covers the topic.
+When `inbox-reports-search` is not present or returns 404, call `inbox-reports-list` with `search` and the same `status`.
+That filter matches the exact text of the title and summary only.
+
+If the user is asking about a product area rather than a topic, use `source_product`:
 
 ```json
 inbox-reports-list
@@ -436,9 +455,6 @@ inbox-reports-list
   "limit": 20
 }
 ```
-
-If the keyword search returns nothing meaningful, hand off to the `signals` skill — semantic
-search over signal text via `embedText()` will catch reports the keyword filter missed.
 
 ## Tips
 

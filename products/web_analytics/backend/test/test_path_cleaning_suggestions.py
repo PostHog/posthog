@@ -1,9 +1,16 @@
+import json
+from types import SimpleNamespace
+from typing import cast
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
+import httpx
 from parameterized import parameterized
+
+from posthog.models import Team
 
 from products.web_analytics.backend.path_cleaning_suggestions import service
 from products.web_analytics.backend.path_cleaning_suggestions.prompts import SuggestedRule, SuggestedRulesResponse
@@ -72,6 +79,44 @@ class TestExtractJson(SimpleTestCase):
     def test_raises_without_json(self) -> None:
         with self.assertRaises(ValueError):
             service._extract_json("no json here")
+
+
+class TestCallLlmForRules(SimpleTestCase):
+    @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
+    def test_go_gateway_request_keeps_product_and_team_attribution(self) -> None:
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            rules = {"rules": [{"regex": r"/users/\d+", "alias": "/users/<id>"}]}
+            return httpx.Response(
+                200,
+                json={
+                    "id": "msg_test",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-haiku-4-5",
+                    "content": [{"type": "text", "text": json.dumps(rules)}],
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 1, "output_tokens": 1},
+                },
+            )
+
+        class MockedClient(httpx.Client):
+            def __init__(self, **kwargs: object) -> None:
+                super().__init__(transport=httpx.MockTransport(handler))
+
+        team = cast(Team, SimpleNamespace(id=7))
+        with patch("posthog.llm.gateway_client.httpx.Client", new=MockedClient):
+            response = service.call_llm_for_rules(team, SAMPLE_PATHS, model="claude-haiku-4-5")
+
+        self.assertEqual(response.rules, [SuggestedRule(regex=r"/users/\d+", alias="/users/<id>")])
+        request = requests[0]
+        self.assertEqual(str(request.url), "https://ai-gateway.example/v1/messages")
+        self.assertEqual(request.headers["x-posthog-product"], "web_analytics")
+        self.assertEqual(request.headers["x-posthog-distinct-id"], "team-7")
+        self.assertEqual(json.loads(request.headers["x-posthog-properties"])["team_id"], "7")
+        self.assertEqual(json.loads(request.content)["metadata"], {"user_id": "team-7"})
 
 
 class TestApplySuggestionsToTeam(BaseTest):

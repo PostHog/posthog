@@ -593,6 +593,146 @@ const namedJobs = (file: string): Set<string> =>
 
 describe('CI workflow run plans', () => {
     it.each([
+        ['ready PR', pullRequest(), false, '["frontend/src/example.stories.tsx"]', true],
+        ['fork PR', pullRequest({ fork: true }), false, '["frontend/src/example.stories.tsx"]', true],
+        ['empty selection', pullRequest(), false, '[]', true],
+        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), false, '[]', true],
+        ['merge queue', mergeQueue(), false, '[]', false],
+        ['master push', push(), false, '[]', false],
+        ['nightly', schedule(), false, '[]', false],
+        ['cancelled PR', pullRequest(), true, '["frontend/src/example.stories.tsx"]', false],
+    ] as const)('Storybook changed-story verification (%s)', (name, github, cancelled, affected, blocking) => {
+        const file = workflow('ci-storybook.yml')
+        const plan = planWorkflow(file, {
+            name,
+            github,
+            cancelled,
+            steps: {
+                ...allFiltersChanged(file),
+                changes: {
+                    ...allFiltersChanged(file).changes,
+                    filter: { outputs: { frontend: 'true', frontend_count: '2', frontend_generated_count: '0' } },
+                    exclude: { outputs: { outside_node_product_workspaces: 'true' } },
+                },
+                'select-stories': {
+                    classify: {
+                        outputs: {
+                            affected_files_json: affected,
+                            mode: 'selective',
+                            should_run: 'true',
+                            matrix: '{"include":[{"browser":"chromium","shard":1,"shard_count":1}]}',
+                        },
+                    },
+                },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(runningJobs(plan).includes('flake-verification')).toBe(blocking)
+        expect(file.jobs['flake-verification']?.needs).not.toContain('select-stories')
+        expect(file.jobs.visual_regression_tests?.needs).toContain('flake-verification')
+    })
+
+    it.each([
+        ['MCP-only PR', pullRequest(), 'false', 'false', '2', 2, 'success', false],
+        ['MCP-only fork PR', pullRequest({ fork: true }), 'false', 'false', '2', 2, 'success', false],
+        ['Rust CLI change', pullRequest(), 'true', 'false', '2', 2, 'success', true],
+        ['missing filter output', pullRequest(), '', '', '', 2, 'success', true],
+        ['missing unmatched output', pullRequest(), 'false', '', '2', 2, 'success', true],
+        ['newline input with rename', pullRequest(), 'false', 'true', '3', 3, 'success', true],
+        ['newline rename source', pullRequest(), 'false', 'true', '2', 2, 'success', true],
+        ['newline rename destination', pullRequest(), 'false', 'true', '2', 2, 'success', true],
+        ['incomplete file list', pullRequest(), 'false', 'false', '1', 2, 'success', true],
+        ['API file cap', pullRequest(), 'false', 'false', '3000', 3000, 'success', true],
+        ['failed detector', pullRequest(), '', '', '', 2, 'failure', true],
+        ['merge queue', mergeQueue(), 'true', 'false', '2', 2, 'success', false],
+    ] as const)(
+        'CLI Rust checks retain coverage (%s)',
+        (name, github, rust, unmatched, count, changedFiles, outcome, runs) => {
+            const event = github.event as Record<string, JsonValue>
+            const plan = planWorkflow(workflow('ci-cli.yml'), {
+                name,
+                github: {
+                    ...github,
+                    event: {
+                        ...event,
+                        pull_request: { ...(event.pull_request as object), changed_files: changedFiles },
+                    },
+                },
+                steps: {
+                    changes: { filter: { outcome, outputs: { rust, unmatched_paths: unmatched, all_count: count } } },
+                },
+            })
+            expect(plan.errors).toEqual([])
+            for (const job of ['tests', 'clippy', 'format']) {
+                expect(runningJobs(plan).includes(job)).toBe(runs)
+            }
+            expect(runningJobs(plan).includes('api-cli-release-bundle')).toBe(name !== 'merge queue')
+        }
+    )
+
+    it.each([
+        ['success', 'true', 'success', 0],
+        ['success', 'true', 'skipped', 1],
+        ['success', 'true', 'failure', 1],
+        ['success', 'true', 'cancelled', 1],
+        ['success', 'false', 'skipped', 0],
+        ['success', '', 'skipped', 1],
+        ['success', '', 'success', 1],
+        ['success', 'unknown', 'success', 1],
+        ['failure', 'false', 'skipped', 1],
+        ['cancelled', '', 'skipped', 1],
+        ['skipped', '', 'skipped', 0],
+    ])('OAuth proxy gate handles detector=%s output=%s build=%s', (detector, changed, build, exitCode) => {
+        const script = evaluateValue(
+            workflow('ci-oauth-proxy.yml').jobs.oauth_proxy_tests?.steps?.[0]?.run,
+            {
+                needs: {
+                    changes: { result: detector, outputs: { 'oauth-proxy': changed } },
+                    'build-and-test': { result: build },
+                },
+            },
+            planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        )
+        const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
+        expect(gate.error).toBeUndefined()
+        expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
+    })
+
+    it.each([
+        ['unrelated master push', push(), 'false', false],
+        ['changed master push', push(), 'true', true],
+        ['missing filter output', push(), '', true],
+        ['unrelated PR', pullRequest(), 'false', false],
+        ['changed fork PR', pullRequest({ fork: true }), 'true', true],
+        ['unrelated merge queue', mergeQueue(), 'false', false],
+    ])('OAuth proxy build follows the input filter (%s)', (name, github, changed, runs) => {
+        const plan = planWorkflow(workflow('ci-oauth-proxy.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: { outputs: { 'oauth-proxy': changed } } } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.id === 'filter')?.runs).toBe(true)
+        expect(plan.jobs['build-and-test']?.result).toBe(runs ? 'success' : 'skipped')
+        expect(plan.jobs.oauth_proxy_tests?.result).toBe('success')
+    })
+
+    it.each(['', '0000000000000000000000000000000000000000'])(
+        'OAuth proxy runs the full build without a push base (%s)',
+        (before) => {
+            const github = push()
+            const plan = planWorkflow(workflow('ci-oauth-proxy.yml'), {
+                name: 'missing push base',
+                github: { ...github, event: { ...(github.event as object), before } },
+            })
+            expect(plan.errors).toEqual([])
+            expect(plan.jobs.changes?.steps.find((step) => step.id === 'filter')?.runs).toBe(false)
+            expect(plan.jobs['build-and-test']?.result).toBe('success')
+            expect(plan.jobs.oauth_proxy_tests?.result).toBe('success')
+        }
+    )
+
+    it.each([
         ['unrelated PR', pullRequest(), 'false', '2', 2, false],
         ['unrelated fork PR', pullRequest({ fork: true }), 'false', '2', 2, false],
         ['Markdown inputs changed', pullRequest(), 'true', '2', 2, true],
@@ -1063,6 +1203,18 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
+        ['ready PR', pullRequest(), false],
+        ['merge queue', mergeQueue(), false],
+        ['hourly schedule', schedule(), true],
+        ['manual dispatch', workflowDispatch(), true],
+    ] as const)('the persons-on-events legacy-mode leg on %s', (_name, github, runs) => {
+        const depot = workflow(DEPOT_BACKEND)
+        const step = depot.jobs.build_django_matrix?.steps?.find((step) => step.id === 'build')
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        expect(evaluateValue(step?.env?.RUN_LEGACY_MODE_LEG, { github }, functions)).toBe(runs)
+    })
+
+    it.each([
         ['unrelated PR', pullRequest(), 'false', false],
         ['schema PR', pullRequest(), 'true', true],
         ['missing filter output', pullRequest(), '', true],
@@ -1105,8 +1257,8 @@ describe('CI workflow run plans', () => {
     it.each([
         ['PR', pullRequest(), false, true],
         ['merge queue', mergeQueue(), false, true],
-        ['push', push(), false, true],
         ['manual full rebuild', workflowDispatch(), false, false],
+        ['hourly full rebuild', schedule(), false, false],
         ['all-crate change', pullRequest(), true, false],
     ] as const)('Rust change resolver on %s', (name, github, allCrates, runs) => {
         const wf = workflow('ci-rust.yml')
@@ -1123,24 +1275,105 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
-        ['Rust-only PR', pullRequest(), 'true', 'false', true],
-        ['missing Node filter', pullRequest(), 'true', '', true],
-        ['fork', pullRequest({ fork: true }), 'true', 'false', true],
-        ['Rust-only merge queue', mergeQueue(), 'true', 'false', true],
-        ['mixed Node/Rust PR', pullRequest(), 'true', 'true', false],
-        ['mixed Node/Rust fork', pullRequest({ fork: true }), 'true', 'true', false],
-        ['mixed Node/Rust merge queue', mergeQueue(), 'true', 'true', false],
-        ['Node-only PR', pullRequest(), 'false', 'true', false],
-        ['unrelated PR', pullRequest(), 'false', 'false', false],
-        ['push', push(), 'true', 'false', false],
-        ['schedule', schedule(), 'true', 'false', false],
-    ] as const)('Node Rust preparation on %s', (name, github, rust, nodejs, runs) => {
+        ['PR', pullRequest(), 'success'],
+        ['merge queue', mergeQueue(), 'success'],
+        ['master push', push(), 'skipped'],
+        ['hourly schedule', schedule(), 'success'],
+    ] as const)('Rust suite on %s', (name, github, result) => {
+        const wf = workflow('ci-rust.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: {
+                ...allFiltersChanged(wf),
+                affected: { shards: { outputs: { matrix: '{"include":[{"packages":"common-types"}]}' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        for (const job of ['affected', 'build', 'test', 'linting']) {
+            expect(plan.jobs[job]?.result).toBe(result)
+        }
+        expect(plan.jobs.rust_tests?.result).toBe('success')
+    })
+
+    it('a PR branch named scheduled does not share the hourly Rust concurrency group', () => {
+        const group = workflow('ci-rust.yml').concurrency?.group
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const groupFor = (github: Scenario['github']): unknown => evaluateValue(group, { github }, functions)
+        expect(groupFor(pullRequest({ headRef: 'scheduled' }))).not.toBe(groupFor(schedule()))
+    })
+
+    it.each([
+        ['PR', pullRequest(), 'false', 'success', false],
+        ['fork', pullRequest({ fork: true }), 'false', 'success', false],
+        ['merge queue', mergeQueue(), 'false', 'success', false],
+        ['master push', push(), 'false', 'success', false],
+        ['manual dispatch', workflowDispatch(), 'false', 'success', false],
+        ['schedule cache miss', schedule(), 'false', 'success', true],
+        ['schedule cache hit', schedule(), 'true', 'success', false],
+        ['schedule outside master', Object.assign(schedule(), { ref: 'refs/heads/test' }), 'false', 'success', false],
+        ['schedule formatting failure', schedule(), 'false', 'failure', false],
+    ] as const)('Node Prettier cache write on %s', (name, github, cacheHit, outcome, runs) => {
+        const plan = planWorkflow(workflow('ci-nodejs.yml'), {
+            name,
+            github,
+            steps: {
+                changes: { filter: pathsFilter({ nodejs: true }) },
+                build: {
+                    'prettier-cache': { outputs: { 'cache-hit': cacheHit } },
+                    'Check formatting with prettier': { outcome },
+                },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.build?.steps.find((step) => step.name === 'Save Prettier cache')?.runs).toBe(runs)
+        for (const step of ['Restore Prettier cache', 'Check formatting with prettier']) {
+            expect(plan.jobs.build?.steps.find((candidate) => candidate.name === step)?.runs).toBe(
+                github.event_name === 'schedule'
+            )
+        }
+    })
+
+    it.each([
+        ['draft PR', pullRequest({ draft: true }), true],
+        ['ready PR', pullRequest(), true],
+        ['fork PR', pullRequest({ fork: true }), true],
+        ['merge queue', mergeQueue(), true],
+        ['master push', push(), false],
+        ['hourly schedule', schedule(), false],
+    ] as const)('Node quality checks on %s', (name, github, runs) => {
+        const wf = workflow('ci-nodejs.yml')
+        const plan = planWorkflow(wf, { name, github, steps: allFiltersChanged(wf) })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.lint?.result).toBe(runs ? 'success' : 'skipped')
+        if (github.event_name === 'schedule') {
+            expect(plan.jobs.build?.result).toBe('success')
+            expect(plan.jobs.tests?.result).toBe('success')
+        }
+    })
+
+    it.each([
+        ['Rust-only PR', pullRequest(), 'true', 'false', true, true],
+        ['missing Node filter', pullRequest(), 'true', '', true, true],
+        ['fork', pullRequest({ fork: true }), 'true', 'false', true, true],
+        ['Rust-only merge queue', mergeQueue(), 'true', 'false', true, true],
+        ['mixed Node/Rust PR', pullRequest(), 'true', 'true', false, true],
+        ['mixed Node/Rust fork', pullRequest({ fork: true }), 'true', 'true', false, true],
+        ['mixed Node/Rust merge queue', mergeQueue(), 'true', 'true', false, true],
+        ['Node-only PR', pullRequest(), 'false', 'true', false, true],
+        ['unrelated PR', pullRequest(), 'false', 'false', false, true],
+        ['push', push(), 'true', 'false', false, false],
+        ['schedule', schedule(), 'true', 'false', false, false],
+    ] as const)('Node coordinator preparation on %s', (name, github, rust, nodejs, runs, checkoutRuns) => {
         const plan = planWorkflow(workflow('ci-nodejs.yml'), {
             name,
             github,
             steps: { changes: { filter: { outputs: { rust, nodejs } } } },
         })
         expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.runs).toBe(
+            checkoutRuns
+        )
         for (const name of [
             'Check out the Rust tree for affected-crate detection',
             'Resolve the Rust changed files',

@@ -12,8 +12,10 @@ from typing import Final
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Min, Q
 from django.utils import timezone
+
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertState
@@ -21,7 +23,13 @@ from posthog.tasks.alerts.utils import due_insight_alerts_q
 from posthog.temporal.alerts.investigation import IN_FLIGHT_INVESTIGATION_HORIZON
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 
-from products.alerts.backend.facade.destinations import alert_has_enabled_destinations, choose_delivery_path
+from products.alerts.backend.facade.contracts import INSIGHT_ALERT_DESTINATION_EVENT_IDS
+from products.alerts.backend.facade.destinations import (
+    alert_has_enabled_destinations,
+    build_insight_alert_destination_configs,
+    choose_delivery_path,
+    rebuild_source_destination_hog_functions,
+)
 from products.alerts.backend.insight_alert_state_machine import (
     FIRING_NOT_RENOTIFIED_KEY,
     apply_invalid_configuration,
@@ -32,6 +40,7 @@ from products.alerts.backend.platform_source_cycle import DELIVERY_EVENT_IDS, pl
 from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationValidationError,
     DeliveryPath,
     HandbackRefusal,
     PlatformOwnershipHandover,
@@ -39,6 +48,8 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.delivery import has_legacy_event_emitter
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+
+logger = structlog.get_logger(__name__)
 
 PLATFORM_HANDOVER_STATE: Final[dict[str, PlatformAlertState]] = {
     # The platform carries the firing with its start unknown. An insight alert notifies on every
@@ -225,14 +236,35 @@ def can_move(alert: AlertConfiguration) -> bool:
     return platform_upsert_of(alert) is not None
 
 
-def has_begun_cutover(team_id: int) -> bool:
-    """Whether the platform owns any of the team's insight alerts, which makes it the owner of new ones."""
-    return AlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM).exists()
+def takes_new_alert(team_id: int, *, new_alert_id: UUID) -> bool:
+    """Whether the platform owns a team's new insight alert: when it owns another of the team's alerts,
+    or when the team has no other. A team whose alerts all stay with insight, such as one rolled back,
+    keeps new ones on insight too."""
+    owners = set(
+        AlertConfiguration.objects.filter(team_id=team_id)
+        .exclude(id=new_alert_id)
+        .values_list("owner", flat=True)
+        .distinct()
+    )
+    return not owners or PlatformAlertOwner.PLATFORM in owners
 
 
-def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
+def team_cutover_at(team_id: int, *, new_alert_id: UUID) -> datetime | None:
+    """When the platform took the earliest of a team's other insight alerts it still owns. None when it
+    owns none of them."""
+    return (
+        AlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM)
+        .exclude(id=new_alert_id)
+        .aggregate(at=Min("owner_changed_at"))["at"]
+    )
+
+
+def hand_over(alert: AlertConfiguration, at: datetime, *, shadow_from: datetime | None = None) -> bool:
     """Copies an insight alert locked by the caller onto the platform and makes the platform its owner,
     on both rows. False, changing nothing, when the platform copy is inside a firing of its own.
+
+    `shadow_from` is the insight row's `owner_changed_at`, where its shadow starts, and defaults to `at`.
+    The platform copy always takes `at`, because its check fence and firing check need the real time.
 
     The caller checks `can_move` first.
     """
@@ -259,11 +291,12 @@ def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
         return False
     transaction.savepoint_commit(savepoint)
     # `update()` rather than `save()`: a handover is not a user's edit, and `save()` would log one.
+    owner_changed_at = shadow_from or at
     AlertConfiguration.objects.filter(team_id=alert.team_id, id=alert.id).update(
-        owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at
+        owner=PlatformAlertOwner.PLATFORM, owner_changed_at=owner_changed_at
     )
     alert.owner = PlatformAlertOwner.PLATFORM
-    alert.owner_changed_at = at
+    alert.owner_changed_at = owner_changed_at
     return True
 
 
@@ -277,6 +310,9 @@ class RollbackSkip(StrEnum):
     PLATFORM_FIRING = "platform_firing"
     PLATFORM_CHECK_DUE = "platform_check_due"
     NOT_PORTABLE = "not_portable"
+    # A destination kept only on the platform could not be given its HogFunctions back, so handing the
+    # alert back would leave it silent there.
+    DESTINATION_NOT_REBUILT = "destination_not_rebuilt"
 
 
 _ROLLBACK_SKIP: Final[dict[HandbackRefusal, RollbackSkip]] = {
@@ -315,6 +351,9 @@ def _roll_back_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Roll
         )
         if isinstance(handback, HandbackRefusal):
             return _ROLLBACK_SKIP[handback]
+        if not _rebuild_destinations(alert):
+            transaction.set_rollback(True)
+            return RollbackSkip.DESTINATION_NOT_REBUILT
 
         update_fields = apply_platform_state(
             alert, insight_state_of_platform(handback.state, snoozed_until=alert.snoozed_until, at=at)
@@ -329,3 +368,25 @@ def _roll_back_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Roll
         alert.next_check_at = handback.next_check_at
         alert.save(update_fields=[*update_fields, "owner", "owner_changed_at", "last_notified_at", "next_check_at"])
     return None
+
+
+def _rebuild_destinations(alert: AlertConfiguration) -> bool:
+    """The insight stack sends only through HogFunctions and subscriptions, so a destination kept as an
+    `AlertDestination` row alone gets its HogFunctions back. Subscriber rows need nothing, because every
+    subscriber write keeps `AlertSubscription` beside them. A PagerDuty row gets its HogFunctions too, but
+    only the platform emits the incident events they hear, so it pages again only after a new cutover.
+    False when a row cannot be rebuilt."""
+    try:
+        rebuild_source_destination_hog_functions(
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            created_by_id=alert.created_by_id,
+            allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+            build_configs=lambda data: build_insight_alert_destination_configs(
+                alert_id=str(alert.id), alert_name=alert.name, data=data
+            ),
+        )
+    except AlertDestinationValidationError:
+        logger.warning("insight_alert_rollback_destination_not_rebuilt", alert_id=str(alert.id), exc_info=True)
+        return False
+    return True

@@ -12,6 +12,8 @@ from products.aeo.backend.facade.contracts import (
     BrandKind,
     BrandSource,
     BrandStatus,
+    CheckFrequency,
+    CheckMode,
 )
 
 
@@ -171,6 +173,20 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         max_length=64, help_text="Answer engine: claude-web-search, openai-web-search, exa-answer."
     )
     model = models.CharField(max_length=128, help_text="Engine model that answered.")
+    # db_default so existing rows read as web-search checks without a table rewrite.
+    mode = models.CharField(
+        max_length=32,
+        choices=CheckMode.choices,
+        default=CheckMode.WEB_SEARCH.value,
+        db_default=CheckMode.WEB_SEARCH.value,
+        help_text="How the engine answered: 'web_search' with its search tool, 'no_search' from training data alone.",
+    )
+    mode_config = models.JSONField(
+        default=dict,
+        db_default={},
+        blank=True,
+        help_text="Settings the mode ran with that do not change what kind of answer it is, such as a locale.",
+    )
 
     check_failed = models.BooleanField(
         default=False,
@@ -202,6 +218,11 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         help_text="Hash of the own domains that `cited`, `target_urls`, `target_best_position` and the sentiment were computed against. Null on checks recorded before it existed.",
     )
     top_cited_domains = models.JSONField(default=list, blank=True, help_text="Distinct hosts across the cited URLs.")
+    names_brand = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="The answer text names one of the own brands, matched on whole words against the own domains of `own_domains_key`. Null when the check failed, and on checks recorded before it existed until the own-citation reconcile fills it.",
+    )
 
     brand_sentiment = models.CharField(
         max_length=16,
@@ -213,6 +234,11 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         null=True,
         blank=True,
         help_text="Classifier confidence (0-1) in `brand_sentiment`, averaged over the brand sentences.",
+    )
+    brand_sentiment_sentences = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="The scored sentences behind `brand_sentiment`: a list of {start, end, label, score}, where start and end are offsets into `answer_text` in Unicode code points. Null until scored, and on checks scored before the sentences were stored.",
     )
 
     cost_usd = models.FloatField(null=True, blank=True, help_text="Engine-reported cost, where the engine reports one.")
@@ -284,6 +310,37 @@ class AEOBrand(TeamScopedRootMixin, UpdatedMetaFields, UUIDModel):
 
     def __str__(self) -> str:
         return f"[{self.kind}] {self.domain}"
+
+
+class AEOEngineSetting(TeamScopedRootMixin, UpdatedMetaFields, UUIDModel):
+    """
+    Whether a project runs one answer engine, and how often. A project with no row for an
+    engine gets that engine's default, so only the engines someone changed have rows.
+    """
+
+    # db_constraint=False for the same reason as AEOPrompt. No index of its own: the unique (team, engine) index leads with team.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+    )
+
+    engine = models.CharField(max_length=64, help_text="Engine id, for example 'claude-web-search'.")
+    enabled = models.BooleanField(help_text="Whether the daily run checks prompts on this engine.")
+    frequency = models.CharField(
+        max_length=32,
+        choices=CheckFrequency.choices,
+        default=CheckFrequency.DAILY.value,
+        help_text="How often each prompt gets a check from this engine.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_aeo_engine_setting"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "engine"], name="aeo_engine_setting_unique_team_engine"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.engine} ({'on' if self.enabled else 'off'}, {self.frequency})"
 
 
 class AEOKeyword(TeamScopedRootMixin, UUIDModel):

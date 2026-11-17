@@ -75,6 +75,7 @@ Everything ambiguous falls through to the normal path, which dismisses first: no
 Retention also re-checks GitHub that the stored approval is still active, because a maintainer dismissing it by hand updates nothing in the product DB, and skipping the review over a dismissed approval would leave the PR with neither.
 A retained head is recorded on the approving run (`retained_head_shas`), because `_record_merged_pull_request` matches an approving run on `head_sha` alone and would otherwise treat every retained merge as unapproved and drop it from the digest for good.
 Self-driving inbox runs are excluded so the carve-out's head pinning stays untouched.
+The trigger-label skip asks the same retention before it retracts, after the author write-permission gate that the skip would otherwise run before, so it retains only what the main path retains.
 
 ## Supersession and terminal states
 
@@ -178,6 +179,22 @@ narrow:
   The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
   what the reviewer prompt was told about its own invocation.
 
+## Bot admission (the other exception to the bot-author refusal)
+
+A repo's `.stamphog/policy.yml` may name bots under `bot_authors`, each as `{name, login, id}`.
+The server reads that list from the default branch only (`logic/bot_admission.py`, cached briefly, absence included), so a PR cannot admit its own author.
+Admission needs the login and the numeric account id to match one entry, `user.type == "Bot"`, a repo-native head, and any action that starts a review except `labeled`, because no label requests these reviews.
+A draft stays skipped before admission is considered.
+An admitted delivery passes the bot-author skip, which also stands in for the author-association check, the review-mode gate and the write-permission gate, and nothing else.
+The run is stamped `bot_admission` provenance and the `bot_admission` trigger, and retention never keeps its approvals.
+The engine reads the stamped login as `admitted_bot`, checks it against `POLICY.bot_authors` again, keeps every gate including the draft prerequisite, and adds `every_file_attested`, which refuses the run unless an attestation that declares `publisher_files` proved every file in the PR.
+An attestation without `publisher_files` never counts for a bot, because a job of any PR could post it.
+Neither does a `sibling_files` companion, because the publisher did not name it.
+That proof is the PR's independent assurance (`assurance.every_file_proven`), and the reviewer prompt carries a provenance block for the admitted bot, because its bot-author rule would otherwise refuse the PR.
+A pending pinned attestation that could cover every unproven file turns that gate into a WAIT, and the check-run wake carries the `bot_admission` stamp into the re-run, because the refetched PR fails the bot pre-filter on its own.
+Removing the policy entry is enough to stop reviews.
+The next delivery skips and dismisses the standing approval, and the engine refuses a woken re-run.
+
 ## The manual trigger (the one exception to label mode)
 
 `request_manual_review` (`POST review_runs/` and the `stamphog-review-runs-create` MCP tool) queues a review because a project member asked for it.
@@ -207,8 +224,9 @@ Routing writes review requests and a comment that names cuts or the approval, ne
 When ReviewHog will not start a silent review of a head (findings, a failed turn, or no automatic turn), it calls `facade/tasks.py::queue_routing_after_external_review`. The task routes the live head in full only while the record waits on the reported head, the repo is FALLBACK with the switch on, no non-superseded stamphog run covers the live head, and the live PR has no trigger label (a push starts no silent review, so a moved head routes too), with writer-pinned reads and the same claim as every other routing trigger. Anything else is a no-op, so the 30-minute safety net stays only a backstop for failures.
 The report and the opening event come from one delivery, in either order. A report that finds no record raises `RoutingBusy`, so the task retries after the opening event saved its waiting record. A record that waits on the live head instead (the author pushed before the opening event ran) routes that head, because a push starts no silent review. Do not turn that into a no-op, or a report that comes first is lost until the safety net.
 A silent review that a gate refuses reports the same way, and a withheld WAIT routes in full, because nothing reviews a silent WAIT again. That holds for the verdict task, for the opening event that finds the WAIT already stored, and for a silent WAIT on a head that only got its pinned owners.
-A verdict for a head that the author pushed past routes the live head in full through `_full_step_on_live_head`, the same helper the external-review step uses, when the record waits on the verdict's head or already on the live head. An approval of a stale head never earns pinned-only routing for the live head.
+A verdict for a head that the author pushed past routes the live head in full through `_full_step_on_live_head`, the same helper the external-review step uses, when the record waits on the verdict's head or already on the live head, or holds a pinned-only routing of an older head. An approval of a stale head never earns pinned-only routing for the live head.
 Both supersession paths of a moved head hand the run to routing as a failure: `mark_review_failed` and the head-moved guard in `post_verdict` (`_route_after_moved_head`).
+A skip-path or base-retarget retraction that dismissed an approval queues `route_reviewers_after_approval_retracted`, because no verdict follows it to upgrade a pinned-only routing. It routes the live head in full through `_full_step_on_live_head`, and a retarget, whose approving run still covers the head, routes unless the trigger label brings a visible review.
 The switch needs label mode: the write serializer refuses it with `review_mode=all`, and a save that sets `all` turns it off. A repository without ReviewHog automatic turns must leave it off, or every head waits for the safety net.
 
 A silent run never covers a visible request. `_queue_review_at_head` ignores a silent run whose verdict is unpublished unless the request is silent too, so a manual request supersedes a silent run in flight, as the label webhook always did.
@@ -331,6 +349,13 @@ refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving P
 race with CI. It can't reuse `Pipeline._only_pending_attestations`: that method disqualifies on
 any failing gate other than the deny-list, and a migrations deny always drags the tier gate to
 T2-never with it, so it answers False for every PR it exists to catch.
+
+The engine records the checks it waited on in `classification.attestations`, and the server acts on that record, never on the policy.
+After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, the engine's own test for pending.
+It then queues a re-review through the same gates as the external re-review, the inbox exclusion included, and at most `_ATTESTATION_WAKES_PER_HEAD` times per head.
+Stamphog subscribes to no `check_run` webhook, because a subscription delivers every check of every PR, and the poll asks GitHub for each pending check by name and App, one request per check.
+A run that no report can wake, an inbox run or one at the per-head cap, does not poll.
+A check that fails after an approval dismisses nothing, so that approval stands until the next head change.
 
 ## Temporal specifics
 

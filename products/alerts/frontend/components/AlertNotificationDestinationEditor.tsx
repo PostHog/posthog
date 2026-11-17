@@ -34,12 +34,22 @@ interface AlertNotificationDestinationButtonAction {
     dataAttr?: string
 }
 
+/** Customize a destination's message, or go back to the standard one. */
+export interface AlertNotificationDestinationMessageAction {
+    label: string
+    tooltip: string
+    onClick: () => void
+    loading?: boolean
+    dataAttr: string
+}
+
 export interface AlertNotificationDestinationView {
     key: string
     title: ReactNode
     detail?: ReactNode
     tags?: { label: string; type?: LemonTagType; tooltip?: string }[]
     viewAction?: AlertNotificationDestinationIconAction | AlertNotificationDestinationButtonAction
+    messageAction?: AlertNotificationDestinationMessageAction
     onDelete: () => void
     deleting?: boolean
 }
@@ -223,6 +233,18 @@ function ExistingDestinations({
                         ) : null}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                        {destination.messageAction ? (
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={destination.messageAction.onClick}
+                                loading={destination.messageAction.loading}
+                                tooltip={destination.messageAction.tooltip}
+                                data-attr={destination.messageAction.dataAttr}
+                            >
+                                {destination.messageAction.label}
+                            </LemonButton>
+                        ) : null}
                         <DestinationViewAction action={destination.viewAction} />
                         <LemonButton
                             icon={<IconTrash />}
@@ -405,7 +427,10 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                 {url ? (
                     <div className="space-y-1">
                         <div className="flex flex-col sm:flex-row items-start gap-2">
+                            {/* The URL's path carries its secret. Autocapture records copied text, and session
+                                replay records what is typed, so the input is kept out of both. */}
                             <LemonInput
+                                className="ph-no-capture ph-replay-block"
                                 placeholder={url.input.placeholder}
                                 value={url.value}
                                 onChange={url.onChange}

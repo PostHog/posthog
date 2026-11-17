@@ -22,6 +22,7 @@
 //! work never writes, never DLQs, and never touches the real-build metrics;
 //! see `flags::cache_shadow`.
 
+use std::cmp::{min_by_key, Reverse};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -217,10 +218,20 @@ struct TeamBatch<O = Offset> {
     /// staleness the build resolves. Stamps the DLQ message if the build
     /// ultimately fails, where worst case is the quantity triage wants.
     oldest_emitted_at: DateTime<Utc>,
-    /// Oldest `emitted_at` across the coalesced *edits*, absent when the batch
-    /// holds none. Both the reported source and the latency the build is
-    /// credited with fall out of this one value, so neither can disagree with it.
-    oldest_edit_emitted_at: Option<DateTime<Utc>>,
+    /// The highest-ranked source in the batch and its oldest `emitted_at`. Both
+    /// the reported source and the latency the build is credited with fall out
+    /// of this one value, so neither can disagree with it.
+    reported: (Source, DateTime<Utc>),
+}
+
+/// An edit outranks a cohort change so that a build which served a flag edit
+/// always counts in the edit series.
+fn report_rank(source: Source) -> u8 {
+    match source {
+        Source::Edit => 2,
+        Source::Cohort => 1,
+        Source::Refresh => 0,
+    }
 }
 
 impl<O> TeamBatch<O> {
@@ -237,39 +248,25 @@ impl<O> TeamBatch<O> {
         let entry = by_team.entry(team_id).or_insert_with(|| TeamBatch {
             offsets: Vec::new(),
             oldest_emitted_at: emitted_at,
-            oldest_edit_emitted_at: None,
+            reported: (source, emitted_at),
         });
         entry.oldest_emitted_at = entry.oldest_emitted_at.min(emitted_at);
-        if source == Source::Edit {
-            entry.oldest_edit_emitted_at = Some(
-                entry
-                    .oldest_edit_emitted_at
-                    .map_or(emitted_at, |oldest| oldest.min(emitted_at)),
-            );
-        }
+        entry.reported = min_by_key(entry.reported, (source, emitted_at), |&(source, at)| {
+            (Reverse(report_rank(source)), at)
+        });
         entry.offsets.push(offset);
     }
 
-    /// The path this build is reported as serving. One build serves every
-    /// coalesced message, and an edit is the one with a serve-latency
-    /// expectation, so a batch holding any edit is an edit however many sweep
-    /// messages it also absorbed.
     fn reported_source(&self) -> Source {
-        if self.oldest_edit_emitted_at.is_some() {
-            Source::Edit
-        } else {
-            Source::Refresh
-        }
+        self.reported.0
     }
 
     /// How long the reported path waited. An edit is credited with the oldest
     /// edit's age, never the older refresh it coalesced with — otherwise the
     /// sweep's minutes land in the edit histogram, which is the reading the
-    /// `source` label exists to keep separable. With no edit in the batch every
-    /// message is a refresh, so the batch minimum is already the refresh minimum.
+    /// `source` label exists to keep separable.
     fn attributed_emitted_at(&self) -> DateTime<Utc> {
-        self.oldest_edit_emitted_at
-            .unwrap_or(self.oldest_emitted_at)
+        self.reported.1
     }
 }
 
@@ -498,6 +495,7 @@ async fn consume_loop(
         redis_client,
         Duration::from_secs(cfg.shadow_mismatch_ttl_seconds),
     );
+    tracing::info!("Consumer loop started");
 
     loop {
         // Reporting healthy each iteration covers the idle case: with no traffic
@@ -1327,22 +1325,27 @@ mod tests {
         // since that worst-case staleness is what stamps the DLQ message.
         let got = fold_edits(vec![(7, ts(300), 0), (7, ts(100), 1), (7, ts(200), 2)]);
         assert_eq!(got[&7].oldest_emitted_at, ts(100));
+        assert_eq!(got[&7].attributed_emitted_at(), ts(100));
         assert_eq!(got[&7].offsets, vec![0, 1, 2]);
     }
 
     #[rstest]
-    #[case::edit_then_older_refresh(vec![(7, ts(200), Source::Edit, 0), (7, ts(100), Source::Refresh, 1)])]
-    #[case::older_refresh_then_edit(vec![(7, ts(100), Source::Refresh, 0), (7, ts(200), Source::Edit, 1)])]
-    fn an_edit_records_its_own_age_not_the_refresh_it_coalesced_with(
+    #[case::edit_then_older_refresh(vec![(7, ts(200), Source::Edit, 0), (7, ts(100), Source::Refresh, 1)], Source::Edit)]
+    #[case::older_refresh_then_edit(vec![(7, ts(100), Source::Refresh, 0), (7, ts(200), Source::Edit, 1)], Source::Edit)]
+    #[case::cohort_then_older_refresh(vec![(7, ts(200), Source::Cohort, 0), (7, ts(100), Source::Refresh, 1)], Source::Cohort)]
+    #[case::older_refresh_then_cohort(vec![(7, ts(100), Source::Refresh, 0), (7, ts(200), Source::Cohort, 1)], Source::Cohort)]
+    #[case::edit_then_older_cohort(vec![(7, ts(200), Source::Edit, 0), (7, ts(100), Source::Cohort, 1)], Source::Edit)]
+    #[case::older_cohort_then_edit(vec![(7, ts(100), Source::Cohort, 0), (7, ts(200), Source::Edit, 1)], Source::Edit)]
+    fn a_build_records_the_age_of_its_reported_source_not_what_it_coalesced_with(
         #[case] items: Vec<(i32, DateTime<Utc>, Source, u64)>,
+        #[case] expected_source: Source,
     ) {
-        // One build serves both messages, and it is reported as the edit: the
-        // edit is the one with a serve expectation. It must be credited with its
-        // own age, because reading the batch minimum instead would put the
-        // sweep's minutes into the edit path's sub-second p99 — the reading the
-        // `source` label exists to keep separable.
+        // One build serves both messages, and it is reported as the higher-ranked
+        // source. It must be credited with its own age, because reading the
+        // batch minimum instead would put the lower-ranked path's wait into the
+        // reported path's latency histogram.
         let batch = &fold(items)[&7];
-        assert_eq!(batch.reported_source(), Source::Edit);
+        assert_eq!(batch.reported_source(), expected_source);
         assert_eq!(batch.attributed_emitted_at(), ts(200));
         // The DLQ stamp still wants worst-case staleness across the whole batch.
         assert_eq!(batch.oldest_emitted_at, ts(100));
@@ -1661,18 +1664,25 @@ mod tests {
     /// unnoticed.
     const EXPECTED_PRECREATED_SERIES: &[&str] = &[
         "flags_cache_builder_build_retries_total{}",
+        "flags_cache_builder_builds_total{reason=cache_parse,result=failure,source=cohort}",
         "flags_cache_builder_builds_total{reason=cache_parse,result=failure,source=edit}",
         "flags_cache_builder_builds_total{reason=cache_parse,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{reason=database,result=failure,source=cohort}",
         "flags_cache_builder_builds_total{reason=database,result=failure,source=edit}",
         "flags_cache_builder_builds_total{reason=database,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{reason=other,result=failure,source=cohort}",
         "flags_cache_builder_builds_total{reason=other,result=failure,source=edit}",
         "flags_cache_builder_builds_total{reason=other,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{reason=redis,result=failure,source=cohort}",
         "flags_cache_builder_builds_total{reason=redis,result=failure,source=edit}",
         "flags_cache_builder_builds_total{reason=redis,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{reason=s3,result=failure,source=cohort}",
         "flags_cache_builder_builds_total{reason=s3,result=failure,source=edit}",
         "flags_cache_builder_builds_total{reason=s3,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{reason=serialize,result=failure,source=cohort}",
         "flags_cache_builder_builds_total{reason=serialize,result=failure,source=edit}",
         "flags_cache_builder_builds_total{reason=serialize,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{result=success,source=cohort}",
         "flags_cache_builder_builds_total{result=success,source=edit}",
         "flags_cache_builder_builds_total{result=success,source=refresh}",
         "flags_cache_builder_dlq_produced_total{result=failure}",

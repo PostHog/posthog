@@ -16,11 +16,9 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import (
     GENERATION_NOT_FOUND_MAX_ATTEMPTS,
     GENERATION_NOT_FOUND_RETRY_WINDOW,
-    extract_event_io,
     hydrate_event_reference,
 )
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import ResolvedModel, model_spec
 from posthog.temporal.ai_observability.team_capture import (
     EMIT_EVENT_RETRY_POLICY,
@@ -32,6 +30,7 @@ from posthog.temporal.ai_observability.team_capture import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
+from products.ai_observability.backend.facade.evaluation_runtime import extract_event_io, extract_text_from_messages
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,

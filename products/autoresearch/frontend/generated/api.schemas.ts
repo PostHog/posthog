@@ -160,6 +160,21 @@ export interface AutoresearchPredictionCoverageApi {
 export interface AutoresearchLiveTrainingRunApi {
     /** Unique UUID of the live training run. */
     readonly id: string
+    /**
+     * Parent Task ID of the run's sandbox. Null for a run that an external agent opened.
+     * @nullable
+     */
+    readonly task_id: string | null
+    /**
+     * Task run ID of the run's sandbox, which holds its log, cost and failure reason. Null for a run that an external agent opened.
+     * @nullable
+     */
+    readonly task_run_id: string | null
+    /**
+     * Relative URL to the run's Task detail page. Null for a run that an external agent opened.
+     * @nullable
+     */
+    readonly task_url: string | null
     /** Maximum experiments allowed for this run. */
     readonly iteration_budget: number
     /** Experiments the agent has recorded so far in this run. */
@@ -2204,6 +2219,20 @@ export interface ValidationWarningApi {
     severity: ValidationWarningSeverityEnumApi
 }
 
+/**
+ * * `invalid_definition` - Invalid definition
+ * * `too_expensive` - Too expensive
+ * * `unavailable` - Unavailable
+ */
+export type AutoresearchValidationErrorCodeEnumApi =
+    (typeof AutoresearchValidationErrorCodeEnumApi)[keyof typeof AutoresearchValidationErrorCodeEnumApi]
+
+export const AutoresearchValidationErrorCodeEnumApi = {
+    InvalidDefinition: 'invalid_definition',
+    TooExpensive: 'too_expensive',
+    Unavailable: 'unavailable',
+} as const
+
 export interface ValidatePipelineResponseApi {
     /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
     can_proceed: boolean
@@ -2241,6 +2270,12 @@ export interface ValidatePipelineResponseApi {
      * @nullable
      */
     error: string | null
+    /** Why validation did not run, or null when it did. 'invalid_definition': a query error in the definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this project's data, so a retry fails the same way; narrow the population, for example to people who performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth a retry.
+     *
+     * * `invalid_definition` - Invalid definition
+     * * `too_expensive` - Too expensive
+     * * `unavailable` - Unavailable */
+    error_code: AutoresearchValidationErrorCodeEnumApi | null
 }
 
 export type AutoresearchListParams = {
