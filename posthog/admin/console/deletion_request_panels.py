@@ -25,7 +25,6 @@ from posthog.dataclasses import frozen
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     AUTO_APPROVE_MAX_EVENTS,
-    CRITERIA_FIELDS,
     EDITABLE_STATUSES,
     DataDeletionRequest,
     ExecutionMode,
@@ -445,12 +444,16 @@ def retry(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResp
     return None
 
 
+def _property_removal_run_unfinished(obj: DataDeletionRequest) -> bool:
+    return unfinished_property_removals().filter(pk=obj.pk).exists()
+
+
 def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
     assert isinstance(obj, DataDeletionRequest)
     # Read before counting, so a criteria edit during the count cannot mark the new criteria completed.
     revision = obj.criteria_updated_at
     prior_status = obj.status
-    if unfinished_property_removals().filter(pk=obj.pk).exists():
+    if _property_removal_run_unfinished(obj):
         # The count reads only the table, and the run may hold rows only in its staged files.
         messages.error(request, "This property removal's run started. Retry it so that its run completes it.")
         return HttpResponse(status=409)
@@ -482,7 +485,7 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
     if obj.status == RequestStatus.COMPLETED:
         messages.info(request, "Verified: no matching rows remain. It was already completed.")
         return None
-    if unfinished_property_removals().filter(pk=obj.pk).exists():
+    if _property_removal_run_unfinished(obj):
         messages.error(request, "This property removal's run started while it was verified, so it was not completed.")
         return HttpResponse(status=409)
     messages.error(request, "The criteria changed while verifying, so the request was not completed. Verify again.")
@@ -674,16 +677,11 @@ def edit_criteria(request: HttpRequest, obj: Model, form: forms.Form | None) -> 
         if current[0] not in EDITABLE_STATUSES:
             messages.error(request, "The request was approved or started since you opened this form. Reload it.")
             return HttpResponse(status=409)
-        # A criteria edit clears the marker, which lets another property removal on the team start. This run may
-        # still restore its staged copy over the rows that removal rewrites.
-        if CRITERIA_FIELDS & set(form.changed_data) and unfinished_property_removals().filter(pk=obj.pk).exists():
-            messages.error(
-                request,
-                "This property removal's run started and did not complete. Retry it until it completes before "
-                "you change its criteria.",
-            )
+        try:
+            notices = obj.apply_staff_edit(cast(User, request.user), form.changed_data, is_new=False)
+        except forms.ValidationError as error:
+            messages.error(request, " ".join(error.messages))
             return HttpResponse(status=409)
-        notices = obj.apply_staff_edit(cast(User, request.user), form.changed_data, is_new=False)
         obj.save()
     _log_change(request, obj, change_message)
     _show_notices(request, notices)

@@ -1750,7 +1750,12 @@ def delete_property_removal_shard(
         log("count-originals", count_sql)
         source = dict(client.execute(count_sql, predicate.params, settings=_LONG_QUERY_SETTINGS))
         originals = sum(source.values())
-        previous_version = _count_rows_staged_by_previous_version(client, staging, sorted(copied["months"]), marker_str)
+        # The previous-version scan reads every staged file, and only a delete that has not started uses it.
+        previous_version = (
+            0
+            if _DELETE_STARTED in steps
+            else _count_rows_staged_by_previous_version(client, staging, sorted(copied["months"]), marker_str)
+        )
         if _DELETE_STARTED not in steps and (source != staged or previous_version):
             # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file
             # lets the next run of the job copy again from the current source.
@@ -1847,9 +1852,8 @@ def reingest_property_removal_shard(
         pending = sorted(month for month in copied["months"] if f"{_REINGESTED}_{month}" not in steps)
         _refuse_unmatchable_staged_rows(client, staging, target, pending, params)
         identity = _row_identity(client, target)
-        for month, expected in sorted(copied["months"].items()):
-            if f"{_REINGESTED}_{month}" in steps:
-                continue
+        for month in pending:
+            expected = copied["months"][month]
             month_params = {**params, "month": int(month)}
             # A failed earlier attempt may have inserted part of this month. The clear removes only rows
             # in the file, so the insert below brings back every row it removes.

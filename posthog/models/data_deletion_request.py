@@ -814,6 +814,13 @@ class DataDeletionRequest(UUIDModel):
             self.created_by = user
             self.created_by_staff = user.is_staff
         elif CRITERIA_FIELDS & set(changed_fields):
+            # The edit clears the marker, which lets another property removal on the team start. This run may
+            # still restore its staged copy over the rows that removal rewrites.
+            if unfinished_property_removals().filter(pk=self.pk).exists():
+                raise ValidationError(
+                    "This property removal's run started and did not complete. Retry it until it completes "
+                    "before you change its criteria."
+                )
             self.criteria_updated_by = user
             self.criteria_updated_at = timezone.now()
             invalidate_compiled_predicate_cache(self.pk)
@@ -1472,9 +1479,6 @@ def queued_requests_to_verify(lookback: timedelta) -> list["DataDeletionRequest"
     return list(selected.values())
 
 
-# An event removal below this many events is cheap enough that a dedicated ClickHouse Team review buys
-# nothing. The sweep job approves it instead, always deferred so the scheduled deletes_job drains it
-# alongside everything else rather than running a mutation of its own.
 def unfinished_property_removals() -> QuerySet[DataDeletionRequest]:
     """Property removals whose run started and did not complete.
 
@@ -1486,6 +1490,9 @@ def unfinished_property_removals() -> QuerySet[DataDeletionRequest]:
     ).exclude(status=RequestStatus.COMPLETED)
 
 
+# An event removal below this many events is cheap enough that a dedicated ClickHouse Team review buys
+# nothing. The sweep job approves it instead, always deferred so the scheduled deletes_job drains it
+# alongside everything else rather than running a mutation of its own.
 AUTO_APPROVE_MAX_EVENTS = 100_000
 # How often the sweep job runs. Lives here rather than beside the schedule so the admin can tell an
 # operator how long their request will sit before it's looked at, without the two drifting apart.
