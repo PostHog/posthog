@@ -6415,7 +6415,7 @@ email@example.org,
                 side_effect=RuntimeError("recount boom"),
             ),
             patch("posthog.api.cohort.capture_exception") as mock_capture,
-            patch("posthog.exceptions.capture_exception") as mock_request_capture,
+            patch("posthog.exceptions.capture_exception", return_value=None) as mock_request_capture,
         ):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",
@@ -6445,7 +6445,7 @@ email@example.org,
                 "products.cohorts.backend.models.util.insert_cohort_members",
                 side_effect=RuntimeError("personhog down"),
             ),
-            patch("posthog.exceptions.capture_exception") as mock_request_capture,
+            patch("posthog.exceptions.capture_exception", return_value=None) as mock_request_capture,
         ):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/add_persons_to_static_cohort",

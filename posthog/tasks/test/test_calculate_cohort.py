@@ -1842,12 +1842,13 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 3)
 
+        claimed_at = timezone.now().replace(microsecond=0) + timedelta(seconds=10)
         Cohort.objects.filter(pk=cohort.pk).update(
             is_calculating=True,
             pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=timezone.now().replace(microsecond=0),
+            population_claimed_at=claimed_at,
         )
-        with time_machine.travel(timezone.now() + timedelta(seconds=10), tick=False):
+        with time_machine.travel(claimed_at + timedelta(seconds=10), tick=False):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
         cohort.refresh_from_db()
@@ -2860,10 +2861,11 @@ class TestCohortCalculationTasks(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'in'"},
         )
         cohort.insert_users_list_by_uuid([str(kept.uuid), str(stale1.uuid), str(stale2.uuid)], team_id=self.team.pk)
+        claimed_at = timezone.now().replace(microsecond=0) + timedelta(seconds=10)
         Cohort.objects.filter(pk=cohort.pk).update(
             is_calculating=True,
             pending_population_mode=CohortPopulationMode.REPLACE,
-            population_claimed_at=timezone.now().replace(microsecond=0),
+            population_claimed_at=claimed_at,
         )
 
         real_delete = delete_cohort_members_by_person_ids
@@ -2882,7 +2884,7 @@ class TestCohortCalculationTasks(APIBaseTest):
         insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
         try:
             with (
-                time_machine.travel(timezone.now() + timedelta(seconds=10), tick=False),
+                time_machine.travel(claimed_at + timedelta(seconds=10), tick=False),
                 patch("products.cohorts.backend.models.util.PRUNE_PAGE_SIZE", 1),
                 patch("products.cohorts.backend.models.util.PRUNE_DELETE_CHUNK", 1),
                 patch(

@@ -650,7 +650,7 @@ class TestCohortUtils(BaseTest):
         # Keep deterministic ascending UUIDs so page boundaries match the ClickHouse ORDER BY person_id order.
         u1, u2, u3, u4, u5, u6 = [uuid.UUID(int=i) for i in range(1, 7)]
         persons = [
-            _create_person(team_id=self.team.id, distinct_ids=[f"p-{i}"], uuid=u)
+            create_person(team=self.team, distinct_ids=[f"p-{i}"], uuid=u)
             for i, u in enumerate((u1, u2, u3, u4, u5, u6), 1)
         ]
         flush_persons_and_events()
