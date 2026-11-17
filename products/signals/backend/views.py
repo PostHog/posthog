@@ -93,7 +93,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.alerts.backend.facade.api import list_enabled_alerts
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
-from products.signals.backend.agent_instructions import STEERING_FIELDS
+from products.signals.backend.agent_instructions import CUSTOM_IMAGE_FIELDS, STEERING_FIELDS
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_ASSIGNEE,
@@ -291,7 +291,12 @@ from products.signals.backend.scout_harness.tools.report_author import (
     user_report_limit_resets_at,
 )
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
-from products.signals.backend.scout_harness.views import emit_report_from_validated_data, emit_report_response_data
+from products.signals.backend.scout_harness.views import (
+    assert_custom_image_usable,
+    emit_report_from_validated_data,
+    emit_report_response_data,
+    has_skill_editor_access,
+)
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     AlertPatternPreviewOutcome,
@@ -344,6 +349,7 @@ from products.signals.backend.serializers import (
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
+    SourceFilterCatalogListSerializer,
     personal_ranking_payload,
 )
 from products.signals.backend.signal_metadata import (
@@ -357,6 +363,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
+from products.signals.backend.source_filters import writable_sources
 from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.spend_reporting import SpendReporting
@@ -668,6 +675,34 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ).data
         )
 
+    @extend_schema(
+        responses={200: OpenApiResponse(response=SourceFilterCatalogListSerializer)},
+        summary="List source filter catalogs",
+        description=(
+            "List the sources whose filter this project can set, each with the fields a filter expression can use and "
+            "example expressions. A filter is a boolean expression saved in a source config's `config.hogql_filter`. "
+            "It excludes records before any AI processing. Available before the source is connected or synced."
+        ),
+    )
+    @action(
+        detail=False, methods=["get"], url_path="filter_catalogs", required_scopes=["inbox:read"], pagination_class=None
+    )
+    def filter_catalogs(self, request: Request, **kwargs: Any) -> Response:
+        catalogs = [
+            {
+                "source_product": source.source_product,
+                "source_type": source.source_type,
+                "catalog_version": source.catalog_version,
+                "filter_fields": [
+                    {"name": field.name, "type": field.type, "description": field.description}
+                    for field in source.bundle.fields
+                ],
+                "starter_expressions": source.bundle.starter_expressions,
+            }
+            for source in writable_sources(str(self.team.organization_id))
+        ]
+        return Response(SourceFilterCatalogListSerializer({"results": catalogs}).data)
+
     def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
         return (
             source_product == SignalSourceConfig.SourceProduct.SIGNALS_SCOUT
@@ -823,7 +858,11 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 # A task agent that could edit this list would widen the GitHub token of every later implementation run.
-_SANDBOX_PROTECTED_CONFIG_FIELDS = (*STEERING_FIELDS.values(), "implementation_repositories")
+_SANDBOX_PROTECTED_CONFIG_FIELDS = (
+    *STEERING_FIELDS.values(),
+    "implementation_repositories",
+    *CUSTOM_IMAGE_FIELDS.values(),
+)
 
 
 def _submitted_config_fields(request: Request) -> set[str]:
@@ -838,7 +877,7 @@ class SignalSteeringPermission(BasePermission):
         ):
             return True
         if is_sandbox_oauth_request(request):
-            self.message = "Task agents cannot modify steering instructions or implementation repositories."
+            self.message = "Task agents cannot modify steering instructions, implementation repositories, or default custom images."
             return False
         return True
 
@@ -871,11 +910,14 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "implementation_repositories",
         "github_issue_writeback_enabled",
         *STEERING_FIELDS.values(),
+        *CUSTOM_IMAGE_FIELDS.values(),
     )
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return ["inbox:read"]
+        if isinstance(request.data, dict) and request.data.get("scout_custom_image_id") is not None:
+            return ["inbox:write", "task:write", "llm_skill:write"]
         if not _submitted_config_fields(request).isdisjoint(self.TASK_RUN_FIELDS):
             return ["inbox:write", "task:write"]
         return ["inbox:write"]
@@ -903,8 +945,30 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             config = SignalTeamConfig.objects.select_for_update().get(pk=config.pk, team_id=self.team.pk)
             serializer = self.get_serializer(config, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
+            self._check_custom_image_changes(config, serializer.validated_data)
             serializer.save()
         return Response(serializer.data)
+
+    def _check_custom_image_changes(self, config: SignalTeamConfig, validated_data: dict[str, Any]) -> None:
+        changed = {
+            field: validated_data[field]
+            for field in CUSTOM_IMAGE_FIELDS.values()
+            if field in validated_data and validated_data[field] != getattr(config, field)
+        }
+        if not changed:
+            return
+        user = cast(User, self.request.user)
+        level = UserPermissions(user=user, team=self.team).current_team.effective_membership_level
+        if level is None or level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only a project admin can change the default custom images.")
+        if changed.get("scout_custom_image_id") is not None and not has_skill_editor_access(user, self.team):
+            raise exceptions.PermissionDenied(
+                "Choosing the default scout custom image requires editor access to skills, since the image can "
+                "supply instructions the scout agent reads."
+            )
+        for field, image_id in changed.items():
+            if image_id is not None:
+                assert_custom_image_usable(image_id=image_id, team_id=self.team.pk, user_id=user.pk, field=field)
 
 
 SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = DISMISSAL_NOTE_MAX_LENGTH

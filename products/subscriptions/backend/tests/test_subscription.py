@@ -137,6 +137,19 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["byweekday"] == byweekday
 
+    @parameterized.expand(
+        [
+            ("custom", {"width": 1200, "height": 630}, 201),
+            ("automatic_height", {"width": 1200, "height": None}, 201),
+            ("too_large", {"width": 4001}, 400),
+        ]
+    )
+    def test_subscription_image_size(self, _name, size, expected_status):
+        response = self._create_subscription(delivery_config={"image_size": size})
+        assert response.status_code == expected_status
+        if expected_status == 201:
+            assert response.json()["delivery_config"]["image_size"] == size
+
     def test_can_create_new_subscription(self):
         response = self._create_subscription()
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)

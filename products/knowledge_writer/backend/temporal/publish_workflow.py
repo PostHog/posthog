@@ -9,8 +9,10 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from ..logic.pull_requests import open_or_join_pull_request, settle_publication
+from ..logic.publication import settle_publication
+from ..logic.pull_requests import open_or_join_pull_request
 from ..logic.records import PUBLICATION_LEASE
+from .held_requests_workflow import start_held_requests
 
 PUBLISH_ATTEMPTS = 3
 PUBLISH_RETRY_INTERVAL = timedelta(minutes=1)
@@ -62,9 +64,14 @@ class PublishWorkflow:
             )
             has_failed = False
         finally:
-            await workflow.execute_activity(
-                settle_publication_activity,
-                SettleInputs(task_run_id=inputs.task_run_id, team_id=inputs.team_id, has_failed=has_failed),
-                start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(initial_interval=PUBLISH_RETRY_INTERVAL, maximum_attempts=PUBLISH_ATTEMPTS),
-            )
+            try:
+                await workflow.execute_activity(
+                    settle_publication_activity,
+                    SettleInputs(task_run_id=inputs.task_run_id, team_id=inputs.team_id, has_failed=has_failed),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(
+                        initial_interval=PUBLISH_RETRY_INTERVAL, maximum_attempts=PUBLISH_ATTEMPTS
+                    ),
+                )
+            finally:
+                await start_held_requests()

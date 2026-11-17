@@ -61,6 +61,12 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     apiKeyFetchedAt: number | undefined
+    /**
+     * Set only when the credential is a project secret API key (`phs_`), which a customer's agent uses
+     * to read business knowledge. It holds the ID of the project that key was created in. Other
+     * credentials never set it: their project comes from `projectId`.
+     */
+    projectSecretKeyProjectId: string | undefined
     clientName: string | undefined
     oauthClientId: string | undefined
     mcpClientName: string | undefined
