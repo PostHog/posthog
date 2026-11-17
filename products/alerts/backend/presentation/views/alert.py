@@ -100,6 +100,7 @@ from products.alerts.backend.facade.api import (
     forecast_rule,
     llm_detector_access_error,
     take_alert_ownership,
+    validate_alert_write,
 )
 from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_DESTINATION_EVENT_IDS,
@@ -107,6 +108,7 @@ from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_EVENT_IDS,
     INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
     INSIGHT_ALERT_URL_DESTINATION_TYPES,
+    AlertInsightSnapshot,
     AlertWriteRefused,
     MovedAlertCheck,
     MovedAlertCheckPage,
@@ -163,7 +165,6 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_threshold_change,
     apply_unsnooze,
 )
-from products.alerts.backend.logic.alert_validation import validate_alert_write
 from products.alerts.backend.models.alert import (
     METRICS_INSIGHT_QUERY_FILTER,
     AlertCheck,
@@ -1412,13 +1413,14 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if insight is not None:
             _require_metrics_scope_for_programmatic_auth(self.context, insight)
         try:
-            return validate_alert_write(
-                attrs,
-                instance=self.instance,
+            validated = validate_alert_write(
+                {key: value for key, value in attrs.items() if key != "insight"},
+                alert_id=self.instance.pk if self.instance else None,
+                insight_id=attrs["insight"].pk if attrs.get("insight") else None,
                 team=self.context["get_team"](),
-                organization=self.context["get_organization"](),
                 actor=self.context["request"].user,
             )
+            return {**attrs, **validated}
         except AlertWriteRefused as error:
             raise ValidationError(error.detail, code=error.code) from error
 
@@ -2516,15 +2518,19 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         _require_metrics_scope_for_programmatic_auth(self.get_serializer_context(), alert.insight)
         ownership = AlertTransferOwnershipSerializer(data=request.data, context=self.get_serializer_context())
         ownership.is_valid(raise_exception=True)
+        with upgrade_insight(alert.insight):
+            expected_insight = AlertInsightSnapshot(
+                id=alert.insight.pk, query=alert.insight.query, filters=alert.insight.filters
+            )
         try:
-            updated = take_alert_ownership(
+            take_alert_ownership(
                 team_id=alert.team_id,
                 alert_id=alert.id,
                 actor=cast(User, request.user),
                 owner=ownership.validated_data["owner"],
                 was_impersonated=get_was_impersonated(),
                 analytics_props=get_request_analytics_properties(request),
-                expected_insight=alert.insight,
+                expected_insight=expected_insight,
             )
         except AlertConfiguration.DoesNotExist as error:
             raise Http404 from error
@@ -2538,6 +2544,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise refusal from error
         except LLMDetectorUnavailableError as error:
             raise LLMDetectorUnavailable(str(error)) from error
+        updated = self._alert_or_native()
         _show_platform_status([updated], now=timezone.now())
         return Response(self.get_serializer(updated).data)
 

@@ -296,3 +296,10 @@ class AlertWriteRefused(Exception):
         self.detail = detail
         self.code = code
         self.status_code = status_code
+
+
+@frozen
+class AlertInsightSnapshot:
+    id: int | None
+    query: dict[str, Any] | None
+    filters: dict[str, Any]

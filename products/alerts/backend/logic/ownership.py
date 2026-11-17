@@ -18,7 +18,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.alerts.backend.activity_logging import AlertConfigurationContext
-from products.alerts.backend.facade.contracts import AlertWriteRefused, PlatformCannotOwn
+from products.alerts.backend.facade.contracts import AlertInsightSnapshot, AlertWriteRefused, PlatformCannotOwn
 from products.alerts.backend.facade.platform import follow_insight_alert
 from products.alerts.backend.insight_alert_state_machine import apply_enable, apply_threshold_change
 from products.alerts.backend.llm_detector_limits import (
@@ -44,7 +44,6 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
-from products.product_analytics.backend.facade.models import Insight
 
 
 @frozen
@@ -252,14 +251,14 @@ def take_alert_ownership(
     owner: User,
     was_impersonated: bool,
     analytics_props: AnalyticsProps | None = None,
-    expected_insight: Insight | None = None,
+    expected_insight: AlertInsightSnapshot | None = None,
 ) -> AlertConfiguration:
     alert = _load_alert(team_id, alert_id)
     snapshot = OwnershipSnapshot.of(alert)
     if expected_insight is not None:
-        with upgrade_insight(alert.insight), upgrade_insight(expected_insight):
+        with upgrade_insight(alert.insight):
             if (alert.insight_id, alert.insight.query, alert.insight.filters) != (
-                expected_insight.pk,
+                expected_insight.id,
                 expected_insight.query,
                 expected_insight.filters,
             ):

@@ -658,6 +658,31 @@ def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> l
     return list(dict.fromkeys(short_id for _, short_id in newest_first))[:limit]
 
 
+def validate_alert_write(
+    attrs: dict[str, Any],
+    *,
+    alert_id: uuid.UUID | None,
+    insight_id: int | None,
+    team: Team,
+    actor: User,
+) -> dict[str, Any]:
+    from products.alerts.backend.logic.alert_validation import validate_alert_write as validate
+    from products.alerts.backend.logic.ownership import _load_alert
+
+    values = dict(attrs)
+    if insight_id is not None:
+        values["insight"] = Insight.objects.get(pk=insight_id, team_id=team.id)
+    validated = validate(
+        values,
+        instance=_load_alert(team.id, alert_id) if alert_id is not None else None,
+        team=team,
+        organization=team.organization,
+        actor=actor,
+    )
+    validated.pop("insight", None)
+    return validated
+
+
 def take_alert_ownership(
     *,
     team_id: int,
@@ -666,13 +691,13 @@ def take_alert_ownership(
     owner: User,
     was_impersonated: bool,
     analytics_props: AnalyticsProps | None = None,
-    expected_insight: Insight | None = None,
-) -> AlertConfiguration:
+    expected_insight: contracts.AlertInsightSnapshot | None = None,
+) -> None:
     from products.alerts.backend.logic.ownership import (
         take_alert_ownership as transfer,  # noqa: PLC0415 -- platform write helpers depend on this facade
     )
 
-    return transfer(
+    transfer(
         team_id=team_id,
         alert_id=alert_id,
         actor=actor,
@@ -722,4 +747,5 @@ __all__ = [
     "forecast_rule",
     "is_llm_detector_config",
     "llm_detector_access_error",
+    "validate_alert_write",
 ]
