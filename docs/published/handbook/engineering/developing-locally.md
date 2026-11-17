@@ -281,7 +281,7 @@ Then start the stack again with `hogli up`.
 You might see `get_mempolicy: Operation not permitted` in the ClickHouse logs. This is harmless and can be ignored. To verify ClickHouse started properly, run `docker exec -it posthog-clickhouse-1 bash` then `clickhouse-client --query "SELECT 1"`.
 
 **ClickHouse system log tables missing locally**
-The dev stack mounts `docker/clickhouse/config.d/dev-system-logs.xml`, which turns off `query_views_log`, `metric_log` and `asynchronous_metric_log` to keep an idle ClickHouse quiet. `query_log`, `query_thread_log`, `text_log` and `trace_log` stay on.
+The dev stack mounts `docker/clickhouse/config.d/dev-system-logs.xml`, which turns off `query_views_log`, `metric_log` and `asynchronous_metric_log` to keep an idle ClickHouse quiet. `query_log`, `query_thread_log`, `text_log` and `trace_log` stay on. It also mounts `dev-idle-polling.xml`, which slows idle Kafka fetches and collects asynchronous metrics once a minute, so the instance status page can show values that are up to a minute old.
 To profile with the other tables, remove the `dev-system-logs.xml` line from the `clickhouse` volumes in `docker-compose.dev.yml` and run `hogli up` again.
 
 **Database migration errors**
