@@ -337,7 +337,7 @@ fn classify_outcome(
                 .increment(1);
             match kind {
                 ErrorKind::Overloaded => Ok(ItemDecision::Overloaded(err.message)),
-                ErrorKind::Poison | ErrorKind::InvalidPayload => {
+                ErrorKind::Poison => {
                     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "items_failed")
                         .increment(1);
                     Err(UnhandledError::Poison(format!(
@@ -347,7 +347,7 @@ fn classify_outcome(
                         err.message
                     )))
                 }
-                ErrorKind::Unhandled => Err(terminal_item_error(
+                ErrorKind::InvalidPayload | ErrorKind::Unhandled => Err(terminal_item_error(
                     work_item.token,
                     format!(
                         "remote resolution returned terminal item error {}: {}",
@@ -523,11 +523,11 @@ mod tests {
     }
 
     #[test]
-    fn classify_outcome_marks_only_input_errors_as_item_failures() {
+    fn classify_outcome_marks_only_poison_as_an_item_failure() {
         let work_item = work_item(7);
         for (kind, item_failure) in [
             (ErrorKind::Poison, true),
-            (ErrorKind::InvalidPayload, true),
+            (ErrorKind::InvalidPayload, false),
             (ErrorKind::Unhandled, false),
         ] {
             let err = classify_outcome(&work_item, error_outcome(kind, "boom")).unwrap_err();

@@ -69,7 +69,7 @@ async fn stream_interruption_reroutes_in_flight_items() {
 #[tokio::test]
 async fn server_per_item_input_error_fails_only_its_event() {
     let (lossy, _) = spawn_stub_server(ServerBehavior::ErrorAfterFirst {
-        kind: ErrorKind::InvalidPayload,
+        kind: ErrorKind::Poison,
     })
     .await;
     let ctx = make_ctx(&[lossy], 1, Duration::from_secs(2)).await;

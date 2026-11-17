@@ -14,7 +14,7 @@ The route selects the contract, so the caller does not need to send that header.
 | --- | --- |
 | `ok` | The event was processed. `value` is the same `AnyEvent` shape with updated `properties`. |
 | `drop` | The normal cymbal pipeline dropped the event. `reason` is `suppressed`, `suppressed_by_rule`, `rate_limited_per_issue`, or `rate_limited_project`. |
-| `fail` | The event's own data cannot be processed, such as a payload the resolution service reports as poison or invalid. The code is `invalid_input`. |
+| `fail` | The event's own data cannot be processed, such as a payload the resolution service reports as poison. The code is `invalid_input`. |
 
 Cymbal does not answer `retry`.
 A failure that can come from a dependency, such as a database, Kafka, or resolution-pool error, fails the whole request with a 500, as the contract requires.
