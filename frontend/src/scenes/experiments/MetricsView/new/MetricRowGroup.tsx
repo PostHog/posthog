@@ -511,7 +511,6 @@ interface MetricRowGroupProps {
     metric: ExperimentMetric
     result: NewExperimentQueryResponse | null
     experiment: Experiment
-    displayOrder: number
     axisRange: number
     isSecondary: boolean
     isLastMetric: boolean
@@ -542,7 +541,6 @@ export function MetricRowGroup({
     metric,
     result,
     experiment,
-    displayOrder,
     axisRange,
     isSecondary,
     isLastMetric,
@@ -810,7 +808,6 @@ export function MetricRowGroup({
                     >
                         <MetricHeader
                             dragHandle={dragHandle}
-                            displayOrder={displayOrder}
                             metric={metric}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
@@ -867,7 +864,6 @@ export function MetricRowGroup({
                     >
                         <MetricHeader
                             dragHandle={dragHandle}
-                            displayOrder={displayOrder}
                             metric={metric}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
@@ -980,7 +976,6 @@ export function MetricRowGroup({
                 >
                     <MetricHeader
                         dragHandle={dragHandle}
-                        displayOrder={displayOrder}
                         metric={metric}
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
