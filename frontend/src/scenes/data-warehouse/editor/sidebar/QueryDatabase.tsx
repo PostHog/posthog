@@ -74,6 +74,8 @@ import { renderTableCount } from '../editorSceneLogic'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 import { LineageTarget, SeeLineageMenuItem } from './SeeLineageMenuItem'
+import { TreeRowOverflowText } from './TreeRowOverflowText'
+import { getRefreshScheduleLabel, getTableKindLabel } from './viewKind'
 
 export function getSidebarAddJoinSourceTableName(
     recordType: string | undefined,
@@ -296,49 +298,6 @@ export const QueryDatabase = ({
                 return <IconDatabase className={getFieldTypeIconClassName(fieldType)} />
             default:
                 return <IconCode2 className={getFieldTypeIconClassName(fieldType)} />
-        }
-    }
-
-    const getTableKindLabel = (item: TreeDataItem): string | null => {
-        if (!item.record) {
-            return null
-        }
-
-        switch (item.record.traversedFieldType ?? item.record.type) {
-            case 'lazy-table':
-                return 'join'
-            case 'virtual-table':
-                return 'virtual table'
-            case 'materialized_view':
-                return 'materialized view'
-            case 'managed-view':
-                return 'managed view'
-            case 'endpoint':
-                return 'materialized endpoint'
-            case 'view':
-            case 'view-table':
-                return item.record.view?.is_materialized ? 'materialized view' : 'view'
-            case 'table': {
-                const tableType = item.record.table?.type
-                switch (tableType) {
-                    case 'materialized_view':
-                        return 'mat view'
-                    case 'batch_export':
-                        return 'batch export'
-                    case 'data_warehouse':
-                        return ''
-                    case 'posthog':
-                        // Return "" to not clutter the interface
-                        return ''
-                    case 'system':
-                        // Return "" to not clutter the interface
-                        return ''
-                    default:
-                        return null
-                }
-            }
-            default:
-                return null
         }
     }
 
@@ -1273,7 +1232,7 @@ export const QueryDatabase = ({
                     isColumn && item.record?.table && item.record?.field
                         ? expressionsByFieldName[`${item.record.table}.${item.record.field.name}`]
                         : null
-                const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
+                const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item.record) : null
                 const certification =
                     item.record?.type === 'table'
                         ? item.record?.table?.certification
@@ -1308,32 +1267,28 @@ export const QueryDatabase = ({
                                     {item.record?.type === 'view' && item.record.isSavedQuery ? (
                                         <MaterializationStatusIcon view={item.record.view} />
                                     ) : null}
-                                    {hasMatches && searchText ? (
-                                        <SearchHighlightMultiple
-                                            string={itemLabel}
-                                            substring={searchText}
-                                            className={cn(isColumn && 'font-mono text-xs')}
-                                        />
-                                    ) : (
-                                        <span
-                                            className={cn(
-                                                [
+                                    <TreeRowOverflowText
+                                        className={cn(
+                                            !(hasMatches && searchText) &&
+                                                ([
                                                     'managed-views',
                                                     'views',
                                                     'sources',
                                                     'drafts',
                                                     'unsaved-folder',
-                                                ].includes(item.record?.type) && 'font-semibold',
-                                                item.record?.type === 'folder' &&
-                                                    item.record?.folderType === 'view-folder' &&
-                                                    'font-semibold',
-                                                isColumn && 'font-mono text-xs',
-                                                'truncate'
-                                            )}
-                                        >
-                                            {item.displayName ?? item.name}
-                                        </span>
-                                    )}
+                                                ].includes(item.record?.type) ||
+                                                    (item.record?.type === 'folder' &&
+                                                        item.record?.folderType === 'view-folder')) &&
+                                                'font-semibold',
+                                            isColumn && 'font-mono text-xs'
+                                        )}
+                                    >
+                                        {hasMatches && searchText ? (
+                                            <SearchHighlightMultiple string={itemLabel} substring={searchText} />
+                                        ) : (
+                                            (item.displayName ?? item.name)
+                                        )}
+                                    </TreeRowOverflowText>
                                 </span>
                                 <TableCertificationIcon certification={certification} />
                                 {isColumn && columnType && savedExpression ? (
@@ -1434,6 +1389,18 @@ export const QueryDatabase = ({
                         ['table', 'view', 'managed-view'].includes(item.record?.type) &&
                         !!item.children?.length &&
                         !expandedItemIds.includes(item.id)
+                    if (item.record?.type === 'view' && item.record.isSavedQuery && item.record.view?.is_materialized) {
+                        const refreshScheduleLabel = getRefreshScheduleLabel(item.record.view.sync_frequency)
+                        return (
+                            <div className="flex flex-col gap-1">
+                                <span className="font-semibold">Materialized view</span>
+                                {refreshScheduleLabel ? <span>{refreshScheduleLabel}</span> : null}
+                                {showExpandHint ? (
+                                    <span className="text-xs opacity-75">Click to show columns</span>
+                                ) : null}
+                            </div>
+                        )
+                    }
                     if (!description && !showExpandHint) {
                         return label
                     }
