@@ -270,43 +270,6 @@ def fetch_first_email_sends(
     return {distinct_id: sent_at.replace(tzinfo=UTC) for distinct_id, sent_at in rows}
 
 
-def fetch_email_send_distinct_ids(
-    team_id: int,
-    function_id: str,
-    invocation_ids: Sequence[str],
-    after: datetime,
-) -> dict[str, str]:
-    """The distinct ID each of the workflow's runs emailed, for the runs that named one."""
-    if not invocation_ids:
-        return {}
-    rows = cast(
-        list,
-        sync_execute(
-            """
-            SELECT invocation_id, any(distinct_id)
-            FROM message_assets
-            WHERE team_id = %(team_id)s
-              AND function_kind = 'hog_flow'
-              AND function_id = %(function_id)s
-              AND kind = 'email'
-              AND invocation_id IN %(invocation_ids)s
-              AND sent_at >= toDateTime64(%(after)s, 6)
-              AND distinct_id != ''
-            GROUP BY invocation_id
-            """,
-            {
-                "team_id": team_id,
-                "function_id": function_id,
-                "invocation_ids": list(invocation_ids),
-                "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
-            },
-            workload=Workload.ONLINE,
-            team_id=team_id,
-        ),
-    )
-    return dict(rows)
-
-
 def fetch_message_asset_html(
     team_id: int,
     function_kind: str,

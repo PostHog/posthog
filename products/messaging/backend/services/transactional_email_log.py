@@ -48,7 +48,6 @@ from products.messaging.backend.services.code_emails import code_emails_by_workf
 from products.messaging.backend.services.transactional_email_status import message_created_at
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 from products.workflows.backend.facade.message_assets import (
-    fetch_email_send_distinct_ids,
     fetch_first_email_sends,
     fetch_message_assets_for_invocations,
 )
@@ -667,7 +666,7 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
             WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
             GROUP BY created_at, message_id
         )
-        WHERE message_function_id = %(workflow_id)s
+        WHERE message_function_id = %(workflow_id)s AND delivery_status != ''
           AND (was_clicked OR delivery_status IN ('delivered', 'complained'))
         ORDER BY queued_at DESC
         LIMIT %(limit)s BY was_clicked
@@ -675,9 +674,12 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
         {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
         _GROUP_AS_READ,
     )
-    distinct_ids = fetch_email_send_distinct_ids(
-        team.id, workflow_id, [row[0] for row in rows], after=period.start - _CLOCK_SKEW
-    )
+    assets = fetch_message_assets_for_invocations(team.id, [row[0] for row in rows], after=period.start - _CLOCK_SKEW)
+    distinct_ids = {
+        asset.invocation_id: asset.distinct_id
+        for asset in assets
+        if asset.function_id == workflow_id and asset.distinct_id
+    }
     # The same person can be reached under several distinct ids, so a send and a conversion meet on the person.
     persons = _persons_for_distinct_ids(team, user, list(set(distinct_ids.values()))) if distinct_ids else {}
     return [
