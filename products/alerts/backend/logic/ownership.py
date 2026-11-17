@@ -137,6 +137,10 @@ def _validate_owner(alert: AlertConfiguration, actor: User, owner: User) -> None
             raise AlertWriteRefused(error)
     if alert.insight.deleted:
         raise AlertWriteRefused({"insight": ["This insight was deleted. Pick another insight."]})
+    _validate_query_access(alert, actor, owner)
+
+
+def _validate_query_access(alert: AlertConfiguration, actor: User, owner: User) -> None:
     if not alert.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
         return
     with upgrade_insight(alert.insight):
