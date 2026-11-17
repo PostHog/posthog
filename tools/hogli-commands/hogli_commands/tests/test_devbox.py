@@ -2905,7 +2905,7 @@ class TestDevboxCommands:
         )
         monkeypatch.setattr(
             devbox_cli,
-            "maybe_configure_claude_secret",
+            "maybe_configure_claude",
             lambda configure_claude, **kw: calls.append(f"claude:{configure_claude}"),
         )
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: calls.append("summary"))
@@ -2951,7 +2951,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_claude", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
         monkeypatch.setattr(
             devbox_cli,
@@ -2981,7 +2981,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda configure_region: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_claude", lambda configure_claude, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
         monkeypatch.setattr(devbox_cli, "get_default_git_identity", lambda: ("Coder User", "coder@example.com"))
 
@@ -3016,7 +3016,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda configure_region: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_claude", lambda configure_claude, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
 
         result = runner.invoke(cli, ["devbox:setup", "--skip-configure-ssh"])
@@ -3787,7 +3787,7 @@ def stub_setup_environment(monkeypatch: pytest.MonkeyPatch, stub_mutagen_setup: 
     monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
-    monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_claude", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
     monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
     monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
@@ -4524,17 +4524,43 @@ class TestSetupRegion:
         assert devbox_config.load_config()["region"] == "eu-central-1"
 
 
-class TestSetupClaudeSecret:
-    """Test the Claude user-secret step in devbox:setup."""
+class TestSetupClaude:
+    """Test the Claude Code step in devbox:setup."""
 
-    def test_skips_when_server_does_not_support_user_secrets(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: False)
+    @staticmethod
+    def _answer_prompts(monkeypatch: pytest.MonkeyPatch, *, choice: str | None, token: str = "") -> None:
+        """Answer the choice prompt with `choice` (None takes the default) and the token prompt with `token`."""
 
+        def fake_prompt(text: str, **kw: Any) -> str:
+            if "token" in text.lower():
+                return token
+            return kw["default"] if choice is None else choice
+
+        monkeypatch.setattr(devbox_cli.click, "prompt", fake_prompt)
+        monkeypatch.setattr(devbox_cli.click, "confirm", lambda *a, **kw: kw.get("default", False))
+        monkeypatch.setattr(devbox_cli.click, "pause", lambda *a, **kw: None)
+
+    @pytest.mark.parametrize(
+        "secrets_supported, legacy_token",
+        [(True, None), (True, "legacy-token"), (False, None)],
+        ids=["fresh", "legacy_keychain_token", "old_server"],
+    )
+    def test_defaults_store_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, secrets_supported: bool, legacy_token: str | None
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: secrets_supported)
+        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
+        monkeypatch.setattr(devbox_cli, "_read_legacy_keychain_token", lambda: legacy_token)
+        self._answer_prompts(monkeypatch, choice=None)
+        upserts: list[str] = []
+        monkeypatch.setattr(devbox_cli, "upsert_user_secret", lambda name, value, **kw: upserts.append(value))
         echoed: list[str] = []
         monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
 
-        devbox_cli.maybe_configure_claude_secret(None)
-        assert any("older than 2.33" in line for line in echoed)
+        devbox_cli.maybe_configure_claude(None)
+
+        assert upserts == []
+        assert any("hogli devbox:claude:login" in line for line in echoed)
 
     def test_skips_silently_when_secret_already_exists(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # The compact status block at the top of devbox_setup now owns the
@@ -4548,7 +4574,7 @@ class TestSetupClaudeSecret:
         echoed: list[str] = []
         monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
 
-        devbox_cli.maybe_configure_claude_secret(None)
+        devbox_cli.maybe_configure_claude(None)
         assert upserts == []
         assert echoed == []
 
@@ -4561,7 +4587,7 @@ class TestSetupClaudeSecret:
         echoed: list[str] = []
         monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
 
-        devbox_cli.maybe_configure_claude_secret(False)
+        devbox_cli.maybe_configure_claude(False)
         assert any("Skipping" in line for line in echoed)
         assert called == []
 
@@ -4584,18 +4610,20 @@ class TestSetupClaudeSecret:
         echoed: list[str] = []
         monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
 
-        devbox_cli.maybe_configure_claude_secret(None)
+        devbox_cli.maybe_configure_claude(None)
 
         assert upserts == [("CLAUDE_CODE_OAUTH_TOKEN", "legacy-token")]
         assert deleted == [True]
 
-    def test_fresh_setup_creates_secret_from_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize("token, expected", [("fresh-token", ["fresh-token"]), ("", [])])
+    def test_token_choice_stores_the_pasted_token(
+        self, monkeypatch: pytest.MonkeyPatch, token: str, expected: list[str]
+    ) -> None:
         monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
         monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
         monkeypatch.setattr(devbox_cli, "_read_legacy_keychain_token", lambda: None)
-        monkeypatch.setattr(devbox_cli.click, "pause", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli.click, "echo", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli.click, "prompt", lambda *a, **kw: "fresh-token")
+        self._answer_prompts(monkeypatch, choice="token", token=token)
 
         upserts: list[str] = []
         monkeypatch.setattr(
@@ -4604,26 +4632,8 @@ class TestSetupClaudeSecret:
             lambda name, value, **kw: upserts.append(value),
         )
 
-        devbox_cli.maybe_configure_claude_secret(None)
-        assert upserts == ["fresh-token"]
-
-    def test_empty_prompt_skips_create(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
-        monkeypatch.setattr(devbox_cli, "_read_legacy_keychain_token", lambda: None)
-        monkeypatch.setattr(devbox_cli.click, "pause", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli.click, "echo", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli.click, "prompt", lambda *a, **kw: "")
-
-        called: list[str] = []
-        monkeypatch.setattr(
-            devbox_cli,
-            "upsert_user_secret",
-            lambda *a, **kw: called.append("upsert"),
-        )
-
-        devbox_cli.maybe_configure_claude_secret(None)
-        assert called == []
+        devbox_cli.maybe_configure_claude(None)
+        assert upserts == expected
 
 
 class TestDevboxSecretCommands:

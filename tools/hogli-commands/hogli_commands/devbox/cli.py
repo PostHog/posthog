@@ -1147,71 +1147,103 @@ def _claude_token_secret_is_set() -> bool:
     return server_supports_user_secrets() and has_claude_oauth_secret()
 
 
-def maybe_configure_claude_secret(configure_claude: bool | None, *, known_secret_names: set[str] | None = None) -> None:
-    """Manage the ``CLAUDE_CODE_OAUTH_TOKEN`` Coder user secret for this user.
+def _print_claude_token_caveats() -> None:
+    click.echo("  A setup token can only make model requests. Remote Control and usage checks don't work with it.")
+    click.echo("  It overrides any Claude Code login on the box.")
+    click.echo("  hogli stores it as a Coder user secret, so every devbox you own gets it.")
 
-    Resolution order:
 
-    1. Server unsupported (< 2.33) -- skip with a one-line note.
-    2. Secret already exists and the user did not pass --configure-claude -- skip.
-    3. Legacy macOS Keychain entry exists -- offer to migrate, then delete it.
-    4. Otherwise -- prompt for a fresh token and create the secret.
-    """
-    if not server_supports_user_secrets():
-        click.echo("Claude token: skipping (Coder server is older than 2.33; user secrets unavailable).")
-        return
-
-    if configure_claude is False:
-        click.echo("Skipping Claude token setup.")
-        return
-
-    secret_exists = (
-        CLAUDE_CODE_OAUTH_ENV in known_secret_names if known_secret_names is not None else has_claude_oauth_secret()
-    )
-
-    if secret_exists and configure_claude is not True:
-        return
-
-    legacy_token = _read_legacy_keychain_token()
-
-    if legacy_token and not secret_exists and configure_claude is not True:
-        click.echo()
-        click.echo(click.style("Claude Code: migrating Keychain token to a Coder user secret", bold=True))
-        click.echo("  hogli now stores the Claude OAuth token as a Coder user secret so that")
-        click.echo("  workspaces pick it up automatically.")
-        if click.confirm("Migrate the existing Keychain entry now?", default=True):
-            upsert_user_secret(
-                CLAUDE_CODE_OAUTH_ENV,
-                legacy_token,
-                env_name=CLAUDE_CODE_OAUTH_ENV,
-                description="Claude Code OAuth token (managed by hogli)",
-            )
-            if _delete_legacy_keychain_token():
-                click.echo("Migrated to Coder user secret. Removed the legacy Keychain entry.")
-            else:
-                click.echo("Migrated to Coder user secret. (Could not remove the legacy Keychain entry.)")
-            return
-
-    click.echo()
-    click.echo(click.style("Claude Code (optional)", bold=True))
-    click.echo("  Workspaces can use Claude Code if you provide an OAuth token.")
-    click.echo("  The token will be stored as a Coder user secret and injected as")
-    click.echo(f"  ${CLAUDE_CODE_OAUTH_ENV} into every workspace you start.")
-    click.echo("  To generate one, run `claude setup-token` in another terminal.")
-    click.echo()
-
-    token = _prompt_for_claude_token()
-    if not token:
-        click.echo("No token provided. Skipping.")
-        return
-
+def _store_claude_token(token: str) -> None:
     upsert_user_secret(
         CLAUDE_CODE_OAUTH_ENV,
         token,
         env_name=CLAUDE_CODE_OAUTH_ENV,
         description="Claude Code OAuth token (managed by hogli)",
     )
-    click.echo(f"Saved Claude token as Coder user secret '{CLAUDE_CODE_OAUTH_ENV}'.")
+
+
+def _maybe_migrate_legacy_keychain_token() -> bool:
+    """Offer to move a Keychain token from older hogli versions into a user secret. Returns True when it moved."""
+    legacy_token = _read_legacy_keychain_token()
+    if not legacy_token:
+        return False
+    click.echo()
+    click.echo(click.style("Claude Code: token found in the macOS Keychain", bold=True))
+    click.echo(
+        "  An older hogli version saved a Claude token in the Keychain. hogli can move it to a Coder user secret."
+    )
+    click.echo("  Logging in on the box is the default now, so most people answer no.")
+    _print_claude_token_caveats()
+    if not click.confirm("Move the Keychain token to a Coder user secret?", default=False):
+        return False
+    _store_claude_token(legacy_token)
+    if _delete_legacy_keychain_token():
+        click.echo("Moved the token to a Coder user secret and removed the Keychain entry.")
+    else:
+        click.echo("Moved the token to a Coder user secret. Couldn't remove the Keychain entry.")
+    return True
+
+
+def _prompt_for_claude_auth_choice(*, secrets_supported: bool, secret_exists: bool) -> str:
+    click.echo()
+    click.echo(click.style("Claude Code (optional)", bold=True))
+    if secret_exists:
+        click.echo(f"  Your {CLAUDE_CODE_OAUTH_ENV} Coder user secret is set.")
+    click.echo("  login: log in on each box with `hogli devbox:claude:login` after it starts. hogli stores nothing.")
+    choices = ["login"]
+    if secrets_supported:
+        click.echo("  token: store a `claude setup-token` token for unattended use.")
+        choices.append("token")
+    click.echo("  skip:  set up Claude Code later.")
+    choices.append("skip")
+    return click.prompt("How should your devboxes use Claude Code?", type=click.Choice(choices), default="login")
+
+
+def maybe_configure_claude(configure_claude: bool | None, *, known_secret_names: set[str] | None = None) -> None:
+    """Choose how devboxes authenticate Claude Code.
+
+    Logging in on the box is the default, because only a full login supports
+    Remote Control and subscription features. The ``CLAUDE_CODE_OAUTH_TOKEN``
+    user secret stays available for unattended use.
+
+    An existing secret is left alone unless the user passed --configure-claude.
+    """
+    if configure_claude is False:
+        click.echo("Skipping Claude Code setup.")
+        return
+
+    secrets_supported = server_supports_user_secrets()
+    if not secrets_supported:
+        secret_exists = False
+    elif known_secret_names is not None:
+        secret_exists = CLAUDE_CODE_OAUTH_ENV in known_secret_names
+    else:
+        secret_exists = has_claude_oauth_secret()
+
+    if secret_exists and configure_claude is None:
+        return
+
+    if secrets_supported and not secret_exists and configure_claude is None and _maybe_migrate_legacy_keychain_token():
+        return
+
+    choice = _prompt_for_claude_auth_choice(secrets_supported=secrets_supported, secret_exists=secret_exists)
+    if choice == "skip":
+        click.echo("Skipped. Run `hogli devbox:setup --configure-claude` to choose later.")
+        return
+    if choice == "login":
+        if secret_exists:
+            _offer_to_delete_claude_token_secret()
+        click.echo("After your devbox starts, run `hogli devbox:claude:login` to log in on it.")
+        return
+
+    click.echo()
+    _print_claude_token_caveats()
+    token = _prompt_for_claude_token()
+    if not token:
+        click.echo("No token provided. Skipping.")
+        return
+    _store_claude_token(token)
+    click.echo(f"Saved the Claude token as Coder user secret '{CLAUDE_CODE_OAUTH_ENV}'.")
 
 
 def _reset_user_secret(secret_name: str) -> bool:
@@ -1451,7 +1483,7 @@ def _confirm_run_setup() -> bool:
     click.echo("  - Git commit signing key propagation")
     click.echo("  - Preferred region for new workspaces (optional)")
     click.echo("  - Dotfiles repo for new workspaces (optional)")
-    click.echo("  - Claude OAuth token as a Coder user secret (optional)")
+    click.echo("  - How devboxes use Claude Code: a login on the box or a stored token (optional)")
     click.echo()
     return click.confirm("Proceed?", default=True)
 
@@ -1486,7 +1518,7 @@ def _confirm_run_setup() -> bool:
     "--configure-claude/--skip-configure-claude",
     "configure_claude_setup",
     default=None,
-    help="Manage the CLAUDE_CODE_OAUTH_TOKEN Coder user secret for this user",
+    help="Choose how devboxes use Claude Code: a login on the box (default) or a CLAUDE_CODE_OAUTH_TOKEN user secret",
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_setup(
@@ -1545,7 +1577,7 @@ def devbox_setup(
     maybe_configure_git_signing(configure_git_signing, known_secret_names=secret_names)
     maybe_configure_region(configure_region)
     maybe_configure_dotfiles(configure_dotfiles)
-    maybe_configure_claude_secret(configure_claude_setup, known_secret_names=secret_names)
+    maybe_configure_claude(configure_claude_setup, known_secret_names=secret_names)
     print_setup_summary()
 
 
