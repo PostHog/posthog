@@ -2428,42 +2428,86 @@ class TestSharingBlockedForInsightsWithoutViewAccess(APIBaseTest):
             ],
         }
 
-    @parameterized.expand([("dashboard",), ("notebook",)])
-    def test_enabling_sharing_is_blocked_when_it_exposes_an_insight_the_user_cannot_view(self, artifact: str):
-        if artifact == "dashboard":
-            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-            DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted)
-            DashboardTile.objects.create(dashboard=dashboard, insight=self.visible)
-            url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing"
-        else:
+    @parameterized.expand(
+        [
+            ("dashboard", True),
+            ("notebook", True),
+            ("dashboard_with_sibling_environment_insight", True),
+            ("dashboard_shared_by_org_admin", False),
+            ("dashboard_in_org_without_access_control", False),
+        ]
+    )
+    @patch("posthog.api.sharing.export_asset_for_opengraph")
+    def test_enabling_sharing_with_an_insight_the_user_cannot_view(self, case: str, blocked: bool, _export: Mock):
+        restricted = self.restricted
+        if case == "dashboard_with_sibling_environment_insight":
+            sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+            restricted = Insight.objects.create(team=sibling, query=self.restricted.query)
+            AccessControl.objects.create(
+                team=sibling, resource="insight", resource_id=str(restricted.id), access_level="none"
+            )
+        elif case == "dashboard_shared_by_org_admin":
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+                level=OrganizationMembership.Level.ADMIN
+            )
+        elif case == "dashboard_in_org_without_access_control":
+            self.organization.available_product_features = []
+            self.organization.save()
+
+        if case == "notebook":
             notebook = Notebook.objects.create(
-                team=self.team, created_by=self.user, content=self._notebook_content(self.restricted, self.visible)
+                team=self.team, created_by=self.user, content=self._notebook_content(restricted, self.visible)
             )
             url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sharing"
+        else:
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=restricted)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.visible)
+            url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing"
 
         response = self.client.patch(url, {"enabled": True})
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert response.json()["detail"] == (
-            "Can't enable sharing: you don't have access to 1 insight that it uses. "
-            "Ask an admin for access, or remove it first."
-        )
-        assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+        if blocked:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert response.json()["detail"] == (
+                "Can't enable sharing: you don't have access to 1 insight that it uses. "
+                "Ask an admin for access, or remove it first."
+            )
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.content
+        assert SharingConfiguration.objects.filter(team=self.team, enabled=True).exists() is not blocked
 
-    def test_restoring_a_tile_the_editor_cannot_view_on_a_shared_dashboard_is_blocked(self):
+    @parameterized.expand([("restore_tile",), ("move_tile",), ("insight_dashboards_patch",)])
+    def test_adding_an_insight_the_editor_cannot_view_to_a_shared_dashboard_is_blocked(self, path: str):
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-        tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted, deleted=True)
         SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/",
-            {"tiles": [{"id": tile.id, "deleted": False}]},
-        )
+        if path == "restore_tile":
+            tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted, deleted=True)
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/",
+                {"tiles": [{"id": tile.id, "deleted": False}]},
+            )
+        elif path == "move_tile":
+            source = Dashboard.objects.create(team=self.team, created_by=self.user)
+            tile = DashboardTile.objects.create(dashboard=source, insight=self.restricted)
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/dashboards/{source.id}/move_tile/",
+                {"tile": {"id": tile.id}, "to_dashboard": dashboard.id},
+            )
+        else:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{self.restricted.id}/", {"dashboards": [dashboard.id]}
+            )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "Can't add this insight: you don't have access to this insight" in str(response.json())
-        tile.refresh_from_db()
-        assert tile.deleted is True
+        assert response.status_code in (
+            status.HTTP_400_BAD_REQUEST,
+            status.HTTP_403_FORBIDDEN,
+            status.HTTP_404_NOT_FOUND,
+        ), response.content
+        if path != "insight_dashboards_patch":
+            assert "Can't add this insight: you don't have access to this insight" in str(response.json())
+        assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.restricted, deleted=False).exists()
 
     def test_embedding_an_insight_the_editor_cannot_view_in_a_shared_notebook_is_blocked(self):
         notebook = Notebook.objects.create(

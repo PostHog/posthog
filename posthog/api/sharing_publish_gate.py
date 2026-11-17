@@ -8,9 +8,9 @@ read it through the public link.
 """
 
 from collections.abc import Iterable, Sequence
-from typing import Any, Protocol, cast
+from typing import Any, Protocol
 
-from django.db.models import Model, Q
+from django.db.models import Q
 
 from rest_framework import serializers
 
@@ -110,14 +110,14 @@ def check_can_add_insight_to_dashboard(
     query: Any,
     user_access_control: UserAccessControl | None = None,
     *,
-    insight_id: int | None = None,
+    insight: Insight | None = None,
 ) -> None:
     """Raise if binding an insight with this query to the dashboard would expose, through the
     dashboard's public link or a subscription that delivers it in full, a query the editor can't
-    run themselves, or an existing insight (`insight_id`) the editor can't view. No-op when the
+    run themselves, or an existing `insight` the editor can't view. No-op when the
     dashboard reaches no such reader, the org lacks the access control entitlement, or the editor
     is an org admin."""
-    if not isinstance(query, dict) and insight_id is None:
+    if not isinstance(query, dict) and insight is None:
         return
     team = _dashboard_team(dashboard)
     if not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
@@ -130,9 +130,7 @@ def check_can_add_insight_to_dashboard(
     if exposure is None:
         return
     denied_resources = denied_query_resources(user, team, [query]) if isinstance(query, dict) else []
-    insight_denied = insight_id is not None and bool(
-        insights_denied_to(uac, Insight.objects.filter(team__project_id=team.project_id, id=insight_id))
-    )
+    insight_denied = insight is not None and bool(insights_denied_to(uac, [insight]))
     if denied_resources or insight_denied:
         denied = _describe_denied(denied_resources, "this insight" if insight_denied else None)
         raise serializers.ValidationError(
@@ -152,7 +150,10 @@ def share_access_error(
     resolution the read path uses, and must be able to view every insight in it. Non-access compile
     errors don't block.
     """
-    connected_insights = list(Insight.objects.filter(team_id=config.team_id, id__in=config.get_connected_insight_ids()))
+    # Dashboards are project-wide, so a tile can hold an insight from a sibling environment.
+    connected_insights = list(
+        Insight.objects.filter(team__project_id=team.project_id, id__in=config.get_connected_insight_ids())
+    )
     denied_resources = denied_query_resources(user, team, _queries_exposed_by(config, connected_insights))
     # A dashboard's own filters and tile overrides run inside every tile, and they could have
     # been saved before the dashboard was shared, when the save-time check did not apply.
@@ -175,10 +176,16 @@ def share_access_error(
 
 
 def insights_denied_to(user_access_control: UserAccessControl, insights: Iterable[Insight]) -> list[Insight]:
-    """The insights the user can't view at `viewer` level."""
+    """The insights the user can't view at `viewer` level, each resolved with its own team's rules."""
     insights = list(insights)
-    user_access_control.preload_object_access_controls(cast(list[Model], insights))
-    return [insight for insight in insights if not user_access_control.check_access_level_for_object(insight, "viewer")]
+    denied_ids = set(
+        user_access_control.denied_object_ids(
+            "insight",
+            [(str(insight.id), insight.team_id, insight.created_by_id) for insight in insights],
+            "viewer",
+        )
+    )
+    return [insight for insight in insights if str(insight.id) in denied_ids]
 
 
 def _count_insights(count: int) -> str | None:
@@ -298,14 +305,23 @@ def notebook_edit_access_error(user: User, notebook: Any, new_content: dict[str,
         extract_referenced_insight_short_ids(old_content)
     )
     added_insights = (
-        list(Insight.objects.filter(team_id=notebook.team_id, short_id__in=added_short_ids, deleted=False))
+        list(
+            Insight.objects.filter(
+                team__project_id=notebook.team.project_id, short_id__in=added_short_ids, deleted=False
+            )
+        )
         if added_short_ids
         else []
     )
     changed_queries.extend(insight.query for insight in added_insights if isinstance(insight.query, dict))
     denied_resources = denied_query_resources(user, notebook.team, changed_queries)
     denied_insights = (
-        insights_denied_to(UserAccessControl(user=user, team=notebook.team), added_insights) if added_insights else []
+        insights_denied_to(
+            UserAccessControl(user=user, team=notebook.team, organization_id=str(notebook.team.organization_id)),
+            added_insights,
+        )
+        if added_insights
+        else []
     )
     if not denied_resources and not denied_insights:
         return None

@@ -2718,7 +2718,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Un-deleting a tile re-exposes its insight on the dashboard's public link.
         insight = existing.insight
         if became_live and insight is not None:
-            check_can_add_insight_to_dashboard(user, instance, insight.query, insight_id=insight.id)
+            check_can_add_insight_to_dashboard(user, instance, insight.query, insight=insight)
 
         marking_changed = any(
             getattr(existing, field) != tile_defaults[field]
@@ -3702,7 +3702,7 @@ class DashboardsViewSet(
                 to_dashboard_obj,
                 tile.insight.query,
                 self.user_access_control,
-                insight_id=tile.insight.id,
+                insight=tile.insight,
             )
         try:
             with transaction.atomic():
