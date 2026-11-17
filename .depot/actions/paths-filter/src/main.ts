@@ -41,7 +41,7 @@ async function run(): Promise<void> {
     }
 
     const filter = new Filter(filtersYaml)
-    const reuseConfig = reuse.loadConfig(filter)
+    const reuseConfig = reuse.loadConfig(filter, isPathInput(filtersInput) ? filtersInput : null)
     const {files, api} = await getChangedFiles(token, base, ref, initialFetchDepth)
     core.info(`Detected ${files.length} changed files`)
     const results = filter.match(files)
@@ -55,6 +55,8 @@ async function run(): Promise<void> {
               truncated: api.apiTruncated,
               action: github.context.payload.action,
               before: github.context.payload.before,
+              runAttempt: parseInt(process.env.GITHUB_RUN_ATTEMPT ?? '1') || 1,
+              now: Date.now(),
               pr: api.pr
             },
             signal => reuse.githubApi(token, signal)

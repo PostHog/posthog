@@ -83,6 +83,8 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   reuse-checks: MCP Tests Pass
+                  reuse-proof-checks: Build Package
+                  reuse-blocking-labels: ci-no-reuse
                   reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       mcp:

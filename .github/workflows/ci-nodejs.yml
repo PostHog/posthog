@@ -109,6 +109,10 @@ jobs:
                   # node_src_files feeds jest --findRelatedTests in the select step below.
                   list-files: 'escape'
                   reuse-checks: Node.js Tests Pass
+                  reuse-proof-checks: |
+                      Node.js Build (depot-ubuntu-24.04)
+                      Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
+                  reuse-blocking-labels: ci-no-reuse
                   reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       nodejs:

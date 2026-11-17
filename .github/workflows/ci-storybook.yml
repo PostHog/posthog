@@ -158,7 +158,10 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   reuse-checks: Visual regression tests pass
-                  reuse-blocking-labels: run-ci-frontend
+                  reuse-blocking-labels: |
+                      run-ci-frontend
+                      ci-no-reuse
+                  reuse-proof-checks: Build Storybook (depot-ubuntu-24.04)
                   reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       frontend:

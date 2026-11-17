@@ -101,6 +101,11 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
                   reuse-checks: Python code quality checks
+                  reuse-proof-checks: |
+                      Python code quality (depot-ubuntu-24.04)
+                      lib/api.ts codegen ratchet
+                      Warehouse sources checks and tests
+                  reuse-blocking-labels: ci-no-reuse
                   reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       # Consumed as a file list (complexity_files) by the changed-file

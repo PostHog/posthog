@@ -168,7 +168,13 @@ jobs:
                       frontend_code
                       replay_shared
                       complexity
-                  reuse-blocking-labels: run-ci-frontend
+                  reuse-blocking-labels: |
+                      run-ci-frontend
+                      ci-no-reuse
+                  reuse-proof-checks: |
+                      Frontend formatting
+                      Frontend typechecking
+                      Jest test (replay-shared)
                   reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       all_files:

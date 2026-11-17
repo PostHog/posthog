@@ -90,6 +90,8 @@ jobs:
                   reuse-checks: |
                       Rust Tests Pass
                       PersonHog e2e gate
+                  reuse-proof-checks: Compute affected Rust crates
+                  reuse-blocking-labels: ci-no-reuse
                   reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       rust:

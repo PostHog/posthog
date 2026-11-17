@@ -167,6 +167,8 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   reuse-checks: Playwright tests pass
+                  reuse-proof-checks: Playwright E2E tests
+                  reuse-blocking-labels: ci-no-reuse
                   reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       shouldRun:

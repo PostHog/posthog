@@ -72,6 +72,8 @@ describe('reuse wiring', () => {
           filters: JSON.stringify({app: ['src/**'], docs: ['docs/**']}),
           token: 'test-token',
           'reuse-checks': 'Tests Pass',
+          'reuse-proof-checks': 'Tests',
+          'reuse-filter-source': '.github/workflows/ci.yml',
           'reuse-filters': 'app'
         }[name] ?? '')
     )
@@ -97,18 +99,22 @@ describe('reuse wiring', () => {
     jest.mocked(github.getOctokit).mockReturnValue({
       rest: {
         pulls: {listFiles: {endpoint: {merge: () => ({})}}},
-        repos: {compareCommitsWithBasehead: async () => ({data: {files: [rows[0]]}})},
+        repos: {
+          compareCommitsWithBasehead: async () => ({data: {files: [rows[0]]}}),
+          listCommits: async () => ({data: []})
+        },
         checks: {
           listForRef: async () => ({
-            data: {check_runs: [{status: 'completed', conclusion: 'success', started_at: '2026-11-10T13:00:00Z'}]}
+            data: {check_runs: [{status: 'completed', conclusion: 'success', started_at: new Date().toISOString()}]}
           })
         }
       },
-      paginate: {
+      paginate: Object.assign(async () => [{sha: previousHead}], {
         iterator: async function* () {
           yield {status: 200, data: rows}
         }
-      }
+      }),
+      graphql: async () => ({repository: {pullRequest: {timelineItems: {nodes: []}}}})
     } as unknown as ReturnType<typeof github.getOctokit>)
     jest.isolateModules(() => {
       require('../src/main')

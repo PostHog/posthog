@@ -464,6 +464,7 @@ git commit --allow-empty -m "chore(ci): run the full matrix" && git push
 
 The empty commit works because both labels are in `reuse-blocking-labels`.
 Without a blocking label, an empty commit changes no file, so a workflow that reuses results skips its suite and keeps the previous verdict.
+To make every suite that reuses results run again, add the `ci-no-reuse` label and push, or re-run the workflow: a re-run never reuses.
 
 Do not add `labeled`/`unlabeled` back to a merge gate's `on.pull_request.types` to avoid that push.
 GitHub cannot filter a label trigger by name, so every unrelated label re-runs the full matrices against a commit CI has already covered.
@@ -490,13 +491,14 @@ The cheap oracle for the rest is the queue: the `trunk-merge/**` run tests the s
 ### Reusing an earlier passing result
 
 Without reuse, every push to a PR re-runs each suite whose filter matches anything in the whole PR, even when the push touched none of its files.
-The vendored paths-filter can instead report its filters as unchanged when the files they match are identical to the previous head's and the named checks passed there.
+The vendored paths-filter can instead report its filters as unchanged when the files they match are identical to those of the last head where the suite really ran and passed.
 The gated jobs skip and the gate passes through its "nothing to test" path.
 The [paths-filter README](../../../.github/actions/paths-filter/README.md#reusing-an-earlier-passing-result-opt-in) owns the inputs, outputs, and the conditions under which it never reuses.
-`ci-frontend.yml`, `ci-storybook.yml`, `ci-rust.yml`, `ci-nodejs.yml`, `ci-e2e-playwright.yml`, `ci-mcp.yml`, `ci-python.yml` and `.depot/workflows/ci-backend.yml` use it, all behind the `DISABLE_CI_REUSE` repository variable.
+`ci-frontend.yml`, `ci-storybook.yml`, `ci-rust.yml`, `ci-nodejs.yml`, `ci-e2e-playwright.yml`, `ci-mcp.yml`, `ci-python.yml` and `.depot/workflows/ci-backend.yml` use it, all behind the `DISABLE_CI_REUSE` variable.
+Depot CI reads variables from its own store, so the switch has to be set there as well as on GitHub to stop backend reuse.
 
 Adopt it only where two things already hold: the gate treats `skipped` as success, and the merge queue runs the full suite.
-Reuse compares the PR's own changed files, not the base, so a rebase that leaves them alone keeps the old result. The queue run never reuses, and it is what catches a break from master.
+Reuse compares the PR's own changed files, not the base, so every reused result keeps the master side of the run it reuses, up to 24 hours old. The queue run never reuses, and it is what catches a break from master.
 
 The judgment calls when you adopt or change it:
 
@@ -510,15 +512,18 @@ The judgment calls when you adopt or change it:
 - **A check name that embeds a runner label is brittle.**
   Renaming the job or its runner silently stops reuse, and the only sign is `previous-not-green` with `no check run` in the `posthog-ci-reuse-decision` events.
   When you rename a job, update `reuse-checks` in the same change.
-- **Labels that force a fuller run go in `reuse-blocking-labels`** (`run-ci-backend`, `run-ci-frontend`, `test-new-events-schema`).
+- **`reuse-proof-checks` names a job that runs only when the suite really runs.**
+  A gate also passes when its suite was skipped: a reused result, Playwright's debounce, the Storybook bot's baseline push, a `no-ci` label.
+  The action walks back to the newest head where a proof check concluded `success`, so a green skip is never the result it reuses.
+  Pick a job gated by the scoped filters and by nothing else, such as a build or a selection job, not one that also runs on unrelated changes.
+- **Keep filters out of scope when a job they gate must post on every head.**
+  Backend leaves its migration filters out, so `check-migrations` still runs on a migration PR and posts the `Migration risk` check that stamphog waits for.
+- **Labels that force a fuller run go in `reuse-blocking-labels`** (`run-ci-backend`, `run-ci-frontend`, `test-new-events-schema`), plus `ci-no-reuse` in every workflow.
 - **Anything that acts on a filter being `false` must also check `reused`.**
   After a reuse, `false` means "unchanged since a green run", not "nothing here".
   Backend's coverage cleanup is the example: it clears stale coverage only when `needs.changes.outputs.reused != 'true'`.
 - **Without `ready_for_review` in the trigger types, the first push after a draft is marked ready always runs.**
   The action refuses a previous run that started before the PR was ready, and `ci-rust.yml` and `ci-nodejs.yml` have a bare `pull_request:` trigger.
-- **A gate that can pass without the suite having run weakens the chain.**
-  Playwright's debounce skips a superseded run and its gate still passes, so the next push can reuse a green result that tested nothing.
-  Do not add another pass-without-running path to a gate that reuse reads.
 - **Declaring outputs in the action's `action.yml` changes the object type** that the ignore pattern in `.github/actionlint.yaml` anchors on.
   Update both patterns in the same change, or actionlint fails on every per-filter output.
 

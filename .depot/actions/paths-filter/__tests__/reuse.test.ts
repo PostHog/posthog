@@ -1,16 +1,31 @@
 import * as core from '@actions/core'
+import * as github from '@actions/github'
 import {PullRequest} from '@octokit/webhooks-types'
 
 import {ApiFileRow, File, filesFromApiRow} from '../src/file'
 import {Filter} from '../src/filter'
-import {CheckRun, ReuseApi, ReuseConfig, ReuseInput, evaluate, loadConfig, withoutReusedKeys} from '../src/reuse'
+import {
+  CheckRun,
+  ReuseApi,
+  ReuseConfig,
+  ReuseInput,
+  evaluate,
+  githubApi,
+  loadConfig,
+  withoutReusedKeys
+} from '../src/reuse'
 
 jest.mock('@actions/core')
+jest.mock('@actions/github', () => ({context: {repo: {owner: 'PostHog', repo: 'posthog'}}, getOctokit: jest.fn()}))
 
 const PREVIOUS_HEAD = 'a'.repeat(40)
+const EARLIER_HEAD = 'd'.repeat(40)
 const BASE = 'b'.repeat(40)
 const READY_AT = '2026-11-10T12:00:00Z'
+const NOW = Date.parse('2026-11-10T14:00:00Z')
 const GATE = 'Frontend Tests Pass'
+const PROOF = 'Frontend formatting'
+const WORKFLOW = '.github/workflows/ci-frontend.yml'
 
 const filter = new Filter(`
 frontend:
@@ -19,9 +34,21 @@ docs:
   - 'docs/**'
 `)
 
-const config: ReuseConfig = {checks: [GATE], keys: ['frontend'], blockingLabels: ['run-ci-frontend'], disabled: false}
+const config: ReuseConfig = {
+  checks: [GATE],
+  proofChecks: [PROOF],
+  filterSource: WORKFLOW,
+  keys: ['frontend'],
+  blockingLabels: ['run-ci-frontend'],
+  disabled: false
+}
 
 const green: CheckRun = {status: 'completed', conclusion: 'success', startedAt: '2026-11-10T13:00:00Z'}
+const skipped: CheckRun = {...green, conclusion: 'skipped'}
+
+function runsByHead(heads: Record<string, Record<string, CheckRun[]>>): ReuseApi['checkRuns'] {
+  return async (sha, name) => heads[sha]?.[name] ?? []
+}
 
 function files(...rows: ApiFileRow[]): File[] {
   return rows.flatMap(filesFromApiRow)
@@ -49,6 +76,8 @@ function input(overrides: Partial<ReuseInput> = {}): ReuseInput {
     truncated: false,
     action: 'synchronize',
     before: PREVIOUS_HEAD,
+    runAttempt: 1,
+    now: NOW,
     pr: pullRequest(),
     ...overrides
   }
@@ -58,7 +87,9 @@ function api(overrides: Partial<ReuseApi> = {}): () => ReuseApi {
   return () => ({
     filesAt: async () => files(appFile),
     checkRuns: async () => [green],
-    readyForReviewAt: async () => READY_AT,
+    pullCommits: async () => [EARLIER_HEAD, PREVIOUS_HEAD],
+    timeline: async () => ({readyForReviewAt: READY_AT, baseChangedAt: null}),
+    changedOnBranchSince: async () => false,
     ...overrides
   })
 }
@@ -131,6 +162,59 @@ describe('reuse of an earlier passing result', () => {
       {checkRuns: async () => [{...green, startedAt: '2026-11-10T11:00:00Z'}]},
       'previous-ran-as-draft'
     ],
+    [
+      'the previous head passed only because its suite was skipped, and the head before it failed',
+      {},
+      {
+        checkRuns: runsByHead({
+          [PREVIOUS_HEAD]: {[GATE]: [green], [PROOF]: [skipped]},
+          [EARLIER_HEAD]: {[GATE]: [{...green, conclusion: 'failure'}], [PROOF]: [{...green, conclusion: 'failure'}]}
+        })
+      },
+      'previous-not-green'
+    ],
+    [
+      'no earlier head ran the suite',
+      {},
+      {
+        checkRuns: runsByHead({[PREVIOUS_HEAD]: {[GATE]: [green], [PROOF]: [skipped]}}),
+        pullCommits: async () => [PREVIOUS_HEAD]
+      },
+      'no-proven-run'
+    ],
+    [
+      'the head that ran the suite had other inputs',
+      {},
+      {
+        checkRuns: runsByHead({
+          [PREVIOUS_HEAD]: {[GATE]: [green], [PROOF]: [skipped]},
+          [EARLIER_HEAD]: {[GATE]: [green], [PROOF]: [green]}
+        }),
+        filesAt: async (_, sha) => (sha === EARLIER_HEAD ? files({...appFile, sha: 'app-v0'}) : files(appFile))
+      },
+      'inputs-changed'
+    ],
+    [
+      'the pull request changed the filters',
+      {files: files(appFile, {filename: WORKFLOW, status: 'modified', sha: 'workflow-v2'})},
+      {filesAt: async () => files(appFile, {filename: WORKFLOW, status: 'modified', sha: 'workflow-v1'})},
+      'inputs-changed'
+    ],
+    [
+      'the base branch changed the filters after the run',
+      {},
+      {changedOnBranchSince: async () => true},
+      'filter-changed'
+    ],
+    [
+      'the pull request was retargeted after the run',
+      {},
+      {timeline: async () => ({readyForReviewAt: READY_AT, baseChangedAt: '2026-11-10T13:30:00Z'})},
+      'base-changed'
+    ],
+    ['the run is more than a day old', {now: NOW + 2 * 24 * 60 * 60 * 1000}, {}, 'previous-too-old'],
+    ['the workflow is re-run', {runAttempt: 2}, {}, 're-run'],
+    ['the file that defines the filters is unknown', {config: {...config, filterSource: null}}, {}, 'error'],
     ['the event is not a push', {action: 'ready_for_review'}, {}, 'not-a-push'],
     [
       'the pull request comes from a fork',
@@ -170,10 +254,27 @@ describe('reuse of an earlier passing result', () => {
     expect(decision).toMatchObject({reuse: false, reason, previousSha: null})
   })
 
-  test('a previous job that was skipped counts as passing', async () => {
-    const decision = await evaluate(input(), api({checkRuns: async () => [{...green, conclusion: 'skipped'}]}))
+  test('a skipped gate passes when the suite ran on that head', async () => {
+    const decision = await evaluate(
+      input(),
+      api({checkRuns: runsByHead({[PREVIOUS_HEAD]: {[GATE]: [skipped], [PROOF]: [green]}})})
+    )
 
-    expect(decision).toMatchObject({reuse: true})
+    expect(decision).toMatchObject({reuse: true, previousSha: PREVIOUS_HEAD})
+  })
+
+  test('a chain of reused heads reuses the head where the suite last ran', async () => {
+    const decision = await evaluate(
+      input(),
+      api({
+        checkRuns: runsByHead({
+          [PREVIOUS_HEAD]: {[GATE]: [green], [PROOF]: [skipped]},
+          [EARLIER_HEAD]: {[GATE]: [green], [PROOF]: [green]}
+        })
+      })
+    )
+
+    expect(decision).toMatchObject({reuse: true, previousSha: EARLIER_HEAD})
   })
 
   test('a draft reuses a gate that ran before any ready-for-review event', async () => {
@@ -194,11 +295,75 @@ describe('reuse of an earlier passing result', () => {
     expect(cleared.docs.map(file => file.filename)).toEqual(['docs/readme.md'])
   })
 
-  test('a scope that names an unknown filter fails the action', () => {
-    jest
-      .mocked(core.getInput)
-      .mockImplementation(name => ({'reuse-checks': GATE, 'reuse-filters': 'frontend, fronted'}[name] ?? ''))
+  test.each<[string, Record<string, string>, string]>([
+    ['names an unknown filter', {'reuse-proof-checks': PROOF, 'reuse-filters': 'frontend, fronted'}, 'fronted'],
+    ['names no proof check', {}, 'reuse-proof-checks']
+  ])('a configuration that %s fails the action', (_, inputs, message) => {
+    jest.mocked(core.getInput).mockImplementation(name => ({'reuse-checks': GATE, ...inputs}[name] ?? ''))
 
-    expect(() => loadConfig(filter)).toThrow('fronted')
+    expect(() => loadConfig(filter, null)).toThrow(message)
+  })
+
+  describe('the GitHub API adapter', () => {
+    const requests: Record<string, Record<string, unknown>> = {}
+    const record =
+      (name: string, data: unknown) =>
+      async (params: Record<string, unknown>): Promise<{data: unknown}> => {
+        requests[name] = params
+        return {data}
+      }
+
+    function adapter(compareRows: number, timelineNodes: {__typename: string; createdAt: string}[] = []): ReuseApi {
+      jest.mocked(github.getOctokit).mockReturnValue({
+        rest: {
+          repos: {
+            compareCommitsWithBasehead: record('compare', {
+              files: Array.from({length: compareRows}, (_, i) => ({
+                filename: `f${i}`,
+                status: 'modified',
+                sha: `s${i}`
+              }))
+            }),
+            listCommits: record('commits', [{sha: 'x'}])
+          },
+          checks: {listForRef: record('checks', {check_runs: []})},
+          pulls: {listCommits: 'listCommits'}
+        },
+        paginate: async (_: unknown, params: Record<string, unknown>) => {
+          requests.pullCommits = params
+          return [{sha: EARLIER_HEAD}, {sha: PREVIOUS_HEAD}]
+        },
+        graphql: async () => ({repository: {pullRequest: {timelineItems: {nodes: timelineNodes}}}})
+      } as unknown as ReturnType<typeof github.getOctokit>)
+      return githubApi('token', new AbortController().signal)
+    }
+
+    test('lists the previous head against the base, and gives up at the 300-file cap', async () => {
+      expect(await adapter(299).filesAt(BASE, PREVIOUS_HEAD)).toHaveLength(299)
+      expect(requests.compare).toMatchObject({basehead: `${BASE}...${PREVIOUS_HEAD}`})
+      expect(await adapter(300).filesAt(BASE, PREVIOUS_HEAD)).toBeNull()
+    })
+
+    test('reads only the latest run of each check', async () => {
+      await adapter(0).checkRuns(PREVIOUS_HEAD, GATE)
+
+      expect(requests.checks).toMatchObject({ref: PREVIOUS_HEAD, check_name: GATE, filter: 'latest'})
+    })
+
+    test('takes the newest ready event and the newest base change of either kind', async () => {
+      const timeline = await adapter(0, [
+        {__typename: 'ReadyForReviewEvent', createdAt: '2026-11-10T09:00:00Z'},
+        {__typename: 'BaseRefForcePushedEvent', createdAt: '2026-11-10T12:00:00Z'},
+        {__typename: 'BaseRefChangedEvent', createdAt: '2026-11-10T10:00:00Z'},
+        {__typename: 'ReadyForReviewEvent', createdAt: '2026-11-10T11:00:00Z'}
+      ]).timeline(7)
+
+      expect(timeline).toEqual({readyForReviewAt: '2026-11-10T11:00:00Z', baseChangedAt: '2026-11-10T12:00:00Z'})
+    })
+
+    test('reports a filter change on the base branch since the run', async () => {
+      expect(await adapter(0).changedOnBranchSince('master', WORKFLOW, green.startedAt as string)).toBe(true)
+      expect(requests.commits).toMatchObject({sha: 'master', path: WORKFLOW, since: green.startedAt})
+    })
   })
 })

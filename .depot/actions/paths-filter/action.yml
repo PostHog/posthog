@@ -49,9 +49,18 @@ inputs:
         default: '100'
     reuse-checks:
         description: |
-            Check run names, one per line, that must all have passed on the previous head of the pull request.
+            Check run names, one per line, that must all have passed on the previous head of the pull request,
+            and on every head back to the last one where the suite ran.
             When set, a push that changes no file the scoped filters match reports those filters as unchanged,
             so the jobs they gate are skipped and the earlier result stands. Leave empty to turn reuse off.
+        required: false
+    reuse-proof-checks:
+        description: |
+            Check run names, one per line, of jobs that run only when the suite really runs.
+            A head counts as tested when one of them concluded success there. Required when reuse-checks is set.
+        required: false
+    reuse-filter-source:
+        description: 'Path of the file that defines the filters. Defaults to the filters file, or to the workflow file.'
         required: false
     reuse-filters:
         description: 'Filter names, one per line, that reuse applies to. Defaults to every filter.'

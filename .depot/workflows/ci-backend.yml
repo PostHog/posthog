@@ -285,9 +285,23 @@ jobs:
                   reuse-checks: |
                       Backend CI on Depot / Django Tests Pass on Depot
                       Backend CI on Depot / Validate product.yaml owners (depot-ubuntu-24.04)
+                  reuse-filters: |
+                      backend
+                      product_skills_read_at_runtime
+                      legacy
+                      schema
+                      timing_scripts
+                      tasks_temporal
+                      repo_invariants
+                      sdk_manifests
+                      product_yamls
+                      openapi_types
                   reuse-blocking-labels: |
                       run-ci-backend
                       test-new-events-schema
+                      ci-no-reuse
+                  reuse-proof-checks: Backend CI on Depot / Detect snapshot mode
+                  reuse-filter-source: .depot/workflows/ci-backend.yml
                   reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       backend:
