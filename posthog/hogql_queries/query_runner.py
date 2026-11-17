@@ -2260,7 +2260,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _query_json_with_events_schema(self) -> dict[str, Any]:
         query_json = self.query.model_dump()
         # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
-        if self.modifiers.useNewEventsSchema and self._reads_events_route():
+        if self.modifiers.useNewEventsSchema is not None and self._reads_events_route():
             return with_pinned_events_route(query_json, self.modifiers)
         return query_json
 

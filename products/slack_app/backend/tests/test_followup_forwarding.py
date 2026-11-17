@@ -531,7 +531,8 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 assert run is not None
                 run.state.pop("billing_product", None)
                 run.output = {"pr_url": "https://github.com/example/project/pull/2"}
-                run.save(update_fields=["state", "output"])
+                run.status = run.Status.COMPLETED
+                run.save(update_fields=["state", "output", "status"])
                 restarted_run = task.create_run()
                 assert restarted_run.state["billing_product"] == "posthog_ai"
                 OrganizationMembership.objects.create(organization=self.org, user=self.user)
