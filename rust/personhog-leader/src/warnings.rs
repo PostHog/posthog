@@ -36,6 +36,14 @@ pub struct SizeViolationWarning {
     pub message: String,
 }
 
+/// Person properties nested past the leader's parse limit. Carries identifiers only.
+pub struct DepthViolationWarning {
+    pub team_id: i64,
+    /// Absent when the leader refused an update for a person it does not hold.
+    pub person_uuid: Option<String>,
+    pub message: &'static str,
+}
+
 /// Sends size violation warnings so users see them in-product, with the
 /// payload built by the shared ingestion-warnings crate so type and
 /// classification come from the pipeline registry. Emission is
@@ -65,6 +73,18 @@ impl WarningsProducer {
         let payload = Warning::new(WarningType::PersonPropertiesSizeViolation)
             .with_detail("personId", warning.person_uuid.clone())
             .with_detail("message", warning.message.clone());
+        emitter.emit(warning.team_id, TEAM_SCOPE, LEADER_ADMISSION, payload);
+    }
+
+    pub fn emit_depth(&self, warning: &DepthViolationWarning) {
+        let Some(emitter) = &self.emitter else {
+            return;
+        };
+        let mut payload = Warning::new(WarningType::PersonPropertiesDepthViolation)
+            .with_detail("message", warning.message);
+        if let Some(person_uuid) = &warning.person_uuid {
+            payload = payload.with_detail("personId", person_uuid.clone());
+        }
         emitter.emit(warning.team_id, TEAM_SCOPE, LEADER_ADMISSION, payload);
     }
 
