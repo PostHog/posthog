@@ -1,3 +1,4 @@
+import json
 from contextlib import ExitStack
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -65,6 +66,7 @@ from products.alerts_platform.backend.logic.platform_alert_events import Announc
 from products.alerts_platform.backend.logic.platform_lifecycle import record_outcomes
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
+from products.alerts_platform.backend.tests.delivery_messages import pinned_post
 from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
@@ -807,12 +809,13 @@ class TestDeliverEvaluation(APIBaseTest):
             patch(f"{_MODULE}.DatabaseThreadStore"),
             patch.dict(delivery_paths._emitters, clear=True),
             patch.dict(f"{_LEGACY_MODULE}._bodies", {SourceKind.LOGS: legacy_body}),
-            patch(f"{_WEBHOOK_URL_MODULE}.post_json") as post,
+            pinned_post() as adapter,
         ):
             deliver_evaluation(_request(self.team.id))
 
-        assert post.call_args.kwargs["headers"] == {"X-PostHog-Webhook-Version": header}
-        assert post.call_args.args[1]["version"] == body_version
+        (sent,) = adapter.sent
+        assert sent.headers["X-PostHog-Webhook-Version"] == header
+        assert json.loads(sent.body or b"")["version"] == body_version
 
     def test_a_flag_refresh_between_the_two_reads_keeps_a_newly_listed_team_on_the_legacy_body(self) -> None:
         before = {LEGACY_WEBHOOK_BODY_FLAG: False, ALERTMANAGER_WEBHOOK_BODY_FLAG: False}
