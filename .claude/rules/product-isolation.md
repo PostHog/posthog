@@ -8,8 +8,8 @@ The scaffold emits a product that is isolated from its first commit and passes h
 Isolated level. See "New products must be isolated" in `products/README.md`.
 
 **Otherwise, check this product's isolation status before making changes.**
-Look at the product's `turbo.json`: if it narrows the `backend:contract-check` inputs,
-this product claims hoglint's Isolated level and is isolated.
+Look at the product's `product.yaml`: if it sets `isolated: true`, this product claims
+hoglint's Isolated level and is isolated.
 
 - **Isolated:** external code (core, other products) may only import from the
   `backend/facade/` package — `api.py` for data capabilities, and capability submodules
@@ -23,9 +23,10 @@ this product claims hoglint's Isolated level and is isolated.
   `facade/contracts.py`; Django models never cross the boundary, except for the few
   classes on the watched-models allowance, which `hoglint.ledger` holds as debt
   (see `products/architecture.md` § Wiring couplings).
-  When `hoglint check` names a file that the `backend:contract-check` inputs do not watch,
-  add the file to the inputs. Dropping the narrowing needs a person.
-- **Not isolated** (no narrowed inputs): hoglint still blocks new boundary findings for it,
+  hoglint derives the files a change to which re-runs the full suite (`hoglint watched`);
+  there is no list to edit. When `hoglint check` says the product fails the level, fix
+  each reason in the code. Removing the claim needs a person.
+- **Not isolated** (no `isolated: true`): hoglint still blocks new boundary findings for it,
   and its old ones are debt in `hoglint.ledger`. Prefer existing facades when they exist
   rather than importing internals.
 
