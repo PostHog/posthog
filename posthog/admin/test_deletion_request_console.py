@@ -380,10 +380,10 @@ class TestDeletionRequestConsole(BaseTest):
             property_removal_marker=timezone.now(),
         )
 
-        with patch(f"{PANELS}.count_remaining_for_request", return_value=0) as count:
-            self.client.post(self._url(obj, "workflow", "verify"))
+        with patch(f"{PANELS}.count_remaining_for_request", return_value=0):
+            response = self.client.post(self._url(obj, "workflow", "verify"), follow=True)
 
-        count.assert_not_called()
+        assert "run started and did not complete. Retry it until it completes." in response.content.decode()
         obj.refresh_from_db()
         assert obj.status == RequestStatus.FAILED
 
