@@ -1,5 +1,8 @@
 from collections.abc import Sequence
+from contextlib import AbstractAsyncContextManager
 from datetime import datetime
+from typing import Literal
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
@@ -10,10 +13,11 @@ from posthog.hogql import ast
 from posthog.hogql.parser import CacheOrigin, parse_expr
 
 from posthog.api.capture import capture_internal
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.mcp_analytics.backend import custom_harnesses, logic
+from products.mcp_analytics.backend import custom_harnesses, intent_erasure_writers, logic
 from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, custom_arms_sql, harness_label_sql
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
@@ -223,6 +227,10 @@ def get_intent_cluster_snapshot(
     return logic.get_intent_cluster_snapshot(team, user=user, tool=tool)
 
 
+def registered_intent_writer_async(team: Team, *, purpose: str) -> AbstractAsyncContextManager[None]:
+    return intent_erasure_writers.registered_intent_writer_async(team, purpose=purpose)
+
+
 def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
     """Kick off the intent cluster recompute Temporal workflow.
 
@@ -347,3 +355,38 @@ def refit_intent_topics(team: Team, *, now: datetime) -> contracts.IntentTopicsR
     )
 
     return pipeline.run_refit(team, now=now)
+
+
+def prepare_intent_erasure(
+    *,
+    source_team_id: int,
+    invalidation_id: UUID,
+    cluster: ClickhouseCluster,
+    scope_fingerprint: str = "",
+    operation_kind: Literal["request", "deletes_job"] = "request",
+) -> contracts.IntentErasure:
+    """Freeze intent writes for the whole project and prove writers drained, before source rows are deleted.
+
+    Retrying the same token is idempotent. Raises ``IntentInvalidationConflict`` when another token owns the
+    project and ``IntentErasurePending`` when drain cannot be proved; the project stays frozen either way.
+    """
+    from products.mcp_analytics.backend import intent_erasure
+
+    return intent_erasure.prepare(
+        source_team_id=source_team_id,
+        invalidation_id=invalidation_id,
+        cluster=cluster,
+        scope_fingerprint=scope_fingerprint,
+        operation_kind=operation_kind,
+    )
+
+
+def complete_intent_erasure(*, erasure: contracts.IntentErasure, cluster: ClickhouseCluster) -> None:
+    """Purge and verify every derived copy, then reopen writes under the same token.
+
+    Call only after the source rows were deleted. Raises ``IntentErasurePending`` and leaves the project
+    frozen when any provider cannot prove its purge. A completed token is a no-op.
+    """
+    from products.mcp_analytics.backend import intent_erasure
+
+    intent_erasure.complete(erasure=erasure, cluster=cluster)

@@ -1084,13 +1084,7 @@ async def _embed_one_with_cache(
             response: EmbeddingResponse = await async_generate_embedding(team, prefix + text, model=EMBEDDING_MODEL)
         except Exception:
             return None
-    try:
         await _persist_embedding(team, content_hash, EMBEDDING_MODEL, response.embedding)
-    except Exception:
-        # A concurrent insert for the same (team, hash, model) is fine —
-        # the unique constraint guarantees the row exists. Don't fail the
-        # whole batch over a race.
-        pass
     return np.asarray(response.embedding, dtype=np.float32)
 
 
@@ -1106,7 +1100,8 @@ async def embed_texts_async(
     Returns (embeddings, valid_indices) where ``valid_indices`` are the indices
     into ``texts`` for which embedding succeeded. Skipped indices have no row
     in the returned matrix. Callers must align downstream data structures with
-    ``valid_indices``.
+    ``valid_indices``. Persistence failures propagate so uncertain writes cannot
+    complete the enclosing writer registration.
 
     Cache key is ``(team, sha256(prefix + text), model)``. Hits return the
     stored bytes; misses call the embedding worker and write back. Worker
@@ -1119,12 +1114,13 @@ async def embed_texts_async(
     cached = await _load_cached_embeddings(team, hashes, EMBEDDING_MODEL)
     semaphore = asyncio.Semaphore(EMBED_CONCURRENCY)
 
-    results = await asyncio.gather(
-        *[
-            _embed_one_with_cache(team, text, content_hash, semaphore, cached, prefix)
+    # Join siblings even when one request fails, before the writer registration can finish.
+    async with asyncio.TaskGroup() as group:
+        tasks = [
+            group.create_task(_embed_one_with_cache(team, text, content_hash, semaphore, cached, prefix))
             for text, content_hash in zip(texts, hashes)
         ]
-    )
+    results = [task.result() for task in tasks]
 
     vectors: list[np.ndarray] = []
     valid_indices: list[int] = []
