@@ -142,7 +142,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-08-18 12:00:00',
         pageUrl: combineUrl(urls.codeReview('approval_settings'), { digests: '1' }).url,
-        testOptions: { waitForSelector: '[data-attr="stamphog-digests-table"]' },
+        testOptions: { waitForSelector: '[data-attr="stamphog-digests-table"]', snapshotTargetSelector: '.LemonModal' },
     },
     decorators: [
         mswDecorator({
