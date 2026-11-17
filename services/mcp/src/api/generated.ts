@@ -16208,6 +16208,16 @@ export namespace Schemas {
       details: AnomalyBucketDetails;
     }
 
+    export interface AnomalyDashboard {
+      /** The numeric id of the dashboard. */
+      id: number;
+      /**
+         * The name of the dashboard. Null when it has none.
+         * @nullable
+         */
+      name: string | null;
+    }
+
     export interface AnomalyFlaggedPoint {
       /** The start of the flagged bucket, in the project timezone. */
       bucket_start: string;
@@ -16508,6 +16518,8 @@ export namespace Schemas {
       last_flagged_bucket: string | null;
       /** Up to 5 flagged buckets in the range, newest first. */
       flagged_points: AnomalyFlaggedPoint[];
+      /** The dashboards the insight sits on that the caller may view, oldest tile first. Empty when none. */
+      dashboards: AnomalyDashboard[];
       /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
       points?: AnomalySeriesPoint[];
     }

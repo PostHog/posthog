@@ -2,8 +2,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import type { AnomalyIntervalEnumApi, AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -15,6 +17,16 @@ const INTERVAL_LABELS: Record<AnomalyIntervalEnumApi, string> = {
     day: 'Daily',
     week: 'Weekly',
     month: 'Monthly',
+}
+
+const MAX_DASHBOARD_LINKS = 2
+
+// A rate under half a percent would round to 0%, which reads as nothing flagged.
+function anomalyRateLabel(rate: number | null): string {
+    if (rate == null) {
+        return '0%'
+    }
+    return rate > 0 && rate < 0.005 ? '<1%' : percentage(rate, 0)
 }
 
 // The API returns an absolute link. Routing its path keeps the click inside the app.
@@ -31,7 +43,8 @@ export interface AnomalyRowProps {
 }
 
 export function AnomalyRow({ series, dateFrom, dateTo, onOpenInsight }: AnomalyRowProps): JSX.Element {
-    const coverage = series.coverage
+    const shownDashboards = series.dashboards.slice(0, MAX_DASHBOARD_LINKS)
+    const moreDashboards = series.dashboards.slice(MAX_DASHBOARD_LINKS)
     return (
         <LemonCard hoverEffect={false} className="p-4 @container" data-attr="anomalies-tab-row">
             <div className="flex flex-col gap-4 @min-[40rem]:flex-row">
@@ -51,29 +64,40 @@ export function AnomalyRow({ series, dateFrom, dateTo, onOpenInsight }: AnomalyR
                                 .join(' · ')}
                         </div>
                     </div>
-                    <div className="flex flex-wrap gap-1">
-                        <LemonTag type="danger">
-                            {`Flagged ${series.flagged_buckets} of ${pluralize(series.scored_buckets, series.interval)}`}
-                        </LemonTag>
-                        <LemonTag type="muted">
-                            {series.baseline_rate != null
-                                ? `Usually ${percentage(series.baseline_rate, 0)}`
-                                : 'No usual rate yet'}
-                        </LemonTag>
-                    </div>
-                    <div className="text-secondary text-xs">
-                        <span>
-                            {coverage == null || coverage >= 1
-                                ? 'All of the range checked'
-                                : `${percentage(coverage, 0)} of the range checked`}
-                        </span>
-                        {series.scored_through && (
-                            <>
-                                <span>, through </span>
-                                <TZLabel time={series.scored_through} />
-                            </>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <Tooltip
+                            title={`${series.flagged_buckets} of ${pluralize(series.scored_buckets, series.interval)} flagged`}
+                        >
+                            <LemonTag type="danger">{`${anomalyRateLabel(series.anomaly_rate)} anomalous`}</LemonTag>
+                        </Tooltip>
+                        {series.last_flagged_bucket && (
+                            <span className="text-secondary text-xs">
+                                Last flagged <TZLabel time={series.last_flagged_bucket} />
+                            </span>
                         )}
                     </div>
+                    {series.dashboards.length > 0 && (
+                        <div className="text-secondary text-xs truncate" data-attr="anomalies-tab-row-dashboards">
+                            <span>On: </span>
+                            {shownDashboards.map((dashboard, index) => (
+                                <span key={dashboard.id}>
+                                    {index > 0 && ', '}
+                                    <Link to={urls.dashboard(dashboard.id)} data-attr="anomalies-tab-open-dashboard">
+                                        {dashboard.name || 'Untitled dashboard'}
+                                    </Link>
+                                </span>
+                            ))}
+                            {moreDashboards.length > 0 && (
+                                <Tooltip
+                                    title={moreDashboards
+                                        .map((dashboard) => dashboard.name || 'Untitled dashboard')
+                                        .join(', ')}
+                                >
+                                    <span>{` +${moreDashboards.length} more`}</span>
+                                </Tooltip>
+                            )}
+                        </div>
+                    )}
                 </div>
                 <div className="flex-1 min-w-0">
                     <AnomalyRowChart series={series} dateFrom={dateFrom} dateTo={dateTo} />

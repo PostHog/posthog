@@ -13,6 +13,8 @@ from posthog.schema import IntervalType
 
 from posthog.models import Team
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
 from products.signals.backend.anomaly_scores.read import FlaggedPoint, SeriesSummary, prior_rate, rank_series, rollup
@@ -239,6 +241,22 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             "signups": 60,
             "logins": 60,
             "upgrades": 60,
+        }
+
+    def test_search_names_the_live_dashboards_of_each_insight(self) -> None:
+        other = Insight.objects.create(team=self.team, name="Checkout", saved=True)
+        main = Dashboard.objects.create(team=self.team, name="Main")
+        removed = Dashboard.objects.create(team=self.team, name="Removed", deleted=True)
+        for dashboard in (main, removed):
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        self._score(_day(22), score=0.99, flag=1, series_key="signups")
+        self._score(_day(22), score=0.99, flag=1, series_key="checkout", insight=other)
+
+        body = self._get("search", date_from="2026-10-15").json()
+
+        assert {row["series_key"]: row["dashboards"] for row in body["series"]} == {
+            "signups": [{"id": main.id, "name": "Main"}],
+            "checkout": [],
         }
 
     @parameterized.expand(

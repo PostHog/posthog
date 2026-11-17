@@ -44,6 +44,7 @@ function makeSeries(
         coverage: values.length / 14,
         scored_through: dayIso(values.length - 1),
         baseline_rate: baselineRate,
+        dashboards: [{ id: 1, name: 'Growth' }],
         first_flagged_bucket: flaggedDays[0] ?? null,
         last_flagged_bucket: flaggedDays.at(-1) ?? null,
         flagged_points: flagged

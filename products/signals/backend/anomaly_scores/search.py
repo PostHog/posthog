@@ -18,7 +18,14 @@ from posthog.interval_specs import interval_spec
 from posthog.models import Team, User
 from posthog.utils import absolute_uri
 
-from products.dashboards.backend.facade.api import dashboards_by_insight, live_tile_insight_ids, viewable_dashboard_ref
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.facade.api import (
+    dashboards_by_insight,
+    live_tile_insight_ids,
+    viewable_dashboard_ids,
+    viewable_dashboard_ref,
+)
+from products.dashboards.backend.facade.contracts import DashboardRef
 from products.product_analytics.backend.facade.api import insight_ids_named_like, viewable_insights
 from products.product_analytics.backend.facade.contracts import ViewableInsight
 from products.signals.backend.anomaly_scores.config import (
@@ -119,6 +126,8 @@ class SeriesRow:
     flagged_points: tuple[FlaggedPoint, ...]
     # Oldest first. None when the request leaves points out.
     points: tuple[SeriesPoint, ...] | None = None
+    # The dashboards the insight sits on that the user may view, oldest tile first.
+    dashboards: tuple[DashboardRef, ...] = ()
 
     @property
     def coverage(self) -> float | None:
@@ -226,6 +235,18 @@ def _importance(team: Team, insight_ids: Collection[int], now: datetime.datetime
     }
 
 
+def _viewable_dashboards(team: Team, user: User, insight_ids: Collection[int]) -> dict[int, tuple[DashboardRef, ...]]:
+    if not insight_ids:
+        return {}
+    by_insight = dashboards_by_insight(insight_ids, team_id=team.id)
+    viewable = viewable_dashboard_ids(
+        team_id=team.id,
+        dashboard_ids={ref.id for refs in by_insight.values() for ref in refs},
+        user_access_control=UserAccessControl(user=user, team=team),
+    )
+    return {insight_id: tuple(ref for ref in refs if ref.id in viewable) for insight_id, refs in by_insight.items()}
+
+
 def _requested_insight_ids(team: Team, user: User, filters: AnomalySearchFilters) -> set[int] | None:
     """The insights the filters allow, or None for every insight."""
     insight_ids: set[int] | None = None
@@ -313,6 +334,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
             if filters.include_points
             else None
         )
+        dashboards = _viewable_dashboards(team, user, {summary.insight_id for summary in page_series})
         series_rows = [
             SeriesRow(
                 summary=summary,
@@ -323,6 +345,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
                 expected_buckets=_expected_buckets(summary, filters.date_from, filters.date_to, now),
                 flagged_points=summary.flagged_points[:FLAGGED_POINTS],
                 points=None if points is None else tuple(points[(summary.insight_id, summary.series_key)]),
+                dashboards=dashboards.get(summary.insight_id, ()),
             )
             for summary in page_series
         ]

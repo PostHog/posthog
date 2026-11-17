@@ -29,6 +29,7 @@ function makeSeries(index: number): AnomalySeriesApi {
         first_flagged_bucket: '2026-11-15T00:00:00+00:00',
         last_flagged_bucket: '2026-11-15T00:00:00+00:00',
         flagged_points: [],
+        dashboards: [],
         points: [],
     }
 }
