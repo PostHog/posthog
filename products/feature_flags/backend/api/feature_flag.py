@@ -181,6 +181,7 @@ from products.feature_flags.backend.flag_status import (
     FeatureFlagStatusChecker,
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
+    jsonb_array_or_empty,
 )
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
@@ -607,6 +608,14 @@ def flag_version_conflict_message(sent_version: int, current_version: int) -> st
     )
 
 
+# Legacy rows can hold a non-array `groups` or `properties`. jsonb_array_elements raises on those values.
+_FILTER_GROUPS = jsonb_array_or_empty("filters->'groups'")
+_GROUP_PROPERTIES = jsonb_array_or_empty("grp->'properties'")
+_FLAG_FILTER_PROPERTIES = (
+    f"jsonb_array_elements({_FILTER_GROUPS}) AS grp CROSS JOIN jsonb_array_elements({_GROUP_PROPERTIES}) AS prop"
+)
+
+
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     """Find all active flags that depend on the given flag via flag-type filter properties."""
     return list(
@@ -615,10 +624,9 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         .exclude(id=flag_to_check.id)
         .extra(
             where=[
-                """
+                f"""
                     EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
-                        CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
+                        SELECT 1 FROM {_FLAG_FILTER_PROPERTIES}
                         WHERE prop->>'type' = 'flag'
                         AND prop->>'key' = %s
                     )
@@ -704,8 +712,7 @@ def find_dependent_flags_batch(
             where=[
                 f"""
                     EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
-                        CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
+                        SELECT 1 FROM {_FLAG_FILTER_PROPERTIES}
                         WHERE prop->>'type' = 'flag'
                         AND ({or_conditions})
                     )
