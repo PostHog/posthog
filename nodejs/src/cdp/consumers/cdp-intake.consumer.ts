@@ -150,7 +150,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
                     throw error
                 }
                 drainStallsCounter.labels({ kind: this.kind }).inc()
-                logger.error('[CdpIntake] A dead letter still fails, so the drain holds and retries it', {
+                logger.error('[CdpIntake] A drain batch failed, so the drain holds and retries it', {
                     kind: this.kind,
                     delayMs,
                     error: error instanceof Error ? error.message : String(error),
@@ -165,8 +165,8 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
 
     public override async stop(): Promise<void> {
         this.isStopping = true
-        await this.kafkaConsumer.disconnect()
-        await this.drainConsumer?.disconnect()
+        // Together, so a held drain's rethrow on stop already has a disconnect waiting on its loop.
+        await Promise.all([this.kafkaConsumer.disconnect(), this.drainConsumer?.disconnect()])
         await this.cyclotron.disconnect()
         await super.stop()
     }
