@@ -1372,7 +1372,7 @@ export const QueryDatabase = ({
                 // the actions menu (edit source / add new source of this type) defined in itemSideAction
             }}
             renderItemTooltip={(item) => {
-                // Show tooltip with full name for items that could be truncated
+                // Show the description, or the traversal chain of a joined column, which the row does not show
                 const tooltipTypes = [
                     'table',
                     'view',
@@ -1394,7 +1394,7 @@ export const QueryDatabase = ({
                     }
                     const description = getTooltipDescription(item.record)
                     if (!description) {
-                        return label
+                        return label === item.name ? undefined : label
                     }
                     return (
                         <div className="flex flex-col gap-1">
