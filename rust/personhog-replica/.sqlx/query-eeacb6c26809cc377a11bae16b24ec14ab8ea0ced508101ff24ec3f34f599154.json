@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='with_tombstoned_distinct_ids' */\n        SELECT person_id as \"person_id!\", distinct_id as \"distinct_id!\",\n               COALESCE(version, 0)::bigint as \"version!\"\n        FROM posthog_persondistinctid\n        WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = true\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "version!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "eeacb6c26809cc377a11bae16b24ec14ab8ea0ced508101ff24ec3f34f599154"
+}

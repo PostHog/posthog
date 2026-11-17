@@ -1,6 +1,11 @@
 version: 1
 owners: []
 rules:
+    - match:
+          - '/admin/console/member_email_migration.py'
+          - '/admin/console/organization_sign_in_panels.py'
+          - '/admin/test_organization_sign_in_panels.py'
+      owners: team-platform-features
     - match: '/caching/'
       owners: team-analytics-platform
     - match: '/clickhouse/hcl/'
@@ -19,13 +24,29 @@ rules:
       owners: team-web-analytics
     - match: '/hogql/'
       owners: team-data-tools
+    - match:
+          - '/inbox_providers.py'
+          - '/test/test_inbox_providers.py'
+      owners: team-growth
     - match: '/integrations/'
       owners: team-warehouse-sources
+    - match:
+          - '/llm/forecast_client.py'
+          - '/llm/test_forecast_client.py'
+      owners: team-apm
     - match: '/management/migration_analysis/'
       owners: team-devex
     # Each line acknowledges a risky migration, so one added line lets that migration skip the check.
     - match: '/management/migration_analysis/*_acknowledged_migrations.txt'
       sensitive: true
+    - match:
+          - '/management/commands/backfill_code_review_scopes.py'
+          - '/management/commands/test/test_backfill_code_review_scopes.py'
+      owners: team-devex
+    - match:
+          - '/management/commands/rewrite_cohort_membership_queries.py'
+          - '/management/commands/test/test_rewrite_cohort_membership_queries.py'
+      owners: team-feature-flags
     - match: '/queries/'
       owners: team-analytics-platform
     - match: '/rbac/'
@@ -77,6 +98,8 @@ rules:
           - '/test/repo_invariants/test_*.py'
           - '/test/test_cascade_delete.py'
       owners: team-devex
+    - match: '/test/repo_invariants/test_legacy_alert_configuration_reads.py'
+      owners: team-apm
     - match:
           - '/security/test/test_*.py'
       owners: team-security

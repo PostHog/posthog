@@ -171,6 +171,18 @@ export interface BillingTimeSeriesPointApi {
     breakdown_value?: unknown
 }
 
+export interface BillingSpendTimeSeriesResponseApi {
+    status?: string
+    type?: string
+    customer_id?: number
+    results: BillingTimeSeriesPointApi[]
+    team_id_options?: number[]
+    next?: string
+    total_count?: number
+    /** Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list does not establish whether a renewal occurred. */
+    pricing_reset_dates?: string[]
+}
+
 export interface BillingTimeSeriesResponseApi {
     status?: string
     type?: string
@@ -1114,13 +1126,15 @@ export interface BillingSpendSummaryApi {
     products: ProductSpendApi[]
 }
 
-export interface PaginatedBillingTimeSeriesPointListApi {
+export interface PaginatedBillingSpendTimeSeriesListApi {
     count: number
     /** @nullable */
     next: string | null
     /** @nullable */
     previous: string | null
     results: BillingTimeSeriesPointApi[]
+    /** Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list does not establish whether a renewal occurred. */
+    pricing_reset_dates?: string[]
 }
 
 /**
@@ -1270,6 +1284,15 @@ export interface BillingUsageStatusApi {
     /** @nullable */
     usage_reported_through: string | null
     products: ProductUsageStatusApi[]
+}
+
+export interface PaginatedBillingTimeSeriesPointListApi {
+    count: number
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    results: BillingTimeSeriesPointApi[]
 }
 
 export interface ProjectUsageItemApi {

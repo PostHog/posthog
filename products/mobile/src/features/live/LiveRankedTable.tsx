@@ -7,7 +7,7 @@ import type { LiveRankedRow } from '@/model/live'
 import { createStyles, useColors } from '@/ui/theme'
 import { fonts, type } from '@/ui/tokens'
 
-import { LiveCard, LiveCardNote, NOT_LOADED_TEXT } from './LiveCard'
+import { LiveCard, LiveCardLoading, LiveCardNote } from './LiveCard'
 import { LIVE_ROW_HEIGHT, LiveSlidingRow } from './LiveSlidingRow'
 
 /** How long a ↑/↓ badge stays before it fades, so it marks the latest change only. */
@@ -37,7 +37,7 @@ export function LiveRankedTable({
     const styles = useStyles()
     let body: ReactElement
     if (!rows) {
-        body = <LiveCardNote text={NOT_LOADED_TEXT} testID={`${testID}-not-loaded`} />
+        body = <LiveCardLoading testID={`${testID}-loading`} />
     } else if (rows.length === 0) {
         body = <LiveCardNote text={emptyText} testID={`${testID}-empty`} />
     } else {
@@ -163,7 +163,6 @@ const useStyles = createStyles(({ colors }) => ({
     },
     mono: {
         fontFamily: fonts.mono,
-        fontSize: 13,
     },
     direct: {
         fontStyle: 'italic',
@@ -174,7 +173,8 @@ const useStyles = createStyles(({ colors }) => ({
         fontWeight: '600',
     },
     views: {
-        ...type.bodySmallStrong,
+        ...type.metaSmall,
+        fontWeight: '600',
         color: colors.ink,
         fontVariant: ['tabular-nums'],
     },

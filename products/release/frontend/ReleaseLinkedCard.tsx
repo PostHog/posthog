@@ -101,9 +101,9 @@ const LINKED_LIMIT = 8
 export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
     const [visible, setVisible] = useState(LINKED_LIMIT)
     const { canEditReleases } = useValues(releaseLogic)
-    const { updateRelease, unlinkBroadcast } = useActions(releaseLogic)
-    const { relatedByRelease, linkedLookupFailed } = useValues(releaseRelatedLogic)
-    const { unlinkRelated, reloadLinked } = useActions(releaseRelatedLogic)
+    const { updateRelease, unlinkBroadcast, unlinkFlag } = useActions(releaseLogic)
+    const { relatedByRelease } = useValues(releaseRelatedLogic)
+    const { unlinkRelated } = useActions(releaseRelatedLogic)
     const related = relatedByRelease[row.id]
     const items: LinkedObject[] = [
         ...row.flags.map((flag) => ({
@@ -114,6 +114,7 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
             badge: flag.active ? undefined : 'Disabled',
             badgeVariant: (flag.active ? 'success' : 'warning') as ReleaseBadgeVariant,
             to: urls.featureFlag(flag.id),
+            onRemove: canEditReleases ? () => unlinkFlag(row.id, flag.id) : undefined,
         })),
         ...row.experiments.map((experiment) => {
             const status = getExperimentStatus(experiment as never)
@@ -209,22 +210,6 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                                 </Button>
                             </ItemActions>
                         )}
-                    </Item>
-                )}
-                {linkedLookupFailed && (
-                    <Item variant="outline" tone="warning" size="sm" data-attr="release-linked-lookup-failed">
-                        <ItemMedia variant="icon">
-                            <IconWarning />
-                        </ItemMedia>
-                        <ItemContent>
-                            <ItemTitle>Some linked surveys or insights could not load</ItemTitle>
-                            <ItemDescription>They are still linked. Try again to show them.</ItemDescription>
-                        </ItemContent>
-                        <ItemActions>
-                            <Button size="sm" variant="outline" onClick={reloadLinked}>
-                                Try again
-                            </Button>
-                        </ItemActions>
                     </Item>
                 )}
                 {items.length > 0 ? (

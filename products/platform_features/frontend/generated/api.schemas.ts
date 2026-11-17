@@ -585,6 +585,8 @@ export interface OrganizationPersonalAPIKeyAccessScopeApi {
 }
 
 export interface OrganizationPersonalAPIKeyApi {
+    /** Unique ID of the key. */
+    readonly id: string
     /** The organization member who owns this key. */
     readonly owner: OrganizationPersonalAPIKeyOwnerApi
     /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
@@ -593,6 +595,8 @@ export interface OrganizationPersonalAPIKeyApi {
     readonly scopes: readonly string[]
     /** Where the key's scopes apply within this organization. */
     readonly access_scope: OrganizationPersonalAPIKeyAccessScopeApi
+    /** Whether the key also works in at least one other organization its owner belongs to. */
+    readonly reaches_other_organizations: boolean
     /**
      * When the key was last used to authenticate, if ever.
      * @nullable
@@ -609,6 +613,46 @@ export interface PaginatedOrganizationPersonalAPIKeyListApi {
     /** @nullable */
     previous?: string | null
     results: OrganizationPersonalAPIKeyApi[]
+}
+
+/**
+ * * `rolled` - Rolled
+ * * `deleted` - Deleted
+ */
+export type KeyActionOutcomeEnumApi = (typeof KeyActionOutcomeEnumApi)[keyof typeof KeyActionOutcomeEnumApi]
+
+export const KeyActionOutcomeEnumApi = {
+    Rolled: 'rolled',
+    Deleted: 'deleted',
+} as const
+
+export interface OrganizationPersonalAPIKeyActionResultApi {
+    /** What happened to the key. 'rolled': the key has a new secret that nobody sees, and the old secret no longer works anywhere. 'deleted': the key no longer exists and cannot be used in any organization.
+     *
+     * * `rolled` - Rolled
+     * * `deleted` - Deleted */
+    outcome: KeyActionOutcomeEnumApi
+}
+
+export interface OrganizationPersonalAPIKeyBulkActionResultApi {
+    /** Number of keys that got a new secret that nobody sees. Their old secrets no longer work anywhere. */
+    rolled: number
+    /** Number of keys that no longer exist. */
+    deleted: number
+    /** Number of keys left unchanged because they were rolled at or after 'skip_rolled_since'. */
+    skipped: number
+    /** Number of keys that an error left unchanged. Run the action again to change them. */
+    failed: number
+    /** When the roll of all keys started. A retry returns the 'skip_rolled_since' it was given. */
+    started_at: string
+}
+
+export interface OrganizationPersonalAPIKeyRollAllRequestApi {
+    /**
+     * Leave keys alone that were rolled at or after this time. To retry a roll of all keys without rolling its keys again, pass the 'started_at' that the earlier attempt returned.
+     * @nullable
+     */
+    skip_rolled_since?: string | null
 }
 
 /**
@@ -1646,6 +1690,8 @@ export type ActivityLogListParams = {
      * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `SandboxEnvironment` - SandboxEnvironment
+     * * `SandboxCustomImage` - SandboxCustomImage
      * * `StamphogRepoConfig` - StamphogRepoConfig
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -1769,6 +1815,8 @@ export const ActivityLogListScope = {
     DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
+    SandboxEnvironment: 'SandboxEnvironment',
+    SandboxCustomImage: 'SandboxCustomImage',
     StamphogRepoConfig: 'StamphogRepoConfig',
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
@@ -1879,6 +1927,8 @@ export const ActivityLogListScope = {
  * * `DataWarehouseJoin` - DataWarehouseJoin
  * * `Billing` - Billing
  * * `Loop` - Loop
+ * * `SandboxEnvironment` - SandboxEnvironment
+ * * `SandboxCustomImage` - SandboxCustomImage
  * * `StamphogRepoConfig` - StamphogRepoConfig
  * * `ReviewRepository` - ReviewRepository
  * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -1990,6 +2040,8 @@ export const ActivityLogListScopesItem = {
     DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
+    SandboxEnvironment: 'SandboxEnvironment',
+    SandboxCustomImage: 'SandboxCustomImage',
     StamphogRepoConfig: 'StamphogRepoConfig',
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
@@ -2015,7 +2067,7 @@ export type AdvancedActivityLogsListParams = {
      */
     detail_filters?: string
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string
     /**
@@ -2078,7 +2130,7 @@ export type AdvancedActivityLogsListParams = {
      */
     search_text?: string
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string
     /**

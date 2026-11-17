@@ -39,13 +39,9 @@ from posthog.models import Organization, OrganizationDomain, OrganizationMembers
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.organization_caching import get_cached_organization_membership
-from posthog.scopes import (
-    INTERNAL_API_SCOPE_OBJECTS,
-    MCP_BUILT_IN_AGENT_SCOPE,
-    APIScopeObjectOrNotSupported,
-    scopes_covered_by_legacy_fallback,
-    scopes_not_covered,
-)
+from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE, APIScopeObjectOrNotSupported, translate_renamed_scopes
+from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 
@@ -749,11 +745,7 @@ def get_authenticator_user_credential(authenticator: object) -> PersonalAPIKey |
     return None
 
 
-def get_authenticator_scopes(authenticator) -> list[str] | None:
-    """The API scopes carried by a scoped-token authenticator, or None for session and
-    other non-token auth. Single source of truth for the token->scopes mapping, shared by
-    APIScopePermission and cross-resource scope checks so the two cannot drift — if they
-    did, one path could grant access while the other skipped its check."""
+def _stored_authenticator_scopes(authenticator) -> list[str] | None:
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return list(authenticator.personal_api_key.scopes or [])
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
@@ -765,6 +757,16 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     if isinstance(authenticator, ExportRendererAuthentication):
         return list(authenticator.scopes)
     return None
+
+
+def get_authenticator_scopes(authenticator) -> list[str] | None:
+    """The API scopes carried by a scoped-token authenticator, or None for session and
+    other non-token auth. Single source of truth for the token->scopes mapping, shared by
+    APIScopePermission and cross-resource scope checks so the two cannot drift — if they
+    did, one path could grant access while the other skipped its check. Renamed scopes come
+    back under their new names, so a key or token stored before a rename keeps its access."""
+    scopes = _stored_authenticator_scopes(authenticator)
+    return translate_renamed_scopes(scopes) if scopes is not None else None
 
 
 def legacy_scope_object_used(request: Request, required_scope: str) -> str | None:
@@ -906,6 +908,21 @@ def credential_admits_team(request: Request | None, team_id: int, organization_i
         return False
     scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
     return not scoped_teams or team_id in scoped_teams
+
+
+def organization_refuses_personal_api_key(request: Request, organization: Organization) -> bool:
+    """Whether `organization` bars the request's personal API key: it turned off personal API keys for
+    members and the user is not an admin. Credentials other than personal API keys are never barred."""
+    if not isinstance(
+        get_authenticator_user_credential(getattr(request, "successful_authenticator", None)), PersonalAPIKey
+    ):
+        return False
+    if not organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+        return False
+    membership = get_cached_organization_membership(organization.id, cast(User, request.user))
+    if membership is None:
+        return False
+    return not organization.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN
 
 
 def check_team_within_credential_scope(request: Request, team_id: int) -> None:
@@ -1192,14 +1209,7 @@ class APIScopePermission(ScopeBasePermission):
             # Indicates this is not an organization scoped view
             return
 
-        if not org.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
-            return
-
-        membership = get_cached_organization_membership(org.id, cast(User, request.user))
-        if membership is None:
-            return
-
-        if not org.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
+        if organization_refuses_personal_api_key(request, org):
             raise PermissionDenied(
                 f"Organization '{org.name}' does not allow using personal API keys. "
                 f"Contact an admin to enable personal API keys for this organization."

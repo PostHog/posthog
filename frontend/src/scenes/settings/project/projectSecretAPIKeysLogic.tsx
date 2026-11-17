@@ -31,7 +31,7 @@ export type EditingProjectKeyFormValues = ProjectSecretAPIKeyRequest & {
     preset?: string
 }
 
-export const MAX_PROJECT_API_KEYS_PER_PROJECT = 50
+export const MAX_PROJECT_API_KEYS_PER_PROJECT = 100
 
 const GATEWAY_SCOPE = 'llm_gateway:read'
 

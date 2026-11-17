@@ -11,7 +11,8 @@ from collections.abc import Sequence
 
 from posthog.dataclasses import frozen
 
-from .adapters import REFUSALS, REPEAT_THRESHOLD, REPEATED_TOOL_CALLS, SENSITIVE_DATA, UNRECOVERED_ERRORS, AdaptedCheck
+from .adapters import REFUSALS, REPEAT_THRESHOLD, REPEATED_TOOL_CALLS, UNRECOVERED_ERRORS, AdaptedCheck
+from .call_review import ReviewCard
 from .catalog import EvalTemplate
 from .coverage import DEAD_LOOKBACK, EvalFix
 from .profile import StructuredGap
@@ -72,16 +73,6 @@ CHECKS: dict[str, _CheckWords] = {
         plural="are refusals",
         checks="Checks the final answer of every {scope}trace for a refusal.",
         reason="The final answer refuses the request. Refusals in earlier steps or in tool output don't count.",
-    ),
-    SENSITIVE_DATA: _CheckWords(
-        noun="answers",
-        singular="includes an email address, card number or secret key",
-        plural="include an email address, card number or secret key",
-        checks="Checks the final answer of every {scope}trace for email addresses, card numbers and secret keys.",
-        reason=(
-            "The final answer contains an email address, a card number, or a secret key. "
-            "Links and version numbers don't count."
-        ),
     ),
 }
 
@@ -223,6 +214,24 @@ def judge_text(template: EvalTemplate, target: str, cost: str) -> CardText:
             "How often it happens is not measured yet."
         ),
     )
+
+
+def _sentence(text: str) -> str:
+    return text if text.endswith((".", "!", "?")) else f"{text}."
+
+
+def review_text(card: ReviewCard, cost: str) -> CardText:
+    """The review's own words. The card shows its failure count from `measured_failure_rate` and `sample_size`."""
+    return CardText(headline=card.title, outcome=f"{_sentence(card.checks)} {cost}", reason=_sentence(card.why))
+
+
+def prompt_fix_text(card: ReviewCard) -> CardText:
+    """The review's own words, and why the card asks for a prompt change instead of an evaluation."""
+    outcome = (
+        f"{card.failed} of {card.of} sampled calls break this rule. An evaluation would fail almost every call, so "
+        "the prompt is the place to fix it."
+    )
+    return CardText(headline=card.title, outcome=outcome, reason=_sentence(card.why))
 
 
 def fix_text(fix: EvalFix) -> CardText:

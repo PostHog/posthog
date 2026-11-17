@@ -499,7 +499,7 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
         let secret = auth::validate_secret_api_token(state, &token).await?;
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
-            &[("method".to_string(), secret.method_label().to_string())],
+            &[("method".to_string(), "project_secret_api_key".to_string())],
             1,
         );
 
@@ -759,7 +759,7 @@ async fn authenticate_flag_definitions(
         let secret = auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
-            &[("method".to_string(), secret.method_label().to_string())],
+            &[("method".to_string(), "project_secret_api_key".to_string())],
             1,
         );
         state
