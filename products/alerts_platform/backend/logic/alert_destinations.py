@@ -27,8 +27,8 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDestination,
     StoredAlertDestination,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.models import AlertDestination, PlatformAlert, PlatformAlertConfiguration
 
 # The destination types that open and close incidents rather than post messages.
 INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY})
@@ -327,6 +327,7 @@ def record_source_destination(
     event_kinds: Collection[AlertEventKind],
     hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool = True,
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
     destination outlives them. None when the platform has no alert under `public_id`, or when it keeps
@@ -345,7 +346,10 @@ def record_source_destination(
         configuration_id=configuration_id,
         destinations=(
             NewAlertDestination(
-                data=_own_fields(data), event_kinds=tuple(event_kinds), legacy_hog_function_ids=tuple(hog_function_ids)
+                data=_own_fields(data),
+                event_kinds=tuple(event_kinds),
+                enabled=enabled,
+                legacy_hog_function_ids=tuple(hog_function_ids),
             ),
         ),
         hog_function_groups=hog_function_groups,
@@ -385,7 +389,13 @@ def list_source_destinations(
             )
         )
     listed.extend(
-        SourceDestination(destination_id=row.id, hog_function_ids=(), data=row.data, enabled=row.enabled)
+        SourceDestination(
+            destination_id=row.id,
+            hog_function_ids=(),
+            data=row.data,
+            enabled=row.enabled,
+            retired_hog_function_ids=row.legacy_hog_function_ids,
+        )
         for row in rows
         if row.id not in matched
     )
@@ -449,6 +459,80 @@ def delete_source_destination_rows(
     )
 
 
+def lock_source_configuration(*, team_id: int, public_id: UUID) -> None:
+    """Locks the alert's platform copy, in the caller's transaction. A move between a row and HogFunctions
+    takes this lock before the HogFunctions', in the same order as a delete of the alert, so the two
+    cannot deadlock."""
+    list(_configurations_by_public_id(team_id, public_id).select_for_update().values_list("id", flat=True))
+
+
+def has_firing_instance(*, team_id: int, public_id: UUID) -> bool:
+    """Whether any instance of the alert is inside a firing, whatever its last check said. An errored or
+    broken check leaves the firing, and the incident it opened, in place."""
+    return (
+        PlatformAlert.objects.for_team(team_id)
+        .filter(configuration__in=_configurations_by_public_id(team_id, public_id), state=PlatformAlertState.FIRING)
+        .exists()
+    )
+
+
+def take_source_destination_row(
+    *, team_id: int, public_id: UUID, destination_id: UUID
+) -> StoredAlertDestination | None:
+    """Deletes one of the alert's rows and returns what it held, so its HogFunctions can send in its place.
+    Locked first, so of two concurrent takes only one gets the row; None for the other, and for an id
+    that is not the alert's."""
+    with transaction.atomic():
+        row = (
+            AlertDestination.objects.for_team(team_id)
+            .select_for_update()
+            .filter(id=destination_id, configuration__in=_configurations_by_public_id(team_id, public_id))
+            .first()
+        )
+        if row is None:
+            return None
+        taken = _stored(row)
+        row.delete()
+    return taken
+
+
+def restore_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    enabled: bool,
+    retired_hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+) -> StoredAlertDestination:
+    """Adds the row that sends the standard message for a destination whose HogFunctions the caller has
+    just retired, in the caller's transaction.
+
+    The row copies none of them: a HogFunction saved as deleted later deletes every row that copies it.
+    Rows that copied them go, because this row replaces them. Refused unless the platform evaluates the
+    alert, since only the platform sends rows."""
+    configuration_id = (
+        _configurations_by_public_id(team_id, public_id)
+        .filter(owner=PlatformAlertOwner.PLATFORM)
+        .values_list("id", flat=True)
+        .first()
+    )
+    if configuration_id is None:
+        raise AlertDestinationValidationError(
+            "PostHog alerts doesn't check this alert yet, so it can't send the standard message.", field="type"
+        )
+    delete_rows_copying(team_id=team_id, hog_function_ids=retired_hog_function_ids)
+    retired = set(retired_hog_function_ids)
+    (created,) = create_alert_destinations(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        destinations=(NewAlertDestination(data=_own_fields(data), event_kinds=tuple(event_kinds), enabled=enabled),),
+        hog_function_groups=[group for group in hog_function_groups if retired.isdisjoint(group.hog_function_ids)],
+    )
+    return created
+
+
 def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
     """Deletes every row that copies one of these HogFunctions, for HogFunctions deleted outside the alert's
     own routes. Without it the row would stop being skipped and keep sending to the deleted destination."""
@@ -460,6 +544,25 @@ def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> 
         .delete()
     )
     return deleted
+
+
+def copied_by_source_rows(*, team_id: int, public_id: UUID, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The ids among `hog_function_ids` that one of the alert's rows copies, whether or not the HogFunctions
+    still exist."""
+    if not hog_function_ids:
+        return frozenset()
+    wanted = set(hog_function_ids)
+    copies = (
+        AlertDestination.objects.for_team(team_id)
+        .filter(
+            configuration__in=_configurations_by_public_id(team_id, public_id),
+            legacy_hog_function_ids__overlap=list(wanted),
+        )
+        .values_list("legacy_hog_function_ids", flat=True)
+    )
+    return frozenset(
+        hog_function_id for row_copies in copies for hog_function_id in row_copies if hog_function_id in wanted
+    )
 
 
 # The fields each type sends with. A field of another type, such as a PagerDuty default on a Slack
