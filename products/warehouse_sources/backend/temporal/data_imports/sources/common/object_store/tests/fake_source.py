@@ -92,6 +92,9 @@ class FakeObjectStorageSource(ObjectStorageSource[FakeObjectStorageConfig]):
     def serialize_config(self, config: FakeObjectStorageConfig) -> dict[str, Any]:
         return dict(config.values)
 
+    def config_with_files_url(self, config: FakeObjectStorageConfig, url: str) -> FakeObjectStorageConfig:
+        return FakeObjectStorageConfig(values={**config.values, "url_pattern": url})
+
     def object_store_config(self, config: FakeObjectStorageConfig) -> StoreConfig:
         return self._build_store_config(config.values)
 

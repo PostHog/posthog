@@ -412,6 +412,21 @@ def explain_no_tables(objects: Iterable[StoredObject], options: DiscoveryOptions
     )
 
 
+def _check_object_count(objects: list[StoredObject], max_objects: int, listing_prefix: str) -> None:
+    if len(objects) > max_objects:
+        raise ObjectStorageError(
+            f"{TOO_MANY_FILES_ERROR} ({max_objects:,} files) in '{listing_prefix or '/'}'. Point the URL at a "
+            "narrower folder, or use a pattern that matches fewer files."
+        )
+
+
+def list_table_objects(store: ObjectStore, path: str, max_objects: int = MAX_TABLE_OBJECTS) -> list[StoredObject]:
+    """List the folder or file of a table, and refuse a table with more files than a sync reads."""
+    objects = store.list_objects(path, max_objects + 1)
+    _check_object_count(objects, max_objects, path)
+    return objects
+
+
 def resolve_table_files(
     store: ObjectStore,
     table: TableDefinition,
@@ -428,16 +443,9 @@ def resolve_table_files(
     if table.scope == "glob":
         listing_prefix = glob_key_prefix(table.pattern or "")
         objects = store.list_key_prefix(listing_prefix, max_objects + 1)
-    else:
-        listing_prefix = table.path
-        objects = store.list_objects(listing_prefix, max_objects + 1)
-    if len(objects) > max_objects:
-        raise ObjectStorageError(
-            f"{TOO_MANY_FILES_ERROR} ({max_objects:,} files) in '{listing_prefix or '/'}'. Point the URL at a "
-            "narrower folder, or use a pattern that matches fewer files."
-        )
-    if table.scope == "glob":
+        _check_object_count(objects, max_objects, listing_prefix)
         return _resolve_glob_files(objects, table)
+    objects = list_table_objects(store, table.path, max_objects)
     options = DiscoveryOptions(
         file_format=table.source_format,
         allow_double_quotes=table.csv.allow_double_quotes,
