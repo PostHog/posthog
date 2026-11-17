@@ -60,6 +60,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
+    can_in_organization,
     extract_organization,
     get_authenticator_scoped_organization_ids,
     request_subject,
@@ -73,7 +74,6 @@ from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.access_control.backend.presentation.organization_role_access import require_organization_access_management
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action
@@ -409,7 +409,9 @@ class OrganizationSerializer(
                     pk=validated_data["default_role"].pk, organization=instance
                 )
                 if role.organization_access_level is not None:
-                    require_organization_access_management(self.context["request"], instance)
+                    authorization.invalidate_session()
+                    if not can_in_organization(self.context["request"], instance, Action.MANAGE_ACCESS):
+                        raise exceptions.PermissionDenied("You do not have permission to manage organization access.")
                 validated_data["default_role"] = role
             instance = super().update(instance, validated_data, *args, **kwargs)
             if ip_restrictions is not None or ip_restrictions_enabled is not None:

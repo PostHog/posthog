@@ -243,7 +243,7 @@ class TestRoleAPI(APILicensedTest):
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(res.json()["code"], "unique")
 
-    @parameterized.expand([("roles",), ("members",)])
+    @parameterized.expand([("roles",), ("members",), ("role_memberships",)])
     def test_listing_roles_does_not_scale_queries_with_member_count(self, endpoint: str):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -255,23 +255,31 @@ class TestRoleAPI(APILicensedTest):
                 membership = OrganizationMembership.objects.get(organization=self.organization, user=user)
                 RoleMembership.objects.create(role=role, user=user, organization_member=membership)
 
+        url = (
+            f"/api/organizations/@current/roles/{role.id}/role_memberships"
+            if endpoint == "role_memberships"
+            else f"/api/organizations/@current/{endpoint}"
+        )
+
         def members_for_role(response) -> list:
+            if endpoint == "role_memberships":
+                return response.json()["results"]
             if endpoint == "members":
                 return [r for r in response.json()["results"] if r["role_grants"]]
             return next(r["members"] for r in response.json()["results"] if r["id"] == str(role.id))
 
         # Warm up per-process caches (instance settings etc.) so they don't skew the counts below.
-        self.client.get(f"/api/organizations/@current/{endpoint}")
+        self.client.get(url)
 
         add_members(2)
         with CaptureQueriesContext(connection) as few_members:
-            res = self.client.get(f"/api/organizations/@current/{endpoint}")
+            res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(members_for_role(res)), 2)
 
         add_members(4)
         with CaptureQueriesContext(connection) as more_members:
-            res = self.client.get(f"/api/organizations/@current/{endpoint}")
+            res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(members_for_role(res)), 6)
 
