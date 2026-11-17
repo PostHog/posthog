@@ -1272,13 +1272,19 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
     def test_advertised_tools_union_across_tools_list_events(self) -> None:
         self._seed_tools_list("session-a", ["exec", "render-ui"])
         self._seed_tools_list("session-a", ["exec", "query_trends"])
+        self._seed_tools_list("session-b", ["render-ui"])
         self._seed_tools_list("session-other", ["exec"])
         flush_persons_and_events()
 
         with patch.object(intent_clustering, "CORPUS_SESSION_CHUNK_SIZE", 1):
-            advertised = fetch_advertised_tools(self.team, ["session-no-list", "session-a"])
+            advertised = fetch_advertised_tools(self.team, ["session-no-list", "session-a", "session-b"])
+            narrowed = fetch_advertised_tools(
+                self.team, ["session-no-list", "session-a", "session-b"], keep_tools={"exec", "query_trends"}
+            )
 
-        assert advertised == {"session-a": {"exec", "render-ui", "query_trends"}}
+        assert advertised == {"session-a": {"exec", "render-ui", "query_trends"}, "session-b": {"render-ui"}}
+        # A session that advertised none of the kept tools still counts as advertised.
+        assert narrowed == {"session-a": {"exec", "query_trends"}, "session-b": set()}
 
     def test_advertised_catalog_is_bounded_per_list_and_per_session(self) -> None:
         # Both the array and the number of tools-list events are sender-controlled, and the

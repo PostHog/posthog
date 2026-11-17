@@ -614,12 +614,18 @@ def fetch_advertised_tools(
     team: Team,
     session_ids: list[str],
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    keep_tools: Collection[str] | None = None,
 ) -> dict[str, set[str]]:
     """Return ``{session_id: advertised tool names}`` for sessions with a tools-list event.
 
     Sessions with no ``$mcp_tools_list`` event are absent from the result, not
     empty — absence means "advertisement unknown", which callers must exclude
     from discovery denominators rather than treat as "nothing advertised".
+
+    ``keep_tools`` narrows each session's catalog to those names. A session whose
+    catalog has none of them stays in the result with an empty set, so it still
+    counts as advertised. Catalogs are sender-controlled and wide, so retaining
+    them whole across every corpus session can exhaust worker memory.
     """
     out: dict[str, set[str]] = {}
     for chunk in _chunked(session_ids):
@@ -640,7 +646,7 @@ def fetch_advertised_tools(
             session_id = str(row[0] or "")
             tools = {str(tool) for tool in (row[1] or []) if tool}
             if session_id and tools:
-                out[session_id] = tools
+                out[session_id] = tools if keep_tools is None else tools.intersection(keep_tools)
     return out
 
 
