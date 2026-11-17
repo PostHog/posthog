@@ -278,7 +278,7 @@ export class CredentialsServer {
             integrations: () => this.integrations,
         }
         if (this.pool) {
-            this.startAuditMaintenance(this.pool)
+            this.startAuditExport(this.pool)
         }
         const app = createApp(appOptions)
 
@@ -321,7 +321,7 @@ export class CredentialsServer {
         this.setupProcessListeners()
     }
 
-    private startAuditMaintenance(pool: Pool): void {
+    private startAuditExport(pool: Pool): void {
         const { auditExport } = this.config
         if (auditExport) {
             const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize, this.config.env)

@@ -71,8 +71,6 @@ export interface AuditExportConfig {
     proxyUrl?: string
 }
 
-export const MAX_AUDIT_RETENTION_DAYS = 60
-
 export interface Config {
     port: number
     host: string
@@ -331,31 +329,6 @@ function httpUrlFromEnv(key: string, raw: string): string {
         throw new Error(`${key} must be an http(s) URL`)
     }
     return raw
-}
-
-/** What the maintenance command needs. It connects as the migrate role, never as the runtime role. */
-export interface MaintenanceConfig {
-    url: string
-    retentionDays: number
-    /** Delete rows that were never exported. Off by default, so an export that is off keeps its rows. */
-    deleteUnexported: boolean
-}
-
-/** Undefined without a migrate URL. The command does not fall back to the runtime URL. */
-export function loadMaintenanceConfig(): MaintenanceConfig | undefined {
-    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL
-    if (!url) {
-        return undefined
-    }
-    const retentionDays = intFromEnv('CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS', 30, 1)
-    if (retentionDays > MAX_AUDIT_RETENTION_DAYS) {
-        throw new Error(`CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS must be at most ${MAX_AUDIT_RETENTION_DAYS}`)
-    }
-    return {
-        url,
-        retentionDays,
-        deleteUnexported: process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED === 'true',
-    }
 }
 
 export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
