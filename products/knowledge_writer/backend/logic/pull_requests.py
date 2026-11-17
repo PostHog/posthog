@@ -3,8 +3,9 @@ import uuid
 import difflib
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from uuid import UUID
 
 import structlog
@@ -32,7 +33,7 @@ from .docs_pages import (
     route_segments,
 )
 from .grounding import MAX_GROUNDED_LINES, GroundingResult, ground_draft
-from .launch import replace_entry_with
+from .launch import HEAD_BRANCH_PREFIX, replace_entry_with
 from .records import (
     BASE_SHA_STATE_KEY,
     DOCS_CONTENT_ROOT_STATE_KEY,
@@ -69,6 +70,10 @@ LINK_BACK_END = "<!-- /knowledge-writer-sources -->"
 PULL_REQUESTS_PER_PAGE = 100
 MAX_PULL_REQUEST_PAGES = 20
 DRAFT_EVENT = "knowledge_writer draft"
+OUTCOME_EVENT = "knowledge_writer outcome"
+REVIEWS_PER_PAGE = 100
+MAX_REVIEW_PAGES = 10
+SECONDS_PER_HOUR = 3600
 DRAFT_FILE_PATCH_CHARACTERS = 4_000
 DRAFT_PATCH_BUDGET_CHARACTERS = 60_000
 OPEN_PULL_REQUESTS_OFF = "open_pull_requests_off"
@@ -76,6 +81,7 @@ NO_HUMAN_AUTHOR = "no_human_author"
 REVIEW_REQUEST_FAILED = "review_request_failed"
 REVIEW_REQUEST_REJECTED = "review_request_rejected"
 DraftOutcome = Literal["refused", "logged", "opened", "failed"]
+CloseReason = Literal["merged", "closed_by_reviewer", "closed_stale"]
 MAX_LISTED_UNSUPPORTED_LINES = 50
 MAX_LISTED_LINE_CHARACTERS = 300
 
@@ -226,7 +232,13 @@ def github_step_failed(step: str, response: dict) -> GitHubStepFailed:
     return GitHubStepFailed(step=step, status_code=status_code if isinstance(status_code, int) else None)
 
 
-def open_pull_request_for_run(task_run_id: UUID, *, team_id: int) -> str | None:
+@dataclass(frozen=True)
+class PublishedPullRequest:
+    repository: str
+    number: int
+
+
+def open_pull_request_for_run(task_run_id: UUID, *, team_id: int) -> PublishedPullRequest | None:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
         log_skipped_publication(task_run_id, team_id, "unconfigured")
@@ -265,10 +277,11 @@ class DraftAttempt:
 
 def finish_published_pull_request(
     run: TaskRunDTO, team_id: int, writer: WriterSettings, pull_request: WriterPullRequest
-) -> str:
+) -> PublishedPullRequest:
+    published = PublishedPullRequest(repository=writer.docs_repository, number=pull_request.number)
     if not pull_request.is_review_pending:
         log_skipped_publication(run.id, team_id, "already_published")
-        return pull_request.url
+        return published
     github = docs_github(team_id, writer.docs_repository.split("/", 1)[0], priority=Priority.CRITICAL)
     if github is None:
         raise WriterPullRequestFailed("knowledge writer lost its docs GitHub integration before requesting review")
@@ -280,7 +293,7 @@ def finish_published_pull_request(
         changed_files=published_changed_files(run, team_id, github, writer.docs_repository),
     )
     request_review_and_capture_opened(github, writer, draft, pull_request)
-    return pull_request.url
+    return published
 
 
 def published_changed_files(
@@ -309,7 +322,7 @@ def request_review_and_capture_opened(
     store_pull_request(draft.task_id, draft.team_id, replace(pull_request, is_review_pending=False))
 
 
-def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str | None:
+def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> PublishedPullRequest | None:
     task_id, task_run_id = run.task_id, run.id
     request = stored_request(tasks_facade.read_task_state_entry(task_id, team_id, REQUEST_STATE_KEY))
     docs_owner, docs_name = writer.docs_repository.split("/", 1)
@@ -402,7 +415,7 @@ def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str
         team_id=team_id,
         pull_request_number=pull_request.number,
     )
-    return pull_request.url
+    return PublishedPullRequest(repository=writer.docs_repository, number=pull_request.number)
 
 
 @dataclass(frozen=True)
@@ -549,15 +562,19 @@ def capture_draft(
 
 def capture_writer_event(event: str, *, team_id: int, event_key: str, failure_log: str, properties: dict) -> None:
     try:
-        with ph_scoped_capture() as capture:
-            capture(
-                event,
-                distinct_id=f"knowledge_writer:{team_id}",
-                uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge_writer:{event_key}"),
-                properties=properties,
-            )
+        send_writer_event(event, team_id=team_id, event_key=event_key, properties=properties, raise_on_error=False)
     except Exception:
         logger.warning(failure_log, team_id=team_id, exc_info=True)
+
+
+def send_writer_event(event: str, *, team_id: int, event_key: str, properties: dict, raise_on_error: bool) -> None:
+    with ph_scoped_capture(raise_on_error=raise_on_error) as capture:
+        capture(
+            event,
+            distinct_id=f"knowledge_writer:{team_id}",
+            uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge_writer:{event_key}"),
+            properties=properties,
+        )
 
 
 def drafted_files(changed_files: list[dict]) -> list[dict]:
@@ -763,3 +780,142 @@ def open_pull_request(
     if not created.get("success"):
         return github_step_failed("create_pull_request", created)
     return WriterPullRequest(number=created["pr_number"], url=created["pr_url"], head_branch=head_branch)
+
+
+def settle_pull_request(team_id: int, repository: str, pull_request_number: int, *, timed_out: bool) -> bool:
+    github = docs_github(team_id, repository.split("/", 1)[0], priority=Priority.NORMAL)
+    if github is None:
+        raise WriterPullRequestFailed(
+            "knowledge writer lost its docs GitHub integration before settling a pull request"
+        )
+    listed = read_github_json(
+        github, f"/repos/{repository}/pulls/{pull_request_number}", endpoint="/repos/{owner}/{repo}/pulls/{pull_number}"
+    )
+    approval_times = pull_request_approval_times(github, repository, pull_request_number)
+    closed = closed_pull_request(github, repository, listed, is_approved=bool(approval_times), timed_out=timed_out)
+    if closed is None:
+        return False
+    close_reason = pull_request_close_reason(github, repository, closed)
+    capture_outcome(team_id, repository, closed, close_reason=close_reason, approval_times=approval_times)
+    if close_reason == "closed_stale":
+        delete_writer_branch(github, team_id, repository, closed)
+    return True
+
+
+def read_github_json(github: GitHubIntegration, path: str, *, endpoint: str, params: dict | None = None) -> object:
+    response = github.api_request("GET", path, endpoint=endpoint, params=params)
+    if response.status_code != 200:
+        raise WriterPullRequestFailed(f"knowledge writer could not read {endpoint}: {response.status_code}")
+    return response.json()
+
+
+def pull_request_approval_times(github: GitHubIntegration, repository: str, pull_request_number: int) -> list[datetime]:
+    approval_times: list[datetime] = []
+    for page in range(1, MAX_REVIEW_PAGES + 1):
+        reviews = read_github_json(
+            github,
+            f"/repos/{repository}/pulls/{pull_request_number}/reviews",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            params={"per_page": REVIEWS_PER_PAGE, "page": page},
+        )
+        if not isinstance(reviews, list):
+            return approval_times
+        approval_times.extend(
+            github_time(review["submitted_at"])
+            for review in reviews
+            if review.get("state") == "APPROVED" and review.get("submitted_at")
+        )
+        if len(reviews) < REVIEWS_PER_PAGE:
+            return approval_times
+    return approval_times
+
+
+def closed_pull_request(
+    github: GitHubIntegration, repository: str, listed: object, *, is_approved: bool, timed_out: bool
+) -> dict | None:
+    if not isinstance(listed, dict):
+        raise WriterPullRequestFailed("knowledge writer read a pull request that is not an object")
+    if listed.get("state") == "closed":
+        return listed
+    if not timed_out or is_approved:
+        return None
+    closed = github.api_request(
+        "PATCH",
+        f"/repos/{repository}/pulls/{listed['number']}",
+        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+        json_body={"state": "closed"},
+    )
+    if closed.status_code != 200:
+        raise WriterPullRequestFailed(f"knowledge writer could not close a stale pull request: {closed.status_code}")
+    return closed.json()
+
+
+def pull_request_close_reason(github: GitHubIntegration, repository: str, closed: dict) -> CloseReason:
+    if closed.get("merged") is True or closed.get("merged_at"):
+        return "merged"
+    issue = read_github_json(
+        github,
+        f"/repos/{repository}/issues/{closed['number']}",
+        endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+    )
+    closed_by = str(((issue if isinstance(issue, dict) else {}).get("closed_by") or {}).get("login", "")).lower()
+    app_login = github_app_login()
+    if app_login is not None and closed_by == app_login:
+        return "closed_stale"
+    return "closed_by_reviewer"
+
+
+def delete_writer_branch(github: GitHubIntegration, team_id: int, repository: str, closed: dict) -> None:
+    head = closed.get("head") or {}
+    head_branch = str(head.get("ref") or "")
+    head_repository = str((head.get("repo") or {}).get("full_name", "")).lower()
+    if not head_branch.startswith(HEAD_BRANCH_PREFIX) or head_repository != repository.lower():
+        return
+    deleted = github.api_request(
+        "DELETE",
+        f"/repos/{repository}/git/refs/heads/{quote(head_branch, safe='/')}",
+        endpoint="/repos/{owner}/{repo}/git/refs/heads/{branch}",
+    )
+    if deleted.status_code in (204, 404, 422):
+        return
+    logger.warning(
+        "knowledge_writer_stale_branch_delete_failed",
+        team_id=team_id,
+        pull_request_number=closed["number"],
+        status_code=deleted.status_code,
+    )
+    capture_exception(
+        WriterPullRequestFailed("knowledge writer could not delete a stale branch"),
+        {"team_id": team_id, "pull_request_number": closed["number"], "status_code": deleted.status_code},
+    )
+
+
+def capture_outcome(
+    team_id: int, repository: str, closed: dict, *, close_reason: CloseReason, approval_times: list[datetime]
+) -> None:
+    opened_at = github_time(closed["created_at"])
+    first_approval_at = min(approval_times, default=None)
+    send_writer_event(
+        OUTCOME_EVENT,
+        team_id=team_id,
+        event_key=f"outcome:{repository.lower()}#{closed['number']}",
+        raise_on_error=True,
+        properties={
+            "pull_request_url": closed.get("html_url"),
+            "merged": close_reason == "merged",
+            "approved": first_approval_at is not None,
+            "hours_to_first_approval": hours_between(opened_at, first_approval_at)
+            if first_approval_at is not None
+            else None,
+            "hours_open": hours_between(opened_at, github_time(closed["closed_at"])),
+            "close_reason": close_reason,
+        },
+    )
+
+
+def github_time(timestamp: str) -> datetime:
+    return datetime.fromisoformat(timestamp)
+
+
+def hours_between(start: datetime, end: datetime) -> float:
+    return round((end - start).total_seconds() / SECONDS_PER_HOUR, 2)

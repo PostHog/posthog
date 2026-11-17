@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 import time_machine
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.conf import settings
 from django.core.cache import cache, caches
@@ -70,6 +70,8 @@ KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer
 RECONCILE_MODULE = "products.knowledge_writer.backend.temporal.reconcile_workflow"
 MERGE_WORKFLOW_MODULE = "products.knowledge_writer.backend.temporal.merge_workflow"
 TEMPORAL_CONNECT = "products.knowledge_writer.backend.temporal.client.async_connect"
+SIGNAL_PULL_REQUEST_CLOSED = "products.knowledge_writer.backend.temporal.client.signal_pull_request_closed"
+WRITER_BRANCH = "knowledge-writer/0123456789ab"
 
 
 @pytest.fixture
@@ -108,6 +110,7 @@ def _merged_pull_request_delivery(
     repository: str = "PostHog/posthog",
     is_private: bool = False,
     installation_id: int | None = LINKED_INSTALLATION_ID,
+    head_branch: str = "feat/flag-banner",
 ) -> dict[str, object]:
     delivery: dict[str, object] = {
         "action": action,
@@ -119,6 +122,7 @@ def _merged_pull_request_delivery(
             "merged_at": "2026-11-09T12:00:00Z" if is_merged else None,
             "merge_commit_sha": MERGE_COMMIT_SHA,
             "base": {"ref": "stack/parent-branch"},
+            "head": {"ref": head_branch, "repo": {"full_name": repository}},
         },
         "repository": {"full_name": repository, "default_branch": "master", "private": is_private},
     }
@@ -144,27 +148,48 @@ def _post_signed(view, payload: dict[str, object], *, delivery_id: str = "delive
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "delivery, starts_merge_check",
+    "delivery, starts_merge_check, signals_writer_pull_request",
     [
-        pytest.param(_merged_pull_request_delivery(), True, id="merged_into_a_stack_parent_branch"),
-        pytest.param(_merged_pull_request_delivery(is_merged=False), False, id="closed_without_merging"),
-        pytest.param(_merged_pull_request_delivery(action="synchronize"), False, id="not_closed"),
-        pytest.param(_merged_pull_request_delivery(is_private=True), False, id="private_repository"),
-        pytest.param(_merged_pull_request_delivery(repository="PostHog/posthog.com"), False, id="unlisted_repository"),
-        pytest.param(_merged_pull_request_delivery(installation_id=None), False, id="no_installation"),
+        pytest.param(_merged_pull_request_delivery(), True, False, id="merged_into_a_stack_parent_branch"),
+        pytest.param(_merged_pull_request_delivery(is_merged=False), False, False, id="closed_without_merging"),
+        pytest.param(_merged_pull_request_delivery(action="synchronize"), False, False, id="not_closed"),
+        pytest.param(_merged_pull_request_delivery(is_private=True), False, False, id="private_repository"),
+        pytest.param(
+            _merged_pull_request_delivery(repository="PostHog/posthog.com"), False, False, id="unlisted_repository"
+        ),
+        pytest.param(_merged_pull_request_delivery(installation_id=None), False, False, id="no_installation"),
+        pytest.param(
+            _merged_pull_request_delivery(repository="PostHog/posthog.com", head_branch=WRITER_BRANCH),
+            False,
+            True,
+            id="writer_docs_pull_request_closed",
+        ),
+        pytest.param(
+            _merged_pull_request_delivery(repository="PostHog/posthog.com", head_branch=WRITER_BRANCH, action="opened"),
+            False,
+            False,
+            id="writer_docs_pull_request_opened",
+        ),
+        pytest.param(
+            _merged_pull_request_delivery(head_branch=WRITER_BRANCH), True, False, id="writer_branch_in_a_source"
+        ),
     ],
 )
 def test_a_signed_merged_pull_request_starts_the_merge_check(
-    team, writer_env, github_webhook_view, delivery, starts_merge_check
+    team, writer_env, github_webhook_view, delivery, starts_merge_check, signals_writer_pull_request
 ) -> None:
     with (
         patch(KNOWLEDGE_WRITER_ENABLED, return_value=True) as is_writer_enabled,
         patch(START_MERGE_CHECK) as start_merge_check,
+        patch(SIGNAL_PULL_REQUEST_CLOSED) as signal_pull_request_closed,
     ):
         response = _post_signed(github_webhook_view, delivery)
 
     assert response.status_code == 202
     is_writer_enabled.assert_not_called()
+    assert signal_pull_request_closed.call_args_list == (
+        [call("PostHog/posthog.com", PULL_REQUEST_NUMBER)] if signals_writer_pull_request else []
+    )
     if not starts_merge_check:
         start_merge_check.assert_not_called()
         return

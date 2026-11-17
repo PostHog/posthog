@@ -5,11 +5,13 @@ from uuid import UUID
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from ..logic.pull_requests import open_pull_request_for_run, settle_publication
+from ..logic.pull_requests import PublishedPullRequest, open_pull_request_for_run, settle_publication
+from .pull_request_workflow import PullRequestInputs, start_pull_request_workflow
 
 PUBLISH_ATTEMPTS = 3
 PUBLISH_RETRY_INTERVAL = timedelta(minutes=1)
@@ -26,8 +28,24 @@ class PublishInputs:
 @close_db_connections
 async def publish_docs_pull_request_activity(inputs: PublishInputs) -> None:
     async with Heartbeater():
-        await database_sync_to_async(open_pull_request_for_run, thread_sensitive=False)(
+        published = await database_sync_to_async(open_pull_request_for_run, thread_sensitive=False)(
             UUID(inputs.task_run_id), team_id=inputs.team_id
+        )
+    if published is None:
+        return
+    await watch_published_pull_request(published, team_id=inputs.team_id)
+
+
+async def watch_published_pull_request(published: PublishedPullRequest, *, team_id: int) -> None:
+    watched = PullRequestInputs(team_id=team_id, repository=published.repository, pull_request_number=published.number)
+    try:
+        await start_pull_request_workflow(activity.client(), watched)
+    except Exception as error:
+        if activity.info().attempt < PUBLISH_ATTEMPTS:
+            raise
+        capture_exception(
+            error,
+            {"team_id": team_id, "repository": published.repository, "pull_request_number": published.number},
         )
 
 
