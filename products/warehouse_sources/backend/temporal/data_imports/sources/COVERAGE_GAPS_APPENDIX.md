@@ -7157,7 +7157,7 @@ Diffed against: <https://cloud.langfuse.com/generated/api/openapi.yml>
 - [x] `GET /api/public/experiments and GET /api/public/experiment-items` — experiment runs and their per-item results, the headline eval surface (medium)
 - [x] `GET /api/public/annotation-queues, /{queueId}/items` — human annotation queue state and per-item status for review throughput analysis (medium)
 - [x] `GET /api/public/comments` — human comments attached to traces/observations/sessions, useful for qualitative review joins (low)
-- [ ] `GET /api/public/organizations/memberships and /projects/{projectId}/memberships` — org/project membership lookup resolving user ids seen on traces and annotations (org-scoped key required) (low)
+- [ ] `GET /api/public/organizations/memberships and /projects/{projectId}/memberships` — org/project membership lookup resolving user ids seen on traces and annotations (org-scoped key required) (low) Skipped: both need an organization-scoped key, and the source uses a project-scoped key that every other table needs.
 
 Note: Endpoint map in products/warehouse_sources/sources/langfuse/settings.py is fully static - no dynamic table discovery. Some newer resources (dashboards, evaluators, evaluation-rules) sit under /api/public/unstable/ and are config-shaped, so excluded.
 
@@ -11898,10 +11898,10 @@ Diffed against: <https://api.sumologic.com/docs/sumologic-api.yaml>
 - [x] `/v1/fields (plus /v1/fields/builtin, /v1/fields/dropped)` — field metadata lookup resolving the field names that appear across logs, partitions and extraction rules (high)
 - [x] `/v1/mutingSchedules` — muting windows that explain gaps in monitor alerting - required to interpret the health_events already synced (medium)
 - [x] `/v2/content/folders (with /v2/content/{id}/path)` — content folder tree, the lookup that resolves parentId on dashboards, searches and monitors (medium)
-- [ ] `/v1/otCollectors` — OpenTelemetry collector inventory; the synced collectors table comes from the legacy Collector Management API and misses these entirely (medium)
-- [ ] `/v1/logSearches` — saved log searches, the reusable query definitions behind scheduled views and dashboards (medium)
-- [ ] `/v2/metricsSearches` — saved metrics searches, the metrics-side counterpart (medium)
-- [ ] `/v1/lookupTables` — user-maintained lookup tables used to enrich queries; genuine reference data (medium)
+- [x] `/v1/otCollectors` — OpenTelemetry collector inventory; the synced collectors table comes from the legacy Collector Management API and misses these entirely (medium) → `ot_collectors`
+- [x] `/v1/logSearches` — saved log searches, the reusable query definitions behind scheduled views and dashboards (medium) → `log_searches`
+- [x] `/v2/metricsSearches` — saved metrics searches, the metrics-side counterpart (medium) → `metrics_searches`
+- [ ] `/v1/lookupTables` — user-maintained lookup tables used to enrich queries; genuine reference data (medium) Skipped: the API has no list operation, only create and read by id.
 - [ ] `/v1/organizations/usages (and /v1/account/usage/report)` — ingest and credit consumption over time - the core cost-analysis dataset for a Sumo warehouse (medium)
 - [ ] `/v1/budgets (and /v1/budgets/usage)` — capacity budgets and their consumption; distinct from the ingestBudgets already synced (medium)
 - [ ] `/v1/parsers` — parser definitions that shape how log fields are extracted (low)
