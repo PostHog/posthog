@@ -3771,7 +3771,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       startupStep = "attribution update";
       await this.awaitStartupControl(
         startupStep,
-        this.session.query.applyFlagSettings({ attribution: { pr: "" } }),
+        this.session.query.applyFlagSettings({
+          attribution: { commit: "", pr: "" },
+        }),
         startupErrorData,
       );
 

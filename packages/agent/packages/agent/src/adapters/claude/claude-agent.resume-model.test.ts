@@ -217,7 +217,7 @@ describe("ClaudeAcpAgent session creation", () => {
       });
 
       expect(createdQueries[0].applyFlagSettings).toHaveBeenCalledWith({
-        attribution: { pr: "" },
+        attribution: { commit: "", pr: "" },
       });
     },
   );

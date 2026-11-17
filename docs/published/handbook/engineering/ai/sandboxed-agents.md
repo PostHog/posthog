@@ -470,6 +470,7 @@ They can:
 
 Claude sessions use `applyFlagSettings()` at startup to set `attribution.pr` to an empty string and disable Claude Code's default footer in pull request descriptions.
 The agent keeps the PostHog attribution footer from its task instructions.
+The same call sets `attribution.commit` to an empty string, consistent with the task instructions that prohibit Claude's default commit trailer.
 
 ### Git commit signing
 
