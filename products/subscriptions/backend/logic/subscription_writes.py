@@ -1084,9 +1084,12 @@ def take_subscription_ownership(
         raise SubscriptionRequestInvalidError(
             f"{owner_requirement} access to the subscription's insights, dashboards, and report contexts."
         )
-    if (
-        instance.resource_type == Subscription.ResourceType.AI_PROMPT
-        and not owner_access.check_access_level_for_resource("query", "viewer")
+    try:
+        resource_type = instance.resource_type
+    except ValueError as error:
+        raise SubscriptionRequestInvalidError(str(error)) from error
+    if resource_type == Subscription.ResourceType.AI_PROMPT and not owner_access.check_access_level_for_resource(
+        "query", "viewer"
     ):
         raise SubscriptionRequestInvalidError(f"{owner_requirement} query access for AI prompt subscriptions.")
     # The enable below only compiles the queries when it enables a disabled row, so an enabled one is

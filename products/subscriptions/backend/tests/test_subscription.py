@@ -1169,6 +1169,17 @@ class TestSubscriptionTemporal(APILicensedTest):
             "its creator, former-member@example.com, who is no longer in the organization" in response.json()["detail"]
         )
 
+    def test_take_ownership_rejects_subscription_without_content(self) -> None:
+        subscription = self._disabled_subscription_of_a_former_member()
+        Subscription.objects.filter(pk=subscription.pk).update(insight=None)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/", {})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        subscription.refresh_from_db()
+        assert subscription.created_by != self.user
+        assert subscription.enabled is False
+
     @parameterized.expand(
         [
             (False, OrganizationMembership.Level.MEMBER, False),
