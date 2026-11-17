@@ -30,6 +30,7 @@ import type {
     DestinationConnectLinkApi,
     DestinationConnectStatusApi,
     DestinationConnectionTestResponseApi,
+    DestinationDeliveryFailuresResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
@@ -289,6 +290,27 @@ export const externalDataDestinationsAddSourcesCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(addSourcesRequestApi),
     })
+}
+
+export const getExternalDataDestinationsDeliveryFailuresRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/${id}/delivery_failures/`
+}
+
+/**
+ * List recent sync runs that could not deliver to this destination, with the error of each one.
+ */
+export const externalDataDestinationsDeliveryFailuresRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DestinationDeliveryFailuresResponseApi> => {
+    return apiMutator<DestinationDeliveryFailuresResponseApi>(
+        getExternalDataDestinationsDeliveryFailuresRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataDestinationsTestConnectionCreateUrl = (projectId: string, id: string) => {
