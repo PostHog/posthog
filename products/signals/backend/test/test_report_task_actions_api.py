@@ -6,17 +6,23 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.github_integration_base import PullRequestCiStatus
+
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_task_actions import (
     FIX_CI_REQUEST,
     INBOX_REPORT_ACTION_EVENT,
-    MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON,
     MAKE_IT_GREEN_NO_PR_DISABLED_REASON,
+    MAKE_IT_GREEN_NOTHING_TO_FIX_DISABLED_REASON,
     MERGE_PR_REQUEST,
     REPORT_DISCUSSION_STATE_INSTRUCTIONS,
+    RESOLVE_CONFLICTS_NO_CONFLICT_DISABLED_REASON,
+    RESOLVE_CONFLICTS_NO_PR_DISABLED_REASON,
+    RESOLVE_CONFLICTS_REQUEST,
     fix_ci_intro,
     is_pull_request_run_request,
     merge_pr_intro,
+    resolve_conflicts_intro,
     task_create_data,
 )
 from products.signals.backend.serializers import SignalReportTaskActionRunRequestSerializer
@@ -31,15 +37,22 @@ def _flag(flag_key: str, *args: object, **kwargs: object) -> bool:
 
 INBOX_REPORT_URL = "https://us.posthog.com/project/1/inbox/0190f1f0-0000-7000-8000-000000000000"
 
+NOTHING_TO_FIX = MAKE_IT_GREEN_NOTHING_TO_FIX_DISABLED_REASON
+MAKE_IT_GREEN_NO_PR = MAKE_IT_GREEN_NO_PR_DISABLED_REASON
+NO_CONFLICT = RESOLVE_CONFLICTS_NO_CONFLICT_DISABLED_REASON
+RESOLVE_NO_PR = RESOLVE_CONFLICTS_NO_PR_DISABLED_REASON
+
 
 def _inbox_description(intro: str, message: str) -> str:
     return f"<posthog_trusted_context>\n- {intro}\n</posthog_trusted_context>\n\n{message}"
 
 
-def _ci(ci_status: str):
+def _ci(ci_status: str, has_conflict: bool = False):
     return patch(
         "products.signals.backend.report_task_actions.pr_ci_statuses_for_references",
-        side_effect=lambda _team_id, refs: dict.fromkeys(refs, ci_status),
+        side_effect=lambda _team_id, refs: dict.fromkeys(
+            refs, PullRequestCiStatus(ci_status=ci_status, has_conflict=has_conflict)
+        ),
     )
 
 
@@ -111,7 +124,8 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert actions[0]["available"] is available
         assert (actions[0]["disabled_reason"] is None) is available
         assert actions[1]["action"] == "make_it_green"
-        assert [(a["action"], a["suggested_prompt_index"], a["text"]) for a in actions[2:]] == [
+        assert actions[2]["action"] == "resolve_conflicts"
+        assert [(a["action"], a["suggested_prompt_index"], a["text"]) for a in actions[3:]] == [
             ("suggested_prompt", 0, "Why does checkout fail?"),
             ("suggested_prompt", 1, "Create the alert"),
         ]
@@ -161,34 +175,45 @@ class TestReportTaskActionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("failing_draft", SignalReportPullRequest.State.DRAFT, "failing", None),
-            ("failing_unapproved", SignalReportPullRequest.State.OPEN, "failing", None),
-            ("pending", SignalReportPullRequest.State.OPEN, "pending", MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON),
-            ("passing", SignalReportPullRequest.State.OPEN, "passing", MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON),
-            ("merged", SignalReportPullRequest.State.MERGED, "failing", MAKE_IT_GREEN_NO_PR_DISABLED_REASON),
-            ("no_pr", None, "failing", MAKE_IT_GREEN_NO_PR_DISABLED_REASON),
+            ("failing_draft", SignalReportPullRequest.State.DRAFT, "failing", False, None, NO_CONFLICT),
+            ("failing_unapproved", SignalReportPullRequest.State.OPEN, "failing", False, None, NO_CONFLICT),
+            ("failing_conflicting", SignalReportPullRequest.State.OPEN, "failing", True, None, None),
+            ("passing_conflicting", SignalReportPullRequest.State.OPEN, "passing", True, None, None),
+            ("pending", SignalReportPullRequest.State.OPEN, "pending", False, NOTHING_TO_FIX, NO_CONFLICT),
+            ("passing", SignalReportPullRequest.State.OPEN, "passing", False, NOTHING_TO_FIX, NO_CONFLICT),
+            ("merged", SignalReportPullRequest.State.MERGED, "failing", True, MAKE_IT_GREEN_NO_PR, RESOLVE_NO_PR),
+            ("no_pr", None, "failing", True, MAKE_IT_GREEN_NO_PR, RESOLVE_NO_PR),
         ]
     )
-    def test_lists_make_it_green_only_while_ci_fails_on_an_open_pr(
+    def test_lists_pr_repair_actions_only_while_an_open_pr_needs_them(
         self,
         _workflow: MagicMock,
         _flag_mock: MagicMock,
         _name: str,
         pr_state: str | None,
         ci_status: str,
-        disabled_reason: str | None,
+        has_conflict: bool,
+        make_it_green_reason: str | None,
+        resolve_conflicts_reason: str | None,
     ) -> None:
         report = self._report()
         if pr_state is not None:
             self._attach_pr(report, None, state=pr_state)
 
-        with _ci(ci_status):
-            make_it_green = self._actions(report)[1]
+        with _ci(ci_status, has_conflict) as statuses:
+            actions = self._actions(report)
 
+        make_it_green, resolve_conflicts = actions[1], actions[2]
         assert make_it_green["action"] == "make_it_green"
-        assert make_it_green["disabled_reason"] == disabled_reason
-        assert make_it_green["available"] is (disabled_reason is None)
+        assert make_it_green["disabled_reason"] == make_it_green_reason
+        assert make_it_green["available"] is (make_it_green_reason is None)
         assert make_it_green["text"] == FIX_CI_REQUEST
+        assert resolve_conflicts["action"] == "resolve_conflicts"
+        assert resolve_conflicts["disabled_reason"] == resolve_conflicts_reason
+        assert resolve_conflicts["available"] is (resolve_conflicts_reason is None)
+        assert resolve_conflicts["text"] == RESOLVE_CONFLICTS_REQUEST
+        # Both actions read one GitHub answer, so listing them costs no second lookup.
+        assert statuses.call_count == (0 if make_it_green_reason == MAKE_IT_GREEN_NO_PR else 1)
 
     def test_make_it_green_starts_a_run_that_never_merges_and_shares_the_pr_run_guard(
         self, workflow: MagicMock, _flag_mock: MagicMock
@@ -196,7 +221,7 @@ class TestReportTaskActionsAPI(APIBaseTest):
         report = self._report()
         self._attach_pr(report, "approved")
 
-        with _ci("failing"), patch("products.signals.backend.views.report_user_action") as capture:
+        with _ci("failing", has_conflict=True), patch("products.signals.backend.views.report_user_action") as capture:
             response = self._run(report, {"action": "make_it_green"})
 
         assert response.status_code == status.HTTP_201_CREATED, response.data
@@ -206,9 +231,9 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert capture.call_args.args[2]["question_intent"] == "fix_ci"
         assert capture.call_args.args[2]["report_action"] == "make_it_green"
 
-        # Both runs push to the same branch, so either kind refuses while the other works.
-        for action in ("make_it_green", "get_it_merged"):
-            with _ci("failing"):
+        # Every PR action pushes to the same branch, so each kind refuses while another works.
+        for action in ("make_it_green", "get_it_merged", "resolve_conflicts"):
+            with _ci("failing", has_conflict=True):
                 second = self._run(report, {"action": action})
             assert second.status_code == status.HTTP_409_CONFLICT, action
             assert second.json()["task_id"] == str(task.id)
@@ -232,6 +257,29 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT, response.data
         assert set(Task.objects.filter(signal_report=report).values_list("id", flat=True)) == {pending.id}
         workflow.assert_not_called()
+
+    def test_resolve_conflicts_starts_a_run_that_only_updates_the_branch(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        report = self._report()
+        self._attach_pr(report, None)
+
+        with _ci("passing"):
+            refused = self._run(report, {"action": "resolve_conflicts"})
+        with _ci("passing", has_conflict=True), patch("products.signals.backend.views.report_user_action") as capture:
+            response = self._run(report, {"action": "resolve_conflicts"})
+
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+        assert refused.json()["code"] == "report_action_unavailable"
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        task = Task.objects.get(id=response.json()["task_id"])
+        assert task.description.endswith(f"</posthog_trusted_context>\n\n{RESOLVE_CONFLICTS_REQUEST}")
+        assert "Do not fix CI failures that the update did not cause" in task.description
+        assert "Do not merge the pull request, do not add it to a merge queue" in task.description
+        assert capture.call_args.args[2]["question_intent"] == "resolve_conflicts"
+        assert capture.call_args.args[2]["report_action"] == "resolve_conflicts"
+        assert capture.call_args.args[2]["suggestion_count"] == 1
+        workflow.assert_called_once()
 
     def test_get_it_merged_without_an_approved_pr_starts_nothing(
         self, workflow: MagicMock, _flag_mock: MagicMock
@@ -295,6 +343,28 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("inbox_only", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+            ("inbox_and_task", ["inbox:write", "task:write"], status.HTTP_201_CREATED),
+            ("legacy_task_only", ["task:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_run_needs_task_scope_as_well_as_inbox_scope(
+        self, workflow: MagicMock, _flag_mock: MagicMock, _name: str, scopes: list[str], expected: int
+    ) -> None:
+        report = self._report(prompts=["Why does checkout fail?"])
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self._run(report, {"action": "suggested_prompt", "suggested_prompt_index": 0})
+
+        assert response.status_code == expected, response.data
+        if expected == status.HTTP_403_FORBIDDEN:
+            assert "task:write" in response.json()["detail"]
+            assert not Task.objects.filter(signal_report=report).exists()
+
     def test_refuses_without_ai_data_processing_approval(self, workflow: MagicMock, _flag_mock: MagicMock) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
@@ -324,6 +394,11 @@ class TestPullRequestRunDetection(SimpleTestCase):
         [
             ("inbox_merge", _inbox_description(merge_pr_intro(INBOX_REPORT_URL), MERGE_PR_REQUEST), True),
             ("inbox_fix_ci", _inbox_description(fix_ci_intro(INBOX_REPORT_URL), FIX_CI_REQUEST), True),
+            (
+                "inbox_resolve_conflicts",
+                _inbox_description(resolve_conflicts_intro(INBOX_REPORT_URL), RESOLVE_CONFLICTS_REQUEST),
+                True,
+            ),
             ("custom_message", _inbox_description(merge_pr_intro(INBOX_REPORT_URL), "Rebase onto #12 first"), True),
             ("no_block", MERGE_PR_REQUEST, False),
             (

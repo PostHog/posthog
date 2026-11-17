@@ -29,9 +29,10 @@ it('renders the goal line on the dashboard chart', async () => {
 })
 ```
 
+- Outside this repo, install `@testing-library/react` next to `@posthog/quill-charts`. The helpers need a jsdom test environment and a runner with global `beforeEach` and `afterEach`.
 - `setupChartTests()` registers the hooks every chart test needs: jsdom mocks for `ResizeObserver` and `getBoundingClientRect`, synchronous animation frames, and cleanup after each test.
 - `findChart()` waits for the chart to render. Pass `seriesCount` to wait for a specific series count, or `scope` when the page has more than one chart. `getChart()` is the synchronous version.
-- `chart.hoverTooltip(i)` hovers the label at index `i` until the tooltip shows its content, then reads it as a `DefaultTooltip`. For a custom tooltip, read `tooltip.element`.
+- `chart.hoverTooltip(i)` hovers the label at index `i` until the tooltip shows its content, then reads it as a `DefaultTooltip`. `tooltip.clickRow('Pageviews')` clicks a row. For a custom tooltip, read `tooltip.element`.
 
 The accessor surface (full list in `testing/accessor.ts`):
 
@@ -49,12 +50,25 @@ chart.yAxisLabelElement() // optional y-axis label SVG element
 chart.hasRightAxis // boolean
 chart.referenceLines() // [{ label, position, color, orientation }, …]
 chart.valueLabels() // [{ text, color }, …]
+chart.valueBands() // [{ top, left, width, height, color }, …]
 chart.anomalyPoints() // [{ element, color }, …] (TimeSeriesLineChart)
-chart.annotationBadges() // HTMLElement[]
+chart.legend() // legend container in the render scope, null when hidden
 chart.legendItems() // [{ label, secondaryLabel }, …] legend rows in the render scope, empty when hidden
+chart.syncedIndex() // label index of another chart's shared crosshair here, or null
 chart.clickLegendItem('A', { additive: true }) // click a legend row, additive toggles instead of isolating
-chart.sankeyNodeLabels() // ['/home', '/pricing', …] Sankey node labels in layout order, after overlap hiding
-chart.sankeyColumnLabels() // ['Step 1', 'Step 2', …] Sankey column headers, left to right
+chart.legendValues() // [['12 ms', '40 ms'], …] value-table cells per legend row
+chart.sortLegendBy('Max') // click a value-table header to sort by that column
+chart.slope.valueLabels() // [{ text, color, side }, …] slope value labels, start and end columns
+chart.slope.seriesLabels() // slope series names, after collision avoidance
+chart.sankey.nodeLabels() // ['/home', '/pricing', …] Sankey node labels in layout order, after overlap hiding
+chart.sankey.columnLabels() // ['Step 1', 'Step 2', …] Sankey column headers, left to right
+chart.pie.sliceLabels() // [{ text, lines }, …] on-slice labels, one entry per slice
+chart.gauge.text() // { value, label, min, max } text a Gauge shows, null for other charts
+chart.gauge.valueColor() // CSS color of the Gauge value text, null for other charts
+chart.flame.breadcrumb() // ['All', 'main', 'parse'] FlameGraph zoom path as shown; a deep path collapses its middle into an unlisted …
+chart.flame.searchSummary() // '3 matches · 12% of total', or null without a search
+chart.flame.viewport() // FlameGraph scroll viewport, the target for keyboard events such as Escape
+chart.flame.resetButton() // the "Reset zoom" button, null when the whole graph is in view
 ```
 
 Gestures work under any wrapper, because the chart records its label count on its root:

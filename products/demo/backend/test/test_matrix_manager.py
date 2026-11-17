@@ -7,9 +7,13 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import ClickhouseDestroyTablesMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers
+
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
@@ -38,7 +42,9 @@ class DummyPerson(SimPerson):
         return DummySessionIntent.FLAIL
 
     def simulate_session(self):
-        self.active_client.capture_pageview("/", {"foo": "bar"})
+        self.active_client.capture_pageview(
+            "/", {"foo": "bar", "optional": None, "nested": {"missing": None, "value": 1}}
+        )
         self.active_client.identify(self.in_product_id)
         self.active_client.group("company", "Acme", {"bar": "foo"})
         self.active_client.capture(
@@ -67,6 +73,7 @@ class DummyMatrix(Matrix):
         return super().set_project_up(team, user)
 
 
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestMatrixManager(ClickhouseDestroyTablesMixin):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -78,6 +85,7 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         cls.matrix = DummyMatrix(
             n_clusters=3,
             now=dt.datetime(2020, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
+            days_past=14,
             days_future=0,
         )
         cls.matrix.simulate()
@@ -146,20 +154,36 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             >= 3
         )
 
-    def test_run_on_team_using_pre_save(self):
+    def test_run_on_team_using_pre_save(self) -> None:
         manager = MatrixManager(self.matrix, use_pre_save=True)
 
         manager.run_on_team(self.team, self.user)
 
-        # At least one event for each cluster
-        assert sync_execute("SELECT count() FROM events WHERE team_id = 0")[0][0] >= 3
-        assert (
-            sync_execute(
-                "SELECT count() FROM events WHERE team_id = %(team_id)s",
+        for read_table, rows_the_copy_waits_for in (
+            ("events", "1"),
+            ("events_json", "event != '$feature_flag_called'"),
+        ):
+            rows = sync_execute(
+                f"""
+                SELECT team_id, toJSONString(tuple(* EXCEPT (
+                    team_id, _timestamp, _offset, _partition, inserted_at, consumer_breadcrumbs, historical_migration
+                )))
+                FROM {read_table} WHERE team_id IN (0, %(team_id)s) AND {rows_the_copy_waits_for} ORDER BY 2
+                """,
                 {"team_id": self.team.pk},
-            )[0][0]
-            >= 3
-        )
+            )
+            source = [row for team_id, row in rows if team_id == 0]
+            target = [row for team_id, row in rows if team_id == self.team.pk]
+            assert source
+            assert target == source
+
+        for use_new_events_schema in (False, True):
+            copied = execute_hogql_query(
+                "SELECT count() FROM events WHERE properties.foo = 'bar'",
+                team=self.team,
+                modifiers=HogQLQueryModifiers(useNewEventsSchema=use_new_events_schema),
+            )
+            assert copied.results[0][0] >= 3
 
 
 class TestWithExposureCopies(SimpleTestCase):

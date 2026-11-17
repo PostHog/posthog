@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { BICatalogMetricPicker } from './BICatalogMetricPicker'
 import { captureBIWorksheetAction } from './biEditorAnalytics'
 import { DEFAULT_BI_CONFIG } from './biEditorTypes'
 import { BI_QUESTION_STARTERS, starterWorksheetUrl } from './biQuestionStarters'
@@ -13,6 +14,7 @@ export function BIStarters(): JSX.Element {
         <section className="flex flex-col gap-2" aria-label="Worksheet starting points">
             <h3 className="m-0">Start with a question</h3>
             <div className="flex flex-wrap gap-2">
+                <BICatalogMetricPicker />
                 {sources.map((source) => {
                     const config = { ...DEFAULT_BI_CONFIG, source: { table: source.target_name } }
                     return (

@@ -16,6 +16,16 @@ import httpx
 from parameterized import parameterized
 from rest_framework.request import Request
 
+from posthog.llm.system_one import (
+    ChoiceAnswer,
+    ChoiceQuestion,
+    NoulAnswer,
+    NoulQuestion,
+    RefusalAnswer,
+    ScoreAnswer,
+    ScoreQuestion,
+    SystemOneResult,
+)
 from posthog.rate_limit import (
     LLMProxyBurstRateThrottle,
     LLMProxyBYOKBurstRateThrottle,
@@ -25,7 +35,11 @@ from posthog.rate_limit import (
     LLMProxySustainedRateThrottle,
 )
 
-from products.ai_observability.backend.api.proxy import LLMProxyCompletionSerializer, LLMProxyViewSet
+from products.ai_observability.backend.api.proxy import (
+    LLMProxyCompletionSerializer,
+    LLMProxyDecisionQuestionSerializer,
+    LLMProxyViewSet,
+)
 from products.ai_observability.backend.llm import (
     PLAYGROUND_MODEL_IDS,
     PROVIDERS,
@@ -34,6 +48,7 @@ from products.ai_observability.backend.llm import (
     get_default_models,
     get_playground_models,
 )
+from products.ai_observability.backend.llm.errors import AuthenticationError
 from products.ai_observability.backend.llm.types import OutputSchema
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -417,3 +432,128 @@ class TestPlaygroundModelEnforcement(APIBaseTest):
         assert models["typesafe/jev-1.13"]["provider"] == "OpenRouter"
         assert models["typesafe/jev-1.13"]["supports_decisions"] is True
         assert models["typesafe/jev-1.13"]["supports_chat"] is False
+
+
+class TestLLMProxyDecisionQuestionSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("choice_without_options", {"type": "choice", "instructions": "Topic?"}),
+            ("score_with_one_level", {"type": "score", "instructions": "Tone?", "options": [{"name": "calm"}]}),
+            (
+                "duplicate_option_names",
+                {"type": "choice", "instructions": "Topic?", "options": [{"name": "billing"}, {"name": "billing"}]},
+            ),
+        ]
+    )
+    def test_rejects_questions_system_one_cannot_take(self, _name: str, question: dict) -> None:
+        serializer = LLMProxyDecisionQuestionSerializer(data=question)
+        assert not serializer.is_valid()
+        assert "options" in serializer.errors
+
+
+class TestLLMProxyDecision(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.customer_id = "cus_test"
+        self.organization.save()
+        self.system_one_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="system_one",
+            name="System One",
+            encrypted_config={"api_key": "s1-key", "base_url": "https://decisions.example.com", "model": "jev-1"},
+            created_by=self.user,
+        )
+
+    def _payload(self, provider_key_id: str) -> dict:
+        return {
+            "provider_key_id": provider_key_id,
+            "state": "user: My invoice is wrong",
+            "questions": {
+                "urgent": {"type": "noul", "instructions": "Is this urgent?"},
+                "topic": {
+                    "type": "choice",
+                    "instructions": "What is it about?",
+                    "options": [{"name": "billing", "description": "invoices"}, {"name": "bugs"}],
+                },
+                "tone": {
+                    "type": "score",
+                    "instructions": "How upset?",
+                    "options": [{"name": "calm"}, {"name": "angry"}],
+                },
+                "language": {"type": "noul", "instructions": "Is it in French?"},
+            },
+        }
+
+    @patch("products.ai_observability.backend.api.proxy.DecisionClient.evaluate")
+    def test_asks_the_system_one_connection_and_returns_every_answer(self, mock_evaluate) -> None:
+        mock_evaluate.return_value = SystemOneResult(
+            model="jev-1.13",
+            answers={
+                "urgent": NoulAnswer(probability=0.9),
+                "topic": ChoiceAnswer(choice="billing", confidence=0.8, probabilities={"billing": 0.9, "bugs": 0.1}),
+                "tone": ScoreAnswer(score=0.4, confidence=0.6, probabilities={"0": 0.6, "1": 0.4}),
+                "language": RefusalAnswer(),
+            },
+            input_tokens=42,
+        )
+
+        response = self.client.post(
+            "/api/llm_proxy/decision/", self._payload(str(self.system_one_key.id)), format="json"
+        )
+
+        assert response.status_code == 200, response.json()
+        call = mock_evaluate.call_args.kwargs
+        assert (call["api_key"], call["base_url"], call["model"]) == (
+            "s1-key",
+            "https://decisions.example.com",
+            "jev-1",
+        )
+        assert call["state"] == "user: My invoice is wrong"
+        assert call["questions"] == {
+            "urgent": NoulQuestion(instructions="Is this urgent?"),
+            "topic": ChoiceQuestion(instructions="What is it about?", criteria={"billing": "invoices", "bugs": None}),
+            "tone": ScoreQuestion(instructions="How upset?", criteria=["calm", "angry"]),
+            "language": NoulQuestion(instructions="Is it in French?"),
+        }
+        body = response.json()
+        assert body["model"] == "jev-1.13"
+        assert body["input_tokens"] == 42
+        assert body["answers"]["urgent"]["type"] == "noul"
+        assert body["answers"]["urgent"]["probability"] == 0.9
+        assert body["answers"]["topic"]["choice"] == "billing"
+        assert body["answers"]["tone"]["score"] == 0.4
+        assert body["answers"]["tone"]["probabilities"] == {"0": 0.6, "1": 0.4}
+        assert body["answers"]["language"]["type"] == "refusal"
+
+    @parameterized.expand([("other_provider_key", "openai"), ("unknown_key", None)])
+    @patch("products.ai_observability.backend.api.proxy.DecisionClient.evaluate")
+    def test_only_a_system_one_connection_can_answer(self, _name: str, provider: str | None, mock_evaluate) -> None:
+        key_id = str(uuid4())
+        if provider:
+            key_id = str(
+                LLMProviderKey.objects.create(
+                    team=self.team,
+                    provider=provider,
+                    name="Other",
+                    encrypted_config={"api_key": "sk-test", "base_url": "https://api.typesafe.ai"},
+                    created_by=self.user,
+                ).id
+            )
+
+        response = self.client.post("/api/llm_proxy/decision/", self._payload(key_id), format="json")
+
+        assert response.status_code == 400
+        mock_evaluate.assert_not_called()
+
+    @patch("products.ai_observability.backend.api.proxy.DecisionClient.evaluate")
+    def test_endpoint_errors_reach_the_user(self, mock_evaluate) -> None:
+        mock_evaluate.side_effect = AuthenticationError(
+            "The endpoint rejected this credential. Check the bearer token."
+        )
+
+        response = self.client.post(
+            "/api/llm_proxy/decision/", self._payload(str(self.system_one_key.id)), format="json"
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"error": "The endpoint rejected this credential. Check the bearer token."}

@@ -8,7 +8,8 @@ use serde_json::Value;
 use crate::invocation_context::context;
 
 use super::{
-    debug_error, debug_request, debug_response_body, fetch_endpoint, EndpointYaml, RunArgs,
+    debug_error, debug_request, debug_request_body, debug_response_body, fetch_endpoint,
+    EndpointYaml, RunArgs,
 };
 
 pub fn run_endpoint(args: &RunArgs) -> Result<()> {
@@ -92,11 +93,7 @@ pub fn run_endpoint(args: &RunArgs) -> Result<()> {
         }
 
         debug_request(args.debug, "POST", "query/");
-        if args.debug {
-            if let Ok(json) = serde_json::to_string_pretty(&query_request) {
-                crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
-            }
-        }
+        debug_request_body(args.debug, &query_request);
 
         let api_result =
             client.send_post(client.env_url("query/")?, |req| req.json(&query_request));
@@ -121,11 +118,7 @@ pub fn run_endpoint(args: &RunArgs) -> Result<()> {
 
         let path = format!("endpoints/{name}/run/");
         debug_request(args.debug, "POST", &path);
-        if args.debug && !variables.is_empty() {
-            if let Ok(json) = serde_json::to_string_pretty(&request_body) {
-                crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
-            }
-        }
+        debug_request_body(args.debug && !variables.is_empty(), &request_body);
 
         let url = client.env_url(&path)?;
         let api_result = client.send_post(url, |req| req.json(&request_body));

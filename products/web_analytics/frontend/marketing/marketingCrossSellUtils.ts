@@ -55,10 +55,7 @@ interface MarketingAnalyticsDestinationParams {
 }
 
 export function isMarketingSetupEnabled(featureFlags: FeatureFlagsSet): boolean {
-    return !!(
-        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP] ||
-        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
-    )
+    return !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]
 }
 
 export function isMarketingCrossSellTestArm(featureFlags: FeatureFlagsSet): boolean {

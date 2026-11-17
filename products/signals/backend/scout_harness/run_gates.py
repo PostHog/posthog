@@ -24,7 +24,11 @@ from posthog.models import Team
 
 from products.signals.backend.daily_limit import daily_report_limit_gate
 from products.signals.backend.models import SignalScoutRun
-from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.quota import (
+    capture_signal_report_quota_paused,
+    self_driving_limit_name,
+    self_driving_quota_gate,
+)
 from products.signals.backend.scout_harness.limits import (
     STALE_RUN_CUTOFF_S,
     TRIGGERED_BY_WORKFLOW,
@@ -124,8 +128,8 @@ def check_spend_gates(team: Team, *, capture_analytics: bool = True) -> ScoutRun
             kind=ScoutRunRejectionKind.THROTTLED,
             reason="quota_limited",
             detail=(
-                "Self-driving is paused because this project reached its pull request limit. "
-                "Raise the limit or wait for usage to reset."
+                f"New scout runs are paused because this project reached its self-driving {self_driving_limit_name(team)}. "
+                "Work already underway will finish. Raise the limit in Settings > Billing or wait for usage to reset."
             ),
         )
     if daily_report_limit_gate(team).limited:

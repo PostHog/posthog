@@ -50,12 +50,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     STRIPE_API_VERSION_ACACIA,
+    STRIPE_API_VERSION_ENDIVE,
+    STRIPE_V2_MONEY_MANAGEMENT_VERSIONS,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
     DEFAULT_OFF_ENDPOINTS as STRIPE_DEFAULT_OFF_ENDPOINTS,
     ENDPOINTS as STRIPE_ENDPOINTS,
+    V2_LIST_PATHS as STRIPE_V2_LIST_PATHS,
     WAREHOUSE_PARENT_FANOUT,
     WEBHOOK_ONLY_ENDPOINTS as STRIPE_WEBHOOK_ONLY_ENDPOINTS,
     WEBHOOK_SYNC_ONLY_ENDPOINTS as STRIPE_WEBHOOK_SYNC_ONLY_ENDPOINTS,
@@ -224,8 +227,8 @@ class StripeSource(
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     has_managed_hogql_schema = True  # canonical Stripe schema in external_table_definitions
 
-    supported_versions = (STRIPE_API_VERSION_ACACIA,)
-    default_version = STRIPE_API_VERSION_ACACIA
+    supported_versions = (STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_ENDIVE)
+    default_version = STRIPE_API_VERSION_ENDIVE
     api_docs_url = "https://docs.stripe.com/changelog"
 
     @property
@@ -409,6 +412,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # Publishable keys can't authenticate any of the read endpoints we sync, so every retry
             # fails identically — match Stripe's stable rejection text (the request id varies).
             "This API call cannot be made with a publishable API key": "Your Stripe API key is a publishable key, which cannot be used to sync data. Please use a secret or restricted key instead, then reconnect.",
+            # The customer pasted an Organization API key, which Stripe scopes to no single account —
+            # every request needs a target account via a Stripe-Context header, which we never send.
+            # Every endpoint we sync fails identically, so retrying can't help; Stripe's own text is
+            # stable (no request id or account id embedded).
+            "Please include the Stripe-Context header with your target account when using an Organization API key": "Your Stripe API key is an Organization API key, which isn't supported. Please use a secret or restricted API key scoped to a single Stripe account instead, then reconnect.",
             # A non-Connect key was sent with a `stripe_account` header (the source's "Account id"),
             # so Stripe rejects the whole request for the account rather than a specific scope.
             "Only Stripe Connect platforms can work with other accounts": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. The 'Account id' in your source settings only applies to Stripe Connect platform accounts — remove or correct it if your key belongs directly to the account, then reconnect.",
@@ -434,6 +442,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             "Integration not found": "The linked Stripe integration no longer exists. Please reconnect your Stripe account.",
             "Stripe access token not found": "Stripe OAuth access token is missing. Please reconnect your Stripe account.",
             "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.": "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
+            # A table that only newer API versions serve, synced under an older pinned version.
+            # The message names the versions that serve it.
+            "is not available on Stripe API version": None,
             # Stripe's own `invalid_request_error` body with no usable detail, seen when listing a
             # specific customer's nested resources (e.g. payment methods). It is a 400-class error,
             # so retrying replays the identical request against the same customer and fails
@@ -481,7 +492,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
 
         oauth_integration = OauthIntegration(integration)
         if oauth_integration.access_token_expired():
-            oauth_integration.refresh_access_token()
+            integration = oauth_integration.refresh_access_token()
 
         if not integration.access_token:
             raise ValueError("Stripe access token not found")
@@ -505,6 +516,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        serves_v2_lists = self.resolve_api_version(api_version) in STRIPE_V2_MONEY_MANAGEMENT_VERSIONS
         schemas = [
             SourceSchema(
                 name=endpoint,
@@ -532,6 +544,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 should_sync_default=endpoint not in STRIPE_DEFAULT_OFF_ENDPOINTS,
             )
             for endpoint in STRIPE_ENDPOINTS
+            if serves_v2_lists or endpoint not in STRIPE_V2_LIST_PATHS
         ]
         if names is not None:
             names_set = set(names)
@@ -549,7 +562,12 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         endpoints = [schema_name] if schema_name is not None else None
         try:
             api_key = self._get_api_key(config, team_id)
-            if validate_stripe_credentials(api_key, endpoints, auth_method=config.auth_method.selection):
+            if validate_stripe_credentials(
+                api_key,
+                endpoints,
+                auth_method=config.auth_method.selection,
+                api_version=self.resolve_api_version(api_version),
+            ):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
@@ -624,7 +642,12 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             return dict.fromkeys(endpoints, "Stripe credentials are not available")
 
         try:
-            return check_stripe_endpoint_permissions(api_key, endpoints, auth_method=config.auth_method.selection)
+            return check_stripe_endpoint_permissions(
+                api_key,
+                endpoints,
+                auth_method=config.auth_method.selection,
+                api_version=self.resolve_api_version(api_version),
+            )
         except StripeAuthenticationError as e:
             return dict.fromkeys(endpoints, e.stripe_message)
 

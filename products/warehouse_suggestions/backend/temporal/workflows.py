@@ -9,7 +9,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 from ..logic.rules import RULES
 from .activities import generate_warehouse_suggestions, get_warehouse_suggestion_team_batches, measure_view_costs
-from .contracts import WAREHOUSE_SUGGESTIONS_WORKFLOW_NAME, BatchOutcome, WarehouseSuggestionsInputs
+from .contracts import WAREHOUSE_SUGGESTIONS_WORKFLOW_NAME, BatchOutcome, WarehouseSuggestionsInputs, most_recomputed
 
 MEASURE_VIEW_COSTS_PATCH = "measure-view-costs"
 MEASUREMENT_MARGIN = dt.timedelta(minutes=10)
@@ -62,7 +62,7 @@ class WarehouseSuggestionsWorkflow(PostHogWorkflow):
                 }
             )
         total = dataclasses.replace(
-            total, view_costs_to_measure=total.view_costs_to_measure[: RULES.measurement.max_per_run]
+            total, view_costs_to_measure=most_recomputed(total.view_costs_to_measure, RULES.measurement.max_per_run)
         )
         if total.view_costs_to_measure and workflow.patched(MEASURE_VIEW_COSTS_PATCH):
             await workflow.execute_activity(

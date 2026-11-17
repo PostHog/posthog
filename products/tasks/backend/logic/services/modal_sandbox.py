@@ -85,7 +85,11 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     capture_modal_output_if_debug,
     summarize_modal_output,
 )
-from products.tasks.backend.logic.services.sandbox import build_bundled_skills_clear_command, redact_sandbox_command
+from products.tasks.backend.logic.services.sandbox import (
+    build_bundled_skills_clear_command,
+    redact_sandbox_command,
+    sandbox_repo_path,
+)
 from products.tasks.backend.logic.services.task_filesystem import (
     TASK_FILESYSTEM_SCRIPT,
     TASK_FILESYSTEM_VERSION,
@@ -141,7 +145,7 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # to push or pin a digest for. Keep these two pins in sync with
 # Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
 # which both mirror).
-SANDBOX_SLIM_NODE_MAJOR = 24
+SANDBOX_SLIM_NODE_MAJOR = 26
 SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.13.4"
 # Set as image ENV, so the build step that warms the cache and every `uv run` inside the sandbox
 # use the same directory whatever HOME the sandbox process gets.
@@ -599,7 +603,7 @@ def _attach_local_package_mounts(
 
 
 def _build_slim_template_image() -> modal.Image:
-    """Inline image for SLIM_BASE: git + ca-certificates + node + uv, nothing else.
+    """Inline image for SLIM_BASE: git + ca-certificates + node + uv + the CPU billing sampler, nothing else.
 
     Built and cached by Modal itself from debian_slim — no registry image, no CD publish
     pipeline, no digest pin to resolve. The first sandbox create after this definition
@@ -619,10 +623,19 @@ def _build_slim_template_image() -> modal.Image:
             f"curl -fsSL https://deb.nodesource.com/setup_{SANDBOX_SLIM_NODE_MAJOR}.x | bash -",
             "apt-get install -y --no-install-recommends nodejs",
             "rm -rf /var/lib/apt/lists/*",
+            "npm install -g corepack@0.36.0",
         )
         .dockerfile_commands(
             [f"COPY --from={SANDBOX_SLIM_UV_IMAGE} /uv /uvx /usr/local/bin/"],
         )
+        # start_cpu_billing_sampler runs this script for every provider. Without it in the image,
+        # no billing state file exists and read_billed_cpu_usage_usec fails for each slim sandbox.
+        .add_local_file(
+            str(Path(settings.BASE_DIR) / "products/tasks/backend/sandbox/images/cpu_billing_sampler.py"),
+            CPU_BILLING_SAMPLER_PATH,
+            copy=True,
+        )
+        .run_commands(f"chmod +x {CPU_BILLING_SAMPLER_PATH} && {CPU_BILLING_SAMPLER_PATH} --check")
     )
 
 
@@ -769,6 +782,18 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         shutil.copy2(base_dir / LOCAL_MODAL_MEMORY_WATCHDOG, context_dir / LOCAL_MODAL_MEMORY_WATCHDOG)
 
     if template == SandboxTemplate.DEFAULT_BASE:
+        for relative_path in (
+            "products/signals/scripts/score_assignees.py",
+            "products/tasks/backend/sandbox/images/build_assignee_evidence.py",
+        ):
+            destination = context_dir / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(base_dir / relative_path, destination)
+        shutil.copytree(
+            base_dir / "packages/owners-yaml/owners_yaml",
+            context_dir / "packages/owners-yaml/owners_yaml",
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
         filesystem_script = Path("products/tasks/backend/sandbox/images/task_filesystem.py")
         shutil.copy2(base_dir / filesystem_script, context_dir / filesystem_script)
         destination_hogli_shim_path = context_dir / LOCAL_MODAL_HOGLI_SHIM_SCRIPT
@@ -1717,8 +1742,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         if not self._is_running_cached():
             raise RuntimeError(f"Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        repo_path = sandbox_repo_path(repository)
 
         result = self.execute(f"cd {shlex.quote(repo_path)} && git status --porcelain")
         is_clean = not result.stdout.strip()

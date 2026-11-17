@@ -8,13 +8,14 @@ use std::time::{Duration, Instant};
 use futures::stream::{self, StreamExt};
 use metrics::counter;
 use replay_core_v4::compression::{GZIP_MAGIC, MAX_DECOMPRESSED_BYTES};
-use replay_core_v4::inspect::dom::{Srcset, UrlLimit};
+use replay_core_v4::inspect::dom::UrlLimit;
+use replay_core_v4::inspect::edits::EventEdits;
 use replay_core_v4::inspect::session::{BlockInspection, Moment, SessionInspector};
 use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::scan::cv::{Expansion, MESSAGE_DECODE_BUDGET};
 use replay_core_v4::scan::message::{Event, Message};
 
-use crate::process::{check_read, read_within};
+use crate::process::{check_read, read_within, Skip};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SessionKey {
@@ -37,22 +38,26 @@ pub struct Raw {
     pub content_encoding: Option<String>,
 }
 
+/// The bytes a payload decompresses to. Decompression allocates the size that the lz4 prefix or the gzip footer states,
+/// or fails, so the flush size counts that instead of the compressed bytes.
+pub fn decoded_len(payload: &[u8], content_encoding: Option<&str>) -> usize {
+    let stated = if content_encoding == Some("lz4") {
+        payload.get(..4)
+    } else if payload.starts_with(&GZIP_MAGIC) {
+        payload.get(payload.len().saturating_sub(4)..)
+    } else {
+        None
+    };
+    let stated = stated
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .map(|b| u32::from_le_bytes(b) as usize)
+        .filter(|&n| n <= MAX_DECOMPRESSED_BYTES);
+    payload.len().max(stated.unwrap_or(0))
+}
+
 impl Raw {
-    /// The bytes the payload decompresses to. Decompression allocates the size that the lz4 prefix or the gzip footer
-    /// states, or fails, so the flush size counts that instead of the compressed bytes.
     pub fn decoded_len(&self) -> usize {
-        let stated = if self.content_encoding.as_deref() == Some("lz4") {
-            self.payload.get(..4)
-        } else if self.payload.starts_with(&GZIP_MAGIC) {
-            self.payload.get(self.payload.len().saturating_sub(4)..)
-        } else {
-            None
-        };
-        let stated = stated
-            .and_then(|b| <[u8; 4]>::try_from(b).ok())
-            .map(|b| u32::from_le_bytes(b) as usize)
-            .filter(|&n| n <= MAX_DECOMPRESSED_BYTES);
-        self.payload.len().max(stated.unwrap_or(0))
+        decoded_len(&self.payload, self.content_encoding.as_deref())
     }
 }
 
@@ -92,12 +97,13 @@ pub struct Block {
     pub moments: Vec<Moment>,
     /// Remote image URLs the block's DOM referenced.
     pub image_urls: Vec<String>,
-    /// Every remote URL in an image slot of the block, which the writer replaces with its reference.
-    pub remote_urls: Vec<String>,
-    /// Set when the inspector stopped short of naming every remote URL, so that the block must not be stored.
+    pub font_urls: Vec<String>,
+    /// Set when the inspector could not read the block in full, so that a URL in the unread part stays as it arrived.
     pub url_limit: Option<UrlLimit>,
-    /// The image-slot srcset values of the block, which the writer rebuilds from the candidates it keeps.
-    pub srcsets: Vec<Srcset>,
+    pub edits: Vec<EventEdits>,
+    pub unplaced: bool,
+    /// The distinct pages of the block's surfacing features, which the writer stores as fingerprints.
+    pub visited_urls: Vec<String>,
     /// The earliest Kafka timestamp of the block's messages, for the capture watermark of the index topic.
     pub captured_at_ms: Option<i64>,
 }
@@ -117,10 +123,19 @@ const SESSION_EXPAND_BUDGET: usize = 256 * 1024 * 1024;
 /// memory parsed than in its payload, so a message that does not fit is skipped.
 const FLUSH_EVENTS_BUDGET: usize = 1024 * 1024 * 1024;
 
+/// The bytes of resolved CSS URLs one flush keeps. Each carries its page's origin, which many short URLs can outgrow.
+const FLUSH_RESOLVED_BUDGET: usize = 64 * 1024 * 1024;
+
+/// The memory the blocks of one flush hold for their edits until they are written. A short repeated `url()` in a
+/// compressed style sheet takes more memory as an edit than it expands to, so a block past this keeps no edits.
+const FLUSH_EDIT_BUDGET: usize = 256 * 1024 * 1024;
+
 struct DecodeBudget {
     kept: AtomicUsize,
     expanded: AtomicUsize,
     events: AtomicUsize,
+    resolved: Arc<AtomicUsize>,
+    edits: Arc<AtomicUsize>,
 }
 
 impl DecodeBudget {
@@ -129,6 +144,8 @@ impl DecodeBudget {
             kept: AtomicUsize::new(kept),
             expanded: AtomicUsize::new(expanded),
             events: AtomicUsize::new(FLUSH_EVENTS_BUDGET),
+            resolved: Arc::new(AtomicUsize::new(FLUSH_RESOLVED_BUDGET)),
+            edits: Arc::new(AtomicUsize::new(FLUSH_EDIT_BUDGET)),
         }
     }
 }
@@ -192,6 +209,10 @@ impl Batch {
             })
             .messages
             .push(raw);
+    }
+
+    pub fn room(&self, max_bytes: usize) -> usize {
+        max_bytes.saturating_sub(self.bytes)
     }
 
     pub fn should_flush(&self, interval: Duration, max_bytes: usize) -> bool {
@@ -337,7 +358,7 @@ impl Inspectors {
             let ((session, inspector, partitions, session_blocks), last_seen) = match result {
                 Ok(inspected) => inspected,
                 Err(error) => {
-                    tracing::error!(%error, team_id = key.team_id, "inspecting a session panicked: its block is dropped");
+                    tracing::error!(%error, team_id = key.team_id, session_id = %key.session_id, "inspecting a session panicked: its block is dropped");
                     counter!("ai_research_v4_recorder_messages_total", "outcome" => "panicked")
                         .increment(messages as u64);
                     continue;
@@ -425,6 +446,7 @@ fn inspect_session(
 ) -> (SessionKey, SessionInspector, Vec<Tp>, Vec<Block>) {
     let mut decoded = Vec::with_capacity(parts.len());
     let mut session_spent = 0;
+    let mut skipped: BTreeMap<&'static str, u64> = BTreeMap::new();
     for (origin, raws) in parts {
         let captured_at_ms = raws.iter().filter_map(|raw| raw.captured_at_ms).min();
         let mut messages = Vec::with_capacity(raws.len());
@@ -441,6 +463,7 @@ fn inspect_session(
                     ) {
                         counter!("ai_research_v4_recorder_messages_total", "outcome" => "over_budget")
                             .increment(1);
+                        *skipped.entry(Skip::OverBudget.as_str()).or_default() += 1;
                         continue;
                     }
                     // Decoded once here, for the inspector and the block writer both.
@@ -467,6 +490,9 @@ fn inspect_session(
                 Err(skip) => {
                     counter!("ai_research_v4_recorder_messages_total", "outcome" => skip.as_str())
                         .increment(1);
+                    if !matches!(skip, Skip::NotWeb) {
+                        *skipped.entry(skip.as_str()).or_default() += 1;
+                    }
                 }
             }
         }
@@ -480,10 +506,15 @@ fn inspect_session(
             .increment(messages.len() as u64);
         decoded.push((origin, messages, captured_at_ms));
     }
+    if !skipped.is_empty() {
+        tracing::warn!(team_id = session.team_id, session_id = %session.session_id, ?skipped, "messages of a session were skipped");
+    }
     // A session can have messages on the main and the overflow topic in one flush. The inspector takes them in replay
     // order, so that a mutation never comes before the nodes it changes. Each still counts toward its partition's block.
-    let mut inspections: Vec<BlockInspection> =
-        decoded.iter().map(|_| BlockInspection::default()).collect();
+    let mut inspections: Vec<BlockInspection> = decoded
+        .iter()
+        .map(|_| BlockInspection::with_flush_budgets(budget.resolved.clone(), budget.edits.clone()))
+        .collect();
     let times: Vec<Vec<f64>> = decoded
         .iter()
         .map(|(_, messages, _)| messages.iter().map(replay_time).collect())
@@ -508,9 +539,11 @@ fn inspect_session(
                 stats: inspected.stats,
                 moments: inspected.moments,
                 image_urls: inspected.image_urls,
-                remote_urls: inspected.remote_urls,
+                font_urls: inspected.font_urls,
                 url_limit: inspected.url_limit,
-                srcsets: inspected.srcsets,
+                edits: inspected.edits,
+                unplaced: inspected.unplaced,
+                visited_urls: inspected.features.visited_urls,
                 captured_at_ms,
             }
         })

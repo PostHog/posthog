@@ -24,6 +24,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 
+import { TracesAlertsTab } from './alerting/TracesAlertsTab'
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { TracingFacetRail } from './components/FacetRail/TracingFacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
@@ -48,6 +49,12 @@ import { traceViewId, tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
+
+const SCENE_TAB_LABELS: Record<TracingSceneTab, string> = {
+    viewer: 'Viewer',
+    sql: 'SQL',
+    alerts: 'Alerts',
+}
 
 export const scene: SceneExport = {
     component: TracingScene,
@@ -124,9 +131,10 @@ function TracingSceneContents(): JSX.Element {
         latencyHeatmapData,
         latencyHeatmapLoading,
         showHeatmap,
-        activeTracingTab,
+        displayMode,
         compareActive,
         sceneTabsEnabled,
+        availableSceneTabs,
         activeSceneTab,
     } = useValues(tracingSceneLogic())
     const { traceLoadFiltersActive } = useValues(tracingDataLogic)
@@ -154,7 +162,6 @@ function TracingSceneContents(): JSX.Element {
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed, spanColumns } = useValues(tracingConfigLogic)
-    const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
     const impactStripEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP]
@@ -275,10 +282,7 @@ function TracingSceneContents(): JSX.Element {
                 <LemonTabs<TracingSceneTab>
                     activeKey={activeSceneTab}
                     onChange={selectSceneTab}
-                    tabs={[
-                        { key: 'viewer', label: 'Viewer' },
-                        { key: 'sql', label: 'SQL' },
-                    ]}
+                    tabs={availableSceneTabs.map((key) => ({ key, label: SCENE_TAB_LABELS[key] }))}
                     sceneInset
                 />
             )}
@@ -312,19 +316,26 @@ function TracingSceneContents(): JSX.Element {
                     {facetRailEnabled && !facetRailCollapsed && <TracingFacetRail />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                         <TracingDisplayBar />
-                        {compareActive && (!operationsViewEnabled || activeTracingTab !== 'operations') && (
+                        {compareActive && displayMode !== 'operations' && displayMode !== 'endpoints' && (
                             <ComparisonBar />
                         )}
-                        {operationsViewEnabled && activeTracingTab === 'operations' ? (
+                        {displayMode === 'operations' || displayMode === 'endpoints' ? (
                             <OperationsTable
                                 rows={aggregation.current}
                                 loading={aggregationLoading}
                                 windowMs={operationsWindowMs}
                                 showImpact={impactStripEnabled}
-                                onRowClick={(row) =>
-                                    router.actions.push(
-                                        urls.tracingOperation(row.service_name, row.name, filters.dateRange)
-                                    )
+                                groupedByEndpoint={displayMode === 'endpoints'}
+                                // No row click on endpoints yet: an endpoint row can merge span
+                                // names, and the operation page opens one span name. Rows stay
+                                // unclickable while loading, because they can still be the other tab's.
+                                onRowClick={
+                                    displayMode === 'operations' && !aggregationLoading
+                                        ? (row) =>
+                                              router.actions.push(
+                                                  urls.tracingOperation(row.service_name, row.name, filters.dateRange)
+                                              )
+                                        : undefined
                                 }
                             />
                         ) : compareActive ? (
@@ -340,6 +351,7 @@ function TracingSceneContents(): JSX.Element {
                                     dataSource={listRows}
                                     spanColumns={spanColumns}
                                     showRootTag={filters.viewMode === 'spans'}
+                                    showTraceDuration={filters.viewMode === 'traces'}
                                     loading={spansLoading}
                                     hasMoreToLoad={hasMoreToLoad}
                                     onLoadMore={fetchNextPage}
@@ -378,6 +390,7 @@ function TracingSceneContents(): JSX.Element {
                 </div>
             </div>
             {activeSceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
+            {activeSceneTab === 'alerts' && <TracesAlertsTab />}
             <TraceDrawer
                 viewId={traceViewId(TRACING_SCENE_VIEWER_ID)}
                 isOpen={isTraceOpen}

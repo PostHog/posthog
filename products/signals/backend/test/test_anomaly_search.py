@@ -15,8 +15,15 @@ from posthog.models import Team
 
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
-from products.signals.backend.anomaly_scores.read import SeriesSummary, prior_rate, rank_series, rollup
-from products.signals.backend.anomaly_scores.search import MAX_INSIGHT_SERIES
+from products.signals.backend.anomaly_scores.read import FlaggedPoint, SeriesSummary, prior_rate, rank_series, rollup
+from products.signals.backend.anomaly_scores.search import (
+    MAX_INSIGHT_SERIES,
+    SCORING_DISABLED_MESSAGE,
+    SCORING_SOURCE_OFF_MESSAGE,
+    SCORING_TURNED_OFF_MESSAGE,
+)
+from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
+from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
 
 NOW = datetime.datetime(2026, 10, 23, 12, tzinfo=datetime.UTC)
 
@@ -26,7 +33,13 @@ def _day(day: int) -> datetime.datetime:
 
 
 def _summary(
-    key: str, *, scored: int, flagged: int, baseline_scored: int = 0, baseline_flagged: int = 0
+    key: str,
+    *,
+    scored: int,
+    flagged: int,
+    baseline_scored: int = 0,
+    baseline_flagged: int = 0,
+    last_flagged: datetime.datetime | None = None,
 ) -> SeriesSummary:
     return SeriesSummary(
         insight_id=1,
@@ -43,7 +56,7 @@ def _summary(
         baseline_scored_buckets=baseline_scored,
         baseline_flagged_buckets=baseline_flagged,
         scored_through=_day(22),
-        flagged_points=(),
+        flagged_points=(FlaggedPoint(bucket_start=last_flagged, value=1.0, score=0.99),) if last_flagged else (),
     )
 
 
@@ -75,6 +88,22 @@ class TestAnomalyRanking(SimpleTestCase):
 
         assert [summary.series_key for summary in ranked] == [expected_first.series_key, other.series_key]
 
+    @parameterized.expand(
+        [("unusual", False, ["burst", "blip", "quiet"]), ("recent", True, ["blip", "burst", "quiet"])]
+    )
+    def test_ranks_by_the_newest_flag_only_when_recent_first(
+        self, _name: str, recent_first: bool, expected: list[str]
+    ) -> None:
+        series = [
+            _summary("quiet", scored=10, flagged=0),
+            _summary("blip", scored=10, flagged=1, last_flagged=_day(22)),
+            _summary("burst", scored=10, flagged=4, last_flagged=_day(15)),
+        ]
+
+        ranked = rank_series(series, prior=prior_rate(series), importance={}, recent_first=recent_first)
+
+        assert [summary.series_key for summary in ranked] == expected
+
     def test_rollup_sums_buckets_instead_of_averaging_rates(self) -> None:
         insight = rollup(
             [_summary("a", scored=1, flagged=1), _summary("b", scored=9, flagged=1), _summary("c", scored=5, flagged=0)]
@@ -94,6 +123,9 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.insight = Insight.objects.create(team=self.team, name="Signups", saved=True)
+        self.source = SignalSourceConfig.objects.create(
+            team=self.team, source_product=ALERT_SCOPE_SOURCE[0], source_type=ALERT_SCOPE_SOURCE[1], enabled=True
+        )
         flag = patch("products.signals.backend.presentation.anomalies.feature_enabled_or_false", return_value=True)
         self.flag = flag.start()
         self.addCleanup(flag.stop)
@@ -115,12 +147,13 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         interval: str = "day",
         insight: Insight | None = None,
         team: Team | None = None,
+        timestamp: datetime.datetime | None = None,
     ) -> None:
         _create_event(
             team=team or self.team,
             event="$anomaly_score",
             distinct_id=SCORER_DISTINCT_ID,
-            timestamp=bucket,
+            timestamp=timestamp or bucket,
             properties={
                 "$anomaly_score": score,
                 "$anomaly_flag": flag,
@@ -172,14 +205,127 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         assert (row["anomaly_rate"], row["coverage"], row["baseline_rate"]) == (0.5, 0.5, None)
         assert row["last_flagged_bucket"] == row["first_flagged_bucket"] == "2026-10-22T00:00:00+00:00"
         assert row["flagged_points"] == [{"bucket_start": "2026-10-22T00:00:00+00:00", "value": 10.0, "score": 0.98}]
+        assert "points" not in row
 
-    def test_search_explains_an_empty_result_for_a_team_outside_the_scoring_payload(self) -> None:
-        self.payload.return_value = {"enabled": True, "organization_ids": []}
+    @parameterized.expand(
+        [
+            ("every_scored_bucket", 400, ["2026-10-19", "2026-10-22"]),
+            ("capped_to_the_newest", 1, ["2026-10-22"]),
+        ]
+    )
+    def test_search_includes_the_scored_points_of_the_series_on_the_page(
+        self, _name: str, cap: int, expected_days: list[str]
+    ) -> None:
+        self._score_history()
+
+        with patch("products.signals.backend.anomaly_scores.read.MAX_SERIES_POINTS", cap):
+            body = self._get("search", date_from="2026-10-19", include_points=True).json()
+
+        [row] = body["series"]
+        # The warm-up bucket on Oct 20 and the unscored Oct 21 have no point. The rescore of Oct 19 wins.
+        assert [(point["bucket_start"][:10], point["flag"]) for point in row["points"]] == [
+            (day, day == "2026-10-22") for day in expected_days
+        ]
+
+    @parameterized.expand(
+        [
+            ("unusual", "unusual", ["burst", "steady", "blip"]),
+            ("recent", "recent", ["blip", "steady", "burst"]),
+        ]
+    )
+    def test_search_pages_through_rows_in_the_requested_order(
+        self, _name: str, order: str, expected: list[str]
+    ) -> None:
+        flagged_days = {"burst": {15, 16, 17}, "steady": {19, 20}, "blip": {22}}
+        for series_key, days in flagged_days.items():
+            for day in range(15, 23):
+                self._score(_day(day), score=0.5, flag=int(day in days), series_key=series_key)
+
+        pages = [
+            self._get("search", date_from="2026-10-15", order=order, limit=2, offset=offset).json() for offset in (0, 2)
+        ]
+
+        assert [row["series_key"] for page in pages for row in page["series"]] == expected
+        assert [(page["order"], page["has_more"], page["message"]) for page in pages] == [
+            (order, True, None),
+            (order, False, None),
+        ]
+
+    @parameterized.expand(
+        [
+            ("saved_name_ignoring_case", "SIGNUP", 1_000, ["signups"]),
+            ("generated_name_only_without_a_saved_name", "pageview", 1_000, ["unnamed"]),
+            ("filtered_after_the_read_when_many_insights_match", "pageview", 0, ["unnamed"]),
+        ]
+    )
+    def test_search_keeps_insights_whose_name_matches(
+        self, _name: str, search: str, max_scoped: int, expected: list[str]
+    ) -> None:
+        named = Insight.objects.create(team=self.team, name="Checkout", derived_name="Pageviews by browser", saved=True)
+        unnamed = Insight.objects.create(team=self.team, name=None, derived_name="Pageviews", saved=True)
+        for series_key, insight in (("signups", self.insight), ("checkout", named), ("unnamed", unnamed)):
+            self._score(_day(22), score=0.99, flag=1, series_key=series_key, insight=insight)
+
+        with patch("products.signals.backend.anomaly_scores.search.MAX_SCOPED_INSIGHTS", max_scoped):
+            body = self._get("search", date_from="2026-10-19", search=search).json()
+
+        assert [row["series_key"] for row in body["series"]] == expected
+
+    @parameterized.expand(
+        [
+            ("too_few_scored_days", range(18, 23), False, (5, False)),
+            ("ready_even_when_the_range_is_shorter", range(9, 23), False, (14, True)),
+            ("ready_when_scoring_is_off", range(9, 23), True, (14, True)),
+        ]
+    )
+    def test_search_reports_scored_history_over_a_fixed_window(
+        self, _name: str, days: range, scoring_off: bool, expected: tuple[int, bool]
+    ) -> None:
+        for day in days:
+            self._score(_day(day), score=0.1, flag=0)
+        if scoring_off:
+            self.payload.return_value = {"enabled": True, "organization_ids": []}
+
+        body = self._get("search", date_from="2026-10-21").json()
+
+        assert (body["scored_days"], body["scored_history_ready"]) == expected
+
+    def test_scored_days_skip_warmup_hourly_and_old_buckets(self) -> None:
+        for day in range(10, 23):
+            self._score(_day(day), score=0.1, flag=0, series_key="a")
+            self._score(_day(day), score=0.2, flag=0, series_key="b")
+        self._score(_day(9), score=None, flag=None)
+        self._score(_day(8), score=0.1, flag=0, interval="hour")
+        self._score(NOW - datetime.timedelta(days=29), score=0.1, flag=0)
 
         body = self._get("search").json()
 
-        assert (body["scoring_enabled"], body["series"]) == (False, [])
-        assert body["message"] == "Anomaly scoring is not enabled for this project, so no insight is scored."
+        assert (body["scored_days"], body["scored_history_ready"]) == (13, False)
+
+    @parameterized.expand(
+        [
+            ("search_outside_the_payload", "search", "payload", SCORING_DISABLED_MESSAGE),
+            ("insight_outside_the_payload", "insight", "payload", SCORING_DISABLED_MESSAGE),
+            ("search_with_the_source_off", "search", "source", SCORING_SOURCE_OFF_MESSAGE),
+            ("insight_with_the_source_off", "insight", "source", SCORING_SOURCE_OFF_MESSAGE),
+            ("search_turned_off_in_settings", "search", "settings", SCORING_TURNED_OFF_MESSAGE),
+            ("insight_turned_off_in_settings", "insight", "settings", SCORING_TURNED_OFF_MESSAGE),
+        ]
+    )
+    def test_explains_an_empty_result_for_a_team_that_is_not_scored(
+        self, _name: str, endpoint: str, off_by: str, message: str
+    ) -> None:
+        if off_by == "payload":
+            self.payload.return_value = {"enabled": True, "organization_ids": []}
+        elif off_by == "source":
+            self.source.enabled = False
+            self.source.save()
+        else:
+            SignalTeamConfig.objects.create(team=self.team, anomaly_scoring_enabled=False)
+
+        body = self._get(endpoint, insight_id=self.insight.id).json()
+
+        assert (body["scoring_enabled"], body["message"]) == (False, message)
 
     def test_insight_returns_every_bucket_of_each_series_oldest_first(self) -> None:
         self._score_history()
@@ -204,6 +350,24 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             ("2026-10-22", True, 0.98, True),
         ]
         assert series["signups"]["buckets"][-1]["details"] == {"z": 3.1}
+
+    def test_insight_keys_buckets_on_the_declared_start_not_the_event_timestamp(self) -> None:
+        ms = datetime.timedelta(milliseconds=1)
+        self._score(_day(19), score=0.99, flag=1, scored_at=_day(20), timestamp=_day(19) - 5 * ms)
+        self._score(_day(19), score=0.40, flag=0, scored_at=_day(21), timestamp=_day(19) + 7 * ms)
+        self._score(_day(20), score=0.30, flag=0, timestamp=_day(20) + 41 * ms)
+        self._score(_day(22), score=0.98, flag=1, timestamp=_day(22) + 4 * ms)
+
+        body = self._get("insight", insight_id=self.insight.id, date_from="2026-10-19").json()
+
+        [series] = body["series"]
+        assert (series["scored_buckets"], series["expected_buckets"]) == (3, 4)
+        assert [(bucket["bucket_start"], bucket["scored"], bucket["score"]) for bucket in series["buckets"]] == [
+            ("2026-10-19T00:00:00+00:00", True, 0.40),
+            ("2026-10-20T00:00:00+00:00", True, 0.30),
+            ("2026-10-21T00:00:00+00:00", False, None),
+            ("2026-10-22T00:00:00+00:00", True, 0.98),
+        ]
 
     def test_insight_narrows_to_one_series_and_shows_warmup_on_request(self) -> None:
         self._score_history()

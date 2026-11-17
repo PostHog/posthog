@@ -370,7 +370,7 @@ class PgCDCStreamReader:
         return self._decoder.get_key_columns(table_name)
 
     @property
-    def last_commit_end_lsn(self) -> str | None:
+    def last_commit_position(self) -> str | None:
         """End LSN of the most recently committed transaction.
 
         Non-None even when only TRUNCATE messages were decoded (no ChangeEvents).

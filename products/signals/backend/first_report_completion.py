@@ -40,7 +40,9 @@ def first_report_completion_notifications_enabled(team: Team, user: User) -> boo
 def complete_first_report_investigation(team_id: int, run_id: str) -> dict[str, str | float | bool | None]:
     properties = first_report_outcome_properties(team_id, run_id)
     try:
-        run = SignalScoutRun.objects.for_team(team_id).select_related("team").get(id=run_id)
+        run = SignalScoutRun.objects.for_team(team_id).select_related("team").filter(id=run_id).first()
+        if run is None:
+            return properties
         onboarding = SignalTeamConfig.objects.filter(team_id=team_id).values_list("onboarding", flat=True).first() or {}
         activation = (
             SignalFirstReportNotification.objects.for_team(onboarding.get("first_report_activation_team_id", team_id))
@@ -62,11 +64,11 @@ def complete_first_report_investigation(team_id: int, run_id: str) -> dict[str, 
         messages = {
             "report_created": (
                 "Your first report is ready",
-                "Open Self-Driving to see the finding and its next steps.",
+                "Open Self-driving to see the finding and its next steps.",
             ),
             "insufficient_data": (
                 "Your first investigation needs more data",
-                "Open Self-Driving to see what data is missing.",
+                "Open Self-driving to see what data is missing.",
             ),
             "no_actionable_finding": (
                 "Your first investigation is complete",
@@ -74,7 +76,7 @@ def complete_first_report_investigation(team_id: int, run_id: str) -> dict[str, 
             ),
             "incomplete": (
                 "Your first investigation couldn’t finish",
-                "Open Self-Driving to review the investigation.",
+                "Open Self-driving to review the investigation.",
             ),
         }
         title, body = messages.get(str(outcome), messages["incomplete"])

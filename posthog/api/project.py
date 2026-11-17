@@ -52,6 +52,7 @@ from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerial
 from posthog.api.team.settings_validation import (
     _format_serializer_errors,
     heatmaps_screenshot_secret_for_reader,
+    hide_secret_api_tokens,
     validate_team_attrs,
     validate_team_workflows_config,
 )
@@ -66,9 +67,13 @@ from posthog.api.team.team_config import (
     drop_cached_workflows_config,
 )
 from posthog.api.team.team_serializer import (
+    REALTIME_COHORTS_FIELD_SCHEMA,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     TeamSerializer,
+    flag_evaluations_read_mode_for,
+    hide_team_secrets_from_workload_tokens,
+    realtime_cohorts_for_request,
 )
 from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
 from posthog.api.utils import validate_authorized_url_wildcards
@@ -82,6 +87,7 @@ from posthog.exceptions import Conflict
 from posthog.filters import PhraseSearchFilter
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
+from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -120,7 +126,7 @@ from posthog.permissions import (
     get_authenticator_scoped_organization_ids,
     get_organization_from_view,
 )
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
     parse_feature_to_entitlement,
@@ -142,7 +148,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -633,10 +639,17 @@ class ProjectBackwardCompatSerializer(
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    realtime_cohorts = serializers.SerializerMethodField()  # Compat with TeamSerializer
     flag_evaluations_mode = serializers.SerializerMethodField(  # Compat with TeamSerializer
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
             "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+        )
+    )
+    flag_calls_only_in_flag_evaluations = serializers.SerializerMethodField(  # Compat with TeamSerializer
+        help_text=(
+            "Whether this project's events table holds none of its new $feature_flag_called events, so "
+            "they can only be read from the flag_evaluations table."
         )
     )
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
@@ -656,6 +669,12 @@ class ProjectBackwardCompatSerializer(
             "everyone else and when none has been generated."
         ),
     )  # Compat with TeamSerializer
+    is_ai_data_processing_approved = serializers.BooleanField(
+        source="organization.is_ai_data_processing_approved",
+        read_only=True,
+        allow_null=True,
+        help_text="Whether the project's organization approved AI data processing. AI features need this approval.",
+    )
     # project_id mirrors TeamSerializer.project_id; for a Project it equals its own id (Project ↔ Team is 1:1)
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
@@ -735,6 +754,7 @@ class ProjectBackwardCompatSerializer(
         fields: tuple[str, ...] = (
             "id",
             "organization",
+            "is_ai_data_processing_approved",
             "name",
             "logo_media_id",
             "product_description",
@@ -810,7 +830,9 @@ class ProjectBackwardCompatSerializer(
             "project_id",  # Compat with TeamSerializer
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
+            "realtime_cohorts",  # Compat with TeamSerializer
             "flag_evaluations_mode",  # Compat with TeamSerializer
+            "flag_calls_only_in_flag_evaluations",  # Compat with TeamSerializer
             "api_host",  # Compat with TeamSerializer
             "revenue_analytics_config",  # Compat with TeamSerializer
             "marketing_analytics_config",  # Compat with TeamSerializer
@@ -853,7 +875,9 @@ class ProjectBackwardCompatSerializer(
             "project_id",
             "user_access_level",
             "managed_viewsets",
+            "realtime_cohorts",
             "flag_evaluations_mode",
+            "flag_calls_only_in_flag_evaluations",
             "api_host",
         )
 
@@ -1017,7 +1041,8 @@ class ProjectBackwardCompatSerializer(
         # Mirror TeamSerializer: fall back to the global default data theme when the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             representation["default_data_theme"] = _default_data_color_theme_id()
-        return representation
+        hide_secret_api_tokens(representation)
+        return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
         if isinstance(obj, ObjectAccessRef):
@@ -1037,7 +1062,15 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return get_flag_evaluations_read_mode(obj.organization_id)
+        return flag_evaluations_read_mode_for(self.context, obj.organization_id)
+
+    def get_flag_calls_only_in_flag_evaluations(self, obj: Project) -> bool:
+        read_mode = flag_evaluations_read_mode_for(self.context, obj.organization_id)
+        return flag_calls_only_in_flag_evaluations(obj.passthrough_team, read_mode)
+
+    @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
+    def get_realtime_cohorts(self, obj: Project) -> dict[str, str | int | None]:
+        return realtime_cohorts_for_request(self.context.get("request"), obj.passthrough_team)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1206,6 +1239,10 @@ class ProjectBackwardCompatSerializer(
                         continue
                     resource, required_level = field_mappings[field_name]
                     if resource == "project":
+                        # Without the entitlement a project rule is never consulted; validate_team_attrs
+                        # gates the admin-only fields on the membership level instead.
+                        if not user_access_control.access_controls_supported:
+                            continue
                         has_access = user_access_control.check_access_level_for_object(team, required_level)
                     else:
                         has_access = user_access_control.check_access_level_for_resource(resource, required_level)
@@ -1270,6 +1307,7 @@ class ProjectBackwardCompatSerializer(
         )
 
         request.user.current_team = team
+        request.user.current_organization_id = team.organization_id
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()
 
@@ -1575,6 +1613,8 @@ class ProjectViewSet(
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
         queryset = queryset.filter(id__in=visible_teams_ids)
+        if self.action == "list":
+            queryset = queryset.exclude(organization_id__in=get_ip_blocked_organization_ids(self.request))
         if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
             queryset = queryset.filter(organization_id__in=scoped_organizations)
         queryset = project_tags.filter_queryset(queryset, self.request.query_params)
@@ -1964,7 +2004,11 @@ class ProjectViewSet(
         project.passthrough_team.rotate_secret_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
-        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+        data = ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data
+        # Show-once: this response is the only read of the token this request minted; every other
+        # response nulls it. The demoted backup stays hidden because rotation often answers a leak.
+        data["secret_api_token"] = project.passthrough_team.secret_api_token
+        return response.Response(data)
 
     @extend_schema(request=None, responses=ProjectBackwardCompatSerializer)
     @action(
@@ -2282,6 +2326,9 @@ class ProjectViewSet(
             if project.organization_id == target_organization.id:
                 raise exceptions.ValidationError("Project is already in the target organization.")
 
+            enforce_ip_restrictions(
+                request, user, request.successful_authenticator, organization_id=str(target_organization.id)
+            )
             teams = list(project.teams.all())
             was_impersonated = is_impersonated(request)
             project_change = Change(

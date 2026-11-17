@@ -1,4 +1,4 @@
-import type { TraceNodeApi } from '../../../generated/api.schemas'
+import type { TraceNodeApi, TraceStepFeedbackApi } from '../../../generated/api.schemas'
 import { EvalRollupOutcome } from '../types'
 import { TraceTreeRow } from './TraceTreeRow'
 
@@ -7,7 +7,10 @@ export interface TraceTreeProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
-    evalOutcomes: Record<string, EvalRollupOutcome>
+    evalOutcomes: ReadonlyMap<string, EvalRollupOutcome>
+    stepFeedback?: ReadonlyMap<string, TraceStepFeedbackApi>
+    matchingNodeIds?: ReadonlySet<string> | null
+    matchStepCount?: number
 }
 
 export function TraceTree({
@@ -16,9 +19,15 @@ export function TraceTree({
     onSelectNode,
     onPrefetchNode,
     evalOutcomes,
+    stepFeedback,
+    matchingNodeIds = null,
+    matchStepCount = 0,
 }: TraceTreeProps): JSX.Element {
     return (
-        <ul aria-label="Trace steps" className="m-0 list-none rounded border border-primary bg-surface-primary p-1">
+        <ul
+            aria-label="Trace steps"
+            className="m-0 max-h-full list-none overflow-y-auto rounded border border-primary bg-surface-primary p-1"
+        >
             {nodes.map((node) => (
                 <TraceTreeRow
                     key={node.id}
@@ -28,6 +37,9 @@ export function TraceTree({
                     onSelectNode={onSelectNode}
                     onPrefetchNode={onPrefetchNode}
                     evalOutcomes={evalOutcomes}
+                    stepFeedback={stepFeedback}
+                    matchingNodeIds={matchingNodeIds}
+                    matchStepCount={matchStepCount}
                 />
             ))}
         </ul>

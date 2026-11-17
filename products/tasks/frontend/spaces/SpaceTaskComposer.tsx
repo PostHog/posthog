@@ -5,18 +5,19 @@ import { ChannelDTOApi } from '../generated/api.schemas'
 import { SpaceComposerRepositoryConfig } from './spaceSceneLogic'
 
 const SPACE_COMPOSER_OVERRIDE = {
-    placeholder: 'What do you want to ship?',
+    placeholder: 'Ask a question',
     hideSuggestions: true,
     hideRecentTasks: true,
     hideOnboardingReplay: true,
 }
 
 export interface SpaceTaskComposerProps {
-    space: ChannelDTOApi
+    space: ChannelDTOApi | null
     panelId: string
     repositoryConfig: SpaceComposerRepositoryConfig
     onTaskCreated: (sessionId: string) => void
     focusRequest?: number
+    autoFocus?: boolean
     prefillRequest?: ComposerPrefillRequest | null
 }
 
@@ -27,18 +28,19 @@ export function SpaceTaskComposer({
     repositoryConfig,
     onTaskCreated,
     focusRequest,
+    autoFocus = false,
     prefillRequest,
 }: SpaceTaskComposerProps): JSX.Element {
     return (
         <EmbeddedTaskComposer
-            key={space.id}
+            key={space?.id}
             panelId={panelId}
-            channelId={space.id}
+            channelId={space?.id}
             initialRepositoryConfig={repositoryConfig}
             composerOverride={SPACE_COMPOSER_OVERRIDE}
             onTaskCreated={onTaskCreated}
             focusRequest={focusRequest}
-            autoFocus={false}
+            autoFocus={autoFocus}
             prefillRequest={prefillRequest}
             fallback={<QuillTaskComposerSkeleton />}
         />

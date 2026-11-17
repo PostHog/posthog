@@ -11,7 +11,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
-from products.engineering_analytics.backend.tests._github_fixtures import create_depot_source
+from products.engineering_analytics.backend.tests._github_fixtures import create_depot_source, enroll_team
 from products.engineering_analytics.backend.warehouse_view_sync import sync_engineering_analytics_views
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
@@ -79,11 +79,10 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
         assert not self._has_viewset()
 
     @patch.object(DataWarehouseManagedViewSet, "sync_views")
-    def test_noop_when_jobs_endpoint_not_synced(self, mock_sync) -> None:
-        # A GitHub source with only workflow_runs synced has no view to expose yet — don't even
-        # create the viewset row until both endpoints exist.
-        source = self._github_source()
-        schema = self._schema(source, WORKFLOW_RUNS_SCHEMA, self._table(f"{PREFIX}github_workflow_runs", source))
+    def test_noop_for_unenrolled_team(self, mock_sync) -> None:
+        # A team that connected GitHub for another product must not get this product's views.
+        source = self._qualifying_source()
+        schema = ExternalDataSchema.objects.get(source=source, name=WORKFLOW_JOBS_SCHEMA)
 
         sync_engineering_analytics_views(schema, source)
 
@@ -92,9 +91,10 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
 
     @parameterized.expand([("github_jobs", False), ("depot_attempts", True)])
     @patch.object(DataWarehouseManagedViewSet, "sync_views")
-    def test_creates_viewset_and_syncs_for_qualifying_source(
+    def test_syncs_enrolled_team_after_qualifying_load(
         self, _name: str, from_depot: bool, mock_sync: MagicMock
     ) -> None:
+        enroll_team(self.team)
         source = self._qualifying_source()
         schema = ExternalDataSchema.objects.get(source=source, name=WORKFLOW_JOBS_SCHEMA)
         if from_depot:
@@ -112,6 +112,7 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
     @patch.object(DataWarehouseManagedViewSet, "sync_views")
     def test_transient_db_error_is_not_captured(self, _name, error_cls, mock_sync, mock_capture) -> None:
         mock_sync.side_effect = error_cls("server closed the connection")
+        enroll_team(self.team)
         source = self._qualifying_source()
         schema = ExternalDataSchema.objects.get(source=source, name=WORKFLOW_JOBS_SCHEMA)
 
@@ -124,6 +125,7 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
     def test_unexpected_error_is_captured(self, mock_sync, mock_capture) -> None:
         error = ValueError("something actually broke")
         mock_sync.side_effect = error
+        enroll_team(self.team)
         source = self._qualifying_source()
         schema = ExternalDataSchema.objects.get(source=source, name=WORKFLOW_JOBS_SCHEMA)
 

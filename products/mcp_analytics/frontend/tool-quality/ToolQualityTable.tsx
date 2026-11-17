@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSearch } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     Badge,
     Button,
@@ -20,6 +19,7 @@ import {
     PaginationItem,
     PaginationNext,
     PaginationPrevious,
+    Skeleton,
     Spinner,
     Table,
     TableBody,
@@ -38,7 +38,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
-import { formatMs, formatNumber } from '../dashboard/formatters'
+import { DESTRUCTIVE_ERROR_RATE_PCT, formatMs, formatNumber } from '../dashboard/formatters'
+import { SkeletonLine } from '../dashboard/SkeletonLine'
 import {
     type SortState,
     type ToolQualitySortColumn,
@@ -51,7 +52,8 @@ import { QualityChangeMarker } from './QualityChangeMarker'
 import { SessionsCell } from './SessionsCell'
 import { TrendCell } from './TrendCell'
 
-const DESTRUCTIVE_ERROR_PCT = 5
+const TOOL_BUTTON_CLASS =
+    'cursor-pointer rounded-sm text-left font-mono focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
 
 interface ColumnSpec {
     key: ToolQualitySortColumn
@@ -74,14 +76,14 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
         label: 'Error rate',
         align: 'right',
         tooltip:
-            'Percentage of calls that returned $mcp_is_error = true. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
+            'Percentage of calls marked as failed. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
     },
     {
         key: 'p95_duration_ms',
         label: 'p95',
         align: 'right',
         tooltip:
-            '95th-percentile $mcp_duration_ms. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
+            '95th-percentile call duration: 95% of calls finished faster than this. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
     },
     { key: 'users', label: 'Users', align: 'right', tooltip: 'Unique users who invoked this tool' },
     {
@@ -93,14 +95,14 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
     { key: 'last_seen', label: 'Last seen' },
 ]
 
-const COLUMN_COUNT = SORTABLE_COLUMNS.length + 2
+const SKELETON_ROW_WIDTHS = ['70%', '50%', '85%', '40%', '60%', '75%', '45%', '65%']
 
 function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
     if (pct <= 0) {
         return <Badge variant="success">0%</Badge>
     }
     return (
-        <Badge variant={pct >= DESTRUCTIVE_ERROR_PCT ? 'destructive' : 'warning'}>
+        <Badge variant={pct >= DESTRUCTIVE_ERROR_RATE_PCT ? 'destructive' : 'warning'}>
             {formatPercentage(pct, { compact: true })}
         </Badge>
     )
@@ -140,33 +142,34 @@ function SortableHead({
     )
 }
 
-function ToolRows(): JSX.Element {
-    const {
-        toolRows,
-        toolRowsTotalSessions,
-        toolRowsPreviousTotalSessions,
-        toolRowsPageLoading,
-        selectedTool,
-        dateFilter,
-        pinnedInterval,
-    } = useValues(mcpAnalyticsToolQualityLogic)
-    const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
-
-    if (toolRowsPageLoading && toolRows.length === 0) {
-        return (
-            <TableBody>
-                <TableRow>
-                    <TableCell colSpan={COLUMN_COUNT}>
-                        <div className="space-y-2 py-1">
-                            {Array.from({ length: 6 }).map((_, i) => (
-                                <LemonSkeleton key={i} className="h-3.5 w-full" />
-                            ))}
-                        </div>
+function ToolRowsSkeleton(): JSX.Element {
+    return (
+        <TableBody>
+            {SKELETON_ROW_WIDTHS.map((width, i) => (
+                <TableRow key={i}>
+                    <TableCell expand>
+                        <SkeletonLine style={{ width }} />
+                    </TableCell>
+                    {SORTABLE_COLUMNS.map((column) => (
+                        <TableCell key={column.key} align={column.align}>
+                            <SkeletonLine className={column.align === 'right' ? 'ml-auto w-10' : 'w-16'} />
+                        </TableCell>
+                    ))}
+                    <TableCell align="right">
+                        <Skeleton className="ml-auto h-6 w-18" />
                     </TableCell>
                 </TableRow>
-            </TableBody>
-        )
-    }
+            ))}
+        </TableBody>
+    )
+}
+
+function ToolRows(): JSX.Element {
+    const { toolRows, toolRowsTotalSessions, toolRowsPreviousTotalSessions, selectedTool, dateFilter, pinnedInterval } =
+        useValues(mcpAnalyticsToolQualityLogic)
+    const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
+    const toggleRow = (tool: string): void => setSelectedTool(tool === selectedTool ? null : tool)
+
     if (toolRows.length === 0) {
         return <TableEmpty className="py-6 text-secondary">No tool calls match the current filters.</TableEmpty>
     }
@@ -177,13 +180,25 @@ function ToolRows(): JSX.Element {
                     key={row.tool}
                     data-state={row.tool === selectedTool ? 'selected' : undefined}
                     className="cursor-pointer"
-                    onClick={() => setSelectedTool(row.tool === selectedTool ? null : row.tool)}
+                    onClick={() => toggleRow(row.tool)}
                     data-attr="mcp-tool-quality-row"
                 >
                     <TableCell expand>
-                        <span className="font-mono">{row.tool}</span>
+                        <button
+                            type="button"
+                            className={TOOL_BUTTON_CLASS}
+                            aria-pressed={row.tool === selectedTool}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                toggleRow(row.tool)
+                            }}
+                        >
+                            {row.tool}
+                        </button>
                     </TableCell>
-                    <TableCell align="right">{formatNumber(row.total_calls)}</TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {formatNumber(row.total_calls)}
+                    </TableCell>
                     <TableCell align="right">
                         <TrendCell totalCalls={row.total_calls} previousCalls={row.previous_calls} />
                     </TableCell>
@@ -199,7 +214,9 @@ function ToolRows(): JSX.Element {
                             <QualityChangeMarker change={p95Change(row)} />
                         </span>
                     </TableCell>
-                    <TableCell align="right">{formatNumber(row.users)}</TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {formatNumber(row.users)}
+                    </TableCell>
                     <TableCell align="right">
                         <SessionsCell
                             sessions={row.sessions}
@@ -234,6 +251,7 @@ export function ToolQualityTable(): JSX.Element {
         toolQualityPageIndex,
         loadedToolQualityPageIndex,
         toolRows,
+        toolRowsPage,
         toolRowsPageLoading,
         toolRowsTotalCount,
         searchTerm,
@@ -243,6 +261,7 @@ export function ToolQualityTable(): JSX.Element {
     const pageRange = getPaginationRange(pageCount, toolQualityPageIndex)
     const firstRow = toolRowsTotalCount === 0 ? 0 : loadedToolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
     const lastRow = Math.min(firstRow + toolRows.length - 1, toolRowsTotalCount)
+    const showSkeleton = toolRowsPageLoading && toolRowsPage === null
 
     return (
         <Card size="sm" className="gap-0">
@@ -280,9 +299,9 @@ export function ToolQualityTable(): JSX.Element {
                             <TableHead />
                         </TableRow>
                     </TableHeader>
-                    <ToolRows />
+                    {showSkeleton ? <ToolRowsSkeleton /> : <ToolRows />}
                 </Table>
-                {toolRowsPageLoading ? (
+                {toolRowsPageLoading && !showSkeleton ? (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
                         <Spinner className="size-5" />
                     </div>

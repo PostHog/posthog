@@ -2,9 +2,10 @@ import {
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentExposureCriteria,
+    HogQLQueryModifiers,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { Experiment } from '~/types'
+import { Experiment, PropertyFilterType, PropertyOperator } from '~/types'
 
 /**
  * The flag exposure event contract for experiments. Mirrors the backend chokepoint
@@ -66,6 +67,69 @@ export function isDefaultExposureConfig(config: ExperimentExposureConfig): boole
     return isEventConfig(config) && config.event === EXPOSURE_DEFAULT_EVENT
 }
 
+/** Whether the operator matches the values its positive form does not. Keep in sync with
+ * `_NEGATIVE_OPERATOR_COMPLEMENTS` in `posthog/hogql/property.py`. */
+function isOperatorNegated(operator: PropertyOperator): boolean {
+    return [
+        PropertyOperator.IsNot,
+        PropertyOperator.NotIn,
+        PropertyOperator.IsNotSet,
+        PropertyOperator.NotIContains,
+        PropertyOperator.NotIContainsMulti,
+        PropertyOperator.NotRegex,
+        PropertyOperator.NotStartsWith,
+        PropertyOperator.NotEndsWith,
+        PropertyOperator.NotBetween,
+        PropertyOperator.IsCleanedPathNotExact,
+        PropertyOperator.SemverNeq,
+    ].includes(operator)
+}
+
+/**
+ * Whether a negated filter in the config leaves out single events while the experiment still counts
+ * the person or group that sent them. Event, session and element properties can change from one event
+ * to the next. Person properties can too when the team reads them from the events: an event sent before
+ * the person identified has no `email`, and a negated filter keeps an event without a value. A cohort
+ * filter, and a person filter read from the persons table, leave out the whole person. When the flag
+ * counts groups, the group still counts through its other persons. `$feature_flag` names the flag of a
+ * flag call event, not a trait of the user. A group-aggregated experiment counts each group by
+ * `$group_<index>`, so a filter on that key leaves out the whole group.
+ */
+export function hasNegatedEventFilter(
+    config: ExperimentExposureConfig | undefined,
+    groupTypeIndex: number | null | undefined,
+    personsOnEventsMode: HogQLQueryModifiers['personsOnEventsMode']
+): boolean {
+    if (!config || config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
+        return false
+    }
+    const groupKey = groupTypeIndex != null ? `$group_${groupTypeIndex}` : null
+    const aggregatesByGroup = groupKey !== null
+    const personFilterVaries =
+        aggregatesByGroup ||
+        personsOnEventsMode === 'person_id_override_properties_on_events' ||
+        personsOnEventsMode === 'person_id_no_override_properties_on_events'
+    return (config.properties ?? []).some((property) => {
+        switch (property.type) {
+            case PropertyFilterType.Event:
+                return (
+                    property.key !== '$feature_flag' &&
+                    property.key !== groupKey &&
+                    isOperatorNegated(property.operator)
+                )
+            case PropertyFilterType.Session:
+            case PropertyFilterType.Element:
+                return isOperatorNegated(property.operator)
+            case PropertyFilterType.Person:
+                return personFilterVaries && isOperatorNegated(property.operator)
+            case PropertyFilterType.Cohort:
+                return aggregatesByGroup && isOperatorNegated(property.operator)
+            default:
+                return false
+        }
+    })
+}
+
 /**
  * The activation event config in effect for the criteria, or undefined when there is none.
  * Activation only composes with the default exposure, so a custom `exposure_config` disables it
@@ -90,6 +154,19 @@ export function getActivationConfig(
         return undefined
     }
     return activationConfig
+}
+
+export type ExposureSource = 'warehouse_native' | 'activation' | 'custom' | 'default'
+
+/** What decides who enters the analysis: a warehouse-native query, an activation event, a custom event, or the default event. */
+export function getExposureSource(exposureCriteria: ExperimentExposureCriteria | null | undefined): ExposureSource {
+    if (exposureCriteria?.exposure_config?.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
+        return 'warehouse_native'
+    }
+    if (getActivationConfig(exposureCriteria ?? undefined)) {
+        return 'activation'
+    }
+    return exposureCriteria?.exposure_config ? 'custom' : 'default'
 }
 
 /**

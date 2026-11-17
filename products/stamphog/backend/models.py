@@ -20,10 +20,17 @@ from .facade.enums import (
     AudienceReason,
     ChannelResolutionSource,
     DigestRunStatus,
+    LlmSkipReason,
+    OwnerKind,
     ReviewMode,
     ReviewRunStatus,
     ReviewVerdict,
+    RoutingMode,
+    RoutingOwnerOutcome,
+    RoutingOwnerReason,
+    RoutingScope,
 )
+from .logic.review_trigger import is_silent_output
 
 
 # Lives on a separate product database (see products/db_routing.yaml), so it
@@ -54,6 +61,19 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     # The review sandbox's short-lived LLM gateway token is minted under this identity, mirroring how
     # tasks mints under task.created_by. Null means "never synced": hosted reviews fail closed.
     connected_by_user_id = models.BigIntegerField(null=True, blank=True)
+    # When to request reviews from the owners of the changed code (logic/routing/service.py).
+    # db_default on both: the previous release still inserts rows without these columns during a deploy.
+    routing_mode = models.CharField(
+        max_length=16,
+        choices=RoutingMode.choices,
+        default=RoutingMode.OFF.value,
+        db_default=RoutingMode.OFF.value,
+    )
+    # Team slug -> label name. A fork PR adds the label instead of requesting that team, so an
+    # outside author cannot ping it.
+    routing_fork_labels = models.JSONField(default=dict, db_default={})
+    # Off by default: a clean external review starts a review outside review_mode, which widens when stamphog runs.
+    review_on_clean_external_review = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -164,6 +184,9 @@ class PullRequest(ProductTeamModel):
     # fan out an older snapshot after a newer one; this field is the monotonic clock that lets the task
     # drop a strictly-older delivery instead of superseding the current run with a stale review.
     payload_updated_at = models.DateTimeField(null=True)
+    # The latest reviewer routing result for this PR (logic/routing/service.py). Null until routing
+    # runs. Holds owner names and counts only, never PR content.
+    routing = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -263,6 +286,7 @@ class ReviewRun(ProductTeamModel):
     # What we posted back to the SCM once the verdict was decided — recorded so a
     # re-review can find and update its own artifacts, and for audit. Populated by
     # the post_verdict activity (and the gate-block path) from the API responses.
+    # Whether the verdict reached the PR, which a silent non-approval never does (`verdict_withheld`).
     verdict_posted_at = models.DateTimeField(null=True)
     posted_review_id = models.BigIntegerField(null=True)
     # Set when this run's GitHub APPROVE review was dismissed because the head moved. GitHub never
@@ -272,6 +296,29 @@ class ReviewRun(ProductTeamModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True)
+
+    @property
+    def is_silent(self) -> bool:
+        """Whether the run posts only an approval, from the provenance stamped when it was queued."""
+        return is_silent_output(self.output)
+
+    def may_publish(self, verdict: str | None = None) -> bool:
+        """Whether this run may write ``verdict`` to the PR. Without a verdict: whether it may write
+        anything other than an approval, such as the 👀 cue, a refusal or a failure notice.
+
+        Every path that writes to the PR asks this, so a silent run's single exception, the
+        approval, is decided in one place.
+        """
+        return not self.is_silent or verdict == ReviewVerdict.APPROVED
+
+    @property
+    def verdict_withheld(self) -> bool:
+        """A silent run that decided a verdict and kept it off the PR."""
+        return (
+            self.is_silent
+            and self.status in (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED)
+            and self.verdict_posted_at is None
+        )
 
     def __str__(self) -> str:
         return f"{self.pull_request.repo_config.repository}#{self.pull_request.pr_number} ({self.status})"
@@ -330,3 +377,77 @@ class DigestRun(ProductTeamModel):
 
     def __str__(self) -> str:
         return f"digest {self.audience_key} -> {self.slack_channel_name or self.slack_channel_id} ({self.status})"
+
+
+class RoutingRun(ProductTeamModel):
+    """One reviewer routing run that made its GitHub writes, kept as an append-only record.
+
+    `PullRequest.routing` is the routing state and holds only the latest result. These rows keep
+    every decision, so a reader can later tell why an owner was or was not asked to review. They
+    hold owner names, counts, pinning paths and the model's one-line reasons, never the diff.
+    """
+
+    # Minted when the run plans, before the model call, so the LLM trace carries it too. A second write
+    # of the same run fails on it rather than logging the run twice.
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    pull_request = models.ForeignKey(PullRequest, on_delete=models.CASCADE, related_name="routing_runs")
+    head_sha = models.CharField(max_length=64)
+    mode = models.CharField(max_length=16, choices=RoutingMode.choices)
+    # `opened`, `ready_for_review`, `verdict:<outcome>` or `safety_net`.
+    trigger = models.CharField(max_length=64)
+    scope = models.CharField(max_length=16, choices=RoutingScope.choices)
+    fork = models.BooleanField(default=False)
+    # Why the cut step made no model call. Blank when it made one.
+    llm_skipped = models.CharField(max_length=32, choices=LlmSkipReason.choices, blank=True)
+    # The model that a request reached. Blank when no request reached the gateway.
+    model = models.CharField(max_length=128, blank=True)
+    # A partial file list or ownership read explains an owner that should have been pinned and was not.
+    files_truncated = models.BooleanField(default=False)
+    additions_resolved = models.BooleanField(default=True)
+    # The default-branch commit whose owners.yaml files decided the candidates. With each owner's files,
+    # it lets a reader resolve the run's owners again after owners.yaml changes.
+    owners_sha = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(ProductTeamModel.Meta):
+        indexes = [
+            models.Index(fields=["team_id", "-created_at"], name="stamphog_routing_run_recent"),
+        ]
+
+    def __str__(self) -> str:
+        return f"routing {self.trigger} at {self.head_sha[:10]}"
+
+
+class RoutingRunOwner(ProductTeamModel):
+    """What one routing run did with one owner of the changed code, and why."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    # The unique constraint below leads with the run, so it serves the lookups a plain FK index would.
+    run = models.ForeignKey(RoutingRun, on_delete=models.CASCADE, related_name="owners", db_index=False)
+    # As owners.yaml spells it: `team-devex` or `@alice`.
+    owner = models.CharField(max_length=255)
+    kind = models.CharField(max_length=16, choices=OwnerKind.choices)
+    outcome = models.CharField(max_length=32, choices=RoutingOwnerOutcome.choices)
+    reason = models.CharField(max_length=32, choices=RoutingOwnerReason.choices)
+    # The model's reason to cut this owner, cleaned as for the routing comment and scrubbed of credentials.
+    # Also set when a guard kept the owner anyway, which is what an evaluation of the cut step needs.
+    model_reason = models.TextField(blank=True)
+    # The sensitive and new paths that pinned the owner, as `[{"reason": ..., "path": ...}]`.
+    pins = models.JSONField(default=list)
+    # Every changed file this owner owns, as GitHub listed it, without the patch. owners.yaml and the
+    # pull request both move after the run, so the run keeps its own copy.
+    files = models.JSONField(default=list)
+    lines = models.PositiveIntegerField(default=0)
+    file_count = models.PositiveIntegerField(default=0)
+
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["run", "owner"], name="unique_stamphog_routing_run_owner"),
+        ]
+        indexes = [
+            # Serves the owner filter of the run list, which asks why one owner was or was not asked.
+            models.Index(fields=["team_id", "owner"], name="stamphog_routing_owner"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.owner} {self.outcome} ({self.reason})"

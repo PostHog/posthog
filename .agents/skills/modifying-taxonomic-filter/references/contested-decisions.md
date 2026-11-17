@@ -46,7 +46,6 @@ Bring evidence, not seniority.
   No data isolates power users.
 - **Implication:** removing a cheap feature saves little.
   Removing an expensive one with almost no use saves a lot.
-  Event match calls a model only for uncached empty searches, so measure its real call volume first.
 
 ## Should there be a natural-language or chat input?
 

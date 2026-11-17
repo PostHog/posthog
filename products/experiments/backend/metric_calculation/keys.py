@@ -18,7 +18,12 @@ from products.experiments.backend.metric_calculation.config import (
     saved_metric_calculation_keys,
     team_experiments_configs,
 )
-from products.experiments.backend.metric_resolution import is_scheduled_metric, saved_metric_links
+from products.experiments.backend.metric_resolution import (
+    apply_saved_metric_overrides,
+    is_scheduled_metric,
+    saved_metric_link_role,
+    saved_metric_links,
+)
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 
 logger = structlog.get_logger(__name__)
@@ -112,6 +117,35 @@ def daily_saved_metric_calculations(team_id_by_experiment_id: Mapping[int, int])
                 )
             )
     return calculations
+
+
+def saved_metric_link_for_calculation_key(
+    experiment_id: int, *, team_id: int, metric_uuid: str, calculation_key: str
+) -> int | None:
+    """The id of the experiment's saved-metric link with this uuid whose effective definition gives `calculation_key`
+    in some key version under the current settings, or None when no link does.
+
+    Two links of one experiment can carry the same saved-metric uuid with different overrides, and the daily discovery
+    queues each of them under its own key. This tells the calculation which of them a queued key belongs to.
+    """
+    experiment = (
+        Experiment.objects.select_related("team", "feature_flag").filter(id=experiment_id, team_id=team_id).first()
+    )
+    if experiment is None:
+        return None
+    settings = ExperimentCalculationSettings.from_experiment(experiment)
+    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").order_by("id"):
+        query = link.saved_metric.query
+        if not isinstance(query, dict) or query.get("uuid") != metric_uuid:
+            continue
+        calculation_config = settings.build_metric_config(
+            metric_id=metric_uuid,
+            role=saved_metric_link_role(link),
+            definition=apply_saved_metric_overrides(query, link.metadata),
+        )
+        if calculation_config.key_version_of(calculation_key) is not None:
+            return link.id
+    return None
 
 
 def metric_calculation_keys(experiment_id: int, *, team_id: int) -> MetricCalculationKeys:

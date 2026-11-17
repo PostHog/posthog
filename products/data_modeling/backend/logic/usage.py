@@ -3,8 +3,8 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import TypedDict, cast
 from uuid import UUID
 
-from django.db.models import Count, F, Max, Q, QuerySet, Sum
-from django.db.models.functions import TruncDate
+from django.db.models import Count, F, Max, Q, QuerySet, Sum, Value
+from django.db.models.functions import Coalesce, Lower, NullIf, TruncDate
 
 from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJob,
@@ -139,6 +139,8 @@ class ModelUsage:
         start_date: date,
         end_date: date,
         engines: tuple[DataModelingJobEngine, ...],
+        sort_by: str = "read_bytes",
+        sort_direction: str = "desc",
     ) -> dict[str, object]:
         start = datetime.combine(start_date, time.min, tzinfo=UTC)
         end = datetime.combine(end_date, time.min, tzinfo=UTC)
@@ -176,12 +178,21 @@ class ModelUsage:
                 }
             )
         models = jobs.values("saved_query_id", "saved_query__name", "saved_query__deleted").annotate(
-            **cls.engine_aggregates(engines), **cls.aggregates()
+            **cls.engine_aggregates((DataModelingJobEngine.CLICKHOUSE, DataModelingJobEngine.MANAGED_WAREHOUSE)),
+            **cls.aggregates(),
         )
         count = models.count()
         offset = (page - 1) * page_size
+        sort_expression = (
+            Lower(Coalesce(NullIf("saved_query__name", Value("")), Value("Deleted model")))
+            if sort_by == "name"
+            else F(sort_by)
+        )
+        ordering = (
+            sort_expression.asc(nulls_last=True) if sort_direction == "asc" else sort_expression.desc(nulls_last=True)
+        )
         rows: list[Mapping[str, object]] = list(
-            models.order_by(F("read_bytes").desc(nulls_last=True), "saved_query_id")[offset : offset + page_size]
+            models.order_by(ordering, "saved_query_id")[offset : offset + page_size]
         )
         return {
             "date_from": start.date(),
@@ -212,6 +223,8 @@ def get_model_usage(
     start_date: date,
     end_date: date,
     engines: tuple[DataModelingJobEngine, ...],
+    sort_by: str = "read_bytes",
+    sort_direction: str = "desc",
 ) -> dict[str, object]:
     return ModelUsage.get(
         team_id=team_id,
@@ -221,4 +234,6 @@ def get_model_usage(
         start_date=start_date,
         end_date=end_date,
         engines=engines,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
     )

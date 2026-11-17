@@ -20,7 +20,8 @@ export function getDefaultAIObservabilityConfig(): AIObservabilityConfig {
         TEMPORAL_CLIENT_ROOT_CA: undefined,
         TEMPORAL_CLIENT_CERT: undefined,
         TEMPORAL_CLIENT_KEY: undefined,
-        TEMPORAL_SECRET_KEY: process.env.TEMPORAL_SECRET_KEY ?? process.env.SECRET_KEY,
+        // Unlike Django's setting, this has no SECRET_KEY default, so the scheduler pod never needs that key.
+        TEMPORAL_SECRET_KEY: process.env.TEMPORAL_SECRET_KEY,
         TEMPORAL_FALLBACK_SECRET_KEYS: process.env.TEMPORAL_FALLBACK_SECRET_KEYS ?? '',
         LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING: false,
     }

@@ -193,16 +193,18 @@ def test_preflight_reports_only_the_capabilities_the_binary_carries(
 
 
 @pytest.mark.parametrize(
-    ("provider", "reason", "reported_retryability", "expected_retryability"),
+    ("provider", "reason", "reported_retryability", "expected_reason", "expected_retryability"),
     [
-        ("claude", "proxy_invalid", "unknown", "requires_action"),
-        ("claude", "worktree_unverified", "requires_action", "transient"),
-        ("claude", None, "requires_action", "unknown"),
-        ("codex", "credential_service_unavailable", "requires_action", "transient"),
+        ("claude", "proxy_invalid", "unknown", "proxy_invalid", "requires_action"),
+        ("claude", "sandbox_required_unavailable", "unknown", "sandbox_required_unavailable", "requires_action"),
+        ("claude", "worktree_unverified", "requires_action", "worktree_unverified", "transient"),
+        ("claude", None, "requires_action", None, "unknown"),
+        ("claude", "arbitrary-reason", "requires_action", None, "unknown"),
+        ("codex", "credential_service_unavailable", "requires_action", "credential_service_unavailable", "transient"),
     ],
 )
 def test_health_check_carries_validated_startup_failure(
-    tmp_path: Path, provider, reason, reported_retryability, expected_retryability
+    tmp_path: Path, provider, reason, reported_retryability, expected_reason, expected_retryability
 ) -> None:
     payload = {
         "status": "ok",
@@ -227,7 +229,7 @@ def test_health_check_carries_validated_startup_failure(
     with pytest.raises(AgentServerStartupError) as raised:
         raise_startup_failure(result.stdout, "example-sandbox")
     assert raised.value.run_id == "example-run"
-    assert raised.value.startup_failure.reason == reason
+    assert raised.value.startup_failure.reason == expected_reason
     assert raised.value.startup_failure.retryability == expected_retryability
 
 
@@ -237,14 +239,6 @@ def test_health_check_carries_validated_startup_failure(
         {"runId": None},
         {"hasSession": True},
         {"readiness": "ready"},
-        {
-            "startupFailure": {
-                "provider": "claude",
-                "phase": "sdk_initialization",
-                "reason": "arbitrary-reason",
-                "retryability": "requires_action",
-            }
-        },
     ],
 )
 def test_health_check_ignores_unconfirmed_startup_failures(change) -> None:

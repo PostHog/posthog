@@ -63,6 +63,7 @@ def test_list_batch_export_backfills_pages_through_tied_values(client: HttpClien
 
     listed = [backfill["id"] for page in pages for backfill in page["results"]]
     assert sorted(listed) == sorted(backfill_ids)
+    assert [page["count"] for page in pages] == [len(backfill_ids)] * len(pages)
 
 
 def test_cannot_list_batch_export_backfills_for_other_organizations(client: HttpClient, organization, team, user):

@@ -21,12 +21,13 @@ from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.printer.utils import prepare_ast_for_printing
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.property_metadata import PropertyMetadata
+from posthog.hogql.test.utils import native_stored_document
 from posthog.hogql.transforms.clickhouse_property_resolution import (
     MAX_MATERIALIZED_LIKE_PATTERN_LENGTH,
-    _is_json_verbatim,
     clickhouse_property_resolution,
 )
 from posthog.hogql.transforms.property_types import PropertySwapper
+from posthog.hogql.utils import is_json_verbatim
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
@@ -53,7 +54,7 @@ class TestJSONVerbatimValues(SimpleTestCase):
     @example("plain_value-1")
     @hypothesis_settings(max_examples=100, deadline=None)
     def test_accepted_values_survive_json_encoding(self, value: str) -> None:
-        if not _is_json_verbatim(value):
+        if not is_json_verbatim(value):
             return
         assert value in json.dumps({"key": value})
         assert value in json.dumps({"key": value}, ensure_ascii=False)
@@ -168,6 +169,63 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("event", "properties", "value", "properties.value", False),
+            ("event_after_grouping", "properties", "value", "properties.value", True),
+            ("person", "person_properties", "value", "poe.properties.value", False),
+            ("flag", "properties", "$feature/value", "properties.`$feature/value`", False),
+        ]
+    )
+    def test_boolean_constants_compare_with_untyped_properties_as_text(
+        self, _name: str, column: str, key: str, property_expr: str, grouped: bool
+    ) -> None:
+        context = HogQLContext(
+            use_new_events_schema=True,
+            property_metadata=PropertyMetadata(),
+            database=Database(),
+            apply_events_retention_floor=False,
+        )
+        context.property_swapper = PropertySwapper("UTC", {}, {}, {}, context, False)
+        prepared = prepare_ast_for_printing(
+            parse_select(
+                f"SELECT tuple({property_expr} = true, true = {property_expr}, {property_expr} = false, "
+                f"{property_expr} != true, equals({property_expr}, true)) FROM events"
+                + (f" GROUP BY {property_expr}" if grouped else "")
+            ),
+            context,
+            "clickhouse",
+        )
+        assert isinstance(prepared, ast.SelectQuery)
+        printed = print_prepared_ast(prepared.select[0], context, "clickhouse")
+
+        def document(value: object) -> dict[str, object]:
+            if value is None:
+                return {}
+            if not key.startswith("$feature/"):
+                return {key: value}
+            # The cleaner stores a boolean flag as its text, and a variant named "true" or "false" under a sentinel.
+            stored = str(value).lower() if isinstance(value, bool) else f"${value}" if value != "TRUE" else value
+            return {"$feature_flags": {key.removeprefix("$feature/"): stored}}
+
+        values: list[object] = [True, "true", False, "false", "TRUE", None]
+        rows = sync_execute(
+            f"SELECT {printed} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS {column}) AS events",
+            {
+                **context.values,
+                "documents": [json.dumps(document(value)) for value in values],
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE() if column == "properties" else PERSON_PROPERTIES_JSON_TYPE(),
+            },
+        )
+        assert [row[0] for row in rows] == [
+            (1, 1, 0, 0, 1),
+            (1, 1, 0, 0, 1),
+            (0, 0, 1, 1, 0),
+            (0, 0, 1, 1, 0),
+            (0, 0, 0, 1, 0),
+            (0, 0, 0, 1, 0),
+        ]
+
+    @parameterized.expand(
+        [
             (field, property_type)
             for field in ("properties", "person_properties")
             for property_type in ("Numeric", "DateTime")
@@ -269,6 +327,8 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
         assert ("CAST(" in printed) is not declared
         read = print_prepared_ast(clickhouse_property_resolution(prop, context), context, "clickhouse")
         assert "JSONStripEmptyStringsAndNulls" not in read
+        has_key = ast.Call(name="JSONHas", args=[ast.Field(chain=[field], type=field_type), ast.Constant(value=key)])
+        has_key_sql = print_prepared_ast(clickhouse_property_resolution(has_key, context), context, "clickhouse")
         fallback_values = ["", "[5]", '{"child":""}']
         fallback = ast.Tuple(
             exprs=[
@@ -303,8 +363,12 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
                 )
             )
         rows = sync_execute(
-            f"SELECT {printed}, {read}, {fallback_sql} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS {column}) AS events",
-            {**context.values, "documents": [json.dumps(doc) for doc, _, _ in cases], "json_type": json_type},
+            f"SELECT {printed}, {read}, {fallback_sql}, {has_key_sql} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS {column}) AS events",
+            {
+                **context.values,
+                "documents": [native_stored_document(json.dumps(doc)) for doc, _, _ in cases],
+                "json_type": json_type,
+            },
             settings={
                 "transform_null_in": 1,
                 "json_type_escape_dots_in_keys": 1,
@@ -312,12 +376,14 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
             },
         )
         assert [row[0] for row in rows] == [(eq, eq, 1 - eq, member, 1 - member, 1 - member) for _, eq, member in cases]
-        for (_, read_value, fallback_result), (document, _, _) in zip(rows, cases):
+        for (_, read_value, fallback_result, has_key_result), (document, _, _) in zip(rows, cases):
             assert fallback_result == tuple(int(read_value == value) for value in fallback_values)
             sent = document.get(key)
-            if sent in (None, "", [], {}):
+            # A declared String column stores a sent "" the same as a missing key, so it reads as missing.
+            if sent is None or (declared and sent == ""):
                 assert read_value is None
             elif isinstance(sent, (list, dict)):
                 assert json.loads(read_value) == sent
             else:
                 assert read_value == ("true" if sent is True else str(sent))
+            assert has_key_result == int(read_value is not None)

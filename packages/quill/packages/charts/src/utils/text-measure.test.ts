@@ -27,4 +27,8 @@ describe('truncateToWidth', () => {
         const ellipsisWidth = measureLabelWidth(ELLIPSIS)
         expect(truncateToWidth(longUrl, ellipsisWidth - 0.01)).toBe(ELLIPSIS)
     })
+
+    it('never cuts an emoji in half', () => {
+        expect(truncateToWidth('ab😀cd', measureLabelWidth('ab😀'))).toBe('ab…')
+    })
 })

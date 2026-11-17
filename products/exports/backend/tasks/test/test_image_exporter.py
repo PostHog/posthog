@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -29,6 +30,7 @@ from posthog.settings import (
 )
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -91,6 +93,30 @@ class TestImageExporter(APIBaseTest):
         )
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_PREFIX).delete()
+
+    @parameterized.expand([("asked", True, {"site_style": {"text_color": "#123456"}}), ("not_asked", False, {})])
+    def test_replay_export_keeps_the_site_style_only_when_asked(
+        self,
+        _remove: Any,
+        _open: Any,
+        mock_screenshot: Any,
+        _name: str,
+        read_site_style: bool,
+        expected: dict,
+    ) -> None:
+        mock_screenshot.return_value = {"text_color": "#123456"}
+        context = {"session_recording_id": "rec-1", "timestamp": 3, "width": 1440, "height": 900}
+        if read_site_style:
+            context["read_site_style"] = True
+        asset = ExportedAsset.objects.create(
+            team=self.team, export_format=ExportedAsset.ExportFormat.PNG, export_context=context
+        )
+
+        image_exporter._export_to_png(asset)
+
+        asset.refresh_from_db()
+        assert asset.export_context == {**context, **expected}
+        assert mock_screenshot.call_args.args[-1] is read_site_style
 
     def test_export_without_renderable_target_raises_invalid_export_context(self, *args: Any) -> None:
         exported_asset = ExportedAsset.objects.create(
@@ -291,9 +317,17 @@ class TestImageExporter(APIBaseTest):
                 f"Call {i + 1} has unexpected insight {called_insight.id}"
             )
 
+    @parameterized.expand(
+        [
+            ("plain_key", "test_cache_key_123"),
+            ("key_with_backslash", "cache_[{'regex': '/project/\\\\d+'}]"),
+        ]
+    )
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
     def test_export_captures_cache_keys_and_passes_to_url(
         self,
+        _name: str,
+        cache_key: str,
         mock_calculate: Any,
         mock_remove: Any,
         mock_open: Any,
@@ -311,7 +345,7 @@ class TestImageExporter(APIBaseTest):
             insight=insight,
         )
 
-        mock_calculate.return_value = make_insight_result("test_cache_key_123")
+        mock_calculate.return_value = make_insight_result(cache_key)
 
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(exported_asset)
@@ -322,11 +356,20 @@ class TestImageExporter(APIBaseTest):
         url_to_render = call_args[0][1]  # Second positional arg is the URL
 
         assert "cache_keys=" in url_to_render, f"URL should contain cache_keys parameter: {url_to_render}"
-        assert "test_cache_key_123" in url_to_render, f"URL should contain the cache key: {url_to_render}"
+        exported_cache_keys = json.loads(parse_qs(urlparse(url_to_render).query)["cache_keys"][0])
+        assert exported_cache_keys == {str(insight.id): cache_key}
 
+    @parameterized.expand(
+        [
+            ("plain_keys", ""),
+            ("keys_with_backslash", "\\d+"),
+        ]
+    )
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
     def test_dashboard_export_captures_all_cache_keys(
         self,
+        _name: str,
+        cache_key_suffix: str,
         mock_calculate: Any,
         mock_remove: Any,
         mock_open: Any,
@@ -352,7 +395,7 @@ class TestImageExporter(APIBaseTest):
         )
 
         def mock_calc(insight: Any, **kwargs: Any) -> InsightResult:
-            return make_insight_result(f"cache_key_for_insight_{insight.id}")
+            return make_insight_result(f"cache_key_for_insight_{insight.id}{cache_key_suffix}")
 
         mock_calculate.side_effect = mock_calc
 
@@ -363,11 +406,10 @@ class TestImageExporter(APIBaseTest):
         assert mock_screenshot_asset.called
         url_to_render = mock_screenshot_asset.call_args[0][1]
 
-        # URL should contain cache_keys for all insights
-        for insight in insights:
-            assert f"cache_key_for_insight_{insight.id}" in url_to_render, (
-                f"URL should contain cache key for insight {insight.id}"
-            )
+        exported_cache_keys = json.loads(parse_qs(urlparse(url_to_render).query)["cache_keys"][0])
+        assert exported_cache_keys == {
+            str(insight.id): f"cache_key_for_insight_{insight.id}{cache_key_suffix}" for insight in insights
+        }
 
     @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
     @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
@@ -672,6 +714,8 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
         mock_screenshot_asset: Any,
     ) -> None:
         data_url = "/api/environments/1/heatmap_screenshots/abc/content/?width=1024&format=jpeg"
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
         exported_asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.PNG,
@@ -681,7 +725,10 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
             },
         )
 
-        with self.settings(OBJECT_STORAGE_ENABLED=False):
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            mock_anti_ssrf_dns_lookup(),
+        ):
             image_exporter.export_image(exported_asset)
 
         url_to_render = mock_screenshot_asset.call_args[0][1]
@@ -694,6 +741,33 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
         assert params["pageURL"] == ["https://example.com/page?tab=home"]
         assert params["dataURL"] == [data_url]
         assert set(params.keys()) == {"token", "pageURL", "dataURL"}
+
+    def test_heatmap_export_rejects_url_outside_authorized_urls(
+        self,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={
+                "heatmap_url": "https://example.org/page",
+                "heatmap_data_url": "https://example.org/page",
+                "heatmap_type": "click",
+            },
+        )
+
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            mock_anti_ssrf_dns_lookup(),
+            self.assertRaisesRegex(InvalidExportContext, "authorized URLs"),
+        ):
+            image_exporter.export_image(exported_asset)
+
+        mock_screenshot_asset.assert_not_called()
 
     def test_without_encoding_inner_ampersands_corrupt_query_string(
         self,
@@ -1000,6 +1074,20 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         # The re-raise preserves the original timeout as its cause (the message carries no secret, so chaining is safe).
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
+
+    @parameterized.expand(
+        [
+            ("all_stylesheets_loaded", [], {"text_color": "#123456"}),
+            ("a_stylesheet_failed", ["https://example.com/site.css"], None),
+        ]
+    )
+    def test_site_style_is_empty_when_a_stylesheet_failed(
+        self, _name: str, failed_stylesheets: list[str], expected: dict | None
+    ) -> None:
+        page = MagicMock()
+        page.evaluate.return_value = {"text_color": "#123456"}
+
+        assert image_exporter._read_site_style(page, failed_stylesheets) == expected
 
     def test_replay_export_finds_the_player_inside_its_frame_document(self) -> None:
         # The player can mount rrweb inside its own frame document. A selector wait or a document query

@@ -31,7 +31,9 @@ Mixing them up makes reachable groups look unused.
 
 - `taxonomic filter closed`: `dwellMs`, `hadSelection`, `categoryRailDocked`, `groupType`.
   Sent only when `hadInteraction` is true.
-- `taxonomic filter item selected`: `groupType`, `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`, `hadSearchInput`, `position`, `query`, `wasStale`, `wasUrlContainsShortcut`.
+- `taxonomic filter item selected`: `groupType`, `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`, `wasHiddenEventStandIn`, `hadSearchInput`, `position`, `query`, `wasStale`, `wasUrlContainsShortcut`.
+  `wasHiddenEventStandIn` is true when the pick was the stand-in row for an event hidden from query builders, such as `$feature_flag_called` on a team whose flag calls moved to `flag_evaluations`.
+  Older events have no `wasHiddenEventStandIn`.
   `wasUrlContainsShortcut` is sent only on a quick filter, with `filterName`, `propertyKey`, `operator`, `filterValue`, `propertyFilterType` and `eventName`.
 - `taxonomic_filter_search_query`: `searchQuery`, `groupType`, `inputMode`, `pastedFraction`, `excludeStale`.
 - `taxonomic filter empty result`: `groupType`, `searchQuery`, `scope`.
@@ -55,13 +57,6 @@ Mixing them up makes reachable groups look unused.
 - `taxonomic filter search intent predicted`: `query`, `activeTab`, `predictedGroupType`, `confidence`, `isConfident`, `suggestsSwitch`, `wouldPromote`, `promptVersion`, `source`, `variant`, `inTime`, `shown`.
   The banner funnel in [refreshing-product-reality](refreshing-product-reality.md) reads `variant` and `shown`.
 - `taxonomic filter search intent switched`: `fromGroupType`, `toGroupType`.
-- `taxonomic filter event match eligible`: `tab`, `variant`.
-  Sent once per project and query when the search qualifies for event match. The experiment's exposure reads it.
-- `taxonomic filter event match hint shown`: `tab`, `hint`, and `unsentEvents` when `hint` is `unsent`.
-- `taxonomic filter event match suggested`: `suggestedEvents`, `tab`.
-- `taxonomic filter event match selected`: `eventName`, `position`, `tab`.
-
-Read the event match events as a funnel: answered, then suggested, then selected.
 
 ## Events, without `surface`
 
@@ -72,8 +67,6 @@ Read the event match events as a funnel: answered, then suggested, then selected
 - `taxonomic filter category selected`: `groupType`, `eventName`.
 - `taxonomic filter category dropdown opened`: `variant`.
 - `taxonomic filter category rail toggled`: `docked`.
-- `taxonomic filter event match answered`: `outcome`.
-  Emitted server side.
 - `taxonomic filter pin toggled`: `groupType`, `value`, `pinned`.
   Sent from the shared `taxonomicFilterPinnedPropertiesLogic.ts`.
 - `taxonomic filter default pins seeded`: `values`.

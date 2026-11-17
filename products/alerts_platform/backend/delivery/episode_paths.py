@@ -19,14 +19,14 @@ def episode_path(
 
     The first writer wins, so two deliveries of one firing that race agree on the path.
     """
-    stored = (
-        PlatformAlertDeliveryPath.objects.for_team(team_id)
-        .filter(configuration_id=configuration_id, grouping_key=grouping_key, episode_started_at=episode_started_at)
-        .values_list("path", flat=True)
-        .first()
+    stored = stored_path(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        grouping_key=grouping_key,
+        episode_started_at=episode_started_at,
     )
     if stored is not None:
-        return DeliveryPath(stored)
+        return stored
     row, _ = PlatformAlertDeliveryPath.objects.for_team(team_id).get_or_create(
         configuration_id=configuration_id,
         grouping_key=grouping_key,
@@ -34,3 +34,16 @@ def episode_path(
         defaults={"team_id": team_id, "path": choose()},
     )
     return DeliveryPath(row.path)
+
+
+def stored_path(
+    *, team_id: int, configuration_id: str, grouping_key: str, episode_started_at: datetime
+) -> DeliveryPath | None:
+    """The path this firing took, or None before its first delivery chose one."""
+    stored = (
+        PlatformAlertDeliveryPath.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, grouping_key=grouping_key, episode_started_at=episode_started_at)
+        .values_list("path", flat=True)
+        .first()
+    )
+    return DeliveryPath(stored) if stored is not None else None

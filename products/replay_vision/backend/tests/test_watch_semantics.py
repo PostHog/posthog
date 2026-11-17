@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 from typing import Any
 
@@ -11,8 +12,10 @@ import numpy as np
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
+from products.replay_vision.backend.highlight_feed_groups import feed_group_cache
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
+from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
 from products.replay_vision.backend.models.replay_scanner import (
     PromptValence,
     ReplayScanner,
@@ -34,8 +37,7 @@ from products.replay_vision.backend.semantic_space import (
     semantic_vector,
     unit,
 )
-from products.replay_vision.backend.tests.helpers import axis_anchors, snapshot_for
-from products.replay_vision.backend.watch_feed_groups import feed_group_cache
+from products.replay_vision.backend.tests.helpers import axis_anchors, set_rank, snapshot_for
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 from products.replay_vision.backend.watch_semantics import SemanticItem, assign_semantics, assign_semantics_batch
 from products.replay_vision.backend.watch_semantics_backfill import backfill_team_semantics
@@ -43,10 +45,6 @@ from products.replay_vision.backend.watch_themes import belongs_in_theme, finali
 
 _THEMES = "products.replay_vision.backend.watch_themes"
 _BACKFILL = "products.replay_vision.backend.watch_semantics_backfill"
-
-
-def _rank(category: str = "failure") -> dict[str, Any]:
-    return {"category": category, "contrast": 0.2, "anchor_version": ANCHOR_VERSION, "duplicate_of": "retired"}
 
 
 def _vector(*head: float) -> list[float]:
@@ -133,15 +131,20 @@ class TestAssignSemantics(BaseTest):
         self, category: str = "failure", output: dict[str, Any] | None = None, scanner: ReplayScanner | None = None
     ) -> ReplayObservation:
         scanner = scanner or self.scanner
-        return ReplayObservation.objects.create(
+        observation = ReplayObservation.objects.create(
             scanner=scanner,
             team=self.team,
             session_id=f"sess-{ReplayObservation.objects.count()}",
             triggered_by=ObservationTrigger.ON_DEMAND,
             scanner_snapshot=snapshot_for(scanner),
-            watch_rank=_rank(category),
             scanner_result={"model_output": output or {"scanner_type": "summarizer", "summary": ""}},
         )
+        set_rank(observation, category=category, contrast=0.2)
+        return observation
+
+    def _clusters(self, observation: ReplayObservation) -> tuple[Any, Any]:
+        rank = ReplayObservationRank.objects.for_team(self.team.id).get(observation_id=observation.id)
+        return rank.feed_group_id, rank.search_theme_id
 
     def _assign(self, observation: ReplayObservation, vector: list[float]) -> Any:
         return assign_semantics(
@@ -201,11 +204,7 @@ class TestAssignSemantics(BaseTest):
 
         assert self._counts(ReplayScannerFeedGroup) == [1, 3]
         assert self._counts(ReplayScannerSearchTheme) == [1, 2]
-        first.refresh_from_db()
-        assert first.watch_rank is not None
-        assert first.watch_rank["group"] == str(joined[0].group_id)
-        assert first.watch_rank["theme"] == str(joined[0].theme.theme_id)
-        assert "duplicate_of" not in first.watch_rank
+        assert self._clusters(first) == (joined[0].group_id, joined[0].theme.theme_id)
 
     @parameterized.expand(
         [
@@ -232,10 +231,7 @@ class TestAssignSemantics(BaseTest):
         assignment = self._assign(observation, _vector(1.0))
 
         assert assignment.theme is None
-        observation.refresh_from_db()
-        assert observation.watch_rank is not None
-        assert observation.watch_rank["group"] == str(assignment.group_id)
-        assert "theme" not in observation.watch_rank
+        assert self._clusters(observation) == (assignment.group_id, None)
 
     @parameterized.expand(
         [
@@ -277,9 +273,8 @@ class TestAssignSemantics(BaseTest):
     @parameterized.expand([("embedded_on_time", False), ("embedded_late", True)])
     def test_the_backfill_fills_only_what_a_ranked_row_is_missing(self, _name: str, late: bool) -> None:
         grouped = self._observation()
-        ReplayObservation.objects.filter(id=grouped.id).update(
-            watch_rank={**_rank(), "group": "kept"}, status="succeeded", completed_at=timezone.now()
-        )
+        kept = uuid.uuid4()
+        set_rank(grouped, group=kept)
         vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
 
         def stored(_team_id: int, ids: list[str], _since: Any, until: Any) -> dict[str, np.ndarray]:
@@ -291,10 +286,7 @@ class TestAssignSemantics(BaseTest):
         ):
             backfill_team_semantics(self.team.id, timezone.now() - timedelta(days=1))
 
-        grouped.refresh_from_db()
-        assert grouped.watch_rank is not None
-        assert grouped.watch_rank["group"] == "kept"
-        assert set(grouped.watch_rank["scores"]) == {"failure", "struggle", "revenue", "routine"}
+        assert self._clusters(grouped)[0] == kept
         assert (
             ReplayObservationAnchorSimilarity.objects.for_team(self.team.id)
             .filter(observation_id=grouped.id, anchor_version=ANCHOR_VERSION)
@@ -353,7 +345,7 @@ class TestAssignSemantics(BaseTest):
         client = MagicMock(aclose=AsyncMock())
         client.models.generate_content = AsyncMock(side_effect=[RuntimeError("model unavailable"), response])
         with (
-            patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
+            patch(f"{_THEMES}.replay_gemini_client", MagicMock(return_value=client)),
             patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
         ):
             with self.assertRaises(RuntimeError):
@@ -381,7 +373,7 @@ class TestAssignSemantics(BaseTest):
         client = MagicMock(aclose=AsyncMock())
         client.models.generate_content = AsyncMock(side_effect=doubled_then_failed)
         with (
-            patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
+            patch(f"{_THEMES}.replay_gemini_client", MagicMock(return_value=client)),
             patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
             self.assertRaises(RuntimeError),
         ):

@@ -4,9 +4,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.signals.backend.models import SignalReport, SignalReportCheck
+from posthog.models import Team
+
+from products.signals.backend.models import SignalReport, SignalReportCheck, SignalReportMonitoringAttempt
 from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming
-from products.signals.backend.serializers import SignalReportCheckSerializer
+from products.signals.backend.report_monitoring_attempts import check_definition_version
+from products.signals.backend.serializers import MonitoringCheckTimingSerializer, SignalReportCheckSerializer
 
 
 class TestMonitoringCheckTiming(SimpleTestCase):
@@ -42,6 +45,7 @@ class TestMonitoringCheckTiming(SimpleTestCase):
         if enabled:
             assert data["monitoring_timing"] == {
                 "state": "scheduled",
+                "final_verification_state": None,
                 "started_at": "2026-10-20T00:00:00Z",
                 "ends_at": "2026-10-21T00:00:00Z",
                 "next_measurement_at": "2026-10-20T06:00:00Z",
@@ -79,26 +83,46 @@ class TestMonitoringCheckTiming(SimpleTestCase):
 
         assert timing is not None
         assert timing.state == state
+        data = MonitoringCheckTimingSerializer(timing).data
+        assert data["state"] == state
+        assert data["final_verification_state"] is None
         assert timing.ends_at == start + timedelta(days=1)
         assert timing.next_measurement_at == (check.next_run_at if has_next else None)
 
     @parameterized.expand(
         [
-            ("agent", "agent", "active", 1440, True, True, "paused"),
+            ("agent", "agent", "active", 1440, True, True, "monitoring"),
             ("legacy_metric", "metric_threshold", "active", 1440, False, True, "paused"),
             ("pending", "metric_threshold", "pending", 1440, True, True, "waiting"),
             ("missing_start", "metric_threshold", "active", 1440, True, False, "unavailable"),
             ("missing_soak", "metric_threshold", "active", None, True, True, "unavailable"),
             ("zero_soak", "metric_threshold", "active", 0, True, True, "window_ended"),
+            ("agent_exact_deadline", "agent", "active", 360, False, True, "window_ended"),
+            ("agent_past_deadline", "agent", "active", 60, False, True, "window_ended"),
+            ("agent_zero_soak", "agent", "active", 0, False, True, "window_ended"),
+            ("child_before_deadline", "agent", "active", 1440, True, True, "paused", 2),
+            ("child_after_deadline", "agent", "active", 60, True, True, "paused", 2),
             ("terminal", "metric_threshold", "errored", 1440, True, True, None),
         ]
     )
     def test_only_armed_monitoring_metrics_offer_measurements(
-        self, _name: str, kind: str, status: str, soak: int | None, definition: bool, has_start: bool, state: str | None
+        self,
+        _name: str,
+        kind: str,
+        status: str,
+        soak: int | None,
+        definition: bool,
+        has_start: bool,
+        state: str | None,
+        parent_team_id: int | None = None,
     ) -> None:
         now = datetime(2026, 10, 20, tzinfo=UTC)
         start = now - timedelta(hours=6)
-        report = SignalReport(team_id=1, status="monitoring", monitoring_started_at=start if has_start else None)
+        report = SignalReport(
+            team=Team(id=1, parent_team_id=parent_team_id),
+            status="monitoring",
+            monitoring_started_at=start if has_start else None,
+        )
         check = SignalReportCheck(
             team_id=1,
             report=report,
@@ -111,10 +135,20 @@ class TestMonitoringCheckTiming(SimpleTestCase):
             expires_at=now + timedelta(days=1),
         )
 
-        timing = MonitoringCheckTiming.for_check(check, now=now)
+        attempt = SignalReportMonitoringAttempt(
+            team_id=1,
+            report=report,
+            monitoring_started_at=start,
+            check_versions={str(check.id): check_definition_version(check)},
+        )
+        timing = MonitoringCheckTiming.for_check(check, now=now, attempt=attempt)
 
         assert (timing.state if timing else None) == state
         assert timing is None or timing.next_measurement_at is None
+        if timing is not None:
+            data = MonitoringCheckTimingSerializer(timing).data
+            assert data["state"] == ("paused" if state == "monitoring" else state)
+            assert data["final_verification_state"] == ("monitoring" if state == "monitoring" else None)
 
     @parameterized.expand(
         [

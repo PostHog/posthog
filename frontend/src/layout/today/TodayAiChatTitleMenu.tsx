@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import {
@@ -13,10 +14,12 @@ import {
     Tooltip,
     TooltipContent,
     TooltipTrigger,
+    anchoredToast,
     cn,
 } from '@posthog/quill'
 
 import { todayAiChatLogic } from './todayAiChatLogic'
+import { todayPanelChatSessionLogic } from './todayPanelChatSessionLogic'
 import { TodaySessionIcon } from './TodaySessionIcon'
 
 interface TodayAiChatTitleMenuProps {
@@ -26,6 +29,21 @@ interface TodayAiChatTitleMenuProps {
 export function TodayAiChatTitleMenu({ showChevron = true }: TodayAiChatTitleMenuProps): JSX.Element {
     const { chatTitle, recentGroups, recentLoading, activeItemId, unreadSessionIds } = useValues(todayAiChatLogic)
     const { openRecentItem } = useActions(todayAiChatLogic)
+    const { previousChatsHintQueued } = useValues(todayPanelChatSessionLogic)
+    const { previousChatsHintShown } = useActions(todayPanelChatSessionLogic)
+    const triggerRef = useRef<HTMLButtonElement>(null)
+
+    // The hint can be queued while the panel is closed, so it shows when this menu mounts.
+    useEffect(() => {
+        if (previousChatsHintQueued && triggerRef.current) {
+            anchoredToast({
+                description: 'Previous chats can be found here',
+                anchor: triggerRef.current,
+                side: 'bottom',
+            })
+            previousChatsHintShown()
+        }
+    }, [previousChatsHintQueued, previousChatsHintShown])
 
     return (
         <DropdownMenu>
@@ -35,6 +53,7 @@ export function TodayAiChatTitleMenu({ showChevron = true }: TodayAiChatTitleMen
                         <DropdownMenuTrigger
                             render={
                                 <Button
+                                    ref={triggerRef}
                                     className="min-w-0 shrink gap-1.5 px-1.5 font-semibold"
                                     data-attr="today-ai-chat-recents"
                                 >

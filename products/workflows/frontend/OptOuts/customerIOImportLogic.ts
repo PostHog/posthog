@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 
 import { ApiRequest, getCookie } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
