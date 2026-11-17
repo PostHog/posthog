@@ -36,6 +36,7 @@ from products.knowledge_writer.merge_check.facts import (
     ReleaseStateFact,
     YesNoFact,
 )
+from products.knowledge_writer.merge_check.gather import DocsPage, docs_content_root
 from products.knowledge_writer.merge_check.judge import JudgeVerdict, Variant
 from products.knowledge_writer.merge_check.sources import LandedChange
 
@@ -281,6 +282,7 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
     assert judge_content.endswith(f"<diff>\n{SCRIPT_CHUNK}{COMPONENT_CHUNK}\n</diff>")
     assert (report.needs_docs, report.change_kind) == (True, DocsChangeKind.UPDATE)
     assert report.page_urls == (FLAGS_PAGES[-1], *FLAGS_PAGES[:3])
+    assert report.docs_content_root == "contents/docs/"
     assert (report.repository, report.pull_request_number) == ("PostHog/posthog", 7)
     assert [(row.criterion, row.value) for row in report.criteria] == [
         ("code_changed", "true"),
@@ -296,6 +298,28 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
         ("judge", "update"),
         ("outdated_sentence", "false"),
     ]
+
+
+@pytest.mark.parametrize(
+    "source_paths, expected_root",
+    [
+        pytest.param(("contents/docs/feature-flags/rollouts.mdx",), "contents/docs/", id="plain_folder"),
+        pytest.param(
+            ("app/(site)/docs/feature-flags/rollouts.mdx", "app/(site)/docs/(guides)/feature-flags/index.mdx"),
+            "app/(site)/docs/",
+            id="route_group_above_and_below_the_docs_folder",
+        ),
+    ],
+)
+def test_docs_content_root_is_the_real_folder_the_pages_sit_in(
+    source_paths: tuple[str, ...], expected_root: str
+) -> None:
+    pages = [
+        DocsPage(url=f"https://example.com/docs/{key}", key=key, source_path=source_path, version=None)
+        for key, source_path in zip(["feature-flags/rollouts", "feature-flags"], source_paths)
+    ]
+
+    assert docs_content_root(pages) == expected_root
 
 
 def test_update_naming_no_sitemap_page_becomes_create() -> None:

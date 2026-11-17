@@ -1,3 +1,5 @@
+import { asToolbarProject } from 'lib/toolbar/toolbarProject'
+
 import { APP_MESSAGE_OPEN_URL, APP_MESSAGE_PING, OpenUrlResponse, PingResponse } from '../messaging/appMessages'
 import { PAGE_TOOLBAR_PORT, PageToolbarTokens } from '../messaging/pageToolbarBridge'
 
@@ -345,7 +347,12 @@ export async function getStoredTokens(key: string): Promise<PageToolbarTokens | 
     const stored = await extensionBrowser.storage.local.get(TOKENS_STORAGE_KEY)
     const tokensByKey = stored[TOKENS_STORAGE_KEY] as Record<string, PageToolbarTokens> | undefined
     const tokens = tokensByKey?.[key]
-    return tokens && typeof tokens.accessToken === 'string' && typeof tokens.clientId === 'string' ? tokens : null
+    if (!tokens || typeof tokens.accessToken !== 'string' || typeof tokens.clientId !== 'string') {
+        return null
+    }
+    // Every API path is built from the project the token is scoped to, so tokens stored without it sign out.
+    const project = asToolbarProject(tokens.project?.teamId, tokens.project?.projectId)
+    return project ? { ...tokens, project } : null
 }
 
 export async function setStoredTokens(key: string, tokens: PageToolbarTokens | null): Promise<void> {

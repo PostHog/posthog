@@ -840,6 +840,19 @@ def check_flag_limits_for_team(
         )
 
 
+class _JSONNullResponse(Response):
+    # DRF renders Response(None) as an empty body, and the SDKs' JSON parsers reject an empty body.
+    # This response renders the JSON literal null. Its .data stays None, so the Rust shadow comparison,
+    # which reads .data, still sees no payload.
+    def __init__(self) -> None:
+        super().__init__(None, headers={"Content-Type": "application/json"})
+
+    # django-stubs types rendered_content as str, but DRF's Response returns bytes from it.
+    @property
+    def rendered_content(self) -> bytes:  # type: ignore[override]
+        return b"null"
+
+
 # Default per-key and per-team cap for remote_config. Both throttles below respect
 # per-team overrides from REMOTE_CONFIG_RATE_LIMITS.
 REMOTE_CONFIG_DEFAULT_RATE = "600/minute"
@@ -4010,7 +4023,8 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Search by feature flag key or name (case-insensitive). "
-            "Spaces, underscores, and hyphens count as the same separator."
+            "Spaces, underscores, and hyphens count as the same separator. "
+            "The words of the term must appear together and in order, so a shorter term matches more flags."
         ),
     )
     type = serializers.ChoiceField(
@@ -4604,7 +4618,8 @@ class FeatureFlagViewSet(
                 required=False,
                 description=(
                     "Search by feature flag key or name. Case insensitive. "
-                    "Spaces, underscores, and hyphens count as the same separator."
+                    "Spaces, underscores, and hyphens count as the same separator. "
+                    "The words of the term must appear together and in order, so a shorter term matches more flags."
                 ),
             ),
             OpenApiParameter(
@@ -6680,11 +6695,13 @@ class FeatureFlagViewSet(
         # usage numbers.
         should_count = is_service_auth(request)
 
-        if not feature_flag.has_encrypted_payloads:
-            payloads = feature_flag.filters.get("payloads", {})
+        if not feature_flag.active or not feature_flag.has_encrypted_payloads:
             if should_count:
                 increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
-            return Response(payloads.get("true") or None)
+            # A disabled flag evaluates as off in local evaluation and /flags, so it serves no payload here either.
+            if not feature_flag.active:
+                return _JSONNullResponse()
+            return Response(feature_flag.filters.get("payloads", {}).get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
         # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication

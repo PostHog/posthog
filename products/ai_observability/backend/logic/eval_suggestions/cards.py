@@ -225,6 +225,15 @@ def review_text(card: ReviewCard, cost: str) -> CardText:
     return CardText(headline=card.title, outcome=f"{_sentence(card.checks)} {cost}", reason=_sentence(card.why))
 
 
+def prompt_fix_text(card: ReviewCard) -> CardText:
+    """The review's own words, and why the card asks for a prompt change instead of an evaluation."""
+    outcome = (
+        f"{card.failed} of {card.of} sampled calls break this rule. An evaluation would fail almost every call, so "
+        "the prompt is the place to fix it."
+    )
+    return CardText(headline=card.title, outcome=outcome, reason=_sentence(card.why))
+
+
 def fix_text(fix: EvalFix) -> CardText:
     name = fix.evaluation_name
     lookback = f"{DEAD_LOOKBACK.days} days"

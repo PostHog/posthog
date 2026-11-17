@@ -27,6 +27,8 @@ __all__ = [
     "DuckLakeDayReplacement",
     "DuckLakeTableLayoutError",
     "DuckLakeTableReplacement",
+    "HoglakeBackfillCatalog",
+    "TrinoBackend",
     "DuckgresConnectionRefused",
     "DuckgresOrganizationUnavailable",
     "DuckgresQueryServerConfig",
@@ -209,6 +211,15 @@ class DuckgresStoredBucketConfig:
 
     bucket: str
     region: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ControlPlaneStorage:
+    """The bucket and data path of a managed warehouse, both from one control-plane status."""
+
+    bucket: str
+    # `s3://<bucket>/`, or `s3://<bucket>/<prefix>/` for a warehouse under a prefix of a shared bucket.
+    data_path: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -400,9 +411,9 @@ class TrinoCompiledQuery:
     values: dict[str, Any]
     hogql: str | None = None
     needs_row_type_probe: bool = True
-    """Whether an output column may hold a ROW with anonymous fields.
+    """Whether the build must read the output types: an output column may hold a ROW with anonymous fields or a boolean.
 
-    False only when every output column resolved to a type without a tuple or an unknown part.
+    False only when every output column resolved to a type without a tuple, a boolean or an unknown part.
     """
 
 
@@ -418,6 +429,18 @@ class TrinoIncrementalWrite:
     incremental_key: str
     unique_key: tuple[str, ...]
     since: Any = None
+
+
+@frozen
+class StoredColumnType:
+    """The ClickHouse type stored for one output column of a saved query.
+
+    A Trino build matches these types, so models that read the table see the same column types
+    on both engines.
+    """
+
+    name: str
+    clickhouse_type: str
 
 
 class TrinoExpansionMode(StrEnum):
@@ -464,6 +487,10 @@ class DuckLakeTableReplacement:
 
 class DuckLakeTableLayoutError(ValueError):
     """The table's column types differ from the backfill export, so add_files refuses the export's files."""
+
+
+# The connector behind an organization's managed Trino catalog. The backend is fixed when the warehouse is created.
+TrinoBackend = Literal["ducklake", "hoglake"]
 
 
 class DuckLakeBackfillCatalog(Protocol):
@@ -542,3 +569,24 @@ class ViewTranslationSummary:
     active: bool
     # The latest job, when it has failed or stale views to retry. None otherwise.
     retry_job_id: UUID | None
+
+
+class HoglakeBackfillCatalog(Protocol):
+    """The hoglake statements of one team's backfill, run in the organization's Trino catalog."""
+
+    def ensure_table(
+        self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
+    ) -> None: ...
+
+    def replace_table(self, table: str, columns: Mapping[str, str]) -> None: ...
+
+    def register_export(
+        self,
+        table: str,
+        *,
+        location: str,
+        file_prefix: str,
+        import_id: str,
+        expected_rows: int,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int: ...
