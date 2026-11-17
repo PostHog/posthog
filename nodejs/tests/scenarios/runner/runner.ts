@@ -35,6 +35,7 @@ import {
     secretsOf,
 } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
+import { TOPOLOGY_FILE, Wiring, hostsOf, missingTargets, nodesOf } from '../environment/topology'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { BarResult, CpuPoint, judgeBars } from '../judge/bars'
@@ -54,6 +55,7 @@ import {
 import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
 import { Sampling, sampleEvery } from '../probe/every'
 import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-probe'
+import { WEBHOOK_HOST } from '../provider-edge'
 import { provenanceOf } from '../scorecard/provenance'
 import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
@@ -61,6 +63,8 @@ import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import { Admission, Status, admissionsOf, statusOf } from './status'
+
+const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
 export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError' | 'stored' | 'storeError'>
 
@@ -76,6 +80,7 @@ export type RunResult = {
     cardId: string
     cardHash: string
     profileHash: string
+    topologyHash?: string
     origin: 'local-agent'
     units?: DriveSummary
     convergence?: Convergence
@@ -100,6 +105,8 @@ const HEALTH_INTERVAL_MS = 5000
 const DELIVERY_TIMEOUT_MS = 10_000
 const SEED_STATEMENT_TIMEOUT_MS = 5000
 const SEED_WITHIN_MS = 60_000
+const TOPOLOGY_WITHIN_MS = 30_000
+const TOPOLOGY_EVERY_MS = 1000
 const WRITER_PROBE_EVERY_MS = 1000
 const QUEUE_PROBE_EVERY_MS = 5000
 const PROBED_QUEUES: Queue[] = ['hogflow', 'email']
@@ -302,17 +309,50 @@ const firstStepOf = (drive: DriveWindow, [first]: Step[]): DriveWindow => ({
     endedAt: Math.min(drive.endedAt, drive.startedAt + first.toMs),
 })
 
-export type RunnerOptions = { seedWithinMs?: number }
+export type RunnerOptions = { seedWithinMs?: number; topologyWithinMs?: number; topologyEveryMs?: number }
 
 export function createRunner(
     environment: Environment,
     env: NodeJS.ProcessEnv = process.env,
-    { seedWithinMs = SEED_WITHIN_MS }: RunnerOptions = {}
+    {
+        seedWithinMs = SEED_WITHIN_MS,
+        topologyWithinMs = TOPOLOGY_WITHIN_MS,
+        topologyEveryMs = TOPOLOGY_EVERY_MS,
+    }: RunnerOptions = {}
 ): Runner {
     const stateDir = defaultStateDir(env)
     const manifest = runManifestOf(env)
     let restartRequired: Error | undefined
     let ranManifest = false
+
+    const settledWiring = async (
+        targets: string[],
+        signal: AbortSignal
+    ): Promise<{ wiring: Wiring; nodes: string[]; missing: string[] }> => {
+        const deadline = Date.now() + topologyWithinMs
+        let previousHash: string | undefined
+        for (;;) {
+            const read = await environment.wiring().then(
+                (wiring) => ({ wiring }),
+                (error: unknown) => ({ error })
+            )
+            const late = Date.now() >= deadline
+            if ('error' in read) {
+                if (late) {
+                    throw read.error
+                }
+            } else {
+                const nodes = nodesOf(read.wiring, EDGE_HOSTS)
+                const missing = missingTargets(targets, nodes)
+                const settled = missing.length === 0 && (targets.length === 0 || read.wiring.hash === previousHash)
+                if (settled || late) {
+                    return { wiring: read.wiring, nodes, missing }
+                }
+                previousHash = missing.length === 0 ? read.wiring.hash : undefined
+            }
+            await sleep(topologyEveryMs, undefined, { signal })
+        }
+    }
 
     const writerCpuFor = async (
         bars: Named[],
@@ -395,6 +435,7 @@ export function createRunner(
             let probes: Probes | undefined
             let probed: Probed = { writer: [], queue: [] }
             let driven: DriveWindow | undefined
+            let recorded: Wiring | undefined
             let producer: KafkaProducerWrapper | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
@@ -415,6 +456,16 @@ export function createRunner(
                     }
                 )
                 await judge.open(seeded)
+                const { wiring, nodes, missing } = await settledWiring(
+                    card.valves.map(({ target }) => target),
+                    signal
+                )
+                recorded = wiring
+                if (missing.length > 0) {
+                    throw new Error(
+                        `the card targets ${missing.join(', ')}, which this run's topology does not have; it found ${nodes.join(', ')}`
+                    )
+                }
                 const exitsBefore = environment.exits().length
                 stopHealth = watchHealth(environment)
                 sampler = await startSampler(
@@ -520,6 +571,7 @@ export function createRunner(
                 cardId: card.id,
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
+                ...(recorded ? { topologyHash: recorded.hash } : {}),
                 origin: 'local-agent',
                 timeline: valves.timeline(),
                 startedAt,
@@ -535,6 +587,9 @@ export function createRunner(
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
+                if (recorded) {
+                    writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })
+                }
                 writeJson(evidenceDir, SAVED_RUN_FILE, {
                     ...verdict,
                     host,

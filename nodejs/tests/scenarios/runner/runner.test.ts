@@ -56,6 +56,7 @@ import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '
 import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
+import { WORKFLOWS_ADAPTER, wiringOf } from '../environment/topology'
 import { JournalEntry } from '../judge/judge'
 import { main } from '../main'
 import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
@@ -137,6 +138,16 @@ describe('runner', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
+        wiring: () =>
+            Promise.resolve(
+                wiringOf({
+                    adapter: WORKFLOWS_ADAPTER,
+                    specs: roleSpecs(process.env, { url: 'http://edge' }, secretsOf({}), stateDir),
+                    groups: [],
+                    clients: [],
+                    recordedAt: new Date(),
+                })
+            ),
         down: () => Promise.resolve(),
     }
 
@@ -145,12 +156,16 @@ describe('runner', () => {
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         stateDir = path.join(cacheHome, 'posthog-scenarios')
         duringReset = () => undefined
-        runner = createRunner(environment, {
-            ...processEnv,
-            XDG_CACHE_HOME: cacheHome,
-            DATABASE_URL: PROCESS_DATABASE_URL,
-            ...api.credentials,
-        })
+        runner = createRunner(
+            environment,
+            {
+                ...processEnv,
+                XDG_CACHE_HOME: cacheHome,
+                DATABASE_URL: PROCESS_DATABASE_URL,
+                ...api.credentials,
+            },
+            { topologyEveryMs: 10 }
+        )
     })
 
     afterEach(async () => {
@@ -721,6 +736,9 @@ describe('runner through seed, drive and judge', () => {
     let handles: RoleSpec[] = []
     let exits: RoleExit[]
     let killExits: (role: Role) => RoleExit[]
+    let failedWiringReads = 0
+    let cyclotronJoinsAtRead = 0
+    let wiringReads = 0
     const exitOfTheKill = (role: Role): RoleExit[] => [
         { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
@@ -758,6 +776,30 @@ describe('runner through seed, drive and judge', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
+        wiring: () => {
+            const read = wiringReads++
+            if (read < failedWiringReads) {
+                return Promise.reject(new Error('rpk group list timed out'))
+            }
+            return Promise.resolve(
+                wiringOf({
+                    adapter: WORKFLOWS_ADAPTER,
+                    specs: handles,
+                    groups: [],
+                    clients:
+                        read >= cyclotronJoinsAtRead
+                            ? [
+                                  {
+                                      application: 'scenario-cdp-cyclotron-worker-hogflow',
+                                      database: 'cyclotron',
+                                      connections: 1,
+                                  },
+                              ]
+                            : [],
+                    recordedAt: new Date(),
+                })
+            )
+        },
         writerCpu: () => Promise.reject(new Error('a local run reads no writer CPU')),
         down: async () => {
             await roles?.stop()
@@ -841,6 +883,9 @@ describe('runner through seed, drive and judge', () => {
     })
 
     beforeEach(async () => {
+        failedWiringReads = 0
+        cyclotronJoinsAtRead = 0
+        wiringReads = 0
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
@@ -917,10 +962,10 @@ describe('runner through seed, drive and judge', () => {
         traffic?: string,
         options: Parameters<typeof shortSmoke>[2] = {}
     ): Promise<RunResult> => {
-        const result = await createRunner(environmentOf(delivering), env).run(
-            shortSmoke(valves, traffic, options),
-            NEVER_ABORTED
-        )
+        const result = await createRunner(environmentOf(delivering), env, {
+            topologyWithinMs: 1000,
+            topologyEveryMs: 10,
+        }).run(shortSmoke(valves, traffic, options), NEVER_ABORTED)
         results.push(result)
         return result
     }
@@ -1020,6 +1065,14 @@ describe('runner through seed, drive and judge', () => {
                 deliveredBy ? offered.map(({ unitId }) => `${unitId}/${deliveredBy}/200`).sort() : []
             )
             expect(offered).not.toHaveLength(0)
+            expect(evidenceOf(result, 'topology.json')).toMatchObject({
+                hash: result.topologyHash,
+                databases: [{ role: 'cdp-cyclotron-worker-hogflow', database: 'cyclotron' }],
+                hosts: deliveredBy
+                    ? [{ host: deliveredBy === 'email' ? 'ses' : 'hooks.example.com', requests: offered.length }]
+                    : [],
+            })
+            expect(api.captured[0]?.properties.topology_hash).toEqual(expect.stringMatching(/^[0-9a-f]{12}$/))
         },
         30_000
     )
@@ -1256,6 +1309,41 @@ describe('runner through seed, drive and judge', () => {
                 writer: expect.arrayContaining([expect.objectContaining({ ok: true, inRecovery: false })]),
                 queue: expect.arrayContaining([expect.objectContaining({ due: expect.any(Number) })]),
             })
+        },
+        30_000
+    )
+
+    it('calls a run invalid before its drive when a valve targets a node its topology lacks, and names the nodes found', async () => {
+        cyclotronJoinsAtRead = Infinity
+        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
+
+        const result = await run('all', [{ ...failover, at: '1s', for: '500ms' }])
+
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason:
+                "the run stopped: the card targets cyclotron, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-email, cdp-cyclotron-worker-hogflow, cdp-processed-events, cdp-ses-webhooks, ses, hooks.example.com",
+            timeline: [],
+        })
+        expect(api.captured[0]?.properties.topology_hash).toEqual(result.topologyHash)
+    }, 30_000)
+
+    it.each([
+        ['a database client that joined late', { failed: 0, joinsAt: 2 }],
+        ['a read that failed', { failed: 1, joinsAt: 0 }],
+    ])(
+        'reads the topology again past %s, and runs the card',
+        async (_case, { failed, joinsAt }) => {
+            failedWiringReads = failed
+            cyclotronJoinsAtRead = joinsAt
+            const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card
+                .valves
+
+            const result = await run('all', [{ ...failover, at: '1s', for: '500ms' }])
+
+            expect(result.statusReason).toEqual(
+                'pg.failover on cyclotron was not observed: pg.failover runs only on a run host'
+            )
         },
         30_000
     )
