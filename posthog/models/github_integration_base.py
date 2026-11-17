@@ -35,6 +35,8 @@ from posthog.egress.github.limiter import github_installation_pace_seconds, reme
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
+from posthog.integrations.backend.patching import changed_fields
+from posthog.integrations.contracts import IntegrationPatch, RepositoryCache
 from posthog.redis import get_client as get_redis_client
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
@@ -216,6 +218,17 @@ class PullRequestRef:
         return f"{self.owner}/{self.repo}"
 
 
+@frozen
+class PullRequestCiStatus:
+    """The coarse CI rollup of a pull request's head commit, and whether it conflicts with its base."""
+
+    # `passing`, `failing`, `pending`, or `none`, as `_map_ci_status` returns it.
+    ci_status: str
+    # True only when GitHub reports `CONFLICTING`. `UNKNOWN` means GitHub has not computed it yet,
+    # and it reads False so that a caller waits for the next refresh instead of guessing.
+    has_conflict: bool
+
+
 # `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
 # paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
 # authenticated request to a different endpoint.
@@ -235,6 +248,10 @@ class GitHubIntegrationError(Exception):
         super().__init__(message)
         # Needed, so retry wrappers can make decisions without reparsing the response.
         self.status_code = status_code
+
+
+class ReauthorizationRequired(Exception):
+    """The stored GitHub tokens cannot produce a usable access token; user must re-authorize."""
 
 
 def _jsonb_merge(column: str, patch: dict[str, Any]) -> Func:
@@ -307,9 +324,13 @@ class GitHubIntegrationBase:
         installation_id = self.github_installation_id
         if installation_id:
             return f"installation:{installation_id}"
+        return self._row_identity()
+
+    def _row_identity(self) -> str:
         # Integration and UserIntegration are separate tables with independent primary keys, so the
         # row id alone names two different rows.
-        return f"{type(self.integration).__name__}:{self.integration.id}"
+        table = "UserIntegration" if self.is_user_integration else "Integration"
+        return f"{table}:{self.integration.id}"
 
     # --- App-level JWT authentication ---
 
@@ -395,18 +416,22 @@ class GitHubIntegrationBase:
         being deleted via the ``exclude_*`` params so it is not counted against itself.
         """
         # Local imports: both model modules import this module at load time.
-        from posthog.models.integration import Integration
+        from posthog.integrations import IntegrationManager, IntegrationNotFound
         from posthog.models.user_integration import UserIntegration
 
-        team_qs = Integration.objects.filter(kind="github", integration_id=installation_id)
+        team_rows = IntegrationManager.github.oauth.count_by_external_id(installation_id)
         if exclude_team_integration_id is not None:
-            team_qs = team_qs.exclude(id=exclude_team_integration_id)
+            try:
+                IntegrationManager.github.oauth.get_by_external_id(installation_id, exclude_team_integration_id)
+                team_rows -= 1
+            except IntegrationNotFound:
+                pass
 
         user_qs = UserIntegration.objects.filter(kind="github", integration_id=installation_id)
         if exclude_user_integration_id is not None:
             user_qs = user_qs.exclude(id=exclude_user_integration_id)
 
-        return team_qs.count() + user_qs.count()
+        return team_rows + user_qs.count()
 
     @staticmethod
     def installation_reference_counts(
@@ -422,7 +447,7 @@ class GitHubIntegrationBase:
         deletes the personal rows sharing it.
         """
         # Local imports: both model modules import this module at load time.
-        from posthog.models.integration import Integration
+        from posthog.integrations import IntegrationManager
         from posthog.models.user_integration import UserIntegration
 
         ids = {installation_id for installation_id in installation_ids if installation_id}
@@ -430,12 +455,10 @@ class GitHubIntegrationBase:
         if not ids:
             return counts
 
-        models: list[type[Integration] | type[UserIntegration]] = [Integration]
+        counts.update(IntegrationManager.github.oauth.count_by_external_ids(ids))
         if include_personal:
-            models.append(UserIntegration)
-        for model in models:
             grouped = (
-                model.objects.filter(kind="github", integration_id__in=ids)
+                UserIntegration.objects.filter(kind="github", integration_id__in=ids)
                 .values("integration_id")
                 .annotate(count=Count("id"))
             )
@@ -582,9 +605,9 @@ class GitHubIntegrationBase:
         reloads).
 
         On failure the hook is called and then an exception is raised; the hook
-        is responsible for persisting any error state it needs.  On success the
-        hook is called *before* ``save()`` so it can mutate extra fields that
-        will be included in a single write.
+        is responsible for persisting any error state it needs.  On success
+        :meth:`_token_refreshed_patch` can add changes to the one write that
+        :meth:`_store_patch` makes.
         """
         # client_request records the call via the egress transport — no manual recording here,
         # or every refresh would count twice.
@@ -612,8 +635,7 @@ class GitHubIntegrationBase:
         except ValueError as e:
             raise Exception(f"Invalid expires_at format from GitHub: {e}")
 
-        config = {
-            **self.integration.config,
+        config: dict[str, Any] = {
             "expires_in": expires_in,
             "refreshed_at": int(time.time()),
         }
@@ -627,14 +649,32 @@ class GitHubIntegrationBase:
         # GitHub at any time, and the UI uses it to decide whether to list repositories at all.
         if isinstance(data.get("repository_selection"), str):
             config["repository_selection"] = data["repository_selection"]
-        config.pop(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, None)
-        self.integration.config = config
-        self.integration.sensitive_config = {
-            **(self.integration.sensitive_config or {}),
-            "access_token": data["token"],
-        }
+        patch = IntegrationPatch(
+            config_patch=config,
+            config_remove=(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY,),
+            sensitive_config_patch={"access_token": data["token"]},
+        )
         self._on_token_refreshed()
-        self.integration.save()
+        self._store_patch(self._token_refreshed_patch(patch))
+
+    def _store_patch(self, patch: IntegrationPatch) -> None:
+        """Store `patch` on the row and keep `self.integration` current.
+
+        This base writes the `UserIntegration` row. `GitHubIntegration` stores the team row through
+        the integrations SDK.
+        """
+        changed = changed_fields(
+            config=self.integration.config, sensitive_config=self.integration.sensitive_config, errors="", patch=patch
+        )
+        if not changed:
+            return
+        for field_name, value in changed.items():
+            setattr(self.integration, field_name, value)
+        self.integration.save(update_fields=[*changed, "updated_at"])
+
+    def _token_refreshed_patch(self, patch: IntegrationPatch) -> IntegrationPatch:
+        """The patch that a successful token refresh stores. Override to add changes to the same write."""
+        return patch
 
     def mint_scoped_installation_token(
         self,
@@ -687,8 +727,7 @@ class GitHubIntegrationBase:
         dead installation on every run. Deliberately NOT the full ``_on_token_refresh_failed``
         hook: that one also stamps ``errors`` on transient failures, which would exclude the
         integration from team resolution over a passing GitHub 500."""
-        if self._disarm_proactive_refresh_if_installation_gone(response):
-            self.integration.save(update_fields=["config"])
+        self._disarm_proactive_refresh_if_installation_gone(response)
 
     @staticmethod
     def _installation_permanently_unavailable(response: requests.Response) -> bool:
@@ -723,23 +762,30 @@ class GitHubIntegrationBase:
         Also stamps ``installation_unavailable_since`` so callers can distinguish a dead installation's
         stale stored token from a usable one (see :meth:`installation_unavailable`).
         Self-healing: if the installation is later restored, a real API call 401s and ``api_request``'s
-        refresh-retry mints successfully, re-persists the fields, and clears the marker. Mutates
-        ``config`` in memory and returns whether anything changed; the caller owns the save.
+        refresh-retry mints successfully, re-persists the fields, and clears the marker. Stores the
+        change and returns whether anything changed.
         """
-        if not self._installation_permanently_unavailable(response):
+        patch = self._installation_gone_patch(response)
+        if patch is None:
             return False
-        config = {**self.integration.config}
-        changed = False
-        if "expires_in" in config or "refreshed_at" in config:
-            config.pop("expires_in", None)
-            config.pop("refreshed_at", None)
-            changed = True
-        if INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in config:
-            config[INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY] = int(time.time())
-            changed = True
-        if changed:
-            self.integration.config = config
-        return changed
+        self._store_patch(patch)
+        return True
+
+    def _installation_gone_patch(self, response: requests.Response) -> IntegrationPatch | None:
+        """The config change of :meth:`_disarm_proactive_refresh_if_installation_gone`, or None when there is none."""
+        if not self._installation_permanently_unavailable(response):
+            return None
+        config = self.integration.config
+        if INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY in config and not (
+            "expires_in" in config or "refreshed_at" in config
+        ):
+            return None
+        marker = (
+            {}
+            if INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY in config
+            else {INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY: int(time.time())}
+        )
+        return IntegrationPatch(config_patch=marker, config_remove=("expires_in", "refreshed_at"))
 
     def installation_unavailable(self) -> bool:
         """Whether a failed mint marked this installation permanently gone (uninstalled or
@@ -776,7 +822,7 @@ class GitHubIntegrationBase:
         # against the App-wide quota. Claim the row for the duration of the call so only the first
         # of the burst goes out. A cache outage falls back to the cooldown alone rather than
         # blocking the heal.
-        claim_key = f"github_account_name_heal:{type(self.integration).__name__}:{self.integration.pk}"
+        claim_key = f"github_account_name_heal:{self._row_identity()}"
         if not safe_cache_add(claim_key, True, GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS):
             return False
         try:
@@ -806,13 +852,22 @@ class GitHubIntegrationBase:
         # anything a concurrent token refresh or installation webhook commits in between — a window a
         # re-read narrows but never closes. Let Postgres merge the two keys this method owns into the
         # stored value instead, so every other key survives whichever write lands last.
+        if not self._merge_config_keys(patch):
+            return False
+        return healed_account is not None
+
+    def _merge_config_keys(self, patch: dict[str, Any]) -> bool:
+        """Merge `patch` into the stored config without a read of the whole column. False when the row is gone.
+
+        `GitHubIntegration` merges the team row through the integrations SDK, which merges under a row lock.
+        """
         updated = (
             type(self.integration).objects.filter(pk=self.integration.pk).update(config=_jsonb_merge("config", patch))
         )
         if not updated:
             return False
         self.integration.config = {**self.integration.config, **patch}
-        return healed_account is not None
+        return True
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         """Called when the installation token refresh request fails.
@@ -826,14 +881,13 @@ class GitHubIntegrationBase:
             integration_id=self.integration.id,
             status_code=response.status_code,
         )
-        if self._disarm_proactive_refresh_if_installation_gone(response):
-            self.integration.save(update_fields=["config"])
+        self._disarm_proactive_refresh_if_installation_gone(response)
 
     def _on_token_refreshed(self) -> None:
-        """Called after a successful token refresh, before ``save()``.
+        """Called after a successful token refresh, before the new token is stored.
 
-        Override to clear errors, notify workers, increment counters, etc.
-        Mutations to ``self.integration`` will be included in the same save.
+        Override to notify workers, increment counters, etc. Add stored changes with
+        :meth:`_token_refreshed_patch`.
         """
         logger.info(
             "GitHubIntegration: refreshed installation access token",
@@ -1331,6 +1385,8 @@ class GitHubIntegrationBase:
             "merged_at": pr.get("merged_at"),
             "merged_by": pr.get("merged_by"),
             "closed_at": pr.get("closed_at"),
+            # REST reports `false` for a conflict and `null` while GitHub still computes it.
+            "mergeable": pr.get("mergeable"),
             "comments": pr.get("comments", 0),
             "review_comments": pr.get("review_comments", 0),
             "commits": pr.get("commits", 0),
@@ -1844,8 +1900,9 @@ class GitHubIntegrationBase:
         """Fetch the CI status for a PR — GitHub Actions check runs plus commit statuses from external
         CI and GitHub Apps, merged into one normalized list (mirrors the checks GitHub shows on the PR page).
 
-        Returns ``{"success": True, "checks": [...]}`` on success, or ``{"success": False, "error": ...}``
-        on a handled failure. Rate limits raise :class:`GitHubRateLimitError`.
+        Returns ``{"success": True, "checks": [...], "has_conflict": bool}`` on success, or
+        ``{"success": False, "error": ...}`` on a handled failure. ``has_conflict`` comes from the pull
+        request this already reads, so it costs no extra call. Rate limits raise :class:`GitHubRateLimitError`.
         """
         pr = self.get_pull_request(repository, pr_number)
         if not pr.get("success"):
@@ -1920,7 +1977,7 @@ class GitHubIntegrationBase:
                     }
                 )
 
-        return {"success": True, "checks": checks}
+        return {"success": True, "checks": checks, "has_conflict": pr.get("mergeable") is False}
 
     @staticmethod
     def _map_commit_status_state(state: str | None) -> tuple[str, str | None]:
@@ -2224,6 +2281,10 @@ class GitHubIntegrationBase:
     _TRANSIENT_GRAPHQL_ERROR_MESSAGES = ("something went wrong while executing your query",)
     # Total GraphQL attempts (initial + retries) when GitHub returns a transient body error.
     _GRAPHQL_TRANSIENT_ATTEMPTS = 3
+    # GitHub reports its GraphQL point limit as a 200 whose ``errors`` carry one of these types.
+    _GRAPHQL_RATE_LIMIT_ERROR_TYPES = frozenset({"RATE_LIMITED", "RATE_LIMIT"})
+    # The GraphQL point limit resets hourly, so a response without a reset header waits this long.
+    _GRAPHQL_RATE_LIMIT_DEFAULT_RETRY_SECONDS = 60
 
     @classmethod
     def _graphql_errors_are_transient(cls, errors: list) -> bool:
@@ -2246,6 +2307,21 @@ class GitHubIntegrationBase:
             return False
         return True
 
+    @classmethod
+    def _graphql_errors_are_rate_limited(cls, errors: Any) -> bool:
+        if not isinstance(errors, list):
+            return False
+        for error in errors:
+            if not isinstance(error, dict):
+                continue
+            extensions = error.get("extensions")
+            types = {error.get("type")}
+            if isinstance(extensions, dict):
+                types |= {extensions.get("type"), extensions.get("code")}
+            if types & cls._GRAPHQL_RATE_LIMIT_ERROR_TYPES:
+                return True
+        return False
+
     def _gh_graphql(
         self,
         query: str,
@@ -2254,6 +2330,8 @@ class GitHubIntegrationBase:
         endpoint: str,
         timeout: int = 10,
         retry_transient: bool = True,
+        priority: Priority | None = None,
+        raise_rate_limit: bool = False,
     ) -> dict:
         """Authenticated POST to the GitHub GraphQL API. Returns the ``data`` object.
 
@@ -2263,6 +2341,10 @@ class GitHubIntegrationBase:
         the status-code retry can't catch. A mutation passes ``retry_transient=False``: a
         network error can arrive after GitHub already ran the write, so a repeat is the
         caller's decision to make, not this method's.
+
+        GitHub answers an exhausted GraphQL point budget with a 200 and rate-limit errors, which
+        raises ``GitHubIntegrationError`` like any other GraphQL error. ``raise_rate_limit=True``
+        raises ``GitHubRateLimitError`` for it instead, so a caller that sends many queries can stop.
         """
         errors: Any = None
         attempts = self._GRAPHQL_TRANSIENT_ATTEMPTS if retry_transient else 1
@@ -2274,6 +2356,7 @@ class GitHubIntegrationBase:
                 json_body={"query": query, "variables": variables},
                 timeout=timeout,
                 retry_transient=retry_transient,
+                priority=priority,
             )
             if response.status_code != 200:
                 raise GitHubIntegrationError(
@@ -2285,6 +2368,15 @@ class GitHubIntegrationBase:
             errors = body.get("errors")
             if not errors:
                 return data or {}
+            if raise_rate_limit and self._graphql_errors_are_rate_limited(errors):
+                try:
+                    reset_at = int(response.headers.get("x-ratelimit-reset", ""))
+                    retry_after = max(1, reset_at - int(time.time()))
+                except (TypeError, ValueError):
+                    retry_after = self._GRAPHQL_RATE_LIMIT_DEFAULT_RETRY_SECONDS
+                raise GitHubRateLimitError(
+                    f"GitHubIntegration: GraphQL rate limited on {endpoint}", retry_after=retry_after
+                )
             if data:
                 # GitHub can return useful partial data with field-level permission errors.
                 logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
@@ -2497,10 +2589,12 @@ class GitHubIntegrationBase:
     # already landed, so a caller that must keep those feeds this method one batch at a time.
     PR_CI_STATUS_BATCH_SIZE = 25
 
-    def get_pull_request_ci_statuses(self, references: Iterable[PullRequestRef]) -> dict[PullRequestRef, str]:
-        """The coarse CI rollup of many pull requests, keyed by reference.
+    def get_pull_request_ci_statuses(
+        self, references: Iterable[PullRequestRef]
+    ) -> dict[PullRequestRef, PullRequestCiStatus]:
+        """The coarse CI rollup and the conflict state of many pull requests, keyed by reference.
 
-        Values use the same vocabulary as :meth:`get_pull_request_snapshot`'s ``ci_status``
+        ``ci_status`` uses the same vocabulary as :meth:`get_pull_request_snapshot`'s ``ci_status``
         (``passing`` / ``failing`` / ``pending`` / ``none``). One GraphQL call covers up to
         ``PR_CI_STATUS_BATCH_SIZE`` pull requests, which is what makes this affordable for a list of
         pull requests rather than a single one.
@@ -2511,7 +2605,7 @@ class GitHubIntegrationBase:
         and other failures raise ``GitHubIntegrationError``. Callers own the back-off for all three.
         """
         unique = list(dict.fromkeys(references))
-        statuses: dict[PullRequestRef, str] = {}
+        statuses: dict[PullRequestRef, PullRequestCiStatus] = {}
         for start in range(0, len(unique), self.PR_CI_STATUS_BATCH_SIZE):
             batch = unique[start : start + self.PR_CI_STATUS_BATCH_SIZE]
             declarations = ", ".join(
@@ -2519,7 +2613,7 @@ class GitHubIntegrationBase:
             )
             selections = "\n".join(
                 f"  pr{i}: repository(owner: $owner{i}, name: $repo{i}) {{"
-                f" pullRequest(number: $number{i}) {{ commits(last: 1) {{ nodes {{ commit {{"
+                f" pullRequest(number: $number{i}) {{ mergeable commits(last: 1) {{ nodes {{ commit {{"
                 f" statusCheckRollup {{ state }} }} }} }} }} }}"
                 for i in range(len(batch))
             )
@@ -2542,7 +2636,10 @@ class GitHubIntegrationBase:
                 rollup_state = None
                 if rollup_nodes:
                     rollup_state = ((rollup_nodes[0].get("commit") or {}).get("statusCheckRollup") or {}).get("state")
-                statuses[reference] = self._map_ci_status(rollup_state)
+                statuses[reference] = PullRequestCiStatus(
+                    ci_status=self._map_ci_status(rollup_state),
+                    has_conflict=self._map_mergeable(pull_request.get("mergeable")) is False,
+                )
         return statuses
 
     _PR_BABYSIT_SNAPSHOT_QUERY = """
@@ -2951,9 +3048,28 @@ class GitHubIntegrationBase:
 
     # --- Cached repository operations ---
 
+    def _repository_cache(self) -> RepositoryCache:
+        """The repository list stored for the row. This base reads the `UserIntegration` row.
+
+        `GitHubIntegration` reads the team row through the integrations SDK.
+        """
+        return RepositoryCache(
+            repositories=self.integration.repository_cache,
+            updated_at=self.integration.repository_cache_updated_at,
+        )
+
+    def _store_repository_cache(self, repositories: list[dict] | None, updated_at: datetime) -> None:
+        """Store a repository list fetch. `repositories=None` keeps the stored list."""
+        update_fields = ["repository_cache_updated_at"]
+        if repositories is not None:
+            self.integration.repository_cache = repositories
+            update_fields.insert(0, "repository_cache")
+        self.integration.repository_cache_updated_at = updated_at
+        self.integration.save(update_fields=update_fields)
+
     def _get_stored_repository_list(self) -> list[dict] | None:
         """Repositories persisted on the integration row."""
-        cached = self.integration.repository_cache
+        cached = self._repository_cache().repositories
         if not isinstance(cached, list):
             return None
         return [
@@ -2970,8 +3086,13 @@ class GitHubIntegrationBase:
             and isinstance(repo.get("full_name"), str)
         ]
 
+    def repository_cache_confirmed_empty(self) -> bool:
+        """True when a fetched repository list holds no repository."""
+        cache = self._repository_cache()
+        return cache.updated_at is not None and cache.repositories == []
+
     def repository_cache_is_stale(self) -> bool:
-        updated_at = self.integration.repository_cache_updated_at
+        updated_at = self._repository_cache().updated_at
         if updated_at is None:
             return True
         return (timezone.now() - updated_at).total_seconds() >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
@@ -2980,7 +3101,7 @@ class GitHubIntegrationBase:
         self, min_refresh_interval_seconds: int | None = None, *, priority: Priority | None = None
     ) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()
-        updated_at = self.integration.repository_cache_updated_at
+        updated_at = self._repository_cache().updated_at
         if (
             min_refresh_interval_seconds is not None
             and cached_repositories is not None
@@ -2990,13 +3111,7 @@ class GitHubIntegrationBase:
             return cached_repositories
 
         repositories = self.list_all_repositories(priority=priority)
-        refreshed_at = timezone.now()
-        update_fields = ["repository_cache_updated_at"]
-        if repositories != cached_repositories:
-            self.integration.repository_cache = repositories
-            update_fields.insert(0, "repository_cache")
-        self.integration.repository_cache_updated_at = refreshed_at
-        self.integration.save(update_fields=update_fields)
+        self._store_repository_cache(repositories if repositories != cached_repositories else None, timezone.now())
         return repositories
 
     def _filter_cached_repositories(self, repositories: list[dict], search: str) -> list[dict]:
@@ -3011,13 +3126,15 @@ class GitHubIntegrationBase:
         self, *, search: str = "", limit: int = 100, offset: int = 0
     ) -> tuple[list[dict], bool]:
         cached_repositories = self._get_stored_repository_list()
-        has_cached_snapshot = self.integration.repository_cache_updated_at is not None
+        has_cached_snapshot = self._repository_cache().updated_at is not None
         should_refresh = cached_repositories is None or self.repository_cache_is_stale()
         self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:
             try:
                 cached_repositories = self.sync_repository_cache()
+            except ReauthorizationRequired:
+                raise
             except Exception:
                 logger.warning(
                     "GitHubIntegration: failed to refresh repository cache",
@@ -3044,7 +3161,7 @@ class GitHubIntegrationBase:
 
     def list_all_cached_repositories(self, max_repos: int | None = None, *, allow_refresh: bool = True) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()
-        has_cached_snapshot = self.integration.repository_cache_updated_at is not None
+        has_cached_snapshot = self._repository_cache().updated_at is not None
         # `allow_refresh=False` keeps this a pure cache read — no live GitHub sync, no token refresh,
         # no DB write — for callers on a latency-sensitive path that accept a stale snapshot.
         should_refresh = allow_refresh and (cached_repositories is None or self.repository_cache_is_stale())
@@ -3168,7 +3285,13 @@ class GitHubIntegrationBase:
         from posthog.tasks.integrations import refresh_github_branch_cache  # noqa: PLC0415
 
         try:
-            refresh_github_branch_cache.delay(str(self.integration.id), repo, self.is_user_integration, lock_token)
+            refresh_github_branch_cache.delay(
+                str(self.integration.id),
+                repo,
+                self.is_user_integration,
+                lock_token,
+                None if self.is_user_integration else self.integration.team_id,
+            )
         except Exception:
             self.release_branch_refresh_lock(repo, lock_token)
             logger.warning(

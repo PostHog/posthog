@@ -30,8 +30,21 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
-            # Plain checkout: the lint reads every owners.yaml and product.yaml in the tree.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /.github/actions/setup-uv/
+                      /bin/hogli
+                      /hogli.yaml
+                      /pyproject.toml
+                      /uv.lock
+                      /tools/hogli/
+                      /tools/hogli-commands/
+                      /packages/owners-yaml/
+                      /packages/personhog-proto/pyproject.toml
+                      **/owners.yaml
+                      **/product.yaml
+                  sparse-checkout-cone-mode: false
 
             # Default GITHUB_TOKEN can't list /repos/{repo}/teams (needs org-level
             # `members: read`). Reuse the assign-reviewers app — same secret, same

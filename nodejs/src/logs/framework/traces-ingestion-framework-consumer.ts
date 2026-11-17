@@ -4,6 +4,7 @@ import { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '../c
 import type { MetricRuleSource } from '../metrics-rules/compile-metric-rules'
 import type { RetentionRuleSource } from '../retention/compile-retention-rules'
 import { DEFAULT_TRACES_RETENTION_DAYS, TracingConfigCache } from '../retention/tracing-config-cache'
+import type { SamplingRuleSource } from '../sampling/sampling-rules-cache'
 import type { TracesIngestionConsumerDeps } from '../traces-ingestion-consumer'
 import { LogsIngestionFrameworkConsumer } from './logs-ingestion-framework-consumer'
 
@@ -14,6 +15,7 @@ export class TracesIngestionFrameworkConsumer extends LogsIngestionFrameworkCons
     protected override appSource: 'logs' | 'traces' = 'traces'
     protected override metricRuleSource: MetricRuleSource = 'spans'
     protected override retentionRuleSource: RetentionRuleSource = 'spans'
+    protected override samplingRuleSource: SamplingRuleSource = 'spans'
     private tracingConfigCache?: TracingConfigCache
 
     constructor(
@@ -43,6 +45,8 @@ export class TracesIngestionFrameworkConsumer extends LogsIngestionFrameworkCons
                 LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS: config.TRACES_DEFAULT_METRIC_RULES_ENABLED_TEAMS,
                 LOGS_RETENTION_ENABLED_TEAMS: config.TRACES_RETENTION_ENABLED_TEAMS,
                 LOGS_RETENTION_KILLSWITCH: config.TRACES_RETENTION_KILLSWITCH,
+                LOGS_SAMPLING_ENABLED_TEAMS: config.TRACES_SAMPLING_ENABLED_TEAMS,
+                LOGS_SAMPLING_KILLSWITCH: config.TRACES_SAMPLING_KILLSWITCH,
                 // Internal batches are logs only, so a signed traces batch is still billed.
                 LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
                 LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '',

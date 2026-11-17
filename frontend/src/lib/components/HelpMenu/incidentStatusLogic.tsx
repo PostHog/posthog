@@ -119,6 +119,36 @@ function hasRelevantComponents(affectedComponents: AffectedComponent[], relevant
     return affectedComponents.some((component) => normalizeGroupName(component.group_name ?? '') === relevantGroupName)
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null
+}
+
+function isComponent(value: unknown): boolean {
+    return (
+        isObject(value) &&
+        typeof value.name === 'string' &&
+        (value.group_name === undefined || typeof value.group_name === 'string')
+    )
+}
+
+function hasComponents(entry: unknown): entry is Record<string, unknown> {
+    return isObject(entry) && Array.isArray(entry.affected_components) && entry.affected_components.every(isComponent)
+}
+
+function isIncident(entry: unknown): boolean {
+    return hasComponents(entry) && typeof entry.name === 'string' && typeof entry.last_update_message === 'string'
+}
+
+function isSummary(data: unknown): data is Summary {
+    return (
+        isObject(data) &&
+        Array.isArray(data.ongoing_incidents) &&
+        Array.isArray(data.in_progress_maintenances) &&
+        data.ongoing_incidents.every(isIncident) &&
+        data.in_progress_maintenances.every(hasComponents)
+    )
+}
+
 function getWorstStatusForRegion(summary: Summary, relevantGroupName: string | null): NormalizedStatus {
     // Filter incidents to only those affecting the current region
     const relevantIncidents = summary.ongoing_incidents.filter((incident) =>
@@ -300,7 +330,13 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                             )
                             return null
                         }
-                        const data: Summary = await response.json()
+                        const data: unknown = await response.json()
+                        if (!isSummary(data)) {
+                            // A 2xx body without the incident arrays would throw in every selector that
+                            // reads them, and that error reaches RootErrorBoundary and blanks the app.
+                            posthog.captureException(new Error('incident.io summary has an unexpected shape'))
+                            return null
+                        }
                         return data
                     } catch (error) {
                         if (!isBrowserNetworkFailure(error)) {

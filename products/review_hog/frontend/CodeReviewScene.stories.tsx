@@ -177,6 +177,7 @@ const REVIEW_TOTAL = 61
 
 function finding(overrides: Partial<ReviewFindingApi>): ReviewFindingApi {
     return {
+        issue_key: '1-retry-loop',
         title: 'Retry loop never gives up on a permanent error',
         file: 'posthog/tasks/exports.py',
         lines: [{ start: 42, end: 58 }],
@@ -187,6 +188,7 @@ function finding(overrides: Partial<ReviewFindingApi>): ReviewFindingApi {
         source_perspective: 'review-hog-perspective-logic-correctness',
         validator_category: 'bug',
         validator_note: 'The handler catches every `HTTPError`, including 4xx, so the retry path is reachable.',
+        outcome: null,
         ...overrides,
     }
 }
@@ -905,7 +907,8 @@ export const SettingsForMember: Story = {
             )
         ).toBeVisible()
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
-        await expect(canvas.queryByText('Include in project')).not.toBeInTheDocument()
+        await expect(canvas.getAllByText('Include in project').length).toBeGreaterThan(0)
+        await expect(canvas.queryByText('Remove from project')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Add exception for example-org/docs')).not.toBeInTheDocument()
     },
 }

@@ -50,6 +50,12 @@ _CONNECTION_CHECK_ERROR = (
     "PostHog couldn't check your LinkedIn Ads connection. Try again in a few minutes, "
     "and reconnect your LinkedIn Ads account if it keeps failing."
 )
+# LinkedIn lists every ad account the signed-in member has a role on, so an empty list means the
+# member has no role. Reconnecting as the same member returns the same empty list.
+_NO_AD_ACCOUNTS_ERROR = (
+    "The LinkedIn member you connected with has no role on any ad account. Ask an account admin "
+    "to add you in Campaign Manager, or reconnect with a member who has access."
+)
 
 # LinkedIn's Marketing API uses monthly date-based versioning (YYYYMM) sent as a request header.
 LINKEDIN_ADS_VERSION_202606 = "202606"
@@ -136,6 +142,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # token can't be used until LinkedIn lifts the restriction, so retrying never recovers —
             # stop syncing and tell the user to resolve it with LinkedIn and re-authorize.
             "RESTRICTED_MEMBER": "LinkedIn has restricted the account that authorized this integration, so PostHog can no longer access your ad data. Resolve the restriction with LinkedIn, then re-authorize the LinkedIn Ads integration.",
+            # LinkedIn returns a 401 with this stable error code when it rejects the access token
+            # itself (invalid, malformed, or simply no longer accepted) — distinct from the more
+            # specific REVOKED_ACCESS_TOKEN / RESTRICTED_MEMBER cases above. Retrying can't recover;
+            # only re-authorizing gets a usable token.
+            '"code":"AUTHENTICATION_FAILED"': "LinkedIn rejected the credentials for this integration. Please re-authorize the LinkedIn Ads integration.",
             # The Account ID is a free-text field. A malformed value (a profile URL, a name, stray
             # whitespace) makes LinkedIn reject the `urn:li:sponsoredAccount:<id>` accounts param with
             # a deterministic 400 ("...is invalid. Reason: Deserializing output ... failed"). Retrying
@@ -175,7 +186,7 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             featured=True,
             keywords=["linkedin advertising"],
             label="LinkedIn Ads",
-            caption="Ensure you have granted PostHog access to your LinkedIn Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/linkedin-ads).",
+            caption="Connect with a LinkedIn member who has a role on your ad account in Campaign Manager. Learn more in [the documentation](https://posthog.com/docs/cdp/sources/linkedin-ads).",
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/linkedin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/linkedin-ads",
@@ -246,6 +257,9 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
                 "LinkedIn's daily API limit for this connection has been reached. "
                 "Please try again after it resets at midnight UTC."
             ) from e
+
+        if not accounts:
+            raise IntegrationAccountListingError(_NO_AD_ACCOUNTS_ERROR)
 
         return [
             IntegrationAccount(

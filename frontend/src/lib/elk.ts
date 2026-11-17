@@ -1,7 +1,8 @@
 import { type ELK } from 'elkjs'
 
+import { createWorker } from 'lib/utils/createWorker'
+
 // Falls back to the main thread without a Worker (jsdom) or when the bundle isn't served (Vite dev)
-const WORKER_URL = '/static/elkWorker.js'
 const WORKER_PROBE_TIMEOUT_MS = 5000
 
 let elkPromise: Promise<ELK> | null = null
@@ -19,7 +20,7 @@ async function loadWorkerElk(): Promise<ELK> {
     let worker: Worker | null = null
     const elk = new ELKConstructor({
         workerFactory: () => {
-            worker = new Worker(WORKER_URL, { type: 'module' })
+            worker = createWorker('elkWorker.js', { type: 'module' })
             return worker
         },
     })

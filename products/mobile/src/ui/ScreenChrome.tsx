@@ -1,5 +1,5 @@
-import { type ReactElement, type ReactNode, useState } from 'react'
-import { View } from 'react-native'
+import { type ReactElement, type ReactNode, type RefObject, useState } from 'react'
+import { View, type ViewInstance } from 'react-native'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import { BackChip } from './BackChip'
@@ -21,6 +21,7 @@ export interface ScreenChromeProps {
     right?: ReactNode
     nativeActions?: ReactNode
     hideNativeTitle?: boolean
+    blurTarget?: RefObject<ViewInstance | null>
 }
 
 export function ScreenChrome(props: ScreenChromeProps): ReactElement {
@@ -39,6 +40,7 @@ function CustomScreenChrome({
     title,
     right,
     nativeRail,
+    blurTarget,
 }: ScreenChromeProps & { nativeRail: boolean }): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
@@ -52,7 +54,7 @@ function CustomScreenChrome({
     }))
     return (
         <View style={[styles.chrome, { paddingTop: top }]}>
-            <BlurEdge solid={solid} />
+            <BlurEdge solid={solid} blurTarget={blurTarget} />
             <FadeEdge direction="down" solid={solid} opacity={layout.chromeTint} />
             <View onLayout={(event) => setLeftWidth(event.nativeEvent.layout.width)}>
                 {nativeRail ? null : <BackChip onPress={onBack} testID={backTestID} />}

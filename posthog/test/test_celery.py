@@ -1,21 +1,45 @@
+import gc
 import os
 import threading
 
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import posthoganalytics
+from celery.bootsteps import CLOSE, RUN, Blueprint
+from celery.exceptions import WorkerShutdown
+from celery.platforms import EX_FAILURE
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 import posthog.celery
-from posthog.celery import _initialize_worker_metrics, on_worker_process_shutdown
+from posthog.celery import (
+    StopWorkerWhenEmbeddedSchedulerExits,
+    _initialize_worker_metrics,
+    freeze_objects_before_pool_forks,
+    on_worker_process_shutdown,
+    write_heartbeat_when_worker_is_ready,
+)
 from posthog.celery_task_names import (
     VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
     VERIFY_FLAGS_CACHE_TASK_NAME,
     VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
 )
 from posthog.tasks.tasks import clickhouse_errors_count
+
+
+class TestFreezeBeforePoolForks(TestCase):
+    @parameterized.expand([(True,), (False,)])
+    def test_freezes_the_objects_the_pool_will_inherit_only_when_enabled(self, enabled: bool) -> None:
+        gc.unfreeze()
+        self.addCleanup(gc.unfreeze)
+
+        with override_settings(GC_FREEZE_BEFORE_POOL_FORK=enabled):
+            freeze_objects_before_pool_forks()
+
+        self.assertEqual(gc.get_freeze_count() > 0, enabled)
 
 
 class TestWorkerShutdownFlushesAnalyticsMetrics(TestCase):
@@ -61,6 +85,59 @@ class TestWorkerShutdownFlushesAnalyticsMetrics(TestCase):
     def test_handler_never_breaks_worker_shutdown(self, _name: str, client_factory) -> None:
         with patch.object(posthoganalytics, "default_client", client_factory()):
             on_worker_process_shutdown()
+
+
+class TestWorkerReadyHeartbeat(TestCase):
+    @parameterized.expand([("hobby", True, 1), ("not_hobby", False, 0)])
+    def test_writes_heartbeat_only_on_hobby(self, _name: str, hobby: bool, expected_calls: int) -> None:
+        with (
+            patch("posthog.cloud_utils.is_hobby", return_value=hobby),
+            patch("posthog.tasks.tasks.redis_heartbeat") as heartbeat,
+        ):
+            write_heartbeat_when_worker_is_ready()
+        assert heartbeat.call_count == expected_calls
+
+
+class TestWorkerStopsWhenEmbeddedSchedulerExits(TestCase):
+    def _registered_check(self, worker: MagicMock) -> MagicMock:
+        # Through a real blueprint, because Celery calls register_with_event_loop only on the steps
+        # that the blueprint keeps, and it calls it again after each broker reconnect.
+        worker.steps = []
+        blueprint = Blueprint(steps=[StopWorkerWhenEmbeddedSchedulerExits])
+        blueprint.apply(worker)
+        hub = MagicMock()
+        blueprint.send_all(worker, "register_with_event_loop", args=(hub,))
+        return hub.call_repeatedly
+
+    def test_the_worker_app_has_the_step(self) -> None:
+        assert StopWorkerWhenEmbeddedSchedulerExits in posthog.celery.app.steps["worker"]
+
+    def test_worker_without_embedded_scheduler_runs_no_check(self) -> None:
+        self._registered_check(MagicMock(beat=None)).assert_not_called()
+
+    @parameterized.expand(
+        [
+            # A scheduler that waits for the RedBeat lock is alive, so its worker must keep running.
+            ("scheduler_alive", True, RUN, False),
+            ("scheduler_exited", False, RUN, True),
+            # A worker that stops ends its own scheduler, which is not a failure to report.
+            ("scheduler_ended_by_stopping_worker", False, CLOSE, False),
+        ]
+    )
+    def test_stops_the_worker_only_when_its_scheduler_exited(
+        self, _name: str, scheduler_alive: bool, worker_state: int, expect_shutdown: bool
+    ) -> None:
+        worker = MagicMock(**{"beat.is_alive.return_value": scheduler_alive, "blueprint.state": worker_state})
+        _interval, check = self._registered_check(worker).call_args.args
+
+        if not expect_shutdown:
+            check()
+            return
+        # WorkerShutdown is the exception that Celery's own remote shutdown raises inside the event
+        # loop. The loop logs and drops an ordinary Exception, and the worker would keep running.
+        with self.assertRaises(WorkerShutdown) as shutdown:
+            check()
+        assert shutdown.exception.code == EX_FAILURE
 
 
 class TestAnalyticsMetricsConfig(TestCase):

@@ -1,8 +1,9 @@
 use sha2::{Digest, Sha256};
 
-/// Raise with any change to `cohort_execution_context` that can flip a verdict, so that every stored
-/// person record is evaluated again instead of keeping a verdict of the old rules.
-const EVALUATOR_VERSION: u8 = 1;
+/// Raise with any change to how the evaluator reads globals or compares values that can flip a
+/// verdict, so that every stored person record is evaluated again instead of keeping a verdict of
+/// the old rules.
+const EVALUATOR_VERSION: u8 = 2;
 
 /// 128 bits of SHA-256 over [`EVALUATOR_VERSION`] and a team's sorted person condition hashes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

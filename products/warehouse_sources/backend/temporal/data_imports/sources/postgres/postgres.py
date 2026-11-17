@@ -328,6 +328,13 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # class as :etimedout and :econnrefused (pooler couldn't hand us a backend connection; recovers
     # once the pool has capacity or the backend reconnects), so recover by reconnecting.
     "{:error, :timeout}",
+    # The bare-atom sibling of "{:error, :timeout}": on some Supavisor versions the same pool
+    # checkout/backend-connect timeout is reported with the reason atom alone, not wrapped in the
+    # `{:error, ...}` tuple — "Failed to connect to database: :timeout" rather than "Failed to
+    # connect to database: {:error, :timeout}". Same transient pooler-timeout class, so recover the
+    # same way. Match the fuller phrase, not the bare ":timeout" atom, which alone is too generic
+    # and would match unrelated messages that happen to mention a timeout.
+    "failed to connect to database: :timeout",
     # Neon's proxy reports a compute that didn't finish waking from scale-to-zero before the
     # auth handshake deadline as a ConnectionFailure (SQLSTATE 08006, an OperationalError):
     # "Failed to connect to database: authentication did not complete within <n>ms". The wake is
@@ -388,6 +395,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # Supavisor's ECHECKOUT* above — a slot frees the moment another transaction returns its backend —
     # so a fresh reconnect recovers.
     "query_wait_timeout",
+    # PgBouncer's own `idle_transaction_timeout` setting: it disconnects a client that leaves a
+    # transaction open (idle) for longer than the configured limit, which is exactly what our
+    # server-cursor reads do between fetches during a slow delta-merge. Same bare, SQLSTATE-less
+    # error-packet shape as `query_wait_timeout` above, so psycopg surfaces it as ProtocolViolation
+    # rather than the `IdleInTransactionSessionTimeout` Postgres itself raises for the equivalent
+    # server-side `idle_in_transaction_session_timeout` (already matched by type above) — same
+    # transient class, just culled by the pooler instead of the server. A fresh reconnect recovers.
+    "idle transaction timeout",
     # psycopg's own message when `PQconnectStart` reports the connection BAD before the handshake
     # ever begins and libpq has no server-reported error text to attach (see
     # `psycopg.generators._connect` / `psycopg.pq.misc._clean_error_message`). Unlike every other
@@ -408,6 +423,23 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # fresh reconnect recovers once the backend is reachable again. Match the stable phrase and
     # exclude the volatile upstream ip:port.
     "failed to connect to upstream",
+    # The twin of "authentication did not complete within" above for a Neon compute that's still
+    # mid-wake when the proxy gives up on it: "ERROR:  The endpoint is taking longer than expected
+    # to become active. Please wait a moment and try again." — Neon's own message explicitly asks
+    # for a retry. With sslmode=prefer (require_ssl off), this failed SSL attempt makes libpq fall
+    # back to a second, unencrypted one, which Neon separately refuses ("connection is insecure
+    # (try using `sslmode=require`)") — a second line appended to the same message, so matching this
+    # substring alone still classifies the whole thing. Same transient wake class as the other Neon
+    # entries here; a fresh connect after a short backoff succeeds once the compute finishes waking.
+    "taking longer than expected to become active",
+    # A Neon-style proxy refuses a connect with "FATAL:  no primary available for branch <branch-id>"
+    # when the branch's compute endpoint has no primary assigned yet — observed moments after the
+    # same branch dropped a connection with "failed to connect to upstream" and an SSL EOF, i.e.
+    # during a brief compute failover/promotion window, not a customer-facing restriction like the
+    # permanent "branch is hibernated" / "connection not allowed for branch" entries in
+    # `get_non_retryable_errors`. A fresh connect after backoff succeeds once Neon finishes assigning
+    # a primary. Match the stable phrase and exclude the volatile branch id.
+    "no primary available for branch",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -2901,12 +2933,13 @@ def _get_primary_keys(
         cursor.execute(child_partition_pk_query)
         child_pk_rows = cursor.fetchall()
     except Exception as e:
-        # A transient connection drop here means the fallback never ran — swallowing it would
-        # capture noise and wrongly report "no primary key" off a dead cursor. Re-raise so the
-        # setup retry loop reconnects (mirrors the unwrapped primary query above and the
-        # duplicate-PK probe). Genuine query-incompatibility errors (e.g. an engine that can't
-        # bind this pg_catalog query) still degrade to best-effort.
-        if _is_connection_dropped_error(e):
+        # A transient connection drop or hot-standby recovery conflict here means the fallback
+        # never ran — swallowing it would capture noise and wrongly report "no primary key" off a
+        # dead or conflicted cursor. Re-raise so the setup retry loop reconnects (mirrors the
+        # unwrapped primary query above and the duplicate-PK probe, and the setup loop's own
+        # recovery-conflict handler a few frames up). Genuine query-incompatibility errors (e.g. an
+        # engine that can't bind this pg_catalog query) still degrade to best-effort.
+        if _is_connection_dropped_error(e) or _is_recovery_conflict_error(e):
             raise
         capture_exception(e)
         logger.warning(f"Child-partition fallback query failed for {table_name}: {e}")

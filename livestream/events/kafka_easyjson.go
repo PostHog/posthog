@@ -48,6 +48,8 @@ func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents(in *jlexer.Le
 			out.Token = string(in.String())
 		case "timestamp":
 			out.Timestamp = string(in.String())
+		case "options":
+			(out.Options).UnmarshalEasyJSON(in)
 		default:
 			in.SkipRecursive()
 		}
@@ -91,6 +93,31 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(out *jwriter.
 		const prefix string = ",\"timestamp\":"
 		out.RawString(prefix)
 		out.String(string(in.Timestamp))
+	}
+	if len(in.Options) != 0 {
+		const prefix string = ",\"options\":"
+		out.RawString(prefix)
+		{
+			out.RawByte('{')
+			v1First := true
+			for v1Name, v1Value := range in.Options {
+				if v1First {
+					v1First = false
+				} else {
+					out.RawByte(',')
+				}
+				out.String(string(v1Name))
+				out.RawByte(':')
+				if m, ok := v1Value.(easyjson.Marshaler); ok {
+					m.MarshalEasyJSON(out)
+				} else if m, ok := v1Value.(json.Marshaler); ok {
+					out.Raw(m.MarshalJSON())
+				} else {
+					out.Raw(json.Marshal(v1Value))
+				}
+			}
+			out.RawByte('}')
+		}
 	}
 	out.RawByte('}')
 }
@@ -150,15 +177,15 @@ func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.L
 				for !in.IsDelim('}') {
 					key := string(in.String())
 					in.WantColon()
-					var v1 interface{}
-					if m, ok := v1.(easyjson.Unmarshaler); ok {
+					var v2 interface{}
+					if m, ok := v2.(easyjson.Unmarshaler); ok {
 						m.UnmarshalEasyJSON(in)
-					} else if m, ok := v1.(json.Unmarshaler); ok {
+					} else if m, ok := v2.(json.Unmarshaler); ok {
 						_ = m.UnmarshalJSON(in.Raw())
 					} else {
-						v1 = in.Interface()
+						v2 = in.Interface()
 					}
-					(out.Properties)[key] = v1
+					(out.Properties)[key] = v2
 					in.WantComma()
 				}
 				in.Delim('}')
@@ -226,21 +253,21 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter
 			out.RawString(`null`)
 		} else {
 			out.RawByte('{')
-			v2First := true
-			for v2Name, v2Value := range in.Properties {
-				if v2First {
-					v2First = false
+			v3First := true
+			for v3Name, v3Value := range in.Properties {
+				if v3First {
+					v3First = false
 				} else {
 					out.RawByte(',')
 				}
-				out.String(string(v2Name))
+				out.String(string(v3Name))
 				out.RawByte(':')
-				if m, ok := v2Value.(easyjson.Marshaler); ok {
+				if m, ok := v3Value.(easyjson.Marshaler); ok {
 					m.MarshalEasyJSON(out)
-				} else if m, ok := v2Value.(json.Marshaler); ok {
+				} else if m, ok := v3Value.(json.Marshaler); ok {
 					out.Raw(m.MarshalJSON())
 				} else {
-					out.Raw(json.Marshal(v2Value))
+					out.Raw(json.Marshal(v3Value))
 				}
 			}
 			out.RawByte('}')

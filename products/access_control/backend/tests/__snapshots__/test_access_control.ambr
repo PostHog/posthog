@@ -32,6 +32,7 @@
 # name: test_resources_with_object_access_controls_snapshot
   list([
     'account',
+    'account_note',
     'action',
     'ai_observability_clusters',
     'customer_analytics',

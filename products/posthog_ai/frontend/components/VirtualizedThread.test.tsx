@@ -7,6 +7,58 @@ import { initKeaTests } from '~/test/init'
 import { FLOW_INITIAL_ROWS } from '../utils/flowWindow'
 import { VirtualizedThread } from './VirtualizedThread'
 
+const mockUseVirtualizer = jest.fn()
+
+jest.mock('@tanstack/react-virtual', () => ({
+    elementScroll: jest.fn(),
+    useVirtualizer: (options: unknown) => mockUseVirtualizer(options),
+}))
+
+interface MockVirtualItem {
+    index: number
+    key: string
+    start: number
+    size: number
+    end: number
+    lane: number
+}
+
+function createLazyMeasurements(count: number, getItemKey: (index: number) => string): MockVirtualItem[] {
+    const cache = new Array<MockVirtualItem | undefined>(count)
+    return new Proxy(cache, {
+        get(target, property, receiver) {
+            if (typeof property === 'string' && /^\d+$/.test(property)) {
+                const index = Number(property)
+                if (index < count) {
+                    return (target[index] ??= {
+                        index,
+                        key: getItemKey(index),
+                        start: index * 56,
+                        size: 56,
+                        end: (index + 1) * 56,
+                        lane: 0,
+                    })
+                }
+            }
+            return Reflect.get(target, property, receiver)
+        },
+    }) as MockVirtualItem[]
+}
+
+function createMockVirtualizer(options: { count: number; getItemKey: (index: number) => string }): object {
+    const measurementsCache = createLazyMeasurements(options.count, options.getItemKey)
+    return {
+        containerRef: jest.fn(),
+        getOffsetForIndex: jest.fn(() => [0]),
+        getTotalSize: jest.fn(() => options.count * 56),
+        getVirtualItems: jest.fn(() => [measurementsCache[0]]),
+        measureElement: jest.fn(),
+        measurementsCache,
+        options: { anchorTo: 'end', scrollEndThreshold: 32 },
+        scrollToIndex: jest.fn(),
+    }
+}
+
 function thread(items: string[]): JSX.Element {
     return (
         <div data-attr="thread">
@@ -29,10 +81,11 @@ function renderedRows(container: HTMLElement): string[] {
     return Array.from(container.querySelectorAll('p')).map((row) => row.textContent ?? '')
 }
 
-describe('VirtualizedThread flow mode', () => {
+describe('VirtualizedThread', () => {
     beforeEach(() => {
         jest.useFakeTimers()
         initKeaTests()
+        mockUseVirtualizer.mockImplementation(createMockVirtualizer)
     })
 
     afterEach(() => {
@@ -71,5 +124,19 @@ describe('VirtualizedThread flow mode', () => {
             })
         }
         expect(renderedRows(container)).toEqual(appended)
+    })
+
+    it('opens when the header is the first visible row in a lazy measurement cache', () => {
+        expect(() =>
+            render(
+                <VirtualizedThread.Root items={['row-0']} getItemKey={(item) => item} header={<div>header</div>}>
+                    {(item) => (
+                        <VirtualizedThread.Row>
+                            <p>{item}</p>
+                        </VirtualizedThread.Row>
+                    )}
+                </VirtualizedThread.Root>
+            )
+        ).not.toThrow()
     })
 })

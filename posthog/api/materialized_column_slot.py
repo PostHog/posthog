@@ -11,11 +11,13 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition, Team
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.materialized_column_slots import MAX_SLOTS_PER_TEAM
 from posthog.permissions import IsStaffUserOrImpersonating
 from posthog.settings import EE_AVAILABLE
+
+from products.event_definitions.backend.models import PropertyDefinition
 
 if EE_AVAILABLE:
     from ee.clickhouse.materialized_columns.columns import get_materialized_columns

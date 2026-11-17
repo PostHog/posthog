@@ -245,6 +245,9 @@ class TestNoRecordsResponses:
         [
             ("lowercase", {"status": "error", "message": "No settlements found", "data": None}),
             ("capitalized", {"status": "error", "message": "Transaction Not Found", "data": None}),
+            # v3's own reference docs give this as the example 400 body for these list endpoints:
+            # no message at all, just an empty object.
+            ("empty_body", {}),
         ]
     )
     def test_empty_range_400_reads_as_an_empty_table(self, _name: str, body: dict[str, Any]) -> None:

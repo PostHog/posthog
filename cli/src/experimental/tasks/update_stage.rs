@@ -5,8 +5,10 @@ use uuid::Uuid;
 
 use super::{Task, TaskWorkflow, WorkflowStage};
 use crate::{
-    api::client::PHClient, experimental::tasks::utils::select_task, invocation_context::context,
-    utils::raise_for_err,
+    api::client::PHClient,
+    experimental::tasks::utils::select_task,
+    invocation_context::context,
+    utils::{raise_for_err, redact_request_error},
 };
 
 struct StageChoice(WorkflowStage);
@@ -89,6 +91,7 @@ fn fetch_task(client: &PHClient, task_id: &Uuid) -> Result<Task> {
     let response = client
         .get(client.project_url(&format!("tasks/{task_id}/"))?)
         .send()
+        .map_err(redact_request_error)
         .context("Failed to send request")?;
 
     let response = raise_for_err(response)?;
@@ -102,6 +105,7 @@ fn fetch_workflow(client: &PHClient, workflow_id: &Uuid) -> Result<TaskWorkflow>
     let response = client
         .get(client.project_url(&format!("task_workflows/{workflow_id}/"))?)
         .send()
+        .map_err(redact_request_error)
         .context("Failed to send request")?;
     let response = raise_for_err(response)?;
 
@@ -121,6 +125,7 @@ fn update_task_stage(client: &PHClient, task_id: &Uuid, stage_id: &Uuid) -> Resu
         .patch(client.project_url(&format!("tasks/{task_id}/update_stage/"))?)
         .json(&request_body)
         .send()
+        .map_err(redact_request_error)
         .context("Failed to update task stage")?;
 
     raise_for_err(response)?;

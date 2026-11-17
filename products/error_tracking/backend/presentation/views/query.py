@@ -69,7 +69,6 @@ from products.error_tracking.backend.facade.query_utils import (
     map_issue_breakdown,
     normalize_volume_resolution,
     pick_fields,
-    trend_volume_resolution,
 )
 from products.error_tracking.backend.presentation.views.query_serializers import (
     ErrorTrackingIssueBreakdownSerializer,
@@ -91,7 +90,6 @@ def summary_payload(summary: contracts.ErrorTrackingIssueSummary) -> dict[str, o
             "likely_cause": summary.likely_cause,
             "who_is_affected": summary.who_is_affected,
             "suggested_next_step": summary.suggested_next_step,
-            "category": summary.category.value if summary.category is not None else None,
             "generated_at": summary.generated_at.isoformat(),
         }
     )
@@ -210,7 +208,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             issueId=issue_id,
             dateRange=DateRange(**date_range),
             filterTestAccounts=filter_test_accounts,
-            volumeResolution=trend_volume_resolution(volume_resolution),
+            volumeResolution=volume_resolution,
             limit=1,
             orderBy="last_seen",
             orderDirection="DESC",
@@ -219,7 +217,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             withLastEvent=False,
             tags={"productKey": "error_tracking"},
         )
-        data = query_facade.run_error_tracking_query(self.team, query)
+        data = query_facade.run_error_tracking_query(self.team, query, align_volume_buckets_to_midpoint=True)
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         if not raw_results:

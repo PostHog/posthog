@@ -1,3 +1,7 @@
+import { z } from 'zod'
+
+import { readJson } from '@/testing'
+
 import type { RecordedRequest } from './fake-server'
 
 // Rewrites only what is random by design, so the rest can be compared byte for byte:
@@ -5,7 +9,9 @@ import type { RecordedRequest } from './fake-server'
 // - the keys of `content_hashes` and release `metadata`, which Rust writes in HashMap order, are sorted,
 // - `symbol_sets` lists are sorted by chunk id, because posthog-cli walks folders in file-system order,
 // - object-storage uploads inside one batch are sorted by path and object key, because they run in parallel,
-// - the multipart boundary, the user agent and object-storage headers are dropped.
+// - the multipart boundary, the user agent and object-storage headers are dropped,
+// - /api/environments/<id>/ becomes /api/projects/<id>/, because hog calls the first and posthog-cli the second,
+//   and both reach the same project.
 // The user agent differs on purpose: hog sends `hog/<version>`, posthog-cli sends `posthog-cli`.
 export interface NormalizedRequest {
     method: string
@@ -36,7 +42,7 @@ export function normalize(requests: RecordedRequest[]): NormalizedRequest[] {
               }
         let body = request.body
         if (body) {
-            const parsed = JSON.parse(body) as Record<string, unknown>
+            const parsed = readJson(body, z.record(z.string(), z.unknown()))
             if ('upload_run_id' in parsed) {
                 parsed.upload_run_id = '<run>'
             }
@@ -65,7 +71,7 @@ export function normalize(requests: RecordedRequest[]): NormalizedRequest[] {
         }
         return {
             method: request.method,
-            path: request.path,
+            path: request.path.replace(/^\/api\/environments\//, '/api/projects/'),
             headers,
             ...(body ? { body } : {}),
             ...(upload ? { upload } : {}),

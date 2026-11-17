@@ -167,7 +167,8 @@ function SlackLinkRow({ integration }: { integration: PersonalSlackIntegration }
             description: (
                 <p>
                     PostHog will go back to matching you by email. If your Slack email doesn't match any PostHog account
-                    in the organization, mentions won't route to you until you link again.
+                    in the organization, mentions won't route to you until you link again. PostHog tasks also lose the
+                    Slack access that came with this link.
                 </p>
             ),
             primaryButton: {

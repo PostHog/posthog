@@ -25,6 +25,7 @@ from products.warehouse_sources.sources.surveymonkey.settings import (
     DEFAULT_DATA_CENTER,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SURVEYMONKEY_ENDPOINTS,
 )
 from products.warehouse_sources.sources.surveymonkey.surveymonkey import (
     SurveyMonkeyResumeConfig,
@@ -64,7 +65,7 @@ class SurveyMonkeySource(ResumableSource[SurveyMonkeySourceConfig, SurveyMonkeyR
             name=ExternalDataSourceType.SURVEYMONKEY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="SurveyMonkey",
-            caption="""Enter a SurveyMonkey access token to pull your surveys, responses, and collectors into the PostHog Data warehouse.
+            caption="""Enter a SurveyMonkey access token to pull your surveys, responses, collectors, and contacts into the PostHog Data warehouse.
 
 Create a private app and generate an access token in the [SurveyMonkey developer dashboard](https://developer.surveymonkey.com/apps/).
 
@@ -72,6 +73,7 @@ Make sure to grant the following read scopes:
 - `surveys_read`
 - `responses_read_detail`
 - `collectors_read`
+- `contacts_read` (only for the contact tables)
 """,
             iconPath="/static/services/surveymonkey.png",
             docsUrl="https://posthog.com/docs/cdp/sources/surveymonkey",
@@ -102,6 +104,11 @@ Make sure to grant the following read scopes:
             releaseStatus=ReleaseStatus.BETA,
         )
 
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        # A collector-scoped chain carries no resume state, so a retry reads it again from the start.
+        config = SURVEYMONKEY_ENDPOINTS.get(schema_name) if schema_name else None
+        return config is None or not config.is_collector_fanout
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.sources.surveymonkey.canonical_descriptions import CANONICAL_DESCRIPTIONS
 
@@ -110,7 +117,7 @@ Make sure to grant the following read scopes:
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url": "Your SurveyMonkey access token is invalid or expired. Please generate a new token and reconnect.",
-            "403 Client Error: Forbidden for url": "Your SurveyMonkey access token is missing required scopes. Please grant `surveys_read`, `responses_read_detail`, and `collectors_read`, then reconnect.",
+            "403 Client Error: Forbidden for url": "Your SurveyMonkey access token is missing required scopes. Please grant `surveys_read`, `responses_read_detail`, `collectors_read`, and `contacts_read`, then reconnect.",
         }
 
     def get_schemas(

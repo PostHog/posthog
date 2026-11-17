@@ -1,8 +1,19 @@
 <!DOCTYPE html>
-<html lang="en" data-env="{{ console_env }}">
+<html lang="en"
+      data-env="{{ console_env }}"
+      theme="{% firstof request.user.theme_mode 'light' %}">
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {# Inline and before the stylesheet, so a system dark mode does not flash light on every page load. #}
+        <script nonce="{{ request.csp_nonce }}">
+            if (document.documentElement.getAttribute('theme') === 'system') {
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)')
+                const applyTheme = () => document.documentElement.setAttribute('theme', prefersDark.matches ? 'dark' : 'light')
+                applyTheme()
+                prefersDark.addEventListener('change', applyTheme)
+            }
+        </script>
         <title>{% block title %}PostHog Admin{% endblock %}</title>
         {# Not the static tag: production hashes its URLs, and the CDN only serves unhashed names. #}
         <link rel="stylesheet"
@@ -18,7 +29,11 @@
         <header class="flex flex-wrap items-center gap-4 min-h-12 px-4 py-2 bg-chrome border-b border-border">
             <a href="{% url 'admin_console_home' %}"
                class="flex items-center gap-2 font-extrabold text-[15px] whitespace-nowrap text-foreground no-underline">
-                <img src="/static/posthog-icon.svg" class="h-[18px]" alt="" />PostHog Admin
+                <img src="/static/posthog-icon.svg" class="h-[18px] dark:hidden" alt="" />
+                <img src="/static/admin-console/posthog-icon-mono.svg"
+                     class="h-[18px] hidden dark:block"
+                     alt="" />
+                PostHog Admin
             </a>
             <span class="console-env-pill inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide whitespace-nowrap">
                 <span class="console-env-dot size-[7px] rounded-full"></span>{{ console_env_label }}
@@ -39,23 +54,24 @@
             <div class="ml-auto text-muted-foreground whitespace-nowrap">{{ request.user.email }}</div>
         </header>
         <div class="@container">
-            <div class="grid min-h-[calc(100vh-3.25rem)] @3xl:grid-cols-[200px_1fr]">
-                <nav class="flex flex-col gap-0.5 p-2 bg-chrome border-b @3xl:border-b-0 @3xl:border-r border-border"
+            <div class="grid min-h-[calc(100vh-3.25rem)] @3xl:grid-cols-[16rem_1fr]">
+                <nav class="flex flex-col gap-0.5 p-2 min-w-0 bg-chrome border-b @3xl:border-b-0 @3xl:border-r border-border"
                      aria-label="Console">
                     {% url 'admin_console_home' as home_url %}
                     <p class="mt-2 mb-1 mx-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Teams</p>
                     <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap aria-[current=page]:bg-[var(--fill-selected)] aria-[current=page]:font-bold"
                        href="{{ home_url }}"
-                       {% if request.path == home_url %}aria-current="page"{% endif %}>Look up a team</a>
+                       {% if request.path == home_url %}aria-current="page"{% endif %}><span class="truncate">Look up a team</span></a>
                     {% if console_tool_groups %}
                         <p class="mt-4 mb-1 mx-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Tools</p>
                         {% for group, tools in console_tool_groups.items %}
                             <p class="mt-1 mb-0.5 mx-2 text-[11px] text-muted-foreground">{{ group }}</p>
                             {% for nav_tool in tools %}
                                 {% url 'admin_console_tool' tool_key=nav_tool.key as tool_url %}
-                                <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap aria-[current=page]:bg-[var(--fill-selected)] aria-[current=page]:font-bold"
+                                <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 min-w-0 items-center whitespace-nowrap aria-[current=page]:bg-[var(--fill-selected)] aria-[current=page]:font-bold"
                                    href="{{ tool_url }}"
-                                   {% if request.path == tool_url %}aria-current="page"{% endif %}>{{ nav_tool.title }}</a>
+                                   title="{{ nav_tool.title }}"
+                                   {% if request.path == tool_url %}aria-current="page"{% endif %}><span class="truncate">{{ nav_tool.title }}</span></a>
                             {% endfor %}
                         {% endfor %}
                     {% endif %}

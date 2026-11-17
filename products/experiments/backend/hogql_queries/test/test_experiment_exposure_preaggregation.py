@@ -36,8 +36,6 @@ from posthog.schema import (
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.preaggregation.experiment_exposures_sql import SHARDED_EXPERIMENT_EXPOSURES_TABLE
-from posthog.clickhouse.preaggregation.experiment_metric_events_sql import SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -1082,11 +1080,8 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        distinct_id_by_person_uuid: dict[str, str] = {}
-
         def create_user(distinct_id: str, variant: str | None, converts: bool) -> None:
-            person = _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
-            distinct_id_by_person_uuid[str(person.uuid)] = distinct_id
+            _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
             if variant is not None:
                 self._create_exposure_event(distinct_id, feature_flag, variant, datetime(2024, 1, 2, 12, 0, tzinfo=UTC))
             if converts:
@@ -1134,22 +1129,6 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
         run(use_precomputation=True)
         jobs_after_build = set(PreaggregationJob.objects.values_list("id", flat=True))
-
-        # The build does not store distinct_id, so the test sets it on the built rows.
-        for table in (SHARDED_EXPERIMENT_EXPOSURES_TABLE(), SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE()):
-            sync_execute(
-                f"""
-                ALTER TABLE {table}
-                UPDATE distinct_id = transform(entity_id, %(person_uuids)s, %(distinct_ids)s, '')
-                WHERE team_id = %(team_id)s
-                SETTINGS mutations_sync = 2
-                """,
-                {
-                    "person_uuids": list(distinct_id_by_person_uuid.keys()),
-                    "distinct_ids": list(distinct_id_by_person_uuid.values()),
-                    "team_id": self.team.pk,
-                },
-            )
 
         for anonymous_id, identified_id in (
             ("anon_exposed", "identified_converts"),

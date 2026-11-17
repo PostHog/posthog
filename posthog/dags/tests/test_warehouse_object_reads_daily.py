@@ -243,9 +243,43 @@ def test_rollup_of_a_day_without_query_log_rows_fails(cluster: ClickhouseCluster
     run_rollup(cluster, date.fromisoformat(ROLLUP_START_DATE), succeeds=False)
 
 
-def test_schedule_runs_after_the_archive_day_closes() -> None:
-    assert isinstance(warehouse_object_reads_daily_schedule, dagster.ScheduleDefinition)
-    assert warehouse_object_reads_daily_schedule.cron_schedule == "0 7 * * *"
+CHECK_DAY = date(2026, 10, 8)
+
+
+def publish_days_except(instance: dagster.DagsterInstance, unpublished_days_ago: list[int]) -> None:
+    for days_ago in range(1, 11):
+        if days_ago in unpublished_days_ago:
+            continue
+        instance.create_run_for_job(
+            job_def=warehouse_object_reads_daily_job,
+            status=dagster.DagsterRunStatus.SUCCESS,
+            tags={"dagster/partition": (CHECK_DAY - timedelta(days=days_ago)).isoformat()},
+        )
+
+
+@parameterized.expand(
+    [
+        ("newest_missing_day_first", [1, 4], False, "2026-10-07"),
+        ("older_missing_day", [4], False, "2026-10-04"),
+        ("missing_day_past_the_catch_up_window", [8], False, None),
+        ("while_a_rollup_runs", [1], True, None),
+    ]
+)
+def test_schedule_requests_the_newest_unpublished_day(
+    _name: str, unpublished_days_ago: list[int], rollup_running: bool, expected_partition: str | None
+) -> None:
+    with (
+        dagster.instance_for_test() as instance,
+        time_machine.travel(datetime.combine(CHECK_DAY, time(hour=7), tzinfo=UTC), tick=False),
+    ):
+        publish_days_except(instance, unpublished_days_ago)
+        if rollup_running:
+            instance.create_run_for_job(
+                job_def=warehouse_object_reads_daily_job, status=dagster.DagsterRunStatus.STARTED
+            )
+        result = warehouse_object_reads_daily_schedule(dagster.build_schedule_context(instance=instance))
+
+    assert (result.partition_key if isinstance(result, dagster.RunRequest) else None) == expected_partition
 
 
 @pytest.mark.django_db
@@ -267,29 +301,29 @@ def test_rollup_fails_before_touching_staging_while_another_run_executes(cluster
 
 @parameterized.expand(
     [
-        ("before_the_deadline", time(hour=9, minute=59), False, False, 0),
-        ("published_day", time(hour=10), True, False, 0),
-        ("missing_day", time(hour=10), False, False, 1),
-        ("missing_day_slack_down", time(hour=10), False, True, 2),
+        ("before_the_deadline", time(hour=9, minute=59), [1], False, 0, None),
+        ("every_day_published", time(hour=10), [], False, 0, None),
+        ("missing_yesterday", time(hour=10), [1], False, 1, "2026-10-07"),
+        ("missing_older_day", time(hour=10), [4], False, 1, "2026-10-04"),
+        ("missing_day_slack_down", time(hour=10), [1], True, 2, "2026-10-07"),
     ]
 )
 @override_settings(CLOUD_DEPLOYMENT="US", DAGSTER_DOMAIN="dagster.example.com")
-def test_overdue_sensor_alerts_once_when_yesterday_is_not_published(
-    _name: str, check_time: time, published: bool, slack_down: bool, expected_posts: int
+def test_overdue_sensor_alerts_once_a_day_about_unpublished_days(
+    _name: str,
+    check_time: time,
+    unpublished_days_ago: list[int],
+    slack_down: bool,
+    expected_posts: int,
+    expected_day: str | None,
 ) -> None:
-    today = date(2026, 10, 8)
     instance = dagster.DagsterInstance.ephemeral()
-    if published:
-        instance.create_run_for_job(
-            job_def=warehouse_object_reads_daily_job,
-            status=dagster.DagsterRunStatus.SUCCESS,
-            tags={"dagster/partition": (today - timedelta(days=1)).isoformat()},
-        )
+    publish_days_except(instance, unpublished_days_ago)
     slack = MagicMock()
     if slack_down:
         slack.get_client.return_value.chat_postMessage.side_effect = ConnectionError
 
-    with time_machine.travel(datetime.combine(today, check_time, tzinfo=UTC), tick=False):
+    with time_machine.travel(datetime.combine(CHECK_DAY, check_time, tzinfo=UTC), tick=False):
         context = dagster.build_sensor_context(instance=instance, resources={"slack": slack})
         warehouse_object_reads_daily_overdue_sensor(context)
         warehouse_object_reads_daily_overdue_sensor(
@@ -300,4 +334,4 @@ def test_overdue_sensor_alerts_once_when_yesterday_is_not_published(
     assert len(posts) == expected_posts
     if expected_posts:
         assert posts[0].kwargs["channel"] == "#alerts-data-modeling"
-        assert "2026-10-07" in posts[0].kwargs["text"]
+        assert expected_day in posts[0].kwargs["text"]

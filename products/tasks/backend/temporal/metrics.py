@@ -1,4 +1,3 @@
-import os
 import time
 import inspect
 import datetime as dt
@@ -8,6 +7,7 @@ from functools import wraps
 from typing import Any, TypeVar, cast
 
 import posthoganalytics
+from modal.config import config as modal_config
 from opentelemetry import trace
 from opentelemetry.trace import Span
 from temporalio import activity, workflow
@@ -182,7 +182,7 @@ def sandbox_runtime_label(use_vm_sandbox: bool) -> str:
 
 
 def modal_sandbox_backend_label() -> str:
-    return "v2" if os.environ.get("MODAL_SANDBOX_V2") == "1" else "v1"
+    return "v2" if modal_config.get("sandbox_v2") else "v1"
 
 
 def record_network_enforcement(stage: str, runtime: str, layer: str, outcome: str) -> None:

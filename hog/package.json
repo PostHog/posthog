@@ -20,9 +20,10 @@
         "@posthog/mcp": "workspace:*",
         "cli-table3": "0.6.5",
         "commander": "15.0.0",
-        "diff": "8.0.4",
-        "pako": "2.1.0",
-        "yaml": "2.9.0",
+        "diff": "9.0.0",
+        "jsonc-parser": "3.3.1",
+        "pako": "2.2.0",
+        "yaml": "2.9.1",
         "zod": "^4.3.6"
     },
     "devDependencies": {

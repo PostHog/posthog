@@ -15,9 +15,9 @@
 #   token before the SQL and risk steps and skips report writes if token creation fails.
 #   It creates a separate checks:write token for the Migration risk check after those steps.
 # - The hourly schedule skips path filtering and per-commit checks. It controls the events_json
-#   cadence in build_django_matrix, events schema recording and upload, and POSTHOG_PYTEST_HARD_EXIT.
-#   Master pushes run per-commit checks and dump the schema. Test matrices run on pull requests,
-#   manual runs, and the hourly schedule.
+#   cadence and the persons-on-events legacy-mode leg in build_django_matrix, events schema
+#   recording and upload, and POSTHOG_PYTEST_HARD_EXIT. Master pushes run per-commit checks and
+#   dump the schema. Test matrices run on pull requests, manual runs, and the hourly schedule.
 # - Master schema dumps go to Depot artifacts and Depot Cache, which GitHub-hosted
 #   runners and fork PRs cannot read. .github/workflows/ci-backend-schema-mirror.yml copies the
 #   newest dump into a GitHub artifact and GitHub Actions cache every ten minutes.
@@ -321,6 +321,11 @@ jobs:
                         # backend:mcp-surface task). Add a manifest here only with that wiring.
                         - products/feature_flags/mcp/tools.yaml
                         - products/tasks/mcp/tools.yaml
+                        # The message normalizer tests read the case file shared with the frontend and the
+                        # frontend's copies of the bundled recipes. Both are turbo inputs of ai_observability's
+                        # backend:test, in products/ai_observability/turbo.json.
+                        - 'products/ai_observability/shared/**'
+                        - 'packages/llm-normalizer/src/normalizer/recipe/default_recipes/**'
                         - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
                         - bin/check_uv_python_compatibility.py
@@ -400,6 +405,7 @@ jobs:
                       product_skills_read_at_runtime:
                         - 'products/signals/skills/**'
                         - 'products/review_hog/skills/**'
+                        - 'products/workflows/skills/**'
                       legacy:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover uses Turbo query affectedness to detect changed
@@ -536,6 +542,16 @@ jobs:
                         # _EXTERNAL_COMPANION_SKILL_DIRS in products/signals/backend/scout_harness/lazy_seed.py
                         # names this companion skill from another product.
                         - 'products/replay_vision/skills/exploring-replay-vision-observations/**'
+                        # repo-checks fails a test file that a pull request leaves with no team owner,
+                        # Jest included, and no other filter matches a new frontend test. The filter
+                        # reports a moved file as added. Keep in step with runner_for_path in
+                        # packages/owners-yaml/owners_yaml/census.py.
+                        - added: '**/test_*.py'
+                        - added: '**/*_test.py'
+                        - added: '**/*.{test,spec}.{js,jsx,ts,tsx}'
+                        # That check and the other hogli commands in repo-checks import modules from
+                        # this tree, and the backend filter matches only the ones the test setup imports.
+                        - 'tools/hogli-commands/**'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through
@@ -590,10 +606,8 @@ jobs:
                         - 'products/*/mcp/**/*.yaml'
                         - 'products/*/mcp/prompts/**/*.md'
                         - 'services/mcp/schema/tool-definitions.json'
-                        - 'services/mcp/schema/tool-definitions-v2.json'
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
-                        - 'services/mcp/schema/tool-definitions-all.json'
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
@@ -1647,6 +1661,9 @@ jobs:
             - name: Check for new files under ee/
               if: github.event_name == 'pull_request'
               run: python .github/scripts/check-no-new-ee-files.py --against HEAD^1 --committed
+            - name: Check for test files left with no team owner
+              if: github.event_name == 'pull_request'
+              run: ./bin/hogli lint:test-owners --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
             - name: Flag deterministic failure
@@ -1709,7 +1726,7 @@ jobs:
               with:
                   enable-cache: false
             - name: Install Python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-dev --package posthog --package hogli
             - name: Validate changed product.yaml owners
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -2734,7 +2751,7 @@ jobs:
                   # at all. Not-draft makes the empty MODE fall through to the full
                   # matrix, which is what the queue has to run.
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
-                  IS_PR_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
+                  RUN_LEGACY_MODE_LEG: ${{ github.event_name != 'pull_request' }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
                   # The new-events-schema variants double the matrix, so they run only on
                   # opted-in PRs. Every other run takes the events_json rows, which cover
@@ -2822,7 +2839,7 @@ jobs:
                         }]
                       ')
                       poe_count=0
-                      [[ "$IS_PR_RUN" != "true" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
+                      [[ "$RUN_LEGACY_MODE_LEG" == "true" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -2931,13 +2948,15 @@ jobs:
                           echo "::notice::Discovery shortened the events_json list to $json_targets_count shard(s)"
                       fi
 
-                      # The legacy-mode safeguard leg runs only where a regression must not
-                      # land: merge queue and master. Ordinary PR lanes run the
-                      # customer-default mode only, so a PR pays no shards for the legacy
-                      # mode. The queue's trunk-merge/** run is a pull_request event as well,
-                      # so it is exempted by branch. Compat keeps its own legacy-mode rows in
-                      # every lane, because it guards old servers, not this.
-                      if [[ "$IS_PR_RUN" == "true" ]]; then
+                      # The legacy-mode safeguard leg runs on the hourly master schedule and
+                      # on manual runs. Pull requests and the merge queue, whose
+                      # trunk-merge/** run is also a pull_request event, run the
+                      # customer-default mode only. A regression that only the legacy mode
+                      # catches therefore turns the hourly master run red, not the queue.
+                      # The leg runs with --snapshot-update and ships no snapshot patch, so
+                      # no snapshot file depends on it. Compat keeps its own legacy-mode rows
+                      # in every lane, because it guards old servers, not this.
+                      if [[ "$RUN_LEGACY_MODE_LEG" != "true" ]]; then
                           CORE_POE_SHARDS=0
                       fi
 
@@ -3879,7 +3898,7 @@ jobs:
               id: quarantine_gate_core
               continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f # v2.1.8
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
@@ -3887,7 +3906,8 @@ jobs:
                   # Non-default rows upload under their own variant, so a failure only that mode
                   # hits does not quarantine the default test with the same id.
                   variant: ${{ matrix.compat && format('compat-{0}', matrix.clickhouse-server-image) || matrix.person-on-events && (matrix.new-events-schema && 'poe-off-events-json' || 'poe-off') || matrix.new-events-schema && 'events-json' || '' }}
-                  cli-version: '0.15.4'
+                  cli-version: '0.17.0'
+                  use-cache: false
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
@@ -3896,7 +3916,7 @@ jobs:
               id: quarantine_gate_temporal
               continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f # v2.1.8
               with:
                   junit-paths: junit-temporal.xml,junit-temporal-retry-failures.xml
                   org-slug: posthog-inc
@@ -3904,7 +3924,8 @@ jobs:
                   # A native-JSON row uploads under its own variant, so a failure in that mode
                   # does not read as a flake of the legacy test with the same id.
                   variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
-                  cli-version: '0.15.4'
+                  cli-version: '0.17.0'
+                  use-cache: false
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
@@ -4353,9 +4374,12 @@ jobs:
             contents: read
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
+
+            - name: Fetch history without file contents
+              run: |
+                  git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                  git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
+              retry: 2
 
             - name: Install uv
               uses: ./.depot/actions/setup-uv

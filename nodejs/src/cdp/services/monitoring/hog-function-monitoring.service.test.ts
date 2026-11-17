@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -6,7 +7,10 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { InternalLogsProducer } from '~/logs/internal-logs-producer'
 
+import { createExampleInvocation } from '../../_tests/fixtures'
+import { HIDDEN_OUTPUT_MESSAGE } from '../../read-guarded-internal-events'
 import { LogEntry, MetricLogSource, MinimalAppMetric } from '../../types'
+import { createInvocationResult } from '../../utils/invocation-utils'
 import {
     HogFunctionMonitoringService,
     MonitoringOutput,
@@ -151,6 +155,30 @@ describe('HogFunctionMonitoringService', () => {
         message: `team ${teamId}`,
     })
 
+    it.each([
+        { event: '$signals_report_ready', hidden: true },
+        { event: '$activity_log_entry_created', hidden: false },
+    ])('hides the log text of a destination run on $event: $hidden', async ({ event, hidden }) => {
+        // log_entries is readable through HogQL with project query access, without the event's read access.
+        const invocation = createExampleInvocation({ team_id: 2 }, { event: { event } as any })
+        const result = createInvocationResult(
+            invocation,
+            {},
+            {
+                logs: [{ level: 'error', timestamp: DateTime.now(), message: 'Request failed: echoed report payload' }],
+            }
+        )
+
+        service.queueInvocationResults([result])
+        await service.flush()
+
+        const messages = produceMock.mock.calls
+            .map(([message]) => parseJSON(message.value.toString()) as Record<string, unknown>)
+            .filter((row) => row.log_source === 'hog_function')
+            .map((row) => row.message)
+        expect(messages).toEqual([hidden ? HIDDEN_OUTPUT_MESSAGE : 'Request failed: echoed report payload'])
+    })
+
     it('sends accepted logs to the logs product with the log entry timestamps, and drains them on stop', async () => {
         const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
         service = new HogFunctionMonitoringService(outputs, internalLogsProducer(), new Set(['hog_flow']))
@@ -175,6 +203,24 @@ describe('HogFunctionMonitoringService', () => {
         service.queueLogs([log(2)], 'hog_flow')
         await service.stop()
         expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps logs about internal logs out of the logs product, writes them to log_entries, and counts them', async () => {
+        const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
+        const loopGuarded = async (): Promise<number> =>
+            (await register.getSingleMetric('logs_internal_producer_records_total')!.get()).values.find(
+                (v) => v.labels.outcome === 'loop_guard'
+            )?.value ?? 0
+        const before = await loopGuarded()
+        service = new HogFunctionMonitoringService(outputs, internalLogsProducer(), new Set(['hog_flow']))
+
+        service.queueLogs([log(2), log(2), log(3)], 'hog_flow', { aboutInternalLogs: true })
+        await service.flush()
+        await service.stop()
+
+        expect(produceMock).toHaveBeenCalledTimes(3)
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect((await loopGuarded()) - before).toBe(2)
     })
 
     it('sends nothing to the logs product for a source not in CDP_INTERNAL_LOGS_SOURCES', async () => {

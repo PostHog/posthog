@@ -1,6 +1,6 @@
 ### Retrieving data
 
-Choose the query method from the requested result and calculation rules, after any metric-routing rules above. Reuse a matching approved metric or saved query when it defines the requested measure.
+Choose the query method from the requested result and calculation rules, after any metric-routing rules above. Reuse a fitting catalog metric or saved query when it defines the requested measure.
 
 - Default to typed runners for new product analytics and dashboard insights whenever their schemas support the requested calculation: event counts, unique users, property sums, breakdowns, time series, funnels, retention, stickiness, paths, and lifecycle. Preserve PostHog's standard calculation rules rather than approximating them with SQL.
 - Use `execute-sql` for record inspection, custom calculations, joins, existing SQL, or requests for SQL. It also supports entity search through `system.*` tables.
@@ -21,17 +21,6 @@ Read the selected tool's description and schema when they are not already in con
 
 #### Choosing the right query tool
 
-Bare "retention" and "customers" are catalog terms that may have several approved definitions. Consult the catalog and clarify materially different matches instead of routing directly to an insight query.
-
-For tasks that need these native analyses:
-
-- "Count / rate / latency / cost of a named thing" -> `metric-list` first; run a matching governed metric before any insight query
-- "How many / how much / over time / compare periods" -> `metric-list` first, then `query-trends` if no approved metric matches
-- "Conversion rate / drop-off / funnel / step completion" -> `metric-list` first, then `query-funnel` if no approved metric matches
-- "Do users come back / cohort retention / churn" -> `query-retention` after catalog routing
-- "How frequently / how many days per week / power users" -> `query-stickiness`
-- "What do users do after X / before X / navigation flow" -> `query-paths`
-- "New vs returning vs dormant / user composition" -> `query-lifecycle`
-- "List LLM traces with cost, token, or error metrics" -> `query-llm-traces-list`
+{metric_routing}
 
 Each `query-*` tool's own description carries its full feature set, use cases, and schema documentation — read it (e.g. `info query-trends`) before constructing the query.

@@ -12,6 +12,10 @@ from products.warehouse_sources.sources.similarweb.settings import (
     API_VERSION_LEGACY,
     API_VERSION_V5,
     BASE_URL,
+    CONVERSION_ANALYSIS,
+    CONVERSION_COUNTRY_ERROR,
+    CONVERSION_SEGMENTS_PATH,
+    DEDUPLICATED_AUDIENCE,
     GLOBAL_RANK,
     PAGE_LIMIT,
     PAGE_VIEWS,
@@ -20,6 +24,8 @@ from products.warehouse_sources.sources.similarweb.settings import (
     V5_ENGAGEMENT_PATH,
     V5_WORLDWIDE_COUNTRY,
     VISITS,
+    VISITS_SPLIT,
+    WEBSITE_KEYWORDS,
 )
 from products.warehouse_sources.sources.similarweb.similarweb import (
     NO_DOMAINS_ERROR,
@@ -175,6 +181,225 @@ class TestSimilarwebTransport:
         assert result.items[0] == [{"domain": "a.com", "date": datetime(2024, 1, 1, tzinfo=UTC), "global_rank": 86}]
         assert result.params("country") == [None]
         assert result.params("granularity") == [None]
+
+    @parameterized.expand([("legacy", API_VERSION_LEGACY), ("v5", API_VERSION_V5)])
+    def test_deduplicated_audience_uses_monthly_data_and_flattens_metrics(self, _name: str, api_version: str) -> None:
+        with time_machine.travel("2024-06-15", tick=False):
+            result = _run(
+                DEDUPLICATED_AUDIENCE,
+                [
+                    _response(
+                        json_body={
+                            "data": [
+                                {
+                                    "date": "2024-06-01",
+                                    "dedup_data": {
+                                        "total_deduplicated_audience": 120,
+                                        "desktop_only_audience_share": 0.25,
+                                    },
+                                }
+                            ]
+                        }
+                    )
+                ],
+                domains="example.com",
+                granularity="daily",
+                api_version=api_version,
+            )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/website/example.com/dedup/deduplicated-audiences"]
+        assert result.params("api_key") == ["key-123"]
+        assert result.params("start_date") == result.params("end_date") == ["2024-06"]
+        assert result.params("granularity") == [None]
+        assert result.rows == [
+            {
+                "domain": "example.com",
+                "country": "world",
+                "date": datetime(2024, 6, 1, tzinfo=UTC),
+                "total_deduplicated_audience": 120,
+                "desktop_only_audience_share": 0.25,
+            }
+        ]
+
+    @parameterized.expand([("default_window", None, "2024-06"), ("configured_window", "2024-01", "2024-01")])
+    def test_visits_split_preserves_the_aggregate_window(
+        self, _name: str, start_date: str | None, expected_start: str
+    ) -> None:
+        with time_machine.travel("2024-06-15", tick=False):
+            result = _run(
+                VISITS_SPLIT,
+                [
+                    _response(json_body={"meta": {}, "desktop_visit_share": 0.0, "mobile_web_visit_share": 1.0}),
+                    _response(status=404),
+                ],
+                domains="example.com, missing.example.com",
+                start_date=start_date,
+                granularity="weekly",
+            )
+
+        assert result.raised is None
+        assert result.paths == [
+            f"/v1/website/{domain}/total-traffic-and-engagement/visits-split"
+            for domain in ("example.com", "missing.example.com")
+        ]
+        assert result.params("start_date") == [expected_start, expected_start]
+        assert result.params("end_date") == ["2024-06", "2024-06"]
+        assert result.params("granularity") == [None, None]
+        assert result.rows == [
+            {
+                "domain": "example.com",
+                "country": "world",
+                "start_date": expected_start,
+                "end_date": "2024-06",
+                "desktop_visit_share": 0.0,
+                "mobile_web_visit_share": 1.0,
+            }
+        ]
+
+    @parameterized.expand([("full_refresh", False, "2023-12"), ("incremental", True, "2024-01")])
+    def test_keywords_page_within_months_before_advancing_the_watermark(
+        self, _name: str, incremental: bool, expected_start: str
+    ) -> None:
+        full_page = [{"keyword": f"term-{index}", "clicks": index} for index in range(PAGE_LIMIT)]
+        script = [
+            _response(json_body={"keywords": full_page}),
+            _response(json_body={"keywords": [{"keyword": "last term", "clicks": 2}]}),
+        ]
+        if not incremental:
+            script.extend([_response(json_body={"keywords": []}), _response(json_body={"keywords": []})])
+        script.extend([_response(json_body={"keywords": [{"keyword": "other domain"}]})])
+        with time_machine.travel("2024-01-15", tick=False):
+            result = _run(
+                WEBSITE_KEYWORDS,
+                script,
+                domains="example.com, other.example.com",
+                start_date="2023-12",
+                should_use_incremental_field=incremental,
+                db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+                api_version=API_VERSION_V5,
+            )
+
+        assert result.raised is None
+        months = (
+            [expected_start, expected_start, "2024-01"]
+            if incremental
+            else ["2023-12", "2023-12", "2023-12", "2024-01", "2024-01"]
+        )
+        assert result.params("start_date") == result.params("end_date") == months
+        assert result.params("offset") == ["0", str(PAGE_LIMIT)] + ["0"] * (len(months) - 2)
+        assert result.paths == ["/v4/website-analysis/keywords"] * len(months)
+        assert result.params("URL") == ["example.com", "example.com"] + (
+            ["other.example.com"] if incremental else ["other.example.com", "example.com", "other.example.com"]
+        )
+        assert result.params("traffic_source") == ["All"] * len(months)
+        assert result.params("web_source") == ["Total"] * len(months)
+        assert result.params("granularity") == [None] * len(months)
+        assert result.rows[0] == {
+            "domain": "example.com",
+            "country": "world",
+            "date": datetime.fromisoformat(expected_start + "-01").replace(tzinfo=UTC),
+            "keyword": "term-0",
+            "clicks": 0,
+        }
+        assert [row["date"] for row in result.rows] == sorted(row["date"] for row in result.rows)
+        assert result.saved_states[0] == SimilarwebResumeConfig(
+            next_domain_index=0, next_offset=PAGE_LIMIT, next_month=expected_start
+        )
+        assert result.committed_states[0] == result.saved_states[0]
+        assert result.final_state is None
+
+    def test_keywords_resume_keeps_the_month_domain_and_page(self) -> None:
+        with time_machine.travel("2024-02-15", tick=False):
+            result = _run(
+                WEBSITE_KEYWORDS,
+                [_response(json_body={"keywords": [{"keyword": "resumed term"}]})],
+                domains="example.com, other.example.com",
+                start_date="2023-12",
+                resume_state=SimilarwebResumeConfig(next_domain_index=1, next_offset=100, next_month="2024-02"),
+            )
+
+        assert result.raised is None
+        assert result.params("URL") == ["other.example.com"]
+        assert result.params("offset") == ["100"]
+        assert result.params("start_date") == result.params("end_date") == ["2024-02"]
+        assert result.rows == [
+            {
+                "domain": "other.example.com",
+                "country": "world",
+                "keyword": "resumed term",
+                "date": datetime(2024, 2, 1, tzinfo=UTC),
+            }
+        ]
+        assert result.final_state is None
+
+    def test_conversion_discovers_matching_segments_and_orders_their_periods(self) -> None:
+        segment_id = "example.com%23Checkout / completed"
+        segment = {"site": "www.example.com", "segment_id": segment_id, "available_countries": ["US"]}
+        with time_machine.travel("2024-06-15", tick=False):
+            result = _run(
+                CONVERSION_ANALYSIS,
+                [
+                    _response(
+                        json_body={
+                            "response": {
+                                "segments": [
+                                    segment,
+                                    segment,
+                                    {**segment, "segment_id": "wrong-country", "available_countries": ["GB"]},
+                                    {**segment, "site": "other.example.com", "segment_id": "unconfigured"},
+                                    {**segment, "segment_id": ""},
+                                    {**segment, "segment_id": "second"},
+                                ]
+                            }
+                        }
+                    ),
+                    _response(json_body={"segments": [{"date": "2024-06-01", "converted_visits": 5}]}),
+                    _response(json_body={"segments": [{"date": "2024-04-01", "converted_visits": 3}]}),
+                ],
+                domains="example.com",
+                country="US",
+                granularity="daily",
+                start_date="2024-01",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 4, 1, tzinfo=UTC),
+                api_version=API_VERSION_V5,
+            )
+
+        assert result.raised is None
+        assert result.paths == [
+            CONVERSION_SEGMENTS_PATH,
+            "/v1/segment/example.com%23Checkout%20%2F%20completed/conversion-analysis/query",
+            "/v1/segment/second/conversion-analysis/query",
+        ]
+        assert result.params("start_date") == [None, "2024-04", "2024-04"]
+        assert result.params("end_date") == [None, "2024-06", "2024-06"]
+        assert result.params("country") == [None, "us", "us"]
+        assert result.params("granularity") == [None, "monthly", "monthly"]
+        assert result.params("metrics") == [None] + ["visits,converted-visits,conversion-rate,stickiness"] * 2
+        assert result.rows == [
+            {
+                "domain": "example.com",
+                "country": "us",
+                "date": datetime(2024, 4, 1, tzinfo=UTC),
+                "converted_visits": 3,
+                "conversion_segment_id": "second",
+            },
+            {
+                "domain": "example.com",
+                "country": "us",
+                "date": datetime(2024, 6, 1, tzinfo=UTC),
+                "converted_visits": 5,
+                "conversion_segment_id": segment_id,
+            },
+        ]
+
+    def test_conversion_rejects_worldwide_before_spending_credits(self) -> None:
+        result = _run(CONVERSION_ANALYSIS, [], domains="example.com")
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == CONVERSION_COUNTRY_ERROR
+        assert result.requests == []
 
     def test_traffic_sources_flattens_channels(self) -> None:
         script = [

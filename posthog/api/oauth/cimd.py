@@ -22,6 +22,7 @@ from django.utils import timezone
 
 import requests
 import structlog
+import tldextract
 import posthoganalytics
 from celery import shared_task
 from oauth2_provider.models import AbstractApplication
@@ -30,21 +31,25 @@ from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import (
+    OIDC_SIGNING_KEY_MISSING_MESSAGE,
     CIMDVerificationToken,
     OAuthApplication,
     TokenEndpointAuthMethod,
     find_cimd_verification_token,
     normalize_cimd_url,
+    oidc_signing_key_configured,
     revoke_application_sessions,
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import OIDC_SCOPES, filter_self_registered_ceiling, filter_to_unprivileged_scopes
-from posthog.security.pinned_requests import PinnedIPAdapter, select_pinned_ip
+from posthog.scopes.ceilings import filter_self_registered_ceiling, filter_to_unprivileged_scopes
+from posthog.scopes.oauth import OIDC_SCOPES
+from posthog.security.pinned_requests import PinnedIPAdapter, canonical_host, select_pinned_ip
 from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allowed, validate_url_and_pin_ips
 
 from .client_name import sanitize_client_name, validate_cimd_client_name
 from .logo_uri import usable_logo_uri
+from .provisioning_review import open_review, review_required, start_review
 
 if TYPE_CHECKING:
     from posthog.models.oauth_provisioning import ProvisioningConfig
@@ -86,6 +91,17 @@ class CIMDValidationError(Exception):
     """Raised when the CIMD metadata document fails validation."""
 
     pass
+
+
+class CIMDSigningKeyMissingError(CIMDValidationError):
+    """The instance cannot store any CIMD client, so the metadata document is not at fault.
+
+    Subclasses CIMDValidationError so every caller that already handles a rejected document also
+    handles this case without a 500. The /authorize path catches it first to answer server_error.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(OIDC_SIGNING_KEY_MISSING_MESSAGE)
 
 
 class CIMDBurstThrottle(IPThrottle):
@@ -222,9 +238,10 @@ def is_cimd_client_id(client_id: str | None) -> bool:
     return valid
 
 
-# A CIMD client is trusted because it serves its metadata document from its client_id URL. Each
-# of these services gives anyone a public HTTPS URL with content they choose in seconds, so a
-# document served from one does not show that an accountable party controls the client.
+# A CIMD client is trusted because it serves its metadata document from its client_id URL, and
+# its signing keys from its jwks_uri. Each of these services gives anyone a public HTTPS URL with
+# content they choose in seconds, so a document served from one does not show that an
+# accountable party controls the client.
 _TUNNEL_HOST_SUFFIXES = frozenset(
     {
         "trycloudflare.com",  # Cloudflare quick tunnels
@@ -251,6 +268,7 @@ _TUNNEL_HOST_SUFFIXES = frozenset(
         "sharedwithexpose.com",  # Expose
         "localto.net",  # Localtonet
         "tunnelto.dev",
+        "srv.us",
     }
 )
 
@@ -290,11 +308,26 @@ _JSON_AND_PASTE_HOST_SUFFIXES = frozenset(
         "hastebin.com",
         "surge.sh",
         "tiiny.site",
+        "x0.at",
+        "0x0.st",
     }
 )
 
+# Public instances of editors, forges and storage where any visitor can publish a page or a file,
+# so a document there says nothing about who controls the client.
+_PUBLIC_EDITABLE_HOST_SUFFIXES = frozenset(
+    {
+        "etherpad.wikimedia.org",
+        "pad.riseup.net",
+        "pad.systemli.org",
+        "pad.tetaneutral.net",
+        "textdb.online",
+        "git.kaki87.net",
+        "play.min.io",
+    }
+)
 THROWAWAY_HOST_SUFFIXES: frozenset[str] = (
-    _TUNNEL_HOST_SUFFIXES | _REQUEST_BIN_HOST_SUFFIXES | _JSON_AND_PASTE_HOST_SUFFIXES
+    _TUNNEL_HOST_SUFFIXES | _REQUEST_BIN_HOST_SUFFIXES | _JSON_AND_PASTE_HOST_SUFFIXES | _PUBLIC_EDITABLE_HOST_SUFFIXES
 )
 
 THROWAWAY_HOST_MESSAGE = (
@@ -302,12 +335,50 @@ THROWAWAY_HOST_MESSAGE = (
     "Host your client metadata document on a domain you control and use that URL as your client_id."
 )
 
+PROVISIONING_CONTENT_TYPE_MESSAGE = (
+    "A metadata document that sets com.posthog.provisioning must be served with Content-Type: application/json."
+)
+
+THROWAWAY_JWKS_HOST_MESSAGE = (
+    "PostHog doesn't accept a jwks_uri on this host, because it is not a host you control. "
+    "Publish your JWKS on a domain you control and set that URL as jwks_uri in your client metadata."
+)
+
+
+# Built in, with no network fetch of the list. Private suffixes count as public ones, so two
+# tenants of one hosting service, such as a.github.io and b.github.io, are different domains.
+_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
+
+
+def _url_host(url: str) -> str:
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        return ""
+    # The form requests connects to, so the checks judge the host PostHog actually fetches.
+    return canonical_host(host.rstrip("."))
+
+
+def registrable_domain(url: str) -> str:
+    return _DOMAIN_PARTS(_url_host(url)).top_domain_under_public_suffix
+
+
+def jwks_uri_shares_client_domain(client_id: str, jwks_uri: str) -> bool:
+    """The keys must come from the domain that the client_id names, so whoever controls that
+    domain also controls the keys. A subdomain is fine; another domain is not."""
+    domain = registrable_domain(client_id)
+    return bool(domain) and domain == registrable_domain(jwks_uri)
+
+
+def jwks_domain_mismatch_message(client_id: str) -> str:
+    return (
+        f"jwks_uri must be on the same domain as your client_id ({registrable_domain(client_id)} "
+        "or one of its subdomains). Publish your JWKS there and set that URL as jwks_uri in your client metadata."
+    )
+
 
 def is_throwaway_host(url: str) -> bool:
-    try:
-        host = (urlparse(url).hostname or "").rstrip(".")
-    except ValueError:
-        return False
+    host = _url_host(url)
     return any(host == suffix or host.endswith(f".{suffix}") for suffix in THROWAWAY_HOST_SUFFIXES)
 
 
@@ -517,6 +588,10 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
             raise CIMDValidationError("token_endpoint_auth_method 'private_key_jwt' requires a jwks_uri")
         if not jwks_uri.startswith("https://"):
             raise CIMDValidationError("jwks_uri must be an https URL")
+        if is_throwaway_host(jwks_uri):
+            raise CIMDValidationError(THROWAWAY_JWKS_HOST_MESSAGE)
+        if not jwks_uri_shares_client_domain(url, jwks_uri):
+            raise CIMDValidationError(jwks_domain_mismatch_message(url))
         # A second client-controlled URL we will dereference, so it gets the same SSRF
         # screening as the metadata document itself.
         jwks_allowed, jwks_error = validate_cimd_url(jwks_uri, perform_dns_check=True, what="jwks_uri")
@@ -531,8 +606,18 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     if logo_uri is not None and usable_logo_uri(logo_uri) is None:
         metadata.pop("logo_uri", None)
 
+    # Pads, forges and paste sites serve the text a user typed as HTML or plain text, so a
+    # provisioning document that is not served as JSON is not from a server its client runs.
+    if _cimd_declares_provisioning(metadata) and not _is_json_media_type(response.headers.get("Content-Type")):
+        raise CIMDValidationError(PROVISIONING_CONTENT_TYPE_MESSAGE)
+
     cache_ttl = _parse_cache_ttl(response)
     return metadata, cache_ttl
+
+
+def _is_json_media_type(content_type: str | None) -> bool:
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    return media_type == "application/json" or (media_type.startswith("application/") and media_type.endswith("+json"))
 
 
 def _resolve_verification_token(
@@ -969,7 +1054,7 @@ def _register_partner_if_declared(
         return
     if not _cimd_declares_provisioning(metadata):
         return
-    apply_provisioning_defaults(app)
+    apply_provisioning_defaults(app, metadata=metadata)
     app.refresh_from_db()
 
 
@@ -1005,6 +1090,9 @@ def fetch_and_upsert_cimd_application(
     that fails model validation a ``CIMDValidationError`` rather than a kept row, so nothing is
     granted off metadata we could not store; see ``_update_cimd_application``.
     """
+    if not oidc_signing_key_configured():
+        raise CIMDSigningKeyMissingError()
+
     # Refused before the fetch so that PostHog sends no request to the host.
     if is_throwaway_host(url):
         capture_ph_event(
@@ -1148,7 +1236,7 @@ def enqueue_cimd_refresh_if_stale(url: str) -> None:
     refresh_cimd_metadata_task.delay(url)
 
 
-def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfig":
+def _cimd_provisioning_defaults_for(app: OAuthApplication, *, active: bool) -> "ProvisioningConfig":
     """The config a CIMD app gets when it registers itself, layered over whatever it already has.
 
     Nothing here touches client authentication: that is derived from the client's own metadata
@@ -1168,13 +1256,18 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfi
     before the app first registered does not have it silently dropped here. For the ordinary
     case - a brand new self-registered client - the existing config is empty and the two are
     the same thing.
+
+    ``active`` is False while the partner waits on its review, so the capabilities are in place
+    for the moment the review accepts it, and nothing is usable before then.
     """
     return app.provisioning.model_copy(
-        update={"active": True, "can_create_accounts": True, "can_provision_resources": True}
+        update={"active": active, "can_create_accounts": True, "can_provision_resources": True}
     )
 
 
-def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
+def apply_provisioning_defaults(
+    app: OAuthApplication, *, metadata: CIMDMetadataDocument | None = None
+) -> OAuthApplication:
     """Opt a CIMD app into provisioning with the self-serve defaults, and persist them.
 
     Only ever promotes a client that is not a partner yet, and respects the `disabled` kill
@@ -1192,7 +1285,12 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     that is a partner but still public would accept an unauthenticated caller acting as that
     partner. The locked row supplies the key set, since a stale in-memory copy could promote an
     app whose document no longer publishes one.
+
+    Where a review is required, the partner is promoted inactive with a pending review, and the
+    review workflow starts once the promotion commits. An admin who activated the app before it
+    registered has already vouched for it, so that app skips the review.
     """
+    needs_review = False
     with transaction.atomic():
         current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
         app._provisioning_config = current._provisioning_config
@@ -1203,14 +1301,23 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
             return app
         if app.provisioning.disabled:
             return app
+        needs_review = review_required() and not app.provisioning.active
         app.is_provisioning_partner = True
-        app.provisioning = _cimd_provisioning_defaults_for(app)
+        app.provisioning = _cimd_provisioning_defaults_for(app, active=not needs_review)
         updated_fields = ["is_provisioning_partner", "_provisioning_config"]
         if current.jwks_uri:
             app.jwks_uri = current.jwks_uri
             app.client_type = AbstractApplication.CLIENT_CONFIDENTIAL
             updated_fields.append("client_type")
         app.save(update_fields=updated_fields)
+        if needs_review:
+            open_review(
+                app,
+                domain=registrable_domain(app.client_id),
+                metadata_document=cast(dict[str, object], metadata) if metadata is not None else None,
+            )
+            application_id = str(app.pk)
+            transaction.on_commit(lambda: start_review(application_id))
 
     # A partner appearing without an admin creating it is the event worth watching for abuse.
     # Only the promotion reaches here, so it fires on the transition and nowhere else.
@@ -1224,6 +1331,7 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
             "partner_tier": app.partner_tier,
             "is_verified": app.organization_id is not None,
             "organization_id": str(app.organization_id) if app.organization_id else None,
+            "under_review": needs_review,
         },
     )
     return app

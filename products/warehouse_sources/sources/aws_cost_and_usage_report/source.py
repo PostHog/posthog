@@ -5,7 +5,6 @@ from products.warehouse_sources.sources.aws_cost_and_usage_report.aws_cost_and_u
     DELIVERY_IN_PROGRESS,
     ERROR_PREFIX,
     MANIFEST_UNREADABLE,
-    UNSUPPORTED_COMPRESSION,
     VALIDATION_ERROR_MESSAGES,
     WRONG_REGION_CODES,
     WRONG_REGION_MESSAGE,
@@ -70,10 +69,6 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
         errors.update({f"{ERROR_PREFIX}: {code}": WRONG_REGION_MESSAGE for code in WRONG_REGION_CODES})
         errors["Enter the first billing period as YYYY-MM"] = (
             "The first billing period on the source is not in YYYY-MM form. Fix it and retry the sync."
-        )
-        errors[f"{ERROR_PREFIX}: {UNSUPPORTED_COMPRESSION}"] = (
-            "A file in the export uses Brotli compression, which PostHog can't read. "
-            "Check that only AWS writes to the export's S3 prefix, then retry the sync."
         )
         return errors
 
@@ -163,7 +158,7 @@ Create the export in the AWS Billing console under **Data Exports**, delivered t
 AWS rewrites a whole billing period on each delivery and restates the previous month for up to two weeks after it ends, so every sync rebuilds the table from the latest delivery of each billing period. Each sync reads every month from the first billing period on, and each read counts as synced rows, so start at the earliest month you need.""",
             iconPath="/static/services/aws_cost_and_usage_report.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-cost-and-usage-report",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["aws", "cur", "finops", "cloud spend", "data exports", "focus"],
             fields=cast(
                 list[FieldType],

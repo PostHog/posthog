@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+        },
+        "item_id": {
+            "description": "Item ID.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "item_id"],
+    "type": "object"
+}

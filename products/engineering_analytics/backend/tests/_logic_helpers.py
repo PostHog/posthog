@@ -31,9 +31,8 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
-# Every query module runs HogQL through this method; patch it to test row mapping without a
-# warehouse. Patching the unbound method means the mock is called without `self`, so a plain
-# return_value / side_effect works as before.
+# Every query module runs HogQL through this method. A patch of the unbound method is called
+# without `self`.
 _RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.CuratedGitHubSource.run"
 _PR_LIST = "products.engineering_analytics.backend.logic.queries.pull_request_list"
 
@@ -45,8 +44,7 @@ def _resp(results: list[tuple]) -> SimpleNamespace:
 
 
 def _pr_list_run(rows: list[tuple], push_rows: list[tuple] | None = None):
-    """Mocked ``curated.run`` for the PR-list path, which now issues two queries: the list
-    query returns ``rows``; the scoped push-history query returns ``push_rows``."""
+    """Mock ``curated.run`` for the PR-list path, which issues a list query and a push-history query."""
 
     def run(sql: str, *, query_type: str, **kwargs) -> SimpleNamespace:
         if query_type == "engineering_analytics.pr_push_history":
@@ -64,12 +62,10 @@ _seed_clock: datetime | None = None
 
 
 def anchor_seed_clock() -> None:
-    """Pin the clock every seed in one test reads from. Called per test by the autouse fixture.
+    """Pin the clock that every seed in one test reads.
 
-    Seeds format to whole seconds, so two calls that straddle a wall-clock second land a second
-    apart even when the test asked for an exact number of days between them. Tests assert on the
-    distance between seeded rows (`merged_at` minus a `ready_for_review` event, for one), so
-    sampling the clock per call turned that distance into a coin flip on sub-second timing.
+    Seeds format to whole seconds, so two clock samples that straddle a second would put seeded
+    rows one second further apart than the test asked for.
     """
     global _seed_clock
     _seed_clock = timezone.now()
@@ -84,8 +80,7 @@ def _ago(days: int) -> str:
 
 
 def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
-    # Seed dates relative to real time: HogQL now() runs server-side and ignores the
-    # frozen clock, so window/age assertions must share the clock the query uses.
+    # HogQL now() runs on the server and ignores a frozen clock, so seed dates are relative to real time.
     started_at = _seed_now() - timedelta(days=days)
     updated_at = started_at + timedelta(seconds=duration_seconds)
     fmt = "%Y-%m-%d %H:%M:%S"
@@ -93,7 +88,6 @@ def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
 
 
 def _ago_offset_with_duration(days: int, offset_seconds: int, duration_seconds: int) -> tuple[str, str]:
-    """Like ``_ago_with_duration`` but shifted forward, so several runs can share one round anchor."""
     started_at = _seed_now() - timedelta(days=days) + timedelta(seconds=offset_seconds)
     updated_at = started_at + timedelta(seconds=duration_seconds)
     fmt = "%Y-%m-%d %H:%M:%S"
@@ -114,12 +108,8 @@ def _job_row(
     head_sha: str = "sha60",
     steps: str = "[]",
 ) -> dict[str, Any]:
-    # Default to the same relative anchor the seeded runs use, not a fixed calendar date. GitHub
-    # creates a job when its run attempt starts, so a job's created_at tracks its run's start — and
-    # the cost queries' jobs-scan floor is derived from exactly that relationship (see
-    # _workflow_filters.run_windowed_job_created_floor_constant). Jobs pinned to 2026-01-01 under runs
-    # seeded at _ago(n) modelled a shape the source cannot produce, and the floor rightly dropped them.
-    # Keeps the 2-minute duration the cost assertions are written against.
+    # The cost queries floor the jobs scan near the run's start, so a job must be created near its
+    # run and not on a fixed calendar date. The cost assertions expect the 2-minute duration.
     default_started, default_completed = _ago_with_duration(1, 120)
     started = started if started is not None else default_started
     completed = completed if completed is not None else default_completed
@@ -171,9 +161,7 @@ def _header(
 
 
 class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
-    """Seeds warehouse tables behind a connected GitHub source with a non-default prefix,
-    so the full resolve -> build -> query path runs end to end against `myprefixgithub_*`
-    tables."""
+    """Seed warehouse tables behind a GitHub source with a non-default prefix, so table resolution is exercised."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -190,8 +178,6 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         prefix: str = GITHUB_SOURCE_PREFIX,
         schema_name: str | None = None,
     ) -> None:
-        # Defaults to the mixin's single shared source; pass source + prefix to seed a second
-        # source (e.g. one GitHub source per repository) under a distinct table prefix.
         if source is None:
             if self._github_source is None:
                 self._github_source = create_github_source(self.team)
@@ -212,8 +198,7 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
                 source_prefix=prefix,
             )
         self.addCleanup(cleanup)
-        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix. Non-GitHub
-        # sources (Trunk) pass their endpoint's schema name explicitly.
+        # A GitHub schema name is the base name without its "github_" prefix. Other sources pass schema_name.
         link_schema(self.team, source, name=schema_name or base_name.removeprefix("github_"), table=table)
 
     def _create_depot_table(self, rows: list[dict[str, Any]]) -> None:
@@ -232,27 +217,20 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
 
 
 class _EndpointsWarehouseMixin(_WarehouseMixin):
-    """End-to-end aggregates over real warehouse tables. Seeds dates relative to
-    real time (HogQL now() is server-side)."""
-
     def _seed(self) -> None:
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
             [
-                # open, recent (<7d), human, failing CI on sha10
                 _pr_row(10, "alice", "open", 0, _ago(1), head_sha="sha10", labels=("bug",)),
-                # open, old (>7d), human -> stuck; passing CI on sha11
+                # Stuck: open for more than 7 days, by a human, not a draft.
                 _pr_row(11, "bob", "open", 0, _ago(30), head_sha="sha11"),
-                # open draft -> not stuck
                 _pr_row(12, "carol", "open", 1, _ago(30), head_sha="sha12"),
-                # open bot -> not stuck
                 _pr_row(13, "dependabot[bot]", "open", 0, _ago(30), head_sha="sha13"),
-                # open allowlisted bot (no [bot] suffix) -> is_bot, not stuck
+                # A bot from the allowlist, without the [bot] suffix.
                 _pr_row(16, "renovate", "open", 0, _ago(30), head_sha="sha16"),
-                # merged within the default 30d window -> in the list, not open
                 _pr_row(14, "alice", "closed", 0, _ago(40), merged_at=_ago(5), head_sha="sha14"),
-                # merged long ago -> outside the window, excluded from the list
+                # Merged before the default 30-day window.
                 _pr_row(15, "alice", "closed", 0, _ago(120), merged_at=_ago(60), head_sha="sha15"),
             ],
         )
@@ -262,9 +240,9 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
             [
                 _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1), pr_number=10),
                 _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2), pr_number=11),
-                # A second push on PR 10 (new head SHA) that was re-run -> pushes=2, rerun_cycles=1.
-                # A non-CI workflow so the CI workflow-health assertions stay at 2 runs. It starts a
-                # minute before sha10, so a push-history cap of 1 drops this re-run push.
+                # A second, re-run push on PR 10. It uses a non-CI workflow so that the CI workflow
+                # counts stay at 2 runs, and starts a minute before sha10 so that a push-history
+                # cap of 1 drops it.
                 _run_row(
                     2003,
                     "Deploy",
@@ -275,8 +253,7 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
                     pr_number=10,
                     run_attempt=2,
                 ),
-                # PR 10 queued to merge: the gate run is credited to PR 10 (its branch names it) but
-                # its head SHA is a rebase the queue made, so it must not read as a third push.
+                # A merge-queue gate run for PR 10. The queue made its head SHA, so it is not a push.
                 _run_row(
                     2004,
                     "Deploy",

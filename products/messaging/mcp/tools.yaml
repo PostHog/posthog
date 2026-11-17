@@ -165,3 +165,48 @@ tools:
             exclude:
                 - email_types
                 - hook_url
+    suppressions-add:
+        operation: messaging_suppressions_bulk_add_suppressions_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Add email addresses to the suppression list
+        description: >
+            Suppress one or more email addresses (up to 1000 per call) so no workflow sends to them. Use this to migrate
+            a suppression list from another email provider, such as Resend or SendGrid: page through the provider's list
+            and send each page in one call instead of adding addresses one at a time. Set reason to bounce for bounced
+            or invalid addresses (these also block transactional email), complaint for spam reports, and manual for
+            anything else. An address that already has an entry keeps it. A bounce also makes that entry block
+            transactional email, unless someone removed it from the list. Repeating a call is safe.
+        feature_flag: workflows-bulk-suppressions-mcp
+    suppressions-list:
+        operation: messaging_suppressions_suppressions_retrieve
+        enabled: true
+        list: true
+        title: List suppressed email addresses
+        description: >
+            List the email addresses on the project's suppression list, most recently updated first. Workflows skip
+            these addresses. Pass search to find one address or a domain, and page through the rest with page and
+            page_size. source says why an address is on the list: BOUNCE for an address that kept bouncing, COMPLAINT
+            for a recipient who reported a message as spam, and MANUAL for one a person or a tool added. Transactional
+            email skips an address only after a hard bounce, and this list doesn't show which entries had one. Use this
+            before suppressions-remove to check an address and its source.
+        feature_flag: workflows-bulk-suppressions-mcp
+    suppressions-remove:
+        operation: messaging_suppressions_bulk_remove_suppressions_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove email addresses from the suppression list
+        description: >
+            Remove up to 100 addresses from the project's suppression list, so workflows can email them again. Remove
+            only the addresses the user asked for. Sending to an address that bounced or reported spam can hurt the
+            project's sender reputation, so check the source with suppressions-list first and tell the user what it was.
+            An address that reported spam is removed only with confirm_complaints set to true; without it, the call
+            removes nothing and returns 400. The response lists the removed addresses and the ones that were not on the
+            list. Repeating a call is safe.
+        feature_flag: workflows-bulk-suppressions-mcp

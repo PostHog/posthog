@@ -84,7 +84,7 @@ export interface MetricCardProps {
 /** @deprecated Use the composable `Metric` from `@posthog/quill-components/metric`. */
 export function MetricCard(props: MetricCardProps): React.ReactElement | null {
     return (
-        <ChartErrorBoundary onError={props.onError}>
+        <ChartErrorBoundary onError={props.onError} resetKey={props.data ?? props.value}>
             <MetricCardInner {...props} />
         </ChartErrorBoundary>
     )
@@ -132,7 +132,8 @@ function MetricCardInner({
 
     const restingValue = value ?? (sparklineData ? sparklineData[lastIndex] : undefined)
     const animationTarget = sparklineData && intentIndex >= 0 ? (sparklineData[intentIndex] ?? 0) : (restingValue ?? 0)
-    const animatedValue = useAnimatedNumber(animationTarget, animationMs)
+    const rawAnimatedValue = useAnimatedNumber(animationTarget, animationMs)
+    const animatedValue = Number.isInteger(animationTarget) ? Math.round(rawAnimatedValue) : rawAnimatedValue
 
     const baselineValue = sparklineData?.find((v) => v !== 0 && Number.isFinite(v))
 
