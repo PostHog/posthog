@@ -26,6 +26,10 @@ const importRun = (status: ProviderImportRunApi['status']): ProviderImportRunApi
             imported: 1000,
             warnings: [],
             last_error: null,
+            counts: [],
+            items: [],
+            warnings_omitted: 0,
+            items_omitted: 0,
         },
     ],
     created_at: '2026-01-01T00:00:00Z',
@@ -55,7 +59,19 @@ describe('customerIOImportLogic', () => {
                 ],
                 '/api/projects/:team_id/messaging_provider_imports/providers/': () => [
                     200,
-                    [{ key: 'customerio', label: 'Customer.io', steps: STEP_OPTIONS }],
+                    [
+                        {
+                            key: 'customerio',
+                            label: 'Customer.io',
+                            steps: STEP_OPTIONS,
+                            retains_credentials: true,
+                            api_key_label: 'Customer.io App API Key',
+                            api_key_help: '',
+                            api_key_url: null,
+                            not_imported: '',
+                            next_steps: [],
+                        },
+                    ],
                 ],
                 '/api/projects/:team_id/messaging_provider_imports/': () => {
                     listCalls += 1
