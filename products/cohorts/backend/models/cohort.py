@@ -1265,6 +1265,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             # Delete from PostgreSQL first (source of truth), then ClickHouse.
             # This order ensures if PG delete fails, we don't create inverse inconsistency.
+            # The ClickHouse delete is asynchronous, so the reconciliation must not copy the member back meanwhile.
+            from products.cohorts.backend.static_reconciliation import record_static_cohort_member_removal
+
+            try:
+                record_static_cohort_member_removal(cohort_id=self.id, person_id=person.id)
+            except Exception as record_err:
+                # A missing mark only reopens a rare race, so it must not fail the removal.
+                capture_exception(record_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
             if is_member:
                 delete_cohort_member(team_id=team_id, cohort_id=self.id, person_id=person.id)
             else:

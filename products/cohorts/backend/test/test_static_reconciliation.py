@@ -14,6 +14,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.models.instance_setting import override_instance_config
+from posthog.redis import get_client
 from posthog.tasks.calculate_cohort import (
     reconcile_static_cohort_membership,
     reconcile_static_cohorts,
@@ -242,6 +243,23 @@ class TestStaticCohortReconciliation(BaseTest):
         self._forget_attempts(cohort)
 
         self.assertEqual(self._dispatched(), [])
+
+    def test_a_member_removed_during_a_repair_stays_removed(self) -> None:
+        removed, kept = (create_person(team=self.team, distinct_ids=[f"member-{i}"]) for i in range(2))
+        cohort = self._static_cohort(person_uuids=(removed.uuid, kept.uuid))
+        self.addCleanup(get_client().delete, static_reconciliation._removed_members_key(cohort.pk))
+
+        def remove_then_copy(*args: Any, **kwargs: Any) -> None:
+            # The ClickHouse delete has not applied yet, so the copy still reads the removed member.
+            with patch("products.cohorts.backend.models.util.remove_person_from_static_cohort"):
+                cohort.remove_user_by_uuid(str(removed.uuid), team_id=self.team.pk)
+            insert_cohort_people_into_pg(*args, **kwargs)
+
+        with patch.object(static_reconciliation, "insert_cohort_people_into_pg", side_effect=remove_then_copy):
+            reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        cohort.refresh_from_db()
+        self.assertEqual((count_cohort_members(self.team.pk, cohort.pk), cohort.count), (1, 1))
 
     def test_a_failed_recount_does_not_park_the_cohort(self) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])

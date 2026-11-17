@@ -21,10 +21,15 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+from posthog.redis import get_client
 from posthog.schema_enums import ProductKey
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.util import count_cohort_members, insert_cohort_people_into_pg
+from products.cohorts.backend.models.util import (
+    count_cohort_members,
+    delete_cohort_member,
+    insert_cohort_people_into_pg,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +49,9 @@ RECONCILE_RETRY_AFTER = timedelta(hours=48)
 RECONCILE_RECHECK_IN_SYNC_AFTER = timedelta(hours=6)
 # A parked cohort is left alone until its ClickHouse count changes or this expires.
 RECONCILE_PARK_FOR = timedelta(days=30)
+
+# Longer than a ClickHouse delete of a removed member takes to apply.
+RECONCILE_REMOVAL_TTL = timedelta(hours=24)
 
 RECONCILE_CURSOR_CACHE_KEY = "static-cohort-reconcile:cursor"
 RECONCILE_CURSOR_TTL = timedelta(days=30)
@@ -81,6 +89,27 @@ def _hold_cache_key(cohort_id: int) -> str:
 
 def _hold(cohort_id: int, duration: timedelta) -> None:
     cache.set(_hold_cache_key(cohort_id), True, timeout=int(duration.total_seconds()))
+
+
+def _removed_members_key(cohort_id: int) -> str:
+    return f"static-cohort-reconcile:removed:{cohort_id}"
+
+
+def record_static_cohort_member_removal(*, cohort_id: int, person_id: int) -> None:
+    """Keep a removed member out of repairs while ClickHouse deletes it asynchronously.
+
+    Call it before the Postgres delete, so a repair that copies the member back afterwards removes it again.
+    """
+    key = _removed_members_key(cohort_id)
+    pipeline = get_client().pipeline(transaction=False)
+    pipeline.sadd(key, person_id)
+    pipeline.expire(key, int(RECONCILE_REMOVAL_TTL.total_seconds()))
+    pipeline.execute()
+
+
+def _delete_recently_removed_members(cohort: StaticCohortToReconcile) -> None:
+    for person_id in get_client().smembers(_removed_members_key(cohort.cohort_id)):
+        delete_cohort_member(cohort.team_id, cohort.cohort_id, int(person_id))
 
 
 def _park_cache_key(cohort_id: int) -> str:
@@ -284,6 +313,8 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
 
     # min_rows makes the copy wait for a replica that holds every row instead of storing a partial copy.
     insert_cohort_people_into_pg(row, team_id=cohort.team_id, min_rows=members.people)
+    # A member removed during the copy may still be in ClickHouse, so the copy can bring it back.
+    _delete_recently_removed_members(cohort)
     # Recount here: the copy logs a failed recount and keeps the old count, which would park a repaired cohort.
     reconciled_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
     _write_count(row, reconciled_count)
