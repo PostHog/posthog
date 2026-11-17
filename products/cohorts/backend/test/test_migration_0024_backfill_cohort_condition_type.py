@@ -123,7 +123,7 @@ class TestBackfillAfterAStalledRefresh(BaseTest):
         with (
             mock.patch.object(backfill, "BATCH_SIZE", 1),
             mock.patch.object(backfill, "REFRESH_DEADLINE_SECONDS", 0),
-            mock.patch.object(backfill, "refresh_readiness_caches", unanswered_refresh),
+            mock.patch("products.cohorts.backend.backfill.finalize.refresh_readiness_caches", unanswered_refresh),
         ):
             backfill.backfill_condition_type(django_apps, SimpleNamespace(connection=connection))
 

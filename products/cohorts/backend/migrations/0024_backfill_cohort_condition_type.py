@@ -5,9 +5,6 @@ from django.db import migrations
 
 import structlog
 
-from products.cohorts.backend.backfill.finalize import refresh_readiness_caches
-from products.cohorts.backend.models.cohort import Cohort as LiveCohort
-
 logger = structlog.get_logger(__name__)
 
 BATCH_SIZE = 1_000
@@ -39,6 +36,8 @@ def _refresh_flags_caches(team_ids: set[int]) -> int | None:
     # an unreachable broker could stall the deploy, so this follows the save receiver's guard.
     if not settings.FLAGS_REDIS_URL:
         return 0
+    from products.cohorts.backend.backfill.finalize import refresh_readiness_caches
+
     dispatched: list[int] = []
 
     def refresh_all() -> None:
@@ -70,6 +69,8 @@ def backfill_condition_type(apps, schema_editor):
     condition", so such a cohort is evaluated from person properties and matches nobody. The value
     comes from the same classifier that `Cohort.save` and `resave_cohorts` use.
     """
+    from products.cohorts.backend.models.cohort import Cohort as LiveCohort
+
     Cohort = apps.get_model("cohorts", "Cohort")
     db_alias = schema_editor.connection.alias
     unclassified = Cohort.objects.using(db_alias).filter(condition_type__isnull=True)
