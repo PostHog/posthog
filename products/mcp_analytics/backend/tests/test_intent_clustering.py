@@ -43,6 +43,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     CallRecord,
     CorpusStats,
     IntentRecord,
+    RecurringIntent,
     WindowStats,
     _content_hash,
     _decode_embedding,
@@ -57,7 +58,9 @@ from products.mcp_analytics.backend.intent_clustering import (
     compute_tool_overlaps,
     compute_tool_pivot,
     embed_texts_async,
+    exclude_recurring_sessions,
     fetch_advertised_tools,
+    fetch_recurring_intents,
     fetch_session_calls,
     fetch_tool_descriptions,
     fetch_window_stats,
@@ -178,9 +181,49 @@ class TestMedoidIndex:
 
 class TestBuildSnapshot:
     def test_empty_corpus_returns_empty_snapshot(self) -> None:
-        snapshot = build_snapshot([], np.array([], dtype=np.int64), np.zeros((0, 4), dtype=np.float32))
+        recurring = [RecurringIntent(intent_text="nightly scout", session_count=5, call_count=10, error_count=1)]
+        snapshot = build_snapshot(
+            [], np.array([], dtype=np.int64), np.zeros((0, 4), dtype=np.float32), recurring=recurring
+        )
         assert snapshot["clusters"] == []
         assert snapshot["computed_with"]["n_clusters"] == 0
+        assert snapshot["long_tail"] is None
+        assert snapshot["recurring"] == [
+            {
+                "intent_text": "nightly scout",
+                "session_count": 5,
+                "call_count": 10,
+                "error_count": 1,
+                "error_rate_pct": 10.0,
+            }
+        ]
+
+    def test_singleton_clusters_collapse_into_long_tail(self) -> None:
+        records = [
+            _snapshot_record("check flag rollout", "feature_flag_get", 6),
+            _snapshot_record("look up flag status", "feature_flag_get", 4),
+            _snapshot_record("one-off sql question", "execute_sql", 3),
+            _snapshot_record("one-off survey question", "survey_get", 2),
+        ]
+        labels = np.array([0, 0, 1, 2], dtype=np.int64)
+        embeddings = np.array([_unit([1.0, 0.0]), _unit([1.0, 0.1]), _unit([0.0, 1.0]), _unit([0.5, 0.5])])
+
+        # One session behind both one-off intents counts once in the aggregate.
+        calls_by_session = {
+            "s1": [
+                CallRecord(session_id="s1", tool="execute_sql", intent_text="one-off sql question", is_error=False),
+                CallRecord(session_id="s1", tool="survey_get", intent_text="one-off survey question", is_error=False),
+            ]
+        }
+
+        snapshot = build_snapshot(records, labels, embeddings, calls_by_session=calls_by_session)
+
+        assert [c["intent_count"] for c in snapshot["clusters"]] == [2]
+        assert snapshot["computed_with"]["n_clusters"] == 1
+        assert snapshot["computed_with"]["n_long_tail_intents"] == 2
+        assert snapshot["long_tail"]["call_count"] == 5
+        assert snapshot["long_tail"]["session_count"] == 1
+        assert snapshot["long_tail"]["sample_intents"] == ["one-off sql question", "one-off survey question"]
 
     def test_aggregates_tool_counts_across_member_intents(self) -> None:
         records = [
@@ -225,7 +268,7 @@ class TestBuildSnapshot:
         labels = np.array([0, 1], dtype=np.int64)
         embeddings = np.array([_unit([1.0, 0.0]), _unit([0.0, 1.0])], dtype=np.float32)
 
-        snapshot = build_snapshot(records, labels, embeddings)
+        snapshot = build_snapshot(records, labels, embeddings, min_cluster_intents=1)
 
         assert snapshot["clusters"][0]["label"] == "popular intent"
         assert snapshot["clusters"][1]["label"] == "rare intent"
@@ -293,7 +336,7 @@ class TestBuildSnapshot:
         labels = np.arange(n_total, dtype=np.int64)
         embeddings = np.array([_unit([1.0, float(i + 1)]) for i in range(n_total)], dtype=np.float32)
 
-        snapshot = build_snapshot(records, labels, embeddings)
+        snapshot = build_snapshot(records, labels, embeddings, min_cluster_intents=1)
 
         assert len(snapshot["clusters"]) == MAX_SNAPSHOT_CLUSTERS
         assert snapshot["computed_with"]["n_clusters"] == n_total
@@ -351,7 +394,9 @@ class TestBuildSnapshot:
 
     def test_snapshot_is_versioned_and_v1_style_invocation_degrades(self) -> None:
         records = [IntentRecord(intent_text="a", frequency=1, tool_counts={"tool_a": 1})]
-        snapshot = build_snapshot(records, np.array([0], dtype=np.int64), np.array([_unit([1.0, 0.0])]))
+        snapshot = build_snapshot(
+            records, np.array([0], dtype=np.int64), np.array([_unit([1.0, 0.0])]), min_cluster_intents=1
+        )
 
         assert snapshot["version"] == SNAPSHOT_VERSION
         assert snapshot["tools"] == []
@@ -394,6 +439,7 @@ class TestBuildSnapshot:
             description_embeddings={"flag_get": _unit([1.0, 0.0])},
             corpus_stats=CorpusStats(total_calls=8, attributed_calls=6, imputed_calls=1, kept_calls=6),
             window_stats=WindowStats(total_calls=100, calls_with_intent=90, sessions=50),
+            min_cluster_intents=1,
         )
 
         assert snapshot["version"] == SNAPSHOT_VERSION
@@ -419,6 +465,21 @@ class TestBuildSnapshot:
 
 
 # build_call_corpus --------------------------------------------------------
+
+
+class TestExcludeRecurringSessions:
+    def test_drops_whole_sessions_that_open_with_a_recurring_text(self) -> None:
+        rows = [
+            ("scout-1", "query_trends", "", False),
+            ("scout-1", "execute_sql", "  nightly scout  ", False),
+            ("scout-1", "execute_sql", "follow-up step", False),
+            ("human-1", "execute_sql", "why did signups drop", False),
+            ("human-1", "execute_sql", "nightly scout", False),
+        ]
+
+        kept = exclude_recurring_sessions(rows, {"nightly scout"})
+
+        assert [row[0] for row in kept] == ["human-1", "human-1"]
 
 
 class TestBuildCallCorpus:
@@ -1111,6 +1172,36 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         flush_persons_and_events()
 
         assert sample_corpus_sessions(self.team, lookback_days=lookback_days) == expected
+
+    def test_recurring_intents_count_sessions_by_their_first_intent(self) -> None:
+        base = datetime.now(tz=UTC) - timedelta(hours=3)
+        # Spellings the corpus normalizes together count together against the threshold.
+        for i, intent in enumerate(["nightly scout", "nightly scout", " nightly scout  "]):
+            self._seed_tool_call(f"scout-{i}", "execute_sql", intent=intent, timestamp=base)
+            self._seed_tool_call(f"scout-{i}", "query_trends", timestamp=base + timedelta(minutes=1), is_error=i == 0)
+        # Repeats inside one session, or as a later intent, don't make a text recurring.
+        self._seed_tool_call("human-1", "execute_sql", intent="why did signups drop", timestamp=base)
+        self._seed_tool_call("human-1", "execute_sql", intent="nightly scout", timestamp=base + timedelta(minutes=1))
+        self._seed_tool_call("human-2", "execute_sql", intent="twice only", timestamp=base)
+        self._seed_tool_call("human-3", "execute_sql", intent="twice only", timestamp=base)
+        flush_persons_and_events()
+
+        assert fetch_recurring_intents(self.team) == [
+            RecurringIntent(intent_text="nightly scout", session_count=3, call_count=6, error_count=1)
+        ]
+
+    def test_sampling_skips_sessions_that_open_with_a_recurring_text(self) -> None:
+        base = datetime.now(tz=UTC) - timedelta(hours=3)
+        self._seed_tool_call("scout-1", "execute_sql", intent=NO_INTENT_RECORDED_FALLBACK, timestamp=base)
+        self._seed_tool_call("scout-1", "execute_sql", intent=" nightly scout", timestamp=base + timedelta(minutes=1))
+        self._seed_tool_call("human-1", "execute_sql", intent="why did signups drop", timestamp=base)
+        self._seed_tool_call("human-1", "execute_sql", intent="nightly scout", timestamp=base + timedelta(minutes=1))
+        flush_persons_and_events()
+
+        assert sample_corpus_sessions(self.team, recurring_texts={"nightly scout"}) == ["human-1"]
+        assert intent_clustering.fetch_tools_by_session(self.team, recurring_texts={"nightly scout"}) == {
+            "execute_sql": {"human-1"}
+        }
 
     def test_session_calls_are_ordered_and_use_the_effective_tool_name(self) -> None:
         base = datetime.now(tz=UTC) - timedelta(hours=2)

@@ -16,6 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
 import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import {
     clearPendingVerificationEmail,
@@ -540,7 +541,11 @@ export const signupLogic = kea<signupLogicType>([
                     // keyed by the user uuid from the redirect path
                     const verifyUuid = res.redirect_url?.match(/\/verify_email\/([^/?#]+)/)?.[1]
                     if (verifyUuid && signupData.email) {
-                        setPendingVerificationEmail(verifyUuid, signupData.email)
+                        setPendingVerificationEmail(
+                            verifyUuid,
+                            signupData.email,
+                            parseInboxProvider(res.inbox_provider)
+                        )
                     }
                     // it's ok to trust the url sent from the server
                     // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect

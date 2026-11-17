@@ -5,7 +5,11 @@ import { LemonSelect, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
 
-import { OwnersFileStatusEnumApi, RoutingModeEnumApi, type StamphogRepoConfigApi } from '../../generated/api.schemas'
+import {
+    OwnersFileStatusEnumApi,
+    RoutingModeEnumApi,
+    type CodeReviewApprovalRepositoryApi,
+} from '../../generated/api.schemas'
 import { ROUTING_MODE_LABELS } from '../../routingModeLabels'
 import { managerDisabledReason } from './repoAccess'
 import { type OwnersFileCheck, stamphogSceneLogic } from './stamphogSceneLogic'
@@ -45,7 +49,7 @@ export function ReviewerRequestSettings({
     ownersFile,
     updatingReason,
 }: {
-    repo: StamphogRepoConfigApi
+    repo: CodeReviewApprovalRepositoryApi
     ownersFile: OwnersFileCheck | undefined
     updatingReason?: string
 }): JSX.Element {

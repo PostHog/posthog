@@ -3,9 +3,12 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from requests.exceptions import RequestException
+
 from products.warehouse_sources.sources.sdk import ResumableSourceManager
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, scripted_network
 from products.warehouse_sources.sources.zoho_crm._config import ZohoCRMSourceConfig
-from products.warehouse_sources.sources.zoho_crm.settings import ZOHO_CRM_ENDPOINTS
+from products.warehouse_sources.sources.zoho_crm.settings import ENDPOINTS, ZOHO_CRM_ENDPOINTS
 from products.warehouse_sources.sources.zoho_crm.source import ZohoCRMSource
 from products.warehouse_sources.sources.zoho_crm.zoho_crm import (
     CLIENT_REJECTED_MESSAGE,
@@ -152,3 +155,67 @@ def test_edition_dependent_modules_do_not_sync_by_default() -> None:
         "Solutions",
     ):
         assert ZOHO_CRM_ENDPOINTS[name].should_sync_default is False
+
+
+_MODULES = [
+    {"api_name": "Leads", "generated_type": "default", "api_supported": True},
+    {"api_name": "Projects", "generated_type": "custom", "api_supported": True},
+    {"api_name": "Deals_X_Contacts", "generated_type": "linking", "api_supported": True},
+    {"api_name": "Hidden_Custom", "generated_type": "custom", "api_supported": False},
+    {"api_name": "Web_Tab", "generated_type": "web", "api_supported": True},
+    {"api_name": "Territories", "generated_type": "custom", "api_supported": True},
+]
+
+
+def _zoho(modules_status: int = 200) -> Any:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/oauth/v2/token":
+            return ScriptedResponse(json={"access_token": "token", "api_domain": "https://www.zohoapis.com"})
+        return ScriptedResponse(status=modules_status, json={"modules": _MODULES})
+
+    return respond
+
+
+class TestCustomModuleDiscovery:
+    def setup_method(self) -> None:
+        self.source = ZohoCRMSource()
+        self.config = ZohoCRMSourceConfig(region="us", client_id="cid", client_secret="secret", refresh_token="refresh")
+
+    def test_adds_custom_and_linking_modules_unticked(self) -> None:
+        with scripted_network(_zoho()):
+            schemas = self.source.get_schemas(self.config, team_id=1)
+
+        by_name = {schema.name: schema for schema in schemas}
+        custom = ["Custom_Projects", "Custom_Deals_X_Contacts", "Custom_Territories"]
+        assert [schema.name for schema in schemas] == [*ENDPOINTS, *custom]
+        for name in custom:
+            assert by_name[name].should_sync_default is False
+            assert [field["field"] for field in by_name[name].incremental_fields] == ["Modified_Time"]
+
+    @pytest.mark.parametrize(
+        ("config", "names"),
+        [
+            (ZohoCRMSourceConfig(region="us", client_id="", client_secret="", refresh_token=""), None),
+            (ZohoCRMSourceConfig(region="us", client_id="cid", client_secret="secret", refresh_token="r"), ["Leads"]),
+        ],
+        ids=["no_credentials", "only_static_names"],
+    )
+    def test_skips_discovery_when_it_cannot_add_anything(
+        self, config: ZohoCRMSourceConfig, names: list[str] | None
+    ) -> None:
+        with scripted_network(_zoho()) as network:
+            schemas = self.source.get_schemas(config, team_id=1, names=names)
+
+        assert network.requests_log == []
+        assert [schema.name for schema in schemas] == (names or list(ENDPOINTS))
+
+    def test_failed_discovery_raises_instead_of_dropping_custom_modules(self) -> None:
+        with scripted_network(_zoho(modules_status=500)):
+            with pytest.raises(RequestException):
+                self.source.get_schemas(self.config, team_id=1)
+
+    def test_names_filter_finds_a_discovered_module(self) -> None:
+        with scripted_network(_zoho()):
+            schemas = self.source.get_schemas(self.config, team_id=1, names=["Custom_Projects"])
+
+        assert [schema.name for schema in schemas] == ["Custom_Projects"]

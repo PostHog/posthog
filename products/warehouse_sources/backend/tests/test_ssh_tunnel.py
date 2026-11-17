@@ -1,9 +1,11 @@
+import base64
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
-from paramiko import RSAKey
+from paramiko import ECDSAKey, RSAKey
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.models import ssh_tunnel as ssh_tunnel_module
@@ -167,8 +169,12 @@ def test_is_auth_valid_wrong_passphrase_suggests_passphrase():
 
 def _host_key_line(key_type: str) -> str:
     if key_type == "ssh-rsa":
-        key = RSAKey.generate(2048)
-        return f"{key.get_name()} {key.get_base64()}"
+        rsa_key = RSAKey.generate(2048)
+        return f"{rsa_key.get_name()} {rsa_key.get_base64()}"
+
+    if key_type == "ecdsa-sha2-nistp256":
+        ecdsa_key = ECDSAKey.generate(bits=256)
+        return f"{ecdsa_key.get_name()} {ecdsa_key.get_base64()}"
 
     public_key = ed25519.Ed25519PrivateKey.generate().public_key()
     return public_key.public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH).decode()
@@ -187,6 +193,8 @@ def test_blank_host_key_leaves_server_unverified(host_key):
     "host_key,expected",
     [
         ("not a host key", "no ssh host key found"),
+        ("SHA256:abc", "no ssh host key found"),
+        ("aa:bb:cc", "no ssh host key found"),
         ("@cert-authority *.example.com ssh-rsa AAAAB3NzaC1yc2E=", "not a host key"),
         ("@revoked host.com ssh-rsa AAAAB3NzaC1yc2E=", "not a host key"),
     ],
@@ -196,6 +204,86 @@ def test_unparseable_host_key_is_rejected(host_key, expected):
 
     assert res is False
     assert expected in error.lower()
+
+
+_FINGERPRINT_PASTES = [
+    "SHA256:" + "uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s",
+    "256 SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s host.example.com (ED25519)",
+    "The authenticity of host 'host.example.com (192.0.2.7)' can't be established.\n"
+    "ED25519 key fingerprint is SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s.",
+    "MD5:16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48",
+    "16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48",
+    "16:27:AC:A5:76:28:2D:36:63:1B:56:4D:EB:DF:A6:48",
+]
+
+
+@pytest.mark.parametrize("paste", _FINGERPRINT_PASTES)
+def test_a_pasted_fingerprint_is_explained(paste):
+    res, error = _password_tunnel(host_key=paste).is_host_key_valid()
+
+    assert res is False
+    assert "fingerprint" in error.lower()
+    assert "ssh-keyscan" in error
+    assert paste not in error
+
+
+@pytest.mark.parametrize("key_type", ["ssh-rsa", "ssh-ed25519", "ecdsa-sha2-nistp256"])
+def test_a_bare_key_blob_parses_to_the_same_key_as_the_full_line(key_type):
+    line = _host_key_line(key_type)
+    _, key_base64 = line.split()
+
+    from_line = _password_tunnel(host_key=line).parse_host_key()
+    from_blob = _password_tunnel(host_key=f"  {key_base64}\n").parse_host_key()
+
+    assert from_line is not None and from_blob is not None
+    assert (from_blob.get_name(), from_blob.get_base64()) == (key_type, key_base64)
+    assert from_blob == from_line
+
+
+def test_a_bare_key_blob_still_counts_toward_the_single_key_rule():
+    _, rsa_base64 = _host_key_line("ssh-rsa").split()
+    _, ed25519_base64 = _host_key_line("ssh-ed25519").split()
+
+    res, error = _password_tunnel(host_key=f"{rsa_base64}\n{ed25519_base64}").is_host_key_valid()
+
+    assert res is False
+    assert "single host key" in error.lower()
+
+
+def _blob_with_type_name(name: str) -> str:
+    name_bytes = name.encode()
+    return base64.b64encode(len(name_bytes).to_bytes(4, "big") + name_bytes + b"\x00" * 32).decode()
+
+
+def _truncated_blob(key_type: str, keep: int) -> str:
+    _, key_base64 = _host_key_line(key_type).split()
+    # Cut on a 4-character boundary so the shortened text is still valid base64.
+    return key_base64[: keep - keep % 4]
+
+
+@pytest.mark.parametrize(
+    "paste,expected",
+    [
+        pytest.param(
+            _blob_with_type_name("sk-ssh-ed25519@openssh.com"), "no ssh host key found", id="unsupported-type"
+        ),
+        pytest.param(
+            _blob_with_type_name("ssh-ed25519-cert-v01@openssh.com"), "no ssh host key found", id="certificate-type"
+        ),
+        pytest.param(_truncated_blob("ssh-rsa", 200), "incomplete", id="truncated-rsa"),
+        pytest.param(_truncated_blob("ssh-ed25519", 40), "incomplete", id="truncated-ed25519"),
+        pytest.param(_truncated_blob("ecdsa-sha2-nistp256", 120), "no ssh host key found", id="truncated-ecdsa"),
+        pytest.param(base64.b64encode(bytes(range(64))).decode(), "no ssh host key found", id="random-bytes"),
+        pytest.param("AAAA", "no ssh host key found", id="too-short-to-hold-a-type"),
+        pytest.param("c29tZXRoaW5nIGVsc2U=", "no ssh host key found", id="not-a-blob"),
+    ],
+)
+def test_a_bare_blob_that_is_not_a_whole_supported_key_is_rejected(paste, expected):
+    res, error = _password_tunnel(host_key=paste).is_host_key_valid()
+
+    assert res is False
+    assert expected in error.lower()
+    assert "fingerprint" not in error.lower()
 
 
 @pytest.mark.parametrize("on_one_line", [False, True])

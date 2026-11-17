@@ -328,6 +328,13 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # class as :etimedout and :econnrefused (pooler couldn't hand us a backend connection; recovers
     # once the pool has capacity or the backend reconnects), so recover by reconnecting.
     "{:error, :timeout}",
+    # The bare-atom sibling of "{:error, :timeout}": on some Supavisor versions the same pool
+    # checkout/backend-connect timeout is reported with the reason atom alone, not wrapped in the
+    # `{:error, ...}` tuple — "Failed to connect to database: :timeout" rather than "Failed to
+    # connect to database: {:error, :timeout}". Same transient pooler-timeout class, so recover the
+    # same way. Match the fuller phrase, not the bare ":timeout" atom, which alone is too generic
+    # and would match unrelated messages that happen to mention a timeout.
+    "failed to connect to database: :timeout",
     # Neon's proxy reports a compute that didn't finish waking from scale-to-zero before the
     # auth handshake deadline as a ConnectionFailure (SQLSTATE 08006, an OperationalError):
     # "Failed to connect to database: authentication did not complete within <n>ms". The wake is
@@ -425,6 +432,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # substring alone still classifies the whole thing. Same transient wake class as the other Neon
     # entries here; a fresh connect after a short backoff succeeds once the compute finishes waking.
     "taking longer than expected to become active",
+    # A Neon-style proxy refuses a connect with "FATAL:  no primary available for branch <branch-id>"
+    # when the branch's compute endpoint has no primary assigned yet — observed moments after the
+    # same branch dropped a connection with "failed to connect to upstream" and an SSL EOF, i.e.
+    # during a brief compute failover/promotion window, not a customer-facing restriction like the
+    # permanent "branch is hibernated" / "connection not allowed for branch" entries in
+    # `get_non_retryable_errors`. A fresh connect after backoff succeeds once Neon finishes assigning
+    # a primary. Match the stable phrase and exclude the volatile branch id.
+    "no primary available for branch",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a

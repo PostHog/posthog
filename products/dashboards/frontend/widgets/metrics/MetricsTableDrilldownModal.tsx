@@ -1,10 +1,12 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonModal } from '@posthog/lemon-ui'
 import { ChartHoverSync } from '@posthog/quill-charts'
 
 import { cn } from 'lib/utils/css-classes'
 import { dateFilterToText } from 'lib/utils/dateFilters'
+import { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Query } from '~/queries/Query/Query'
@@ -50,6 +52,8 @@ export function MetricsTableDrilldownModal({
     onClose: () => void
 }): JSX.Element | null {
     const { timezone } = useValues(teamLogic)
+    // The default query queue runs serially; bound parallel work to this modal so its charts can load together.
+    const [queryContext] = useState(() => ({ loadQueue: new TaskQueue(3) }))
     if (names.length === 0) {
         return null
     }
@@ -85,7 +89,7 @@ export function MetricsTableDrilldownModal({
                                 <section key={index} className="flex min-w-0 flex-col gap-1">
                                     <h5 className="m-0 truncate text-sm font-semibold">{chart.title}</h5>
                                     <div className="flex h-52 flex-col">
-                                        <Query query={chart.query} readOnly embedded />
+                                        <Query query={chart.query} context={queryContext} readOnly embedded />
                                     </div>
                                 </section>
                             ))}

@@ -301,7 +301,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/pulse': ['Pulse', 'pulse'],
-    '/releases': ['ReleaseCalendar', 'releases'],
+    '/releases': ['ReleaseAll', 'releases'],
+    '/releases/calendar': ['ReleaseCalendar', 'releaseCalendar'],
     '/releases/list': ['Releases', 'releaseList'],
     '/releases/:id': ['Release', 'release'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
@@ -334,6 +335,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/integrations/slack/:integrationId/setup': ['SlackAppWorkspaceSetup', 'slackAppWorkspaceSetup'],
     '/stamphog': ['Stamphog', 'stamphog'],
     '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
+    '/stamphog/area': ['StamphogArea', 'stamphogArea'],
     '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
     '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
     '/streamlit-apps': ['StreamlitApps', 'streamlitApps'],
@@ -1190,6 +1192,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'One row for each release, with its flags, experiments and early access.',
     },
     Releases: { name: 'Releases', projectBased: true },
+    ReleaseAll: { name: 'View all', projectBased: true },
     Release: { name: 'Release', projectBased: true },
     ReplayVision: {
         name: 'Replay vision',
@@ -1255,6 +1258,7 @@ export const productConfiguration: Record<string, any> = {
     SlackAppWorkspaceSetup: { projectBased: true, name: 'Slack app setup', layout: 'plain' },
     Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog', activityScope: 'StamphogRepoConfig' },
     StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
+    StamphogArea: { projectBased: true, name: 'Stamphog area', iconType: 'stamphog' },
     StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
     StreamlitApps: {
         name: 'Streamlit apps',
@@ -1838,6 +1842,7 @@ export const productUrls = {
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
     organizationLegalDocuments: (): string => '/organization/legal',
     logs: (activeTab?: LogsSceneActiveTab): string => (activeTab ? `/logs?activeTab=${activeTab}` : '/logs'),
+    logsSavedView: (shortId: string): string => combineUrl('/logs', { savedView: shortId }).url,
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
     logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>
@@ -1953,6 +1958,7 @@ export const productUrls = {
     productTour: (id: string): string => `/product_tours/${id}`,
     pulse: (): string => '/pulse',
     releases: (): string => '/releases',
+    releaseCalendar: (): string => '/releases/calendar',
     releaseList: (): string => '/releases/list',
     release: (id: string): string => `/releases/${id}`,
     replay: (
@@ -2022,6 +2028,7 @@ export const productUrls = {
     slackAppWorkspaceSetup: (integrationId: number | string): string => `/integrations/slack/${integrationId}/setup`,
     stamphog: (): string => '/stamphog',
     stamphogRuns: (): string => '/stamphog/runs',
+    stamphogArea: (): string => '/stamphog/area',
     stamphogDigests: (): string => '/stamphog/digests',
     stamphogCallback: (): string => '/stamphog/install/callback',
     streamlitApps: (): string => '/streamlit-apps',

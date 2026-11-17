@@ -26,6 +26,7 @@ from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.logic.eval_suggestions.profile_queries import ProfileWindow
 from products.ai_observability.backend.models.eval_suggestions import (
@@ -45,11 +46,12 @@ from . import (
     screening,
 )
 from .applicability import applicable, content_profile
-from .call_review_queries import load_call_types, load_review_calls
+from .call_review_queries import CallTypeRow, load_call_types, load_review_calls, snippet_matches
 from .config import SuggestionSettings, runs_for_organization
 from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
 from .measure import discover_sample, hydrate_sample, measure, structured_outputs
 from .profile import TeamProfile, fetch_profile, find_structured_gaps, gap_holds, sample_per_mille
+from .queries import MAX_EXECUTION_TIME_SECONDS
 from .ranking import Proposal
 from .runs import Handoff
 
@@ -189,7 +191,7 @@ def _calibrate(
     ]
     if _time_left(deadline) < call_review.max_seconds(judge_calibration.TIMEOUT_SECONDS):
         return _Calibrated(kept=[], record={"status": "skipped", "detail": "not enough time left"}, cost_usd=0.0)
-    client = judge_calibration.build_client(team.pk, str(run.id), judge_model)
+    client = judge_calibration.build_client(team.pk, str(run.id), judge_model, run.trigger)
     reserved = judge_calibration.max_cost_usd(requests)
     if not runs.reserve_spend(run, reserved, budget):
         return _Calibrated(kept=[], record={"status": "skipped", "detail": "budget used up"}, cost_usd=0.0)
@@ -221,6 +223,7 @@ def _reviewed_proposals(
     handoff: Handoff,
     judge_model: str,
     budget: float,
+    review_calls: int,
     stages: _Stages,
     deadline: float | None,
 ) -> list[Proposal]:
@@ -232,7 +235,7 @@ def _reviewed_proposals(
     if not call_types:
         stages.set("drafting", "skipped", detail="no generations with a model and an input in the last day")
         return []
-    client = call_review.build_client(team.pk, str(run.id))
+    client = call_review.build_client(team.pk, str(run.id), run.trigger)
     triage_call = paid_call(run, client, call_review.triage_request(call_types), budget)
     if triage_call is None:
         stages.set("drafting", "skipped", detail="budget used up")
@@ -246,11 +249,11 @@ def _reviewed_proposals(
         detail = "content the review does not read" if triage.excluded else "no call type worth reviewing"
         stages.set("drafting", "skipped", detail=detail, cost_usd=round(spent, 4))
         return []
-    calls = call_review.select_calls(load_review_calls(team, day, per_mille, triage.picked))
+    calls = call_review.select_calls(load_review_calls(team, day, per_mille, triage.picked), limit=review_calls)
     if len(calls) < call_review.MIN_CARD_FAILURES:
         stages.set("drafting", "skipped", detail="too few calls with a text answer", cost_usd=round(spent, 4))
         return []
-    rendering = call_review.render(triage.picked, calls)
+    rendering = call_review.render(triage.picked, calls, review_calls, coverage_stage.earlier_review_cards(team))
     request = call_review.review_request(rendering)
     # A review that starts too late to finish would be paid for and then lost with the timed-out attempt.
     if _time_left(deadline) < call_review.max_seconds(request.timeout):
@@ -263,6 +266,18 @@ def _reviewed_proposals(
     cards = call_review.parse_cards(review_call.answer, rendering)
     spent += review_call.cost_usd
     calibrated = _calibrate(team, run, cards, rendering, judge_model, budget, deadline)
+    snippets = _prompt_snippets(team, day, per_mille, call_types, [card for card, _ in calibrated.kept], deadline)
+    proposals = [
+        ranking.review_proposal(
+            judge_calibration.measured(card, calibration),
+            handoff.profile,
+            snippets=snippets,
+            judge_model=judge_model,
+            calibration=calibration,
+        )
+        for card, calibration in calibrated.kept
+    ]
+    scoped = [proposal for proposal in proposals if proposal is not None]
     stages.set(
         "drafting",
         "ok",
@@ -271,17 +286,44 @@ def _reviewed_proposals(
         reviewed=len(calls),
         cards=len(cards),
         calibration=calibrated.record,
+        # Kept cards whose generations no filter selects, which the run leaves out.
+        unscoped=len(proposals) - len(scoped),
         cost_usd=round(spent + calibrated.cost_usd, 4),
     )
-    return [
-        ranking.review_proposal(
-            judge_calibration.measured(card, calibration),
-            handoff.profile,
-            judge_model=judge_model,
-            calibration=calibration,
-        )
-        for card, calibration in calibrated.kept
-    ]
+    return scoped
+
+
+def _prompt_snippets(
+    team: Team,
+    window: ProfileWindow,
+    per_mille: int,
+    call_types: Sequence[CallTypeRow],
+    cards: Sequence[call_review.ReviewCard],
+    deadline: float | None,
+) -> dict[str, str]:
+    """The snippet that selects each input-named call type on the cards, keyed by call type. Each candidate is
+    counted on the day's generations, and a call type whose candidates all match other generations gets none.
+    Without time left for the count, or when the count fails, no call type gets one, and the run leaves their cards
+    out while it keeps the cards that a prompt or span name scopes."""
+    # A snippet is prompt text, and an accepted card copies it into evaluation conditions that every member who reads
+    # evaluations sees. A team with property access rules can have members who may not read $ai_input.
+    if team_has_property_access_rules(team_id=team.pk):
+        return {}
+    unnamed = {c.name: c for card in cards for c in card.call_types if c.source == "input"}
+    candidates = {
+        name: ranking.prompt_snippets(call_type, [c for c in call_types if c.key != call_type.key])
+        for name, call_type in unnamed.items()
+    }
+    candidates = {name: texts for name, texts in candidates.items() if texts}
+    if not candidates or _time_left(deadline) < MAX_EXECUTION_TIME_SECONDS:
+        return {}
+    try:
+        matches = snippet_matches(team, window, per_mille, candidates)
+    except Exception as error:
+        logger.warning("eval_suggestions_snippet_count_failed", team_id=team.pk, error=str(error))
+        return {}
+    chosen = {unnamed[name].key: ranking.choose_snippet(texts, matches[name]) for name, texts in candidates.items()}
+    return {key: snippet for key, snippet in chosen.items() if snippet is not None}
 
 
 def _publish_fixes_only(
@@ -466,7 +508,7 @@ def screen_stage(
         runs.save_handoff(run, handoff, stages.record, "screening")
         return 0
     try:
-        client = screening.build_client(team)
+        client = screening.build_client(team, run.trigger)
         evals = existing_evals(team)
         unmapped = sorted(
             (e for e in evals if e.enabled and e.template_key is None and e.dedupe_key is None),
@@ -547,7 +589,14 @@ def draft_stage(
         return 0
     try:
         drafted = _reviewed_proposals(
-            team, run, handoff, handoff.judge_model, settings.llm_budget_usd_per_run, stages, deadline
+            team,
+            run,
+            handoff,
+            handoff.judge_model,
+            settings.llm_budget_usd_per_run,
+            settings.review_calls,
+            stages,
+            deadline,
         )
     except GatewayNotConfiguredError:
         stages.set("drafting", "skipped", detail="the AI gateway is not configured")
