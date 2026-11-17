@@ -600,10 +600,12 @@ const sidebarKindSchemaView = (name: string, isMaterialized: boolean): Record<st
 const sidebarKindView = (
     name: string,
     isMaterialized: boolean,
-    syncFrequency?: string
+    syncFrequency?: string,
+    description?: string
 ): Partial<DataWarehouseSavedQuery> => ({
     id: name,
     name,
+    description,
     is_materialized: isMaterialized,
     sync_frequency: syncFrequency,
     status: 'Completed',
@@ -615,10 +617,10 @@ const sidebarKindView = (
 
 const SIDEBAR_KIND_VIEWS = [
     sidebarKindView('orders_by_day', false),
-    sidebarKindView('shop_fulfilment_queue_cost', false),
+    sidebarKindView('shop_fulfilment_queue_cost', false, undefined, 'Cost of each fulfilment queue'),
     sidebarKindView('shop_returns_unit_economics_monthly', false),
     sidebarKindView('shop_fulfilment_queue_share_monthly', true, '6hour'),
-    sidebarKindView('shop_dash_region_monthly_orders', true, '24hour'),
+    sidebarKindView('shop_dash_region_monthly_orders', true, '24hour', 'Orders per region, one row per month'),
     sidebarKindView('shop_dash_storefront_weekly_active_sessions', true, '1hour'),
     sidebarKindView('carts', true, '24hour'),
 ]

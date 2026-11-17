@@ -110,6 +110,19 @@ export function getColumnInsertText(record: Record<string, any> | undefined): st
     return escapeDottedHogQLIdentifier(record.columnName)
 }
 
+export function getTooltipDescription(record: Record<string, any> | undefined): string | undefined {
+    switch (record?.type) {
+        case 'column':
+            return record.field?.description || undefined
+        case 'table':
+            return record.table?.description || undefined
+        case 'view':
+            return record.view?.description || undefined
+        default:
+            return undefined
+    }
+}
+
 /**
  * Keep a section whose folder, or any of its children, matches the search term — the same
  * name-and-field matching the database tree does for its own tables.
@@ -1379,28 +1392,14 @@ export const QueryDatabase = ({
                             label = `${item.name} → ${traversalChain}`
                         }
                     }
-                    const description: string | undefined =
-                        item.record?.type === 'column'
-                            ? item.record?.field?.description
-                            : item.record?.type === 'table'
-                              ? item.record?.table?.description
-                              : undefined
-                    const showExpandHint =
-                        ['table', 'view', 'managed-view'].includes(item.record?.type) &&
-                        !!item.children?.length &&
-                        !expandedItemIds.includes(item.id)
-                    if (item.record?.type === 'view' && item.record.isSavedQuery && item.record.view?.is_materialized) {
-                        // The icon carries the kind and the name slides on hover, so there is nothing to add.
-                        return undefined
-                    }
-                    if (!description && !showExpandHint) {
+                    const description = getTooltipDescription(item.record)
+                    if (!description) {
                         return label
                     }
                     return (
                         <div className="flex flex-col gap-1">
                             <span className="font-semibold">{label}</span>
-                            {description ? <span>{description}</span> : null}
-                            {showExpandHint ? <span className="text-xs opacity-75">Click to show columns</span> : null}
+                            <span>{description}</span>
                         </div>
                     )
                 }
