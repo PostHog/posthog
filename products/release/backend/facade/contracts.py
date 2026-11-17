@@ -120,6 +120,17 @@ class ReleaseOwnerDTO:
 
 
 @dataclass(frozen=True)
+class ReleaseSummary:
+    id: UUID
+    name: str
+    description: str
+    auto_named: bool
+    owner_first_name: str | None
+    feature_flag_ids: list[int]
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class ReleaseDTO:
     id: UUID
     name: str
