@@ -16,10 +16,11 @@ set -Eeuo pipefail
 input=$(cd "$1" && pwd)
 work=$(mkdir -p "$2" && cd "$2" && pwd)
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
-bootstrap=$repo/nodejs/tests/scenarios/cloud/host-bootstrap.sh
 run_id=$(jq -r .runId "$input/manifest.json")
 engine=$(sed -n 's/^engineVersion: "\([0-9]*\)\..*/\1/p' "$input/cloud-profile.yaml")
 name=scenario-dry-run-$$
+bootstrap=$work/host-bootstrap.head.sh
+git -C "$repo" show HEAD:nodejs/tests/scenarios/cloud/host-bootstrap.sh >"$bootstrap"
 card_seconds=${SCENARIO_DRY_RUN_CARD_SECONDS:-900}
 # shellcheck disable=SC1090
 source <(grep -E '^[A-Z0-9_]+=' "$bootstrap")
@@ -37,7 +38,7 @@ check_amd64_downloads() {
     tar -tJf "node-${node_version}-linux-x64.tar.xz" | grep "^node-${node_version}-linux-x64/bin/node\$" >/dev/null
     curl -fsSL "https://registry.npmjs.org/pnpm/-/pnpm-${PNPM_VERSION}.tgz" -o pnpm.tgz
     echo "${PNPM_SHA256}  pnpm.tgz" | sha256sum --check --strict
-    tar -tzf pnpm.tgz | grep '^package/dist/pnpm.mjs$' >/dev/null
+    tar -tzf pnpm.tgz | grep -c -E '^package/(bin|dist)/pnpm.mjs$' | grep '^2$' >/dev/null
     curl -fsSL "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" -o rustup-init
     echo "${RUSTUP_INIT_SHA256}  rustup-init" | sha256sum --check --strict
     curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" -o uv-x86_64-unknown-linux-gnu.tar.gz
@@ -56,7 +57,7 @@ arm64_bootstrap() {
         -e "s#awscli-exe-linux-x86_64-#awscli-exe-linux-aarch64-#" \
         -e "s#x86_64-unknown-linux-gnu#aarch64-unknown-linux-gnu#g" \
         -e "s#linux-x64#linux-arm64#g" \
-        -e "s#linux-amd64#linux-arm64#" \
+        -e "s#linux-amd64#linux-arm64#g" \
         -e "s#^AWS_CLI_SHA256=.*#AWS_CLI_SHA256=$(sha256_of "https://awscli.amazonaws.com/awscli-exe-linux-aarch64-${AWS_CLI_VERSION}.zip")#" \
         -e "s#^RUSTUP_INIT_SHA256=.*#RUSTUP_INIT_SHA256=$(sha256_of "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/aarch64-unknown-linux-gnu/rustup-init")#" \
         -e "s#^GO_SHA256=.*#GO_SHA256=$(sha256_of "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz")#" \
@@ -178,9 +179,18 @@ cat /opt/scenario/prepare.log
 [ "$code" = 0 ] || { echo "host-prepare.sh exited $code"; exit 1; }
 step "host-run-card.sh, stopped after $CARD_SECONDS s"
 timeout --signal TERM "$CARD_SECONDS" bash nodejs/tests/scenarios/cloud/host-run-card.sh
-echo "host-run-card.sh exited $?"
+stopped=$?
 cat /opt/scenario/evidence/card.log
-cat "/dry-run/bucket/runs/$RUN_ID/host/done"
+done=/dry-run/bucket/runs/$RUN_ID/host/done
+cat "$done" || { echo "The card wrote no done marker."; exit 1; }
+[ "$(jq -r .uploaded "$done")" = true ] || { echo "The card did not upload its evidence."; exit 1; }
+if [ "$stopped" = 124 ]; then
+    echo "The card was still running after $CARD_SECONDS s, as intended."
+    exit 0
+fi
+code=$(jq -r .exitCode "$done")
+echo "The card ended with exit $code before the stop."
+exit "$code"
 EOF
 
 password='dry:Run#1?&%x'
