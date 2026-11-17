@@ -8,7 +8,6 @@ from collections.abc import Mapping
 from datetime import UTC
 
 import pytest
-import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
@@ -28,26 +27,20 @@ from products.knowledge_writer.backend.logic.pull_requests import (
     LINK_BACK_START,
     OPEN_PULL_REQUESTS_OFF,
     open_pull_request_for_run,
-    section_label,
     settle_publication,
 )
 from products.knowledge_writer.backend.logic.records import (
     BASE_SHA_STATE_KEY,
     HEAD_BRANCH_STATE_KEY,
-    PUBLICATION_CLAIM_STATE_KEY,
-    PUBLICATION_LEASE,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
-    publication_claim,
 )
-from products.knowledge_writer.backend.logic.routing import docs_section
 from products.knowledge_writer.backend.logic.writer_change import (
     MAX_CHANGED_FILES,
     MAX_WRITTEN_FILE_LINES,
     WRITER_CHANGE_ARTIFACT_NAME,
 )
-from products.knowledge_writer.backend.settings import writer_settings
 from products.knowledge_writer.backend.task_profiles import WRITER
 from products.knowledge_writer.backend.temporal.merge_workflow import MergeCheckInputs
 from products.tasks.backend.facade import api as tasks_facade
@@ -59,7 +52,7 @@ CREATE_PULL_REQUEST = f"{GITHUB}.create_pull_request"
 GITHUB_REQUEST = f"{GITHUB}.api_request"
 READ_ARTIFACT = "products.tasks.backend.facade.api.read_task_run_artifact"
 CAPTURE_ALERT = "products.knowledge_writer.backend.logic.caps.capture_exception"
-SECTION_PAGE = "https://posthog.com/docs/session-replay/retention"
+RETENTION_PAGE = "https://posthog.com/docs/session-replay/retention"
 DOCS_PAGE_PATH = "contents/docs/session-replay/retention.mdx"
 WORKFLOW_PATH = ".github/workflows/deploy.yml"
 SIBLING_OF_DOCS_PATH = "contents/docs-tools/build.js"
@@ -136,7 +129,6 @@ class DocsGitHub:
         author_login: str = WRITER_APP_LOGIN,
         published_page_paths: tuple[str, ...] = (),
         lookup_error: Exception | None = None,
-        labels: tuple[str, ...] = (),
         base_files: Mapping[str, str] = BASE_FILES,
         base_modes: Mapping[str, int] | None = None,
         branch_tip: str | None = None,
@@ -150,7 +142,6 @@ class DocsGitHub:
                 "html_url": f"https://github.com/PostHog/posthog.com/pull/{number}",
                 "body": body,
                 "user": {"login": author_login},
-                "labels": [{"name": label} for label in labels],
                 "head": {"ref": "docs/retention", "repo": {"full_name": "PostHog/posthog.com"}},
             }
             for number, body in bodies_by_number
@@ -568,16 +559,8 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
         patch(FLAG_CHECK, return_value=True),
         patch(START_WORKFLOW),
     ):
-        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+        started = intake.submit(_verdict(suggested_page_urls=(RETENTION_PAGE,)), team_id=team.id)
     assert started.task_id is not None
-    second_verdict = _verdict(pull_request_number=456, suggested_page_urls=(SECTION_PAGE,), commit_sha="c" * 40)
-    with (
-        patch(FLAG_CHECK, return_value=True),
-        patch(START_WORKFLOW) as start_workflow,
-    ):
-        busy = intake.submit(second_verdict, team_id=team.id)
-    assert busy.status == "section_busy"
-    start_workflow.assert_not_called()
     for unreadable_base in (
         DocsGitHub(graphql_status_code=502),
         DocsGitHub(graphql_failing_paths=frozenset({"contents/docs/session-replay"})),
@@ -601,7 +584,6 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     with (
         patch(GITHUB_REQUEST, side_effect=docs_github),
         patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request,
-        patch(f"{GITHUB}.add_pull_request_labels", return_value={"success": True}) as add_labels,
     ):
         for _ in range(2):
             with django_capture_on_commit_callbacks(execute=True):
@@ -633,9 +615,6 @@ def test_a_finished_writer_run_commits_only_a_gated_change_and_opens_one_linked_
     assert create_pull_request.call_args.kwargs["draft"] is True
     assert LINK_BACK_START in create_pull_request.call_args.kwargs["body"]
     assert COMMIT_URL in create_pull_request.call_args.kwargs["body"]
-    section = docs_section(SECTION_PAGE)
-    assert section is not None
-    add_labels.assert_called_once_with("posthog.com", 9, [section_label(section)])
     stored = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
     assert stored["number"] == 9
@@ -650,7 +629,7 @@ def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_wh
         patch(FLAG_CHECK, return_value=True),
         patch(START_WORKFLOW),
     ):
-        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+        started = intake.submit(_verdict(suggested_page_urls=(RETENTION_PAGE,)), team_id=team.id)
     assert started.task_id is not None
     with (
         patch(START_PUBLISH, side_effect=TimeoutError("Temporal unreachable")),
@@ -662,60 +641,6 @@ def test_a_finished_writer_run_that_cannot_start_its_publish_workflow_records_wh
     create_pull_request.assert_not_called()
     failure = tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
     assert failure == "publish_not_started"
-
-
-@pytest.mark.django_db
-def test_a_section_stays_busy_after_its_run_finishes_until_its_publication_settles(
-    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
-) -> None:
-    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
-    monkeypatch.setattr(START_PUBLISH, lambda task_run_id, *, team_id: None)
-    with (
-        patch(FLAG_CHECK, return_value=True),
-        patch(START_WORKFLOW),
-    ):
-        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
-        assert started.task_id is not None
-        _finish_run(started.task_id, django_capture_on_commit_callbacks)
-        while_publishing = intake.submit(_verdict(456, suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
-        writer = writer_settings()
-        assert writer is not None
-        with time_machine.travel(timezone.now() + PUBLICATION_LEASE, tick=False):
-            busy_after_lease = caps.in_flight_writer_runs(writer).busy_sections
-        settle_publication(TaskRun.objects.get(task_id=started.task_id).id, team_id=team.id, has_failed=True)
-        after_settling = intake.submit(_verdict(456, suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
-
-    assert while_publishing.status == "section_busy"
-    assert busy_after_lease == frozenset()
-    assert after_settling.status == "started"
-
-
-@pytest.mark.django_db
-def test_a_publish_retry_reclaims_the_claim_its_crashed_attempt_left_and_opens_the_pull_request(
-    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
-) -> None:
-    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
-    monkeypatch.setattr(START_PUBLISH, lambda task_run_id, *, team_id: None)
-    with (
-        patch(FLAG_CHECK, return_value=True),
-        patch(START_WORKFLOW),
-    ):
-        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
-    assert started.task_id is not None
-    _finish_run(started.task_id, django_capture_on_commit_callbacks)
-    run = TaskRun.objects.get(task_id=started.task_id)
-    tasks_facade.update_task_state_entry(
-        started.task_id, team.id, PUBLICATION_CLAIM_STATE_KEY, lambda current: (publication_claim(run.id), None)
-    )
-    opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
-    with (
-        patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request,
-        patch(f"{GITHUB}.add_pull_request_labels", return_value={"success": True}),
-    ):
-        pull_request_url = open_pull_request_for_run(run.id, team_id=team.id)
-
-    create_pull_request.assert_called_once()
-    assert pull_request_url == opened["pr_url"]
 
 
 @pytest.mark.django_db
@@ -738,7 +663,7 @@ def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_cr
         patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != OPEN_PULL_REQUESTS_FLAG),
         patch(START_WORKFLOW),
     ):
-        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+        started = intake.submit(_verdict(suggested_page_urls=(RETENTION_PAGE,)), team_id=team.id)
     assert started.task_id is not None
     with (
         patch(
@@ -763,7 +688,7 @@ def test_with_pull_requests_off_a_finished_run_is_logged_with_its_patches_and_cr
         == OPEN_PULL_REQUESTS_OFF
     )
     event, properties = capture.call_args.args[0], capture.call_args.kwargs["properties"]
-    assert (event, properties["routed_page_urls"]) == (DRAFT_EVENT, [SECTION_PAGE])
+    assert (event, properties["routed_page_urls"]) == (DRAFT_EVENT, [RETENTION_PAGE])
     assert properties["files"] == [
         {
             "filename": DOCS_PAGE_PATH,
@@ -824,18 +749,18 @@ def test_without_configured_docs_paths_publish_allows_only_the_docs_folder_the_m
 @pytest.mark.parametrize(
     "docs_github, handed_pages, withheld_pages",
     [
-        (DocsGitHub(published_page_paths=("logs/logql-api",)), (SECTION_PAGE,), (REPOSITORY_SOURCED_PAGE,)),
+        (DocsGitHub(published_page_paths=("logs/logql-api",)), (RETENTION_PAGE,), (REPOSITORY_SOURCED_PAGE,)),
         (
             DocsGitHub(lookup_error=GitHubRateLimitError("rate limited")),
             (),
-            (REPOSITORY_SOURCED_PAGE, SECTION_PAGE),
+            (REPOSITORY_SOURCED_PAGE, RETENTION_PAGE),
         ),
     ],
 )
 def test_a_page_sourced_from_this_repository_is_not_handed_to_the_writer(
     team, writer_env, docs_github, handed_pages, withheld_pages
 ) -> None:
-    verdict = _verdict(suggested_page_urls=(REPOSITORY_SOURCED_PAGE, SECTION_PAGE))
+    verdict = _verdict(suggested_page_urls=(REPOSITORY_SOURCED_PAGE, RETENTION_PAGE))
     assert verdict.request is not None
     with (
         patch(FLAG_CHECK, return_value=True),
@@ -861,7 +786,7 @@ def test_a_page_sourced_from_this_repository_is_not_handed_to_the_writer(
 def test_a_request_whose_every_page_is_sourced_from_its_own_repository_starts_no_writer(
     team, writer_env, pull_request_url, expected_status
 ) -> None:
-    verdict = _verdict(suggested_page_urls=(REPOSITORY_SOURCED_PAGE, SECTION_PAGE))
+    verdict = _verdict(suggested_page_urls=(REPOSITORY_SOURCED_PAGE, RETENTION_PAGE))
     assert verdict.request is not None
     verdict = dataclasses.replace(verdict, request=dataclasses.replace(verdict.request, source_url=pull_request_url))
     with (
@@ -903,17 +828,27 @@ def test_a_failed_docs_base_read_raises_for_a_retry_and_a_missing_docs_integrati
     capture_alert.assert_not_called()
 
 
+RECORDED_PULL_REQUEST = (PULL_REQUEST_STATE_KEY, {"number": 1})
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "cap, docs_github, expected_status",
+    "cap, docs_github, first_task_record, expected_status",
     [
-        ("daily_run", DocsGitHub(), "capped"),
-        ("open_pull_request", DocsGitHub((9, LINK_BACK_START)), "capped"),
-        ("open_pull_request", DocsGitHub((9, LINK_BACK_START), author_login="someone-else"), "started"),
+        ("daily_run", DocsGitHub(), RECORDED_PULL_REQUEST, "capped"),
+        ("open_pull_request", DocsGitHub((9, LINK_BACK_START)), RECORDED_PULL_REQUEST, "capped"),
+        (
+            "open_pull_request",
+            DocsGitHub((9, LINK_BACK_START), author_login="someone-else"),
+            RECORDED_PULL_REQUEST,
+            "started",
+        ),
+        ("open_pull_request", DocsGitHub(), None, "capped"),
+        ("open_pull_request", DocsGitHub(), (PULL_REQUEST_FAILURE_STATE_KEY, "publish_failed"), "started"),
     ],
 )
 def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(
-    team, writer_env, cap, docs_github, expected_status, monkeypatch
+    team, writer_env, cap, docs_github, first_task_record, expected_status, monkeypatch
 ) -> None:
     with (
         patch(FLAG_CHECK, return_value=True),
@@ -922,9 +857,9 @@ def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(
         first = intake.submit(_verdict(), team_id=team.id)
     assert first.task_id is not None
     TaskRun.objects.filter(task_id=first.task_id).update(status=TaskRun.Status.COMPLETED)
-    tasks_facade.update_task_state_entry(
-        first.task_id, team.id, PULL_REQUEST_STATE_KEY, lambda _current: ({"number": 1}, None)
-    )
+    if first_task_record is not None:
+        record_key, record_value = first_task_record
+        tasks_facade.update_task_state_entry(first.task_id, team.id, record_key, lambda _current: (record_value, None))
     monkeypatch.setattr(caps, "DAILY_RUN_CAP", 1 if cap == "daily_run" else 60)
     monkeypatch.setattr(intake, "OPEN_PULL_REQUEST_CAP", 1)
 

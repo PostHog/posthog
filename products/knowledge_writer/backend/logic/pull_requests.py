@@ -1,4 +1,3 @@
-import re
 import uuid
 import difflib
 from collections.abc import Mapping
@@ -30,15 +29,10 @@ from .records import (
     BASE_SHA_STATE_KEY,
     DOCS_CONTENT_ROOT_STATE_KEY,
     HEAD_BRANCH_STATE_KEY,
-    PUBLICATION_CLAIM_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     REQUEST_STATE_KEY,
-    SECTION_STATE_KEY,
     WriterPullRequest,
-    is_publication_claim_live,
-    publication_claim,
-    publication_claim_owner,
     pull_request_json,
     stored_request,
 )
@@ -61,8 +55,6 @@ logger = structlog.get_logger(__name__)
 
 LINK_BACK_START = "<!-- knowledge-writer-sources -->"
 LINK_BACK_END = "<!-- /knowledge-writer-sources -->"
-SECTION_MARKER_PATTERN = re.compile(r"<!-- knowledge-writer-section: ([a-z0-9-]+) -->")
-SECTION_LABEL_PREFIX = "knowledge-writer/"
 PULL_REQUESTS_PER_PAGE = 100
 MAX_PULL_REQUEST_PAGES = 20
 DRAFT_EVENT = "knowledge_writer draft"
@@ -77,26 +69,9 @@ def link_back_block(source_urls: list[str]) -> str:
     return "\n".join([LINK_BACK_START, *lines, LINK_BACK_END])
 
 
-def section_marker(section: str) -> str:
-    return f"<!-- knowledge-writer-section: {section} -->"
-
-
-def section_label(section: str) -> str:
-    return f"{SECTION_LABEL_PREFIX}{section}"
-
-
-def labelled_section(listed: dict) -> str | None:
-    for label in listed.get("labels") or []:
-        name = str((label or {}).get("name", ""))
-        if name.startswith(SECTION_LABEL_PREFIX) and len(name) > len(SECTION_LABEL_PREFIX):
-            return name.removeprefix(SECTION_LABEL_PREFIX)
-    return None
-
-
-def pull_request_body(request: DocsRequest, *, section: str | None) -> str:
+def pull_request_body(request: DocsRequest) -> str:
     requester = f" for {request.requested_by}" if request.requested_by else ""
-    marker = f"\n{section_marker(section)}" if section else ""
-    return f"The knowledge writer opened this{requester}.\n\n{link_back_block([request.source_url])}{marker}"
+    return f"The knowledge writer opened this{requester}.\n\n{link_back_block([request.source_url])}"
 
 
 def docs_github(team_id: int, docs_owner: str, *, priority: Priority) -> GitHubIntegration | None:
@@ -131,16 +106,9 @@ def writer_pull_request(listed: dict, docs_repository: str, app_login: str | Non
         return None
     if head_repository != docs_repository.lower():
         return None
-    label_section = labelled_section(listed)
-    if label_section is None and LINK_BACK_START not in body:
+    if LINK_BACK_START not in body:
         return None
-    marker_section = SECTION_MARKER_PATTERN.search(body)
-    return WriterPullRequest(
-        number=listed["number"],
-        url=listed["html_url"],
-        head_branch=head["ref"],
-        section=label_section or (marker_section.group(1) if marker_section else None),
-    )
+    return WriterPullRequest(number=listed["number"], url=listed["html_url"], head_branch=head["ref"])
 
 
 def open_writer_pull_requests(writer: WriterSettings) -> list[WriterPullRequest] | None:
@@ -205,14 +173,7 @@ def open_pull_request_for_run(task_run_id: UUID, *, team_id: int) -> str | None:
     if isinstance(published, dict):
         log_skipped_publication(task_run_id, team_id, "already_published")
         return pull_request_json.validate_python(published).url
-    if not claim_publication(run.task_id, team_id, task_run_id):
-        log_skipped_publication(task_run_id, team_id, "claim_held")
-        return None
-    try:
-        return publish_claimed_change(run, team_id, writer)
-    except Exception:
-        record_pull_request_failure(run.task_id, team_id, "github_request_failed")
-        raise
+    return publish_change(run, team_id, writer)
 
 
 def log_skipped_publication(task_run_id: UUID, team_id: int, reason: str) -> None:
@@ -225,26 +186,6 @@ def settle_publication(task_run_id: UUID, *, team_id: int, has_failed: bool) -> 
         return
     if has_failed:
         record_pull_request_failure(run.task_id, team_id, "publish_failed")
-    release_publication_claim(run.task_id, team_id, task_run_id)
-
-
-def claim_publication(task_id: UUID, team_id: int, task_run_id: UUID) -> bool:
-    def claim(current: object) -> tuple[object, bool]:
-        is_held_by_another_run = publication_claim_owner(current) != str(task_run_id)
-        if is_held_by_another_run and is_publication_claim_live(current):
-            return current, False
-        return publication_claim(task_run_id), True
-
-    return bool(tasks_facade.update_task_state_entry(task_id, team_id, PUBLICATION_CLAIM_STATE_KEY, claim))
-
-
-def release_publication_claim(task_id: UUID, team_id: int, task_run_id: UUID) -> None:
-    def release(current: object) -> tuple[object, None]:
-        if publication_claim_owner(current) != str(task_run_id):
-            return current, None
-        return None, None
-
-    tasks_facade.update_task_state_entry(task_id, team_id, PUBLICATION_CLAIM_STATE_KEY, release)
 
 
 @dataclass(frozen=True)
@@ -256,7 +197,7 @@ class DraftAttempt:
     changed_files: list[dict] = field(default_factory=list)
 
 
-def publish_claimed_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str | None:
+def publish_change(run: TaskRunDTO, team_id: int, writer: WriterSettings) -> str | None:
     task_id, task_run_id = run.task_id, run.id
     request = stored_request(tasks_facade.read_task_state_entry(task_id, team_id, REQUEST_STATE_KEY))
     docs_owner, docs_name = writer.docs_repository.split("/", 1)
@@ -277,7 +218,7 @@ def publish_claimed_change(run: TaskRunDTO, team_id: int, writer: WriterSettings
         refuse_draft(draft, refused.reason)
         return None
     if change is None:
-        log_skipped_publication(task_run_id, team_id, "no_writer_change")
+        record_pull_request_failure(task_id, team_id, "no_writer_change")
         return None
     if not change.paths:
         refuse_draft(draft, "no_changes")
@@ -326,7 +267,7 @@ def publish_claimed_change(run: TaskRunDTO, team_id: int, writer: WriterSettings
     if not publish_ref(github, writer.docs_repository, head_branch, commit_sha):
         refuse_draft(draft, "branch_moved")
         return None
-    pull_request = open_pull_request(github, docs_name, request, head_branch, section=read_section(task_id, team_id))
+    pull_request = open_pull_request(github, docs_name, request, head_branch)
     if isinstance(pull_request, GitHubStepFailed):
         capture_draft(draft, outcome="failed", refusal=pull_request.step)
         raise reported_step_failure(pull_request, team_id, task_run_id)
@@ -340,7 +281,6 @@ def publish_claimed_change(run: TaskRunDTO, team_id: int, writer: WriterSettings
         task_run_id=str(task_run_id),
         team_id=team_id,
         pull_request_number=pull_request.number,
-        section=pull_request.section,
     )
     return pull_request.url
 
@@ -611,50 +551,16 @@ def record_pull_request_failure(task_id: UUID, team_id: int, reason: str) -> Non
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(reason))
 
 
-def read_section(task_id: UUID, team_id: int) -> str | None:
-    section = tasks_facade.read_task_state_entry(task_id, team_id, SECTION_STATE_KEY)
-    return section if isinstance(section, str) else None
-
-
 def open_pull_request(
-    github: GitHubIntegration, docs_name: str, request: DocsRequest, head_branch: str, *, section: str | None
+    github: GitHubIntegration, docs_name: str, request: DocsRequest, head_branch: str
 ) -> WriterPullRequest | GitHubStepFailed:
     created = github.create_pull_request(
         docs_name,
         title=f"docs: update for {request.source_url}"[:255],
-        body=pull_request_body(request, section=section),
+        body=pull_request_body(request),
         head_branch=head_branch,
         draft=True,
     )
     if not created.get("success"):
         return github_step_failed("create_pull_request", created)
-    if section:
-        label_pull_request_section(github, docs_name, created["pr_number"], section)
-    return WriterPullRequest(
-        number=created["pr_number"], url=created["pr_url"], head_branch=head_branch, section=section
-    )
-
-
-def label_pull_request_section(github: GitHubIntegration, docs_name: str, pr_number: int, section: str) -> None:
-    try:
-        labelled = github.add_pull_request_labels(docs_name, pr_number, [section_label(section)])
-    except Exception as error:
-        logger.warning(
-            "knowledge_writer_section_label_failed",
-            pull_request_number=pr_number,
-            section=section,
-            error_type=type(error).__name__,
-        )
-        capture_exception(error, {"pr_number": pr_number, "section": section})
-        return
-    if not labelled.get("success"):
-        logger.warning(
-            "knowledge_writer_section_label_failed",
-            pull_request_number=pr_number,
-            section=section,
-            status_code=labelled.get("status_code"),
-        )
-        capture_exception(
-            WriterPullRequestFailed("knowledge writer could not label its docs pull request"),
-            {"pr_number": pr_number, "section": section, "status_code": labelled.get("status_code")},
-        )
+    return WriterPullRequest(number=created["pr_number"], url=created["pr_url"], head_branch=head_branch)

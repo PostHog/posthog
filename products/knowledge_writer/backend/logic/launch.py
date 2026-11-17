@@ -13,16 +13,14 @@ from ..adapters.registry import REGISTRY
 from ..facade.contracts import DocsRequest
 from ..settings import WriterSettings
 from ..task_profiles import WRITER
-from .caps import claim_section
 from .records import (
     BASE_SHA_STATE_KEY,
     DOCS_CONTENT_ROOT_STATE_KEY,
     HEAD_BRANCH_STATE_KEY,
     REQUEST_STATE_KEY,
-    SECTION_STATE_KEY,
     request_json,
 )
-from .routing import SectionRouting
+from .routing import PageRouting
 
 WRITER_IDLE_TIMEOUT_SECONDS = 120
 WRITER_GITHUB_TOKEN_SCOPE = "read"
@@ -65,7 +63,7 @@ def change_instruction(base_sha: str) -> str:
     )
 
 
-def build_writer_prompt(request: DocsRequest, routing: SectionRouting, *, base_sha: str) -> str:
+def build_writer_prompt(request: DocsRequest, routing: PageRouting, *, base_sha: str) -> str:
     sections = [
         "You update the docs in this repository so they match what shipped.",
         REGISTRY[request.source].instructions,
@@ -111,7 +109,7 @@ def replace_entry_with(value: object) -> Callable[[object], tuple[object, None]]
 
 def start_writer(
     request: DocsRequest,
-    routing: SectionRouting,
+    routing: PageRouting,
     *,
     team: Team,
     writer: WriterSettings,
@@ -121,14 +119,11 @@ def start_writer(
     state_entries = {
         REQUEST_STATE_KEY: request_json.dump_python(request, mode="json", exclude={"docs_content_root"}),
         DOCS_CONTENT_ROOT_STATE_KEY: request.docs_content_root,
-        SECTION_STATE_KEY: routing.section,
         HEAD_BRANCH_STATE_KEY: f"{HEAD_BRANCH_PREFIX}{secrets.token_hex(6)}",
         BASE_SHA_STATE_KEY: base_sha,
     }
     description = build_writer_prompt(request, routing, base_sha=base_sha)
     with transaction.atomic():
-        if routing.section:
-            claim_section(writer, routing.section)
         task_id = create_writer_task(request, description, team=team, writer=writer, start_workflow=start_workflow)
         for key, value in state_entries.items():
             tasks_facade.update_task_state_entry(task_id, team.id, key, replace_entry_with(value))

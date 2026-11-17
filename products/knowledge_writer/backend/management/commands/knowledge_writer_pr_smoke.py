@@ -25,20 +25,12 @@ from ...facade.enums import DocsChangeKind
 from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, is_team_flag_enabled
 from ...logic import intake
 from ...logic.launch import start_writer
-from ...logic.pull_requests import (
-    LINK_BACK_START,
-    docs_github,
-    open_writer_pull_requests,
-    section_marker,
-    source_repository_github,
-)
+from ...logic.pull_requests import LINK_BACK_START, docs_github, open_writer_pull_requests, source_repository_github
 from ...logic.records import (
     HEAD_BRANCH_STATE_KEY,
-    PUBLICATION_CLAIM_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
     PULL_REQUEST_STATE_KEY,
     WriterPullRequest,
-    is_publication_claim_live,
     pull_request_json,
 )
 from ...logic.routing import route_request
@@ -107,7 +99,7 @@ class Command(BaseCommand):
                 if source_url
                 else run_scratch_request(github, writer, team, section, smoke_id, branches)
             )
-            failures = check_pull_request(github, repository, section, opened)
+            failures = check_pull_request(github, repository, opened)
         finally:
             cleanup_problems = clean_up(github, writer, repository, branches)
             for problem in cleanup_problems:
@@ -258,8 +250,7 @@ def wait_for_pull_request(task_id: UUID, team_id: int, deadline: float) -> Write
         if isinstance(stored, dict):
             return pull_request_json.validate_python(stored)
         failure = tasks_facade.read_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY)
-        claim = tasks_facade.read_task_state_entry(task_id, team_id, PUBLICATION_CLAIM_STATE_KEY)
-        if isinstance(failure, str) and not is_publication_claim_live(claim):
+        if isinstance(failure, str):
             raise CommandError(f"Task {task_id} could not open its docs pull request: {failure}")
         for run_id in tasks_facade.list_task_run_ids(task_id, team_id):
             run = tasks_facade.get_task_run(run_id, team_id)
@@ -283,7 +274,6 @@ def ended_run_problem(run: TaskRunDTO) -> str | None:
 def check_pull_request(
     github: GitHubIntegration,
     repository: str,
-    section: str,
     opened: WriterPullRequest,
 ) -> list[str]:
     pull_request = github.api_request(
@@ -293,7 +283,6 @@ def check_pull_request(
     checks = {
         "the pull request is a draft": pull_request.get("draft") is True,
         "the body has the link-back block": LINK_BACK_START in body,
-        "the body has the section marker": section_marker(section) in body,
         "the pull request changes files": pull_request.get("changed_files", 0) > 0,
     }
     return [description for description, passed in checks.items() if not passed]

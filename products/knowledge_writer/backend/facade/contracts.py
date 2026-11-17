@@ -100,7 +100,6 @@ IntakeStatus = Literal[
     "capped",
     "shadow",
     "docs_in_source_repo",
-    "section_busy",
     "started",
 ]
 

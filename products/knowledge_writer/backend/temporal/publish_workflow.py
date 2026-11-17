@@ -10,10 +10,10 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
 from ..logic.pull_requests import open_pull_request_for_run, settle_publication
-from ..logic.records import PUBLICATION_LEASE
 
 PUBLISH_ATTEMPTS = 3
 PUBLISH_RETRY_INTERVAL = timedelta(minutes=1)
+PUBLISH_DEADLINE = timedelta(minutes=25)
 
 
 @dataclass(frozen=True)
@@ -55,7 +55,7 @@ class PublishWorkflow:
             await workflow.execute_activity(
                 publish_docs_pull_request_activity,
                 inputs,
-                schedule_to_close_timeout=PUBLICATION_LEASE - timedelta(minutes=5),
+                schedule_to_close_timeout=PUBLISH_DEADLINE,
                 start_to_close_timeout=timedelta(minutes=5),
                 heartbeat_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(initial_interval=PUBLISH_RETRY_INTERVAL, maximum_attempts=PUBLISH_ATTEMPTS),

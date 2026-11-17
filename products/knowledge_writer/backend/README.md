@@ -2,7 +2,7 @@
 
 - `adapters/`: one per input, holding its source and the writer's opening sentence; `repo_merge.py` builds every input's verdict from its merge check report, since the docs command runs the same check.
 - `facade/finished_check_hooks.py`: tells products that cannot be imported, such as commands, how a docs command's check ended.
-- `logic/intake.py`: caps, section routing, and the start decision.
+- `logic/intake.py`: caps, page routing, and the start decision.
 - `logic/launch.py`: creates the writer task.
 - `logic/writer_change.py`: parses the `writer-change.json` artifact a run uploads.
 - `logic/pull_requests.py`: gates that change, commits it through `logic/server_commit.py`, and opens a draft docs pull request.

@@ -45,7 +45,7 @@ async def start_publish_workflow(task_run_id: UUID, *, team_id: int) -> None:
             PublishInputs(task_run_id=str(task_run_id), team_id=team_id),
             id=publish_workflow_id(task_run_id),
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         )
     except WorkflowAlreadyStartedError:
