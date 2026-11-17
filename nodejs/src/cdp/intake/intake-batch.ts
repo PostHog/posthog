@@ -7,6 +7,7 @@ import { retryIfRetriable } from '~/common/utils/retries'
 
 import { HogFlow } from '../schema/hogflow'
 import type { CyclotronV2Manager } from '../services/cyclotron-v2'
+import { SerializedJobState, StateOpener, openSealedState } from '../services/cyclotron-v2/job-codec'
 import { IDEMPOTENCY_KEY_TTL_MS } from '../services/cyclotron-v2/manager'
 import { CyclotronV2IdempotentOutcome } from '../services/cyclotron-v2/types'
 import { CdpDeadLetterService, DeadLetterCircuitBreakerError } from '../services/dead-letter/cdp-dead-letter.service'
@@ -55,6 +56,7 @@ export type IntakeBatchServices = {
         'prepareLifecycleRow' | 'queuePreparedRow' | 'handOffQueuedRows'
     >
     emailStatus: Pick<EmailStatusService, 'queue' | 'flush'>
+    stateOpener: StateOpener
 }
 
 export type IntakeBatchOptions = {
@@ -190,7 +192,7 @@ async function claimRuns(runs: IntakeRun[], services: IntakeBatchServices, optio
         if (outcomes[i] === 'created') {
             services.invocationResults.queuePreparedRow(runningRows[i])
             if (run.message.kind === 'transactional-email') {
-                queueSend(run, services.emailStatus)
+                queueSend(run, services)
             }
         } else if (outcomes[i] === 'mismatch') {
             // The run shares its id with the first request of its key, so no row can name it without naming that one.
@@ -227,11 +229,19 @@ function claimWithRetry(
     )
 }
 
-function queueSend({ message }: IntakeRun, emailStatus: IntakeBatchServices['emailStatus']): void {
+function queueSend({ message }: IntakeRun, { emailStatus, stateOpener }: IntakeBatchServices): void {
     const priorityClass = message.job.priority === EMAIL_QUEUE_PRIORITY.bulk ? 'bulk' : 'fast'
     cdpEmailQueuedTotal.labels(priorityClass).inc()
     const state = message.job.state?.state as Partial<HogFlowInvocationContext> | null
-    const recipient = state?.event?.properties?.to
+    // The recipient can be sealed. It is opened in a copy, because the message's own state goes to Postgres as it is.
+    const opened = message.job.state?.sealed
+        ? openSealedState(
+              structuredClone(message.job.state) as SerializedJobState,
+              { id: message.job.id, teamId: message.teamId },
+              stateOpener
+          )
+        : null
+    const recipient = (opened?.state ?? state)?.event?.properties?.to
     emailStatus.queue({
         teamId: message.teamId,
         messageId: message.job.id,
