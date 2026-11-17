@@ -45,6 +45,13 @@ export interface memberOffboardingLogicActions {
     postRemoveMember: (userUuid: string) => {
         userUuid: string
     } // membersLogic
+    loadCurrentOrganizationSuccess: (
+        currentOrganization: OrganizationType | null,
+        payload?: any
+    ) => {
+        currentOrganization: OrganizationType | null
+        payload?: any
+    } // organizationLogic
     close: () => {
         value: true
     }
@@ -154,7 +161,12 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
     path(['scenes', 'settings', 'organization', 'memberOffboardingLogic']),
     connect({
         values: [organizationLogic, ['currentOrganization'], userLogic, ['user']],
-        actions: [membersLogic, ['loadMemberScopedApiKeys', 'postRemoveMember']],
+        actions: [
+            membersLogic,
+            ['loadMemberScopedApiKeys', 'postRemoveMember'],
+            organizationLogic,
+            ['loadCurrentOrganizationSuccess'],
+        ],
     }),
     actions({
         open: (member: OrganizationMemberType) => ({ member }),
@@ -338,6 +350,12 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
         open: ({ member }) => {
             actions.loadMemberScopedApiKeys(member)
             actions.loadResources()
+        },
+        loadCurrentOrganizationSuccess: () => {
+            // The review needs the organization id, so a modal opened before it loaded waits for it here.
+            if (values.member && values.resources === null && !values.resourcesLoading) {
+                actions.loadResources()
+            }
         },
     })),
 ])
