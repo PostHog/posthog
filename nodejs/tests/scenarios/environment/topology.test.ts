@@ -112,7 +112,7 @@ describe('topology', () => {
         })
     })
 
-    it('keeps its hash across lag, connection counts and a server read twice, and changes it with the wiring or the adapter', async () => {
+    it('keeps its hash across lag, connection counts, a server read twice and a pooled session another role used last, and changes it with the wiring or the adapter', async () => {
         const groups = await groupsWithLag('5')
         const hash = wiringFrom(groups).hash
 
@@ -123,6 +123,9 @@ describe('topology', () => {
             ).hash
         ).toEqual(hash)
         expect(wiringFrom(groups, [...CLIENTS, CLIENTS[0]]).hash).toEqual(hash)
+        expect(
+            wiringFrom(groups, [{ ...CLIENTS[0], application: 'scenario-cdp-api' }, ...CLIENTS.slice(1)]).hash
+        ).toEqual(hash)
         expect(wiringFrom(groups, CLIENTS.slice(1)).hash).not.toEqual(hash)
         expect(wiringFrom(groups, CLIENTS, 'another-adapter').hash).not.toEqual(hash)
     })

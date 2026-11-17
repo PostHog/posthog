@@ -126,7 +126,9 @@ const hashOf = (wiring: Pick<Wiring, 'processes' | 'consumers' | 'databases'>): 
             JSON.stringify({
                 roles: wiring.processes.map(({ adapter, role }) => [adapter, role]),
                 consumers: wiring.consumers.map(({ adapter, role, group, topics }) => [adapter, role, group, topics]),
-                databases: wiring.databases.map(({ adapter, role, database }) => [adapter, role, database]),
+                databases: [
+                    ...new Set(wiring.databases.map(({ adapter, database }) => `${adapter} ${database}`)),
+                ].sort(),
             })
         )
         .digest('hex')
@@ -176,6 +178,11 @@ export function wiringOf(input: {
     const databases = databasesOf(adapter, input.clients)
     const wiring = { processes, consumers, databases }
     return { recordedAt: input.recordedAt.toISOString(), hash: hashOf(wiring), ...wiring }
+}
+
+export function absentGroupsOf(wiring: Wiring, expected: readonly ConsumerGroup[]): string[] {
+    const joined = new Set(wiring.consumers.map(({ group }) => group))
+    return expected.map(({ group }) => group).filter((group) => !joined.has(group))
 }
 
 export function nodesOf(topology: Wiring, edgeHosts: readonly string[]): string[] {

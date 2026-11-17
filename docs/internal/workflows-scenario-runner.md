@@ -47,7 +47,7 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
 
-Before the drive, the runner reads the topology again until every part a valve targets shows in it and two reads agree, for up to 30 seconds. A target that never shows, or a topology still changing at the deadline, makes the run invalid. Databases come from the sessions each role holds open under its scenario session name.
+Before the drive, the runner reads the topology again until every part a valve targets and every consumer group its roles run shows in it and two reads agree, for up to 30 seconds. A target that never shows makes the run invalid. A topology still changing at the deadline does not, because pooled sessions keep moving between roles on the cloud host, and the run records the last read. Databases come from the sessions each role holds open under its scenario session name.
 
 ### Run a card in the cloud
 
@@ -796,7 +796,7 @@ A property is added without a version change; a rename, a removal or a change of
 | `card_hash`         | string          | SHA-256 of the card without `gates`, and the profile hash                                                                                                                  |
 | `profile_name`      | string          | The profile's `name`                                                                                                                                                       |
 | `profile_hash`      | string          | SHA-256 of the profile                                                                                                                                                     |
-| `topology_hash`     | string or null  | 12-hex SHA-256 prefix of the processes, consumer groups and databases recorded, by adapter and role. `null` when the run stopped before it read the topology               |
+| `topology_hash`     | string or null  | 12-hex SHA-256 prefix of the processes and consumer groups by adapter and role, and databases by adapter and name. `null` when the run stopped before it read the topology |
 | `head_sha`          | string or null  | The checkout's `HEAD` commit                                                                                                                                               |
 | `head_dirty`        | boolean or null | Whether the `nodejs` package has uncommitted changes                                                                                                                       |
 | `origin`            | string          | Who started the run: `local-agent`                                                                                                                                         |

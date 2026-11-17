@@ -27,6 +27,7 @@ import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
 import { nameOf } from '../environment/identity'
 import {
+    ConsumerGroup,
     RoleSpec,
     SES_WEBHOOKS_GROUP,
     consumerGroupsOf,
@@ -35,7 +36,7 @@ import {
     secretsOf,
 } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
-import { TOPOLOGY_FILE, Wiring, hostsOf, missingTargets, nodesOf } from '../environment/topology'
+import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf } from '../environment/topology'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
 import { BarResult, CpuPoint, judgeBars } from '../judge/bars'
@@ -327,8 +328,9 @@ export function createRunner(
 
     const settledWiring = async (
         targets: string[],
+        groups: ConsumerGroup[],
         signal: AbortSignal
-    ): Promise<{ wiring: Wiring; nodes: string[]; missing: string[]; settled: boolean }> => {
+    ): Promise<{ wiring: Wiring; nodes: string[]; missing: string[] }> => {
         const deadline = Date.now() + topologyWithinMs
         let previousHash: string | undefined
         for (;;) {
@@ -344,11 +346,13 @@ export function createRunner(
             } else {
                 const nodes = nodesOf(read.wiring, EDGE_HOSTS)
                 const missing = missingTargets(targets, nodes)
-                const settled = missing.length === 0 && read.wiring.hash === previousHash
+                const absent = absentGroupsOf(read.wiring, groups)
+                const complete = missing.length === 0 && absent.length === 0
+                const settled = complete && read.wiring.hash === previousHash
                 if (settled || late) {
-                    return { wiring: read.wiring, nodes, missing, settled }
+                    return { wiring: read.wiring, nodes, missing }
                 }
-                previousHash = missing.length === 0 ? read.wiring.hash : undefined
+                previousHash = complete ? read.wiring.hash : undefined
             }
             await sleep(topologyEveryMs, undefined, { signal })
         }
@@ -457,8 +461,9 @@ export function createRunner(
                 )
                 await judge.open(seeded)
                 const exitsBefore = environment.exits().length
-                const { wiring, nodes, missing, settled } = await settledWiring(
+                const { wiring, nodes, missing } = await settledWiring(
                     card.valves.map(({ target }) => target),
+                    consumerGroupsOf(specs),
                     signal
                 )
                 recorded = wiring
@@ -466,9 +471,6 @@ export function createRunner(
                     throw new Error(
                         `the card targets ${missing.join(', ')}, which this run's topology does not have; it found ${nodes.join(', ')}`
                     )
-                }
-                if (!settled) {
-                    throw new Error(`the topology kept changing for ${topologyWithinMs} ms, so no two reads agreed`)
                 }
                 stopHealth = watchHealth(environment)
                 sampler = await startSampler(
