@@ -10,7 +10,7 @@ export function RealtimePlanLimitsLink({
     location,
 }: {
     limit: 'cohorts' | 'history_days'
-    location: 'cohort_page' | 'cohort_create'
+    location: 'cohort_page' | 'cohort_create' | 'flag_editor'
 }): JSX.Element {
     return (
         <Link
