@@ -346,12 +346,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     last_replace_floor = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Request time of the newest replace that finished. Rows before it, and the rows that replace's earlier attempts wrote, are ignored by appends and adds. Null if no replace has finished.",
+        help_text="Cutoff timestamp of the newest replace that finished, set to the claim time minus the clock-skew margin and capped at the marker. Rows before it, and rows written by earlier attempts, are ignored by appends and adds. Null if no replace has finished.",
     )
     population_claimed_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="When the current static population was requested. A replace keeps the members added at or after this time. Null when no population is pending.",
+        help_text="When the current static population was requested. A replace keeps members added from just before this time within the clock-skew margin. Null when no population is pending.",
     )
 
     is_static = models.BooleanField(default=False)

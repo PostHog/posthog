@@ -7,7 +7,7 @@ import functools
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -122,6 +122,7 @@ class CohortErrorCode(StrEnum):
     FLAG_CHANGED = "flag_changed"
     FLAG_EVALUATION_FAILED = "flag_evaluation_failed"
     EMPTY_REPLACE = "empty_replace"
+    POPULATION_CLAIM_INCOMPLETE = "population_claim_incomplete"
     UNKNOWN = "unknown"
 
 
@@ -143,6 +144,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
     CohortErrorCode.FLAG_EVALUATION_FAILED: "We couldn't evaluate the feature flag for some people, so this cohort may be missing people who match it. Create a new cohort from the flag to try again.",
     CohortErrorCode.EMPTY_REPLACE: "The replace was stopped because the query matched no persons, so the cohort kept its existing members. Check the query for a typo, such as a misspelled property name.",
+    CohortErrorCode.POPULATION_CLAIM_INCOMPLETE: "The replace could not start because its request timestamp is missing. Run the replace again.",
     CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
 }
 
@@ -196,6 +198,8 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
             return CohortErrorCode.VALIDATION_ERROR
         case PopulationEmptyResult():
             return CohortErrorCode.EMPTY_REPLACE
+        case PopulationClaimIncomplete():
+            return CohortErrorCode.POPULATION_CLAIM_INCOMPLETE
 
     code_name = (getattr(e, "code_name", None) or "").lower()
     if code_name in _CLICKHOUSE_ERROR_MAPPING:
@@ -1678,6 +1682,9 @@ REPLACE_READ_SETTINGS: dict[str, Any] = {"select_sequential_consistency": 1}
 # How far ahead of this host's clock an existing _timestamp may be before minting gives up. Hosts run
 # NTP, so a larger gap is a clock fault, and waiting it out would stall the worker.
 MAX_MARKER_CLOCK_SKEW_SECONDS = 5
+# A manual add or append stamped on a host whose clock is slightly behind the claim host can carry a timestamp
+# a few seconds before population_claimed_at, so the floor subtracts that skew budget.
+REPLACE_FLOOR_CLOCK_MARGIN = timedelta(seconds=MAX_MARKER_CLOCK_SKEW_SECONDS)
 
 
 class PopulationSuperseded(Exception):
@@ -1697,6 +1704,10 @@ class PopulationEmptyResult(Exception):
 
     A refused run, not a system fault, so not sent to error tracking: the run isn't retried, because the same query matches nobody again.
     """
+
+
+class PopulationClaimIncomplete(Exception):
+    """A replace run has no ``population_claimed_at``, so computing the floor could prune concurrent adds."""
 
 
 def population_timestamp_now() -> datetime:

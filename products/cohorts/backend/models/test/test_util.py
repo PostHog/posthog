@@ -51,6 +51,7 @@ from products.cohorts.backend.models.util import (
     REPLACE_READ_SETTINGS,
     STATIC_COHORT_READ_BACK_WAITS_SECONDS,
     CohortErrorCode,
+    PopulationClaimIncomplete,
     PopulationMarkerClockSkew,
     PopulationSuperseded,
     StaticCohortReadBackIncomplete,
@@ -2063,6 +2064,7 @@ class TestParseErrorCode(BaseTest):
             ("clickhouse_type", "ClickHouseTypeError", CohortErrorCode.INCOMPATIBLE_TYPES),
             ("generic_exception", "Exception", CohortErrorCode.UNKNOWN),
             ("clickhouse_null_code_name", "CHQueryErrorS3Error", CohortErrorCode.UNKNOWN),
+            ("population_claim_incomplete", "PopulationClaimIncomplete", CohortErrorCode.POPULATION_CLAIM_INCOMPLETE),
         ]
     )
     def test_parse_error_code(self, _name: str, exception_type: str, expected_code: str):
@@ -2078,6 +2080,7 @@ class TestParseErrorCode(BaseTest):
             "ClickHouseQueryMemoryLimitExceeded": ClickHouseQueryMemoryLimitExceeded,
             "QuerySizeExceeded": ClickHouseQuerySizeExceeded,
             "DRFValidationError": DRFValidationError,
+            "PopulationClaimIncomplete": PopulationClaimIncomplete,
             "ValueError": ValueError,
             "Exception": Exception,
         }
@@ -2132,6 +2135,7 @@ class TestGetFriendlyErrorMessage(SimpleTestCase):
             (CohortErrorCode.INCOMPATIBLE_TYPES, "an error occurred"),
             (CohortErrorCode.NO_PROPERTIES, "no matching criteria"),
             (CohortErrorCode.FLAG_EVALUATION_FAILED, "couldn't evaluate the feature flag"),
+            (CohortErrorCode.POPULATION_CLAIM_INCOMPLETE, "request timestamp is missing"),
             (CohortErrorCode.UNKNOWN, "an error occurred"),
         ]
     )

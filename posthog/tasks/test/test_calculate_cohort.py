@@ -58,6 +58,7 @@ from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortB
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode, CohortType
 from products.cohorts.backend.models.util import (
+    REPLACE_FLOOR_CLOCK_MARGIN,
     CohortErrorCode,
     PopulationEmptyResult,
     PopulationMarkerClockSkew,
@@ -1586,6 +1587,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             is_static=True,
             is_calculating=True,
             pending_population_mode=mode,
+            population_claimed_at=timezone.now().replace(microsecond=0),
         )
         with (
             patch(QUERY_CH_INSERT_PATH, side_effect=ClickHouseAtCapacity()),
@@ -1730,6 +1732,9 @@ class TestCohortCalculationTasks(APIBaseTest):
             query=PERSONS_HOGQL_QUERY,
             is_calculating=True,
             pending_population_mode=mode,
+            population_claimed_at=timezone.now().replace(microsecond=0)
+            if mode == CohortPopulationMode.REPLACE
+            else None,
         )
         insert_cohort_from_query.push_request(retries=retries, called_directly=False, is_eager=True)
         try:
@@ -1775,6 +1780,9 @@ class TestCohortCalculationTasks(APIBaseTest):
             query=PERSONS_HOGQL_QUERY,
             is_calculating=True,
             pending_population_mode=mode,
+            population_claimed_at=timezone.now().replace(microsecond=0)
+            if mode == CohortPopulationMode.REPLACE
+            else None,
         )
         newer_marker = timezone.now().replace(microsecond=0) + timedelta(minutes=5)
 
@@ -1895,6 +1903,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             query=PERSONS_HOGQL_QUERY,
             is_calculating=True,
             pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=timezone.now().replace(microsecond=0),
         )
         insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
         try:
@@ -1941,7 +1950,9 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
         Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=timezone.now().replace(microsecond=0),
         )
 
         # Past the member's row, so the marker mints without waiting out the second it was stamped in.
@@ -2085,6 +2096,91 @@ class TestCohortCalculationTasks(APIBaseTest):
             (False, None, None, 1, "empty_replace", CohortPopulationMode.REPLACE),
         )
 
+    def test_query_replace_keeps_manual_add_stamped_one_second_before_claim(self) -> None:
+        run = uuid4().hex[:8]
+        pre_existing, concurrent_add, matched = (
+            create_person(
+                team=self.team, distinct_ids=[f"{run}-{name}"], properties={"tag": f"{run}-{tag}"}, uuid=uuid4()
+            )
+            for name, tag in (("pre", "old"), ("add", "old"), ("match", "match"))
+        )
+        flush_persons_and_events()
+        start = timezone.now().replace(microsecond=0)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-match'"},
+        )
+
+        with time_machine.travel(start, tick=False) as clock:
+            cohort.insert_users_list_by_uuid([str(pre_existing.uuid)], team_id=self.team.pk)
+            clock.shift(20)
+            cohort.insert_users_list_by_uuid([str(concurrent_add.uuid)], team_id=self.team.pk)
+            clock.shift(1)
+            claimed_at = timezone.now().replace(microsecond=0)
+            Cohort.objects.filter(pk=cohort.pk).update(
+                is_calculating=True,
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_claimed_at=claimed_at,
+            )
+            clock.shift(10)
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.last_replace_floor, claimed_at - REPLACE_FLOOR_CLOCK_MARGIN)
+        self.assertEqual(
+            set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)),
+            {matched.id, concurrent_add.id},
+        )
+
+    def test_query_replace_without_population_claimed_at_fails_and_keeps_members(self) -> None:
+        member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace",
+            is_static=True,
+            query=PERSONS_HOGQL_QUERY,
+        )
+        cohort.insert_users_list_by_uuid([str(member.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=None,
+        )
+
+        with (
+            patch("products.cohorts.backend.models.util.mint_population_marker") as mock_mint,
+            patch(QUERY_CH_INSERT_PATH) as mock_insert_ch,
+            patch("posthog.tasks.calculate_cohort.capture_exception") as mock_capture,
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        mock_mint.assert_not_called()
+        mock_insert_ch.assert_not_called()
+        mock_capture.assert_called_once()
+        cohort.refresh_from_db()
+        history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [member.id])
+        self.assertEqual(
+            (
+                cohort.is_calculating,
+                cohort.pending_population_mode,
+                cohort.population_marker,
+                cohort.errors_calculating,
+                history.error_code,
+                history.error,
+            ),
+            (
+                False,
+                None,
+                None,
+                1,
+                CohortErrorCode.POPULATION_CLAIM_INCOMPLETE,
+                get_friendly_error_message(CohortErrorCode.POPULATION_CLAIM_INCOMPLETE, will_retry=False),
+            ),
+        )
+
     @parameterized.expand(
         [
             ("replace_running", True),
@@ -2129,6 +2225,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             query=PERSONS_HOGQL_QUERY,
             is_calculating=True,
             pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=timezone.now().replace(microsecond=0),
         )
 
         insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
@@ -2292,7 +2389,9 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         cohort.insert_users_list_by_uuid([str(kept.uuid), str(stale1.uuid), str(stale2.uuid)], team_id=self.team.pk)
         Cohort.objects.filter(pk=cohort.pk).update(
-            is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_claimed_at=timezone.now().replace(microsecond=0),
         )
 
         real_delete = delete_cohort_members_by_person_ids

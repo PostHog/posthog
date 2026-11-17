@@ -55,7 +55,9 @@ from products.cohorts.backend.models.util import (
     CLICKHOUSE_QUORUM_LOCKED_CODE,
     CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE,
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
+    REPLACE_FLOOR_CLOCK_MARGIN,
     CohortErrorCode,
+    PopulationClaimIncomplete,
     PopulationMarkerClockSkew,
     StaticCohortReadBackIncomplete,
     close_open_population_attempts,
@@ -981,10 +983,11 @@ def _finalize_population_history(
 
 
 def _replace_floor(cohort: Cohort, marker: datetime) -> datetime:
-    """The time a replace keeps added members from: its request time, or the marker for a claim from before the
-    request time was recorded."""
+    """Cutoff time from which a replace keeps added members: claim time minus the clock-skew margin, capped at the marker."""
     claimed_at = cohort.population_claimed_at
-    return min(claimed_at, marker) if claimed_at is not None else marker
+    if claimed_at is None:
+        raise PopulationClaimIncomplete(f"Cohort {cohort.pk} is queued for a replace without population_claimed_at")
+    return min(claimed_at - REPLACE_FLOOR_CLOCK_MARGIN, marker)
 
 
 def _replace_static_members(
@@ -1119,17 +1122,20 @@ def _populate_static_cohort(
         replacing = supports_replace and claimed_mode == CohortPopulationMode.REPLACE
         if marker is not None and not replacing:
             raise PopulationSuperseded(cohort_id)
+        # Checked before entry gates and history creation so an overtaken retry still exits as superseded.
+        if marker is not None:
+            require_current_population_marker(cohort_id, marker)
 
-        if replacing and marker is None:
+        claim_incomplete = replacing and cohort.population_claimed_at is None
+        if replacing and marker is None and not claim_incomplete:
             # Every insert attempt gets a fresh marker, so rows a lost acknowledgement left at an older
             # one fall below this run's prune instead of being re-inserted under the same marker.
             ch_insert_done = False
             marker = mint_population_marker(cohort, team_id=team_id)
             if marker is None:
                 raise PopulationSuperseded(cohort_id)
-        # Checked again before the history row exists: a retry that a sweep redispatch overtook while
-        # it started up must not open a row, because it would sort above the newer attempt's.
-        if marker is not None:
+            # Checked again before the history row exists: a retry that a sweep redispatch overtook while
+            # it started up must not open a row, because it would sort above the newer attempt's.
             require_current_population_marker(cohort_id, marker)
 
         # A history record is the only way a population failure reaches the user: the cohort API
@@ -1142,6 +1148,9 @@ def _populate_static_cohort(
             filters=cohort.properties.to_dict() if cohort.properties.values else {},
             mode=claimed_mode,
         )
+
+        if claim_incomplete:
+            raise PopulationClaimIncomplete(f"Cohort {cohort.pk} is queued for a replace without population_claimed_at")
 
         # An append's CH insert is idempotent: it excludes person_ids already in the cohort. This handles
         # both the retry-after-OOM case (no duplicates) and the add-more-people-via-query case (only new
