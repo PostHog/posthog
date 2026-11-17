@@ -2018,6 +2018,49 @@ class TestDefineAddedTable:
         store.list_objects.assert_not_called()
 
     @pytest.mark.parametrize(
+        "_name, url, location, expected",
+        [
+            pytest.param(
+                "folder_without_a_slash", "exports", "events/", ("exports/events", None), id="folder_relative"
+            ),
+            pytest.param(
+                "folder_without_a_slash",
+                "exports",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/exports/events/*.csv",
+                ("exports/events", "exports/events/*.csv"),
+                id="folder_full_url",
+            ),
+            pytest.param(
+                "folder_without_a_slash",
+                "exports",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/other/",
+                None,
+                id="url_outside_the_folder",
+            ),
+            pytest.param("one_file", "exports/orders.csv", "events/", None, id="file_url_source"),
+            pytest.param("pattern", "exports/*.csv", "events/", None, id="pattern_url_source"),
+        ],
+    )
+    def test_a_path_stays_inside_the_files_url(
+        self, _name: str, url: str, location: str, expected: tuple[str, str | None] | None, tmp_path: Path
+    ) -> None:
+        _write_files(tmp_path, ["exports/events/a.csv", "other/b.csv"])
+        config = FakeObjectStorageConfig(
+            values={
+                **BUCKET_ROOT_CONFIG.values,
+                "url_pattern": f"https://s3.us-east-1.amazonaws.com/example-bucket/{url}",
+            }
+        )
+        source = _source_with_store(local_store(tmp_path))
+
+        if expected is None:
+            with pytest.raises(ObjectStorageError, match="outside|can't be added to it"):
+                source.define_added_table(config, "events", location, "infer", allow_double_quotes=True)
+            return
+        table = source.define_added_table(config, "events", location, "infer", allow_double_quotes=True)
+        assert (table.path, table.pattern, [f.path for f in table.files]) == (*expected, ["exports/events/a.csv"])
+
+    @pytest.mark.parametrize(
         "_name, location, paths, expected",
         [
             ("nothing_there", "events/", [], "is empty or doesn't exist"),
@@ -2096,17 +2139,14 @@ class TestDefineAddedTable:
     @pytest.mark.parametrize(
         "provider, url, expected",
         [
-            ("gcs", "gs://example-bucket/exports", "example-bucket/"),
+            ("gcs", "gs://example-bucket/exports", "example-bucket/exports/"),
             ("gcs", "gs://example-bucket/exports/", "example-bucket/exports/"),
-            ("azure", "https://exampleaccount.blob.core.windows.net/exports/2026/orders.csv", "exports/2026/"),
-            (
-                "r2",
-                f"https://{'a' * 32}.r2.cloudflarestorage.com/example-bucket/exports/*.csv",
-                "example-bucket/exports/",
-            ),
+            ("gcs", "gs://example-bucket", "example-bucket/"),
+            ("azure", "https://exampleaccount.blob.core.windows.net/exports/2026/orders.csv", None),
+            ("r2", f"https://{'a' * 32}.r2.cloudflarestorage.com/example-bucket/exports/*.csv", None),
         ],
     )
-    def test_the_table_root_is_where_relative_paths_start(self, provider: str, url: str, expected: str) -> None:
+    def test_the_table_root_is_where_relative_paths_start(self, provider: str, url: str, expected: str | None) -> None:
         source = FakeObjectStorageSource(STORE_BUILDERS[provider])
         config = FakeObjectStorageConfig(
             values={**BUCKET_ROOT_CONFIG.values, "url_pattern": url, "account_key": "a2V5"}

@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FILE_MODIFIED_AT_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.added_tables import (
+    added_relative_path,
     delta_table,
     display_root,
     files_table,
@@ -328,10 +329,11 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         """
         return store_identity(self.object_store_config(config))
 
-    def table_root(self, config: ConfigType) -> str:
-        """The folder that `define_added_table` resolves relative paths against, as `<bucket>/<prefix>/`.
+    def table_root(self, config: ConfigType) -> str | None:
+        """The folder that `define_added_table` resolves relative paths against, as `<bucket>/<folder>/`.
 
-        A source whose config parsing makes a network call overrides this to read only the URL.
+        None when the files URL names one file or a pattern, so no table can be added. A source whose config
+        parsing makes a network call overrides this to read only the URL.
         """
         return display_root(self.object_store_config(config))
 
@@ -354,10 +356,11 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         """
         try:
             store_config = self.object_store_config(config)
-            relative = location
             if is_full_url(location):
                 url_config = self.object_store_config(self.config_with_files_url(config, location.strip()))
                 relative = relative_key(store_config, url_config)
+            else:
+                relative = added_relative_path(store_config, location)
             added = parse_added_location(relative, file_format)
             store = self.open_store(store_config)
             location = store.path(added.path)

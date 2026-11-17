@@ -16870,6 +16870,7 @@ class TestAddTableByPath(APIBaseTest):
                 status.HTTP_403_FORBIDDEN,
             ),
             ("hidden_table_of_a_source_for_another_bucket", "plain_source", "other-bucket", status.HTTP_201_CREATED),
+            ("hidden_self_managed_table_without_a_region", "self_managed", None, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_refuses_a_table_that_would_show_files_another_table_hides(
@@ -16879,11 +16880,24 @@ class TestAddTableByPath(APIBaseTest):
         source = self._source(connection_metadata=migration)
         holder = {
             "self": lambda: source,
+            "self_managed": lambda: source,
             "migration_sibling": lambda: self._source(connection_metadata=migration),
             "plain_source": lambda: self._source(bucket=holder_bucket or "example-bucket"),
         }[holder_kind]()
-        payroll = DataWarehouseTable.objects.create(name="payroll", team=self.team, external_data_source=holder)
-        ExternalDataSchema.objects.create(team=self.team, source=holder, name="payroll", table=payroll)
+        if holder_kind == "self_managed":
+            # A URL without a region still names the source's bucket.
+            payroll = DataWarehouseTable.objects.create(
+                name="payroll",
+                team=self.team,
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern="https://example-bucket.s3.amazonaws.com/hr/payroll/*.parquet",
+                credential=DataWarehouseCredential.objects.create(
+                    team=self.team, access_key="AKIAEXAMPLE", access_secret="c2VjcmV0"
+                ),
+            )
+        else:
+            payroll = DataWarehouseTable.objects.create(name="payroll", team=self.team, external_data_source=holder)
+            ExternalDataSchema.objects.create(team=self.team, source=holder, name="payroll", table=payroll)
         AccessControl.objects.create(
             team=self.team, resource="warehouse_table", resource_id=str(payroll.id), access_level="none"
         )
@@ -16930,7 +16944,7 @@ class TestAddTableByPath(APIBaseTest):
             ("object_storage_source", "AmazonS3", {}, True, True, "example-bucket/", False),
             ("migrated_bucket_source", "AmazonS3", {MIGRATION_MARKER_KEY: {}}, True, False, "example-bucket/", False),
             ("api_source", "Stripe", {}, False, True, None, False),
-            ("unreadable_inputs", "AmazonS3", {}, True, True, None, True),
+            ("unreadable_inputs", "AmazonS3", {}, False, True, None, True),
         ]
     )
     def test_source_says_how_it_gets_new_tables(

@@ -246,15 +246,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         help_text=(
             "Whether tables can be added to this source by their path with the add_table endpoint. True for "
-            "object storage sources."
+            "object storage sources whose files URL names a folder, not one file or a pattern."
         ),
     )
     table_root = serializers.SerializerMethodField(
         read_only=True,
         help_text=(
             "For object storage sources: the folder that add_table resolves relative paths against, as "
-            "`<bucket>/<prefix>/`, such as `my-bucket/exports/`. Null for other sources, or when the source's files "
-            "URL can't be read."
+            "`<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null "
+            "for other sources, for a files URL that names one file or a pattern, or when the URL can't be read."
         ),
     )
     supports_table_discovery = serializers.SerializerMethodField(
@@ -512,7 +512,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_adding_tables(self, instance: ExternalDataSource) -> bool:
-        return supports_adding_tables(instance.source_type)
+        return self.get_table_root(instance) is not None
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_table_root(self, instance: ExternalDataSource) -> str | None:

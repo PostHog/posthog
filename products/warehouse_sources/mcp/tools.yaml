@@ -368,9 +368,10 @@ tools:
             R2) from the path of its files. Use this for object storage sources, where a table is a folder, a file or a
             wildcard pattern in the bucket, and always for a source whose source refresh
             ('external-data-sources-refresh-schemas') fails because it reads tables from anywhere in its bucket. The
-            path is relative to the source's files URL (such as exports/events/ or exports/events/2026/*.parquet), or a
-            full URL into the same bucket. PostHog lists only that location to check that it holds files the key can
-            read. It does not sync data. The new table is created turned off: to start syncing it, set should_sync to
+            path is relative to the folder of the source's files URL (such as events/ or events/2026/*.parquet), or a
+            full URL inside that folder. A source whose files URL names one file or a pattern can't add tables (its
+            supports_adding_tables is false). PostHog lists only that location to check that it holds files the key
+            can read. It does not sync data. The new table is created turned off: to start syncing it, set should_sync to
             true with 'external-data-schemas-partial-update' on the returned schema id. A 400 names the field to fix in
             'attr': 'name' when another table of the source has the name, 'path' when the location is outside the
             source's bucket or folder, holds no importable files, or can't be read.

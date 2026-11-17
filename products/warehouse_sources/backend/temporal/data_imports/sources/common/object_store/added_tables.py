@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     TableDefinition,
     explain_no_tables,
     group_tables,
+    infer_file_format,
     resolve_file_format,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
@@ -34,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     has_glob,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
+    KeySelection,
     StorageUrl,
     select_keys,
 )
@@ -69,36 +71,68 @@ def _url_key(config: StoreConfig) -> str:
     return "/".join(part for part in (config.prefix, rest) if part)
 
 
-def table_root_label(container: str, prefix: str) -> str:
-    """The folder that relative table paths start at, as `<bucket>/<prefix>/`."""
-    return "".join(f"{part}/" for part in (container, prefix) if part)
+NOT_A_FOLDER_REFUSAL = (
+    "This source reads one file or the files that match a pattern, so a table can't be added to it. Change its "
+    "files URL to a folder, then add the table."
+)
 
 
-def table_root_of_url(url: StorageUrl) -> str:
-    """The table root of a files URL. It reads only the URL, so it makes no network call."""
-    return table_root_label(url.bucket, select_keys(url.key).prefix)
+def added_table_base(keys: KeySelection | StoreConfig) -> str | None:
+    """The folder under the store root that the files URL selects, or None when it selects one file or a pattern.
+
+    A table added by path reads only keys under this folder. The source's owner chose the files URL, so a path
+    must not reach other files in the parent folder, or the whole bucket, without the key being entered again.
+    """
+    if keys.pattern is not None:
+        return None
+    if keys.listing_prefix and infer_file_format(keys.listing_prefix) is not None:
+        return None
+    return keys.listing_prefix
 
 
-def display_root(config: StoreConfig) -> str:
-    return table_root_label(config.root_name, config.prefix)
+def table_root_label(container: str, *folders: str) -> str:
+    """The folder that relative table paths start at, as `<bucket>/<folder>/`."""
+    return "".join(f"{part}/" for part in (container, *folders) if part)
+
+
+def table_root_of_url(url: StorageUrl) -> str | None:
+    """The table root of a files URL, or None when no table can be added. It reads only the URL, so no network call."""
+    keys = select_keys(url.key)
+    base = added_table_base(keys)
+    return None if base is None else table_root_label(url.bucket, keys.prefix, base)
+
+
+def display_root(config: StoreConfig) -> str | None:
+    base = added_table_base(config)
+    return None if base is None else table_root_label(config.root_name, config.prefix, base)
+
+
+def added_relative_path(source_config: StoreConfig, location: str) -> str:
+    """A path the user gave relative to the source's files URL, as a path relative to the store root."""
+    base = added_table_base(source_config)
+    if base is None:
+        raise ObjectStorageError(NOT_A_FOLDER_REFUSAL)
+    return "/".join(part for part in (base, location.strip().removeprefix("/")) if part)
 
 
 def relative_key(source_config: StoreConfig, url_config: StoreConfig) -> str:
-    """The key a full URL names, relative to the source's store root."""
+    """The key a full URL names, relative to the source's store root. It must be inside the source's files URL."""
     if store_identity(url_config) != store_identity(source_config):
         raise ObjectStorageError("This path is in another bucket. Add a new source for that bucket.")
+    base = added_table_base(source_config)
+    if base is None:
+        raise ObjectStorageError(NOT_A_FOLDER_REFUSAL)
     key = _url_key(url_config)
     root = source_config.prefix
-    if not root:
-        return key
-    if key == root:
-        return ""
-    if not key.startswith(f"{root}/"):
+    allowed = "/".join(part for part in (root, base) if part)
+    if allowed and key != allowed and not key.startswith(f"{allowed}/"):
         raise ObjectStorageError(
             f"This path is outside {display_root(source_config)}. Change the source's files URL to a parent "
             "folder, or add a new source."
         )
-    return key[len(root) + 1 :]
+    if not root:
+        return key
+    return "" if key == root else key[len(root) + 1 :]
 
 
 def parse_added_location(relative: str, file_format: FileFormatChoice) -> AddedLocation:

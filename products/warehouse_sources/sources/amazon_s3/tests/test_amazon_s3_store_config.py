@@ -122,13 +122,13 @@ def test_a_self_managed_table_the_source_would_refuse_is_refused(url: str, crede
     "url, expected",
     [
         ("s3://customer-data", "customer-data/"),
-        ("s3://customer-data/exports", "customer-data/"),
+        ("s3://customer-data/exports", "customer-data/exports/"),
         ("s3://customer-data/exports/", "customer-data/exports/"),
-        ("https://customer-data.s3.amazonaws.com/exports/2026/orders.csv", "customer-data/exports/2026/"),
-        ("https://s3.eu-west-1.amazonaws.com/customer-data/exports/**/*.parquet", "customer-data/exports/"),
+        ("https://customer-data.s3.amazonaws.com/exports/2026/orders.csv", None),
+        ("https://s3.eu-west-1.amazonaws.com/customer-data/exports/**/*.parquet", None),
     ],
 )
-def test_the_table_root_reads_only_the_url(url: str, expected: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_table_root_reads_only_the_url(url: str, expected: str | None, monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(_bucket: str) -> str:
         raise AssertionError("the table root must not look up the bucket region")
 
