@@ -58,7 +58,6 @@ install_node_and_pnpm() {
     (cd /tmp && sha256sum --check --strict node.sha256)
     tar -xJf "/tmp/node-${version}-linux-x64.tar.xz" -C /usr/local --strip-components 1
     [ "$(jq -r .packageManager "$repo/package.json")" = "pnpm@${PNPM_VERSION}" ]
-    # Not @pnpm/linux-x64: since pnpm 11 its binary only launches a dist/pnpm.mjs that the package lacks.
     curl -fsSL "https://registry.npmjs.org/pnpm/-/pnpm-${PNPM_VERSION}.tgz" -o /tmp/pnpm.tgz
     echo "${PNPM_SHA256}  /tmp/pnpm.tgz" | sha256sum --check --strict
     mkdir -p /usr/local/lib/pnpm

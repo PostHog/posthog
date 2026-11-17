@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
-# Runs the run host's scripts in a clean Ubuntu 24.04 container, in the order a real host runs them:
-# host-bootstrap.sh, then host-prepare.sh, then host-run-card.sh. Downloads, checksums and builds are real.
-# Stand-ins replace what only a real host has: S3, the instance role, the pooler image in ECR (run as
-# Ubuntu's pgbouncer from the same config) and the Aurora cluster (a Postgres container with TLS on the
-# network). Docker runs for real inside the container. Each stand-in logs its calls to <work dir>/stand-ins.log.
-#
-# The run host is amd64. On an arm64 machine, where rustc does not run under amd64 emulation, the script
-# first checks every pinned amd64 download and the files the bootstrap extracts from it, then runs the host
-# path natively with the arm64 build of each pinned download.
-#
-# Usage: host-dry-run.sh <input dir> <work dir>
-#   <input dir> holds a run's manifest.json and the inputs it lists, as the controller uploads them.
 set -Eeuo pipefail
+
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <input dir with a run's manifest.json and its inputs> <work dir>" >&2
+    exit 2
+fi
 
 input=$(cd "$1" && pwd)
 work=$(mkdir -p "$2" && cd "$2" && pwd)
@@ -22,7 +15,6 @@ name=scenario-dry-run-$$
 bootstrap=$work/host-bootstrap.head.sh
 git -C "$repo" show HEAD:nodejs/tests/scenarios/cloud/host-bootstrap.sh >"$bootstrap"
 card_seconds=${SCENARIO_DRY_RUN_CARD_SECONDS:-900}
-# shellcheck disable=SC1090
 source <(grep -E '^[A-Z0-9_]+=' "$bootstrap")
 node_version=$(cat "$repo/.nvmrc")
 
@@ -178,7 +170,7 @@ code=$?
 cat /opt/scenario/prepare.log
 [ "$code" = 0 ] || { echo "host-prepare.sh exited $code"; exit 1; }
 step "host-run-card.sh, stopped after $CARD_SECONDS s"
-timeout --signal TERM "$CARD_SECONDS" bash nodejs/tests/scenarios/cloud/host-run-card.sh
+timeout --signal TERM --kill-after 60 "$CARD_SECONDS" bash nodejs/tests/scenarios/cloud/host-run-card.sh
 stopped=$?
 cat /opt/scenario/evidence/card.log
 done=/dry-run/bucket/runs/$RUN_ID/host/done

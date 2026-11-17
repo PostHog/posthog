@@ -18,7 +18,6 @@ credentials=$(aws secretsmanager get-secret-value --secret-id "$secret" --query 
 user=$(jq -r '.username | @uri' <<<"$credentials")
 password=$(jq -r '.password | @uri' <<<"$credentials")
 url="postgres://${user}:${password}@${endpoint}:5432/cyclotron_node"
-# node-postgres reads sslmode=require as verify-full, and Node does not trust the RDS certificate authority.
 export CYCLOTRON_NODE_DATABASE_URL="${url}?uselibpqcompat=true&sslmode=require"
 
 sqlx migrate run -D "${url}?sslmode=require" --source "$repo/rust/cyclotron-node-migrations/"
