@@ -234,6 +234,8 @@ def live_insight_ids_by_team(*, team_ids: Collection[int], insight_ids: Collecti
     live: dict[int, set[int]] = {}
     if not team_ids or not insight_ids:
         return live
+    # Every row stays inside `team_ids`, which the caller resolved; the ids only narrow that set.
+    # nosemgrep: idor-lookup-without-team
     rows = Insight.objects.filter(team_id__in=list(team_ids), id__in=list(insight_ids))
     for team_id, insight_id in rows.values_list("team_id", "id"):
         live.setdefault(team_id, set()).add(insight_id)
