@@ -2,8 +2,6 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
-
 import { useMocks } from '~/mocks/jest'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
@@ -122,28 +120,30 @@ describe('tagRuleModalLogic', () => {
         expect(list.values.rules).toEqual([persistedRule])
     })
 
-    afterEach(() => {
-        jest.restoreAllMocks()
-    })
-
     // A rule reads only the first exception of a new issue. A preview that counts every matching exception counts
     // issues that the rule never labels.
     it('previews the first exception of each issue first seen in the selected window', async () => {
-        const query = jest.spyOn(api, 'query').mockResolvedValue({ results: [[2, 2]] } as any)
+        let sentQuery: unknown = null
+        const recordQuery = async ({ request }: MockResolverInfo): Promise<Record<string, unknown>> => {
+            sentQuery = ((await request.json()) as { query: unknown }).query
+            return { results: [[2, 2]] }
+        }
+        useMocks({
+            post: {
+                '/api/projects/:team_id/query/:kind/': recordQuery,
+                '/api/environments/:team_id/query/:kind/': recordQuery,
+            },
+        })
         const logic = tagRuleModalLogic()
         logic.mount()
 
         logic.actions.openModal(persistedRule)
         await expectLogic(logic, () => logic.actions.increaseDateRange()).toFinishAllListeners()
 
-        expect(query).toHaveBeenCalledWith(
-            expect.objectContaining({
-                after: '-30d',
-                where: [
-                    expect.stringMatching(/argMin\(uuid, timestamp\).*issue_first_seen >= now\(\) - INTERVAL 30 DAY/),
-                ],
-            })
-        )
+        expect(sentQuery).toMatchObject({
+            after: '-30d',
+            where: [expect.stringMatching(/argMin\(uuid, timestamp\).*issue_first_seen >= now\(\) - INTERVAL 30 DAY/)],
+        })
         expect(logic.values.matchResult).toEqual({ exceptionCount: 2, issueCount: 2 })
     })
 
