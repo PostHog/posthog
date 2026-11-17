@@ -1309,6 +1309,10 @@ OIDC_RSA_PRIVATE_KEYS_INACTIVE = [
 ]
 
 OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
+# The origin of the PostHog instance that issues CIMD verification tokens, for example https://us.posthog.com.
+# Leave it empty on the instance that issues them. One metadata document serves every region and carries one token,
+# so every other instance refuses to create tokens and checks published tokens with this one.
+CIMD_VERIFICATION_TOKEN_ISSUER_URL: str = get_from_env("CIMD_VERIFICATION_TOKEN_ISSUER_URL", "").rstrip("/")
 OAUTH_STALE_APPLICATION_GRACE_PERIOD = 60 * 60 * 24 * 30  # 30 days
 
 OAUTH2_PROVIDER = {
