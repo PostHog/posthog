@@ -1,6 +1,7 @@
 // AUTO-GENERATED from services/mcp/definitions/query-wrappers.yaml + schema.json — do not edit
 import { z } from 'zod'
 
+import hooks_queryTrendsEasel from '@/tools/insights/trendsSeriesMatrixHooks'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import type { ZodObjectAny } from '@/tools/types'
 
@@ -1672,6 +1673,13 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'TrendsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
+    }),
+    'query-trends-easel': createQueryWrapper({
+        name: 'query-trends-easel',
+        schema: AssistantTrendsQuery,
+        kind: 'TrendsQuery',
+        outputFormat: 'json',
+        hooks: hooks_queryTrendsEasel,
     }),
     'query-funnel': createQueryWrapper({
         name: 'query-funnel',

@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/metrics/api'
+import hooks_queryMetricsEasel from '@/tools/metrics/seriesMatrixHooks'
+import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -202,6 +204,42 @@ const queryMetrics = (): ToolBase<
     },
 })
 
+const QueryMetricsEaselSchema = () => {
+    const MetricsQueryCreateBody = orvalSchemas.MetricsQueryCreateBody()
+    return MetricsQueryCreateBody
+}
+
+const queryMetricsEasel = (): ToolBase<
+    ReturnType<typeof QueryMetricsEaselSchema>,
+    WithPostHogUrl<Schemas._MetricQueryResponse>
+> => ({
+    name: 'query-metrics-easel',
+    schema: QueryMetricsEaselSchema(),
+    handler: withToolHooks(
+        hooks_queryMetricsEasel,
+        async (context: Context, params: z.infer<ReturnType<typeof QueryMetricsEaselSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.query !== undefined) {
+                body['query'] = params.query
+            }
+            const result = await context.api.request<Schemas._MetricQueryResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/metrics/query/`,
+                body: await transformRequestBody(hooks_queryMetricsEasel, context, params, body),
+            })
+            const filtered = pickResponseFields(result, [
+                'results',
+                'hint',
+                'omitted_empty_series',
+                'omitted_by_limit',
+                'url_params',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/metrics?${filtered.url_params}`)
+        }
+    ),
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'characterize-metric-anomaly': characterizeMetricAnomaly,
     'metric-attribute-values-list': metricAttributeValuesList,
@@ -209,4 +247,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'metric-names-list': metricNamesList,
     'metrics-dashboard-panels-validate': metricsDashboardPanelsValidate,
     'query-metrics': queryMetrics,
+    'query-metrics-easel': queryMetricsEasel,
 }

@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { type TraceDetail, compactTraceResponse } from '@/lib/trace-compaction'
 import { redactTraceResults } from '@/lib/trace-redaction'
+import { type ToolHooks, withToolHooks } from '@/tools/tool-hooks'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -57,6 +58,8 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
      * `/ai-observability/traces/{traceId}`.
      */
     urlPrefix?: string
+    /** Custom logic around the query, from the wrapper's `hooks:` module. */
+    hooks?: ToolHooks<unknown>
 }
 
 const TEST_ACCOUNT_FILTER_FIELD = 'filterTestAccounts'
@@ -176,7 +179,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
     return () => ({
         name: config.name,
         schema,
-        handler: async (context: Context, rawParams: z.infer<T>) => {
+        handler: withToolHooks(config.hooks ?? {}, async (context: Context, rawParams: z.infer<T>) => {
             const projectId = await context.stateManager.getProjectId()
             const params = schema.parse(rawParams)
             // `output_format` is a tool-level control, not part of the query body. Strip it before
@@ -264,7 +267,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 ...response,
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
-        },
+        }),
         _meta: {
             ...(config.uiResourceUri ? { ui: { resourceUri: config.uiResourceUri } } : {}),
             ...(config.outputFormat ? { [POSTHOG_META_KEY]: { outputFormat: config.outputFormat } } : {}),

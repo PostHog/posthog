@@ -1218,6 +1218,14 @@ function hooksVarName(toolName: string): string {
     return `hooks_${toCamelCase(toolName)}`
 }
 
+/** Emits one import per query wrapper that names a `hooks:` module. */
+function wrapperHooksImportLines(wrappers: [string, { hooks?: string }][]): string {
+    return wrappers
+        .filter(([, wrapperConfig]) => wrapperConfig.hooks)
+        .map(([name, wrapperConfig]) => `import ${hooksVarName(name)} from '@/tools/${wrapperConfig.hooks}'\n`)
+        .join('')
+}
+
 /** Emits the handler expression, wrapped with the tool's `hooks:` module when it has one. */
 function renderHandler(config: ToolConfig, toolName: string, handlerFn: string): string {
     return config.hooks ? `withToolHooks(${hooksVarName(toolName)}, ${handlerFn})` : handlerFn
@@ -2222,6 +2230,9 @@ function generateCategoryFile(
                 if (wrapperConfig.url_prefix) {
                     configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)
                 }
+                if (wrapperConfig.hooks) {
+                    configParts.push(`hooks: ${hooksVarName(name)}`)
+                }
                 return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
             })
             .join('\n')
@@ -2300,7 +2311,9 @@ function generateCategoryFile(
             : ''
 
     const wrapperImportLine =
-        enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
+        enabledWrappers.length > 0
+            ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n${wrapperHooksImportLines(enabledWrappers)}`
+            : ''
 
     const confirmedActionImportLine = hasConfirmedAction
         ? `import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'\nimport { executeConfirmedAction, prepareConfirmedAction, type PrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'\n`
@@ -2601,6 +2614,9 @@ function generateQueryWrapperFile(
             if (toolConfig.url_prefix) {
                 configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)
             }
+            if (toolConfig.hooks) {
+                configParts.push(`hooks: ${hooksVarName(name)}`)
+            }
             return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
         })
         .join('\n')
@@ -2610,7 +2626,7 @@ import { z } from 'zod'
 
 import type { ZodObjectAny } from '@/tools/types'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
-
+${wrapperHooksImportLines(enabledWrappers)}
 // --- Shared Zod schemas generated from schema.json ---
 
 ${schemasCode}

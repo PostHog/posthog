@@ -631,6 +631,15 @@ export const QueryWrapperToolConfigSchema = z
          */
         url_prefix: z.string().optional(),
         /**
+         * Module with custom logic around the query, relative to `src/tools/` and without extension.
+         * A wrapper sends no request body of its own, so only `beforeRequest`, `afterResponse` and
+         * `onError` run; see `ToolHooks` in `src/tools/tool-hooks.ts`.
+         */
+        hooks: z
+            .string()
+            .regex(/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/, 'hooks must be a path like "insights/myToolHooks"')
+            .optional(),
+        /**
          * PostHog feature flag key that controls whether this tool is exposed.
          * See ToolConfigSchema.feature_flag for full documentation.
          */

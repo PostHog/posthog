@@ -27,6 +27,24 @@ wrappers:
             - modifiers
             - samplingFactor
 
+    query-trends-easel:
+        schema_ref: AssistantTrendsQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run a trends query as chart series
+        description_file: ./prompts/query-trends-easel.md
+        hooks: insights/trendsSeriesMatrixHooks
+        feature_flag: mcp-chart-series-tools
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
     query-funnel:
         schema_ref: AssistantFunnelsQuery
         enabled: true

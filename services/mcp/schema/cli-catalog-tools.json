@@ -40472,6 +40472,55 @@
             "validators": []
         }
     },
+    "query-metrics-easel": {
+        "name": "query-metrics-easel",
+        "kind": "http",
+        "requires": ["hook:metrics/seriesMatrixHooks"],
+        "hooks": "metrics/seriesMatrixHooks",
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/metrics/query/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "query",
+                    "key": "query"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": true
+        },
+        "response": {
+            "list": false,
+            "filter": {
+                "kind": "pick",
+                "fields": ["results", "hint", "omitted_empty_series", "omitted_by_limit", "url_params"],
+                "selectable": false
+            },
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/metrics",
+                "joiner": "",
+                "prefix": "?",
+                "field": "url_params",
+                "suffix": "",
+                "source": "result"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "reminder-create": {
         "name": "reminder-create",
         "kind": "http",

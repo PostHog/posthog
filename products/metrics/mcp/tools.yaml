@@ -148,3 +148,28 @@ tools:
                 - omitted_empty_series
                 - omitted_by_limit
                 - url_params
+    query-metrics-easel:
+        operation: metrics_query_create
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: ?{url_params}
+        title: Query metrics as chart series
+        description_file: ./prompts/query-metrics-easel.md
+        search_keywords:
+            - chart
+            - plot
+            - graph
+        feature_flag: mcp-chart-series-tools
+        hooks: metrics/seriesMatrixHooks
+        response:
+            include:
+                - results
+                - hint
+                - omitted_empty_series
+                - omitted_by_limit
+                - url_params
