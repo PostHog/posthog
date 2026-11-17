@@ -117,7 +117,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/stamphog/digest_runs/': digestRuns,
+                '/api/projects/:team_id/code_review/approvals/digests/': digestRuns,
             },
         }),
     ],
@@ -142,7 +142,7 @@ export const DigestsListEmpty: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/stamphog/digest_runs/': {
+                '/api/projects/:team_id/code_review/approvals/digests/': {
                     count: 0,
                     next: null,
                     previous: null,

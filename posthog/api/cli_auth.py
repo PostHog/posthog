@@ -36,6 +36,7 @@ from posthog.api.personal_api_key import validate_personal_api_key_scopes
 from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.personal_api_key_minting import mint_personal_api_key
+from posthog.scopes.catalog import translate_renamed_scopes
 from posthog.scopes.exposure import UNPRIVILEGED_SCOPES
 
 # Device code lives for 10 minutes
@@ -223,7 +224,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         user_code = serializer.validated_data["user_code"]
         project_id = serializer.validated_data["project_id"]
-        scopes = serializer.validated_data.get("scopes", CLI_SCOPES)
+        scopes = translate_renamed_scopes(serializer.validated_data.get("scopes", CLI_SCOPES))
         user: User = request.user
 
         # Validate that at least one scope is provided

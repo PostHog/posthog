@@ -375,7 +375,9 @@ tools:
             - organization
         param_overrides:
             id:
-                description: Numeric ID of the project to update. Call project-get to read the active project's ID.
+                description: Project ID. If omitted, updates the caller's active project.
+                optional: true
+                fallback: projectId
                 cast: string-int
         response:
             exclude:

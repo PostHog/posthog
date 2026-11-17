@@ -94,6 +94,7 @@ export function roleSpecs(
             PLUGIN_SERVER_MODE: id.role,
             HTTP_SERVER_PORT: String(portOf(id)),
             PGAPPNAME: `${SCENARIO_SESSION_PREFIX}${id.role}`,
+            KAFKA_CONSUMER_CLIENT_ID: `${SCENARIO_SESSION_PREFIX}${id.role}`,
             [MARKER_KEY]: stateDir,
         },
     }))

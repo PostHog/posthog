@@ -1,6 +1,11 @@
 version: 1
 owners: []
 rules:
+    - match:
+          - '/admin/console/member_email_migration.py'
+          - '/admin/console/organization_sign_in_panels.py'
+          - '/admin/test_organization_sign_in_panels.py'
+      owners: team-platform-features
     - match: '/caching/'
       owners: team-analytics-platform
     - match: '/clickhouse/hcl/'
@@ -34,6 +39,14 @@ rules:
     # Each line acknowledges a risky migration, so one added line lets that migration skip the check.
     - match: '/management/migration_analysis/*_acknowledged_migrations.txt'
       sensitive: true
+    - match:
+          - '/management/commands/backfill_code_review_scopes.py'
+          - '/management/commands/test/test_backfill_code_review_scopes.py'
+      owners: team-devex
+    - match:
+          - '/management/commands/rewrite_cohort_membership_queries.py'
+          - '/management/commands/test/test_rewrite_cohort_membership_queries.py'
+      owners: team-feature-flags
     - match: '/queries/'
       owners: team-analytics-platform
     - match: '/rbac/'
