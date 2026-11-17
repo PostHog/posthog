@@ -110,7 +110,17 @@ class OrganizationOAuthApplicationViewSet(
 
     scope_object = "organization"
     permission_classes = [OrganizationAdminReadPermissions]
-    queryset = OAuthApplication.objects.select_related("provisioning_review").order_by("-created")
+    queryset = (
+        OAuthApplication.objects.select_related("provisioning_review")
+        # Partners see the verdict, not the research behind it, and these fields can be large.
+        .defer(
+            "provisioning_review__metadata_document",
+            "provisioning_review__research_evidence",
+            "provisioning_review__research_judgment",
+            "provisioning_review__run_log",
+        )
+        .order_by("-created")
+    )
     serializer_class = OrganizationOAuthApplicationSerializer
 
     def safely_get_queryset(self, queryset):
