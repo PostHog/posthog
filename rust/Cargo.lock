@@ -2405,6 +2405,7 @@ dependencies = [
  "prometheus-rw-proto",
  "prost 0.13.5",
  "rdkafka",
+ "rstest",
  "serde",
  "serde_derive",
  "serde_json",
