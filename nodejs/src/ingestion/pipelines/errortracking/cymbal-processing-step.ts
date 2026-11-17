@@ -1,10 +1,11 @@
 import { logger } from '~/common/utils/logger'
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { invalidTimestampCounter } from '~/ingestion/common/metrics'
+import { toPipelineResults } from '~/ingestion/common/service-response'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
-import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
+import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { ISOTimestamp, Team } from '~/types'
 
@@ -106,20 +107,11 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
         }))
 
         try {
-            const responses = await cymbalClient.processExceptions(items)
+            const results = await cymbalClient.processExceptions(items)
 
-            // Map responses back to results, maintaining 1:1 correspondence
-            return responses.map((response, index) => {
+            // A dropped event keeps Cymbal's reason, and an event Cymbal fails goes to the DLQ.
+            return toPipelineResults('cymbal', results, (response, index, serviceWarnings) => {
                 const { input, warnings: timestampWarnings } = validatedInputs[index]
-
-                // Null response means the event should be dropped (suppressed)
-                if (!response) {
-                    logger.debug('🔇', 'cymbal_event_suppressed', {
-                        eventUuid: input.event.uuid,
-                        teamId: input.team.id,
-                    })
-                    return drop('suppressed')
-                }
 
                 // Replace event properties with Cymbal's processed properties.
                 // Cymbal returns the full properties object with $exception_list, $exception_fingerprint, etc.
@@ -128,7 +120,7 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
 
                 // Combine timestamp validation warnings with Cymbal processing warnings
                 const cymbalWarnings = getCymbalProcessingWarnings(response, input.event.uuid)
-                const warnings = [...timestampWarnings, ...cymbalWarnings]
+                const warnings = [...timestampWarnings, ...cymbalWarnings, ...serviceWarnings]
 
                 return ok({ ...input, event: input.event }, [], warnings)
             })

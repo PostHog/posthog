@@ -91,7 +91,7 @@ Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue a
 
 ### Compatibility with the Node error-tracking consumer
 
-The Node consumer still talks only to cymbal's HTTP `POST /process` endpoint. Cymbal preserves the response array length and input ordering after internal remote resolution, so Node-side request chunking by HTTP body size remains valid and no generated type changes are needed. See [`cymbal/docs/compatibility.md`](../cymbal/docs/compatibility.md).
+The Node consumer still talks only to cymbal's HTTP `POST /v2/process` endpoint. Cymbal preserves the response array length and input ordering after internal remote resolution, so Node-side request chunking by HTTP body size remains valid and no generated type changes are needed. See [`cymbal/docs/compatibility.md`](../cymbal/docs/compatibility.md).
 
 ## Configuration
 

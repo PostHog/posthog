@@ -5,7 +5,7 @@ It does not change the HTTP contract with the Node.js error-tracking consumer.
 
 ## `/v2/process` request and response
 
-`POST /v2/process` reports one result for each event.
+The Node.js error-tracking consumer calls `POST /v2/process`, which reports one result for each event.
 The request is an array of `AnyEvent`-shaped exception events, the same body `/process` takes.
 The response follows the ingestion response contract in [`common/ingestion-response`](../../common/ingestion-response/README.md), and always carries its `X-PostHog-Ingestion-Response` header.
 The route selects the contract, so the caller does not need to send that header.
@@ -21,7 +21,7 @@ A failure that can come from a dependency, such as a database, Kafka, or resolut
 
 ## `/process` request and response
 
-`/process` is the contract the Node.js error-tracking consumer uses.
+`/process` is the earlier contract. It stays until no caller uses it.
 
 - The caller sends `POST /process` with an array of `AnyEvent`-shaped exception events.
 - Cymbal returns an array with the same length and ordering as the request.
@@ -38,7 +38,7 @@ That remains valid because cymbal preserves the HTTP boundary and performs priva
 No generated type changes are needed:
 
 - the Node request type remains `CymbalRequest`
-- the Node response type remains `(CymbalResponse | null)[]`
+- the Node response type is `ItemResult<CymbalResponse>[]`
 - the internal `cymbal.resolution.v1` gRPC messages are not exposed to Node
 
 ## Remote resolution behind the HTTP boundary

@@ -26,6 +26,7 @@ import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson } from '~/types'
 
 import { CymbalClient } from './cymbal/client'
+import { CymbalResult } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'
 import {
     ErrorTrackingHogTransformer,
@@ -68,6 +69,11 @@ describe('ErrorTrackingPipeline', () => {
     let mockPersonRepository: jest.Mocked<PersonReadRepository>
     let mockHogTransformer: jest.Mocked<ErrorTrackingHogTransformer>
     let mockCymbalClient: jest.Mocked<CymbalClient>
+
+    const toOutcomes = (responses: (CymbalResponse | null)[]): CymbalResult[] =>
+        responses.map((response) =>
+            response ? { result: 'ok', value: response } : { result: 'drop', reason: 'suppressed' }
+        )
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
     let mockEventIngestionRestrictionManager: jest.Mocked<EventIngestionRestrictionManager>
     let mockEventFilterManager: jest.Mocked<EventFilterManager>
@@ -368,7 +374,7 @@ describe('ErrorTrackingPipeline', () => {
             const cymbalResponse = createCymbalResponseWithEnrichedProperties({
                 $exception_list: [{ type: 'Error', value: 'Test error' }],
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([cymbalResponse]))
 
             // Hog transformations run AFTER Cymbal and add GeoIP properties
             mockHogTransformer.transformEventAndProduceMessages.mockImplementation((event) =>
@@ -435,7 +441,7 @@ describe('ErrorTrackingPipeline', () => {
                     properties: { $exception_fingerprint: 'fp-2', $exception_issue_id: 'issue-2' },
                 }),
             ]
-            mockCymbalClient.processExceptions.mockResolvedValue(cymbalResponses)
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes(cymbalResponses))
 
             const messages = [
                 createKafkaMessage({ distinctId: 'user-1', eventUuid: uuid1 }),
@@ -465,7 +471,7 @@ describe('ErrorTrackingPipeline', () => {
             const cymbalResponse = createCymbalResponseWithEnrichedProperties({
                 $exception_list: [{ type: 'Error', value: 'Test error' }],
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([cymbalResponse]))
 
             const message = createKafkaMessage({})
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
@@ -492,7 +498,7 @@ describe('ErrorTrackingPipeline', () => {
                 $group_0: 'acme-corp',
                 $group_1: 'project-123',
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([cymbalResponse]))
 
             const message = createKafkaMessage({
                 properties: {
@@ -521,7 +527,7 @@ describe('ErrorTrackingPipeline', () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
 
             // Cymbal returns null for suppressed events
-            mockCymbalClient.processExceptions.mockResolvedValue([null])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([null]))
 
             const message = createKafkaMessage({})
 
@@ -665,7 +671,7 @@ describe('ErrorTrackingPipeline', () => {
                 new Set([RestrictionType.FORCE_OVERFLOW])
             )
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([createCymbalResponse()]))
 
             const message = createKafkaMessage({})
 
@@ -682,7 +688,7 @@ describe('ErrorTrackingPipeline', () => {
 
         it('propagates database errors from person lookup', async () => {
             mockPersonRepository.fetchPersonsByDistinctIds.mockRejectedValue(new Error('Database error'))
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([createCymbalResponse()]))
 
             const message = createKafkaMessage({})
 
@@ -726,7 +732,7 @@ describe('ErrorTrackingPipeline', () => {
             mockCymbalClient.processExceptions
                 .mockRejectedValueOnce(retriableError)
                 .mockRejectedValueOnce(retriableError)
-                .mockResolvedValueOnce([createCymbalResponse()])
+                .mockResolvedValueOnce(toOutcomes([createCymbalResponse()]))
 
             const message = createKafkaMessage({})
 
@@ -793,7 +799,7 @@ describe('ErrorTrackingPipeline', () => {
 
         it('runs Hog transformations on events', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([createCymbalResponse()]))
 
             const message = createKafkaMessage({})
 
@@ -809,7 +815,7 @@ describe('ErrorTrackingPipeline', () => {
 
         it('preserves GeoIP properties added by Hog transformations', async () => {
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([createCymbalResponse()]))
 
             // Mock the transformer to add GeoIP properties (simulating the GeoIP transformation)
             mockHogTransformer.transformEventAndProduceMessages.mockImplementation((event) =>
@@ -856,7 +862,7 @@ describe('ErrorTrackingPipeline', () => {
                 custom_property: 'should-be-preserved',
                 $browser: 'Chrome',
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([cymbalResponse]))
 
             const message = createKafkaMessage({
                 properties: {
@@ -896,7 +902,7 @@ describe('ErrorTrackingPipeline', () => {
                     ],
                 },
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([cymbalResponse]))
 
             const message = createKafkaMessage({ eventUuid })
 
@@ -933,7 +939,7 @@ describe('ErrorTrackingPipeline', () => {
                     // No $cymbal_errors
                 },
             })
-            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([cymbalResponse]))
 
             const message = createKafkaMessage({})
 
@@ -956,7 +962,7 @@ describe('ErrorTrackingPipeline', () => {
             // Test with person found - should be 'full' mode
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([createCymbalResponse()]))
 
             const pipeline1 = createErrorTrackingPipeline(pipelineConfig)
             await runErrorTrackingPipeline(pipeline1, [createKafkaMessage({})])
@@ -973,7 +979,7 @@ describe('ErrorTrackingPipeline', () => {
 
             // Test without person found - still uses 'full' mode because processPerson=true
             mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([createCymbalResponse()]))
 
             const pipeline2 = createErrorTrackingPipeline(pipelineConfig)
             await runErrorTrackingPipeline(pipeline2, [createKafkaMessage({ distinctId: 'no-person' })])
@@ -1000,7 +1006,9 @@ describe('ErrorTrackingPipeline', () => {
         it('invokes the cookieless manager once per batch', async () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse(), createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(
+                toOutcomes([createCymbalResponse(), createCymbalResponse()])
+            )
 
             const messages = [createKafkaMessage({ distinctId: 'a' }), createKafkaMessage({ distinctId: 'b' })]
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
@@ -1015,7 +1023,7 @@ describe('ErrorTrackingPipeline', () => {
         it('uses the rewritten distinct_id from the cookieless manager downstream', async () => {
             const person = createTestPerson({ distinct_id: 'hashed-distinct-id' })
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([createCymbalResponse()]))
 
             mockCookielessManager.doBatch.mockImplementationOnce((events: any[]) =>
                 Promise.resolve(
@@ -1083,7 +1091,7 @@ describe('ErrorTrackingPipeline', () => {
         it('records messages_by_token metric for parsed messages', async () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([createCymbalResponse()]))
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
@@ -1108,7 +1116,7 @@ describe('ErrorTrackingPipeline', () => {
         it('records emitted_events metric when events are emitted', async () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([createCymbalResponse()]))
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
@@ -1133,7 +1141,7 @@ describe('ErrorTrackingPipeline', () => {
         it('records emitted_events_per_distinct_id metric with distinct_id', async () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([createCymbalResponse()]))
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
@@ -1159,7 +1167,7 @@ describe('ErrorTrackingPipeline', () => {
         it('includes pipeline and lane labels in TopHog output', async () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
-            mockCymbalClient.processExceptions.mockResolvedValue([createCymbalResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValue(toOutcomes([createCymbalResponse()]))
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
                 ...pipelineConfig,
@@ -1185,7 +1193,7 @@ describe('ErrorTrackingPipeline', () => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
             mockCymbalClient.processExceptions.mockImplementation((events) =>
-                Promise.resolve(events.map(() => createCymbalResponse()))
+                Promise.resolve(toOutcomes(events.map(() => createCymbalResponse())))
             )
 
             const configWithTopHog: ErrorTrackingPipelineConfig = {
