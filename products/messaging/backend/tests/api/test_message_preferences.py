@@ -434,9 +434,9 @@ class TestMessagePreferencesViews(BaseTest):
             self.recipient.get_all_preferences()[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT
         )
 
-    def _enable_engagement_events(self):
+    def _set_engagement_events(self, enabled: bool):
         config = self.team.workflows_config
-        config.capture_workflows_engagement_events = True
+        config.capture_workflows_engagement_events = enabled
         config.save()
 
     @parameterized.expand(
@@ -475,7 +475,7 @@ class TestMessagePreferencesViews(BaseTest):
     def test_one_click_unsubscribe_emits_unsubscribed_event(
         self, _name, token_claims, send_properties, mock_validate_messaging_preferences_token
     ):
-        self._enable_engagement_events()
+        self._set_engagement_events(True)
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **token_claims}
         )
@@ -490,7 +490,7 @@ class TestMessagePreferencesViews(BaseTest):
 
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_emits_only_for_newly_opted_out(self, mock_validate_messaging_preferences_token):
-        self._enable_engagement_events()
+        self._set_engagement_events(True)
         # category is already opted out, so only category2 and $all are genuine transitions;
         # the bogus id must be dropped because it isn't one of the team's categories
         self.recipient.preferences = {
@@ -531,6 +531,7 @@ class TestMessagePreferencesViews(BaseTest):
     @parameterized.expand(["one_click", "preferences_form"])
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_no_unsubscribed_event_when_flag_off(self, code_path, mock_validate_messaging_preferences_token):
+        self._set_engagement_events(False)
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
@@ -676,7 +677,7 @@ class TestMessagePreferencesViews(BaseTest):
 
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_tracking_consent_change_emits_event_only_on_transition(self, mock_validate_messaging_preferences_token):
-        self._enable_engagement_events()
+        self._set_engagement_events(True)
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
