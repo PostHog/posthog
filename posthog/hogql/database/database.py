@@ -186,7 +186,7 @@ from posthog.schema_enums import (
     SessionsV2JoinMode,
     SessionTableVersion,
 )
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
 from posthog.week_start_day import WeekStartDay
 

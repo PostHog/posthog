@@ -43,7 +43,7 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.constants import AvailableFeature
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team

@@ -42,7 +42,7 @@ from posthog.models.tag import Tag
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.ph_client import filter_scout_experiment_capture
-from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
+from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import (

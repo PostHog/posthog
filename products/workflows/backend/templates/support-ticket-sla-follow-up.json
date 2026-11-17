@@ -1,0 +1,348 @@
+{
+    "id": "01a1352a-0c41-0000-9f14-b6c03e7a2d58",
+    "name": "Ticket SLA: set follow-up time after the team replies",
+    "description": "When your team replies but leaves the ticket open, set a deadline for the next update, so open tickets don't go quiet. This also replaces the first response deadline once your team has replied. Tickets set to pending, on hold or resolved are skipped. Working hours are Monday to Friday, 9:00-17:00 UTC: change them in each Set SLA step. Works with the Ticket SLA first response template, which adds the tier tag, and the next response and pause templates.",
+    "scope": "global",
+    "tags": ["support", "support SLAs"],
+    "version": 1,
+    "created_at": "2026-10-13T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-13T00:00:00Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_message_sent",
+                    "name": "$conversation_message_sent",
+                    "type": "events",
+                    "order": 0
+                }
+            ],
+            "filter_test_accounts": false
+        }
+    },
+    "trigger_masking": null,
+    "conversion": null,
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "wait_settle",
+            "type": "continue"
+        },
+        {
+            "from": "wait_settle",
+            "to": "get_ticket",
+            "type": "continue"
+        },
+        {
+            "from": "get_ticket",
+            "to": "is_waiting",
+            "type": "continue"
+        },
+        {
+            "from": "is_waiting",
+            "to": "exit_node",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "is_waiting",
+            "to": "exit_node",
+            "type": "branch",
+            "index": 1
+        },
+        {
+            "from": "is_waiting",
+            "to": "tier",
+            "type": "continue"
+        },
+        {
+            "from": "tier",
+            "to": "sla_tier_1",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "tier",
+            "to": "sla_tier_2",
+            "type": "branch",
+            "index": 1
+        },
+        {
+            "from": "tier",
+            "to": "sla_default",
+            "type": "continue"
+        },
+        {
+            "from": "sla_tier_1",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "sla_tier_2",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "sla_default",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Team replies",
+            "description": "Runs when someone on your team sends a reply on a ticket. Private notes don't count.",
+            "type": "trigger",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_message_sent",
+                            "name": "$conversation_message_sent",
+                            "type": "events",
+                            "order": 0
+                        }
+                    ],
+                    "filter_test_accounts": false
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "wait_settle",
+            "name": "Wait 1 minute",
+            "description": "Gives any changes made alongside the reply, like a status change, time to land, so the ticket is checked in its final state.",
+            "type": "delay",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "delay_duration": "1m"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "get_ticket",
+            "name": "Get ticket",
+            "description": "Load the ticket's current status and tags.",
+            "type": "function",
+            "on_error": "abort",
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-get-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": {
+                "key": "ticket"
+            }
+        },
+        {
+            "id": "is_waiting",
+            "name": "Waiting on the customer, closed, or replied since?",
+            "description": "Pending, on hold and resolved tickets don't need a follow-up deadline. If a message has come in since this reply, its own workflow sets the deadline instead.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Pending, on hold or resolved",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.ticket.status in ('pending', 'on_hold', 'resolved')",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "New message since this reply",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "dateDiff('second', toDateTime(timestamp), toDateTime(variables.ticket.last_message_at)) > 5",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "tier",
+            "name": "Which tier is the ticket?",
+            "description": "Uses the tier tag that 'Ticket SLA: set first response time' adds. Tickets without one get the default SLA.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Enterprise",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "has(variables.ticket.tags, 'tier_enterprise')",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Pro",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "has(variables.ticket.tags, 'tier_pro')",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_tier_1",
+            "name": "Set SLA: 1 working day",
+            "description": "Enterprise: next update due within 8 working hours (1 working day at 9:00-17:00). Set your working hours and timezone here.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "8",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_tier_2",
+            "name": "Set SLA: 2 working days",
+            "description": "Pro: next update due within 16 working hours (2 working days at 9:00-17:00). Set your working hours and timezone here.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "16",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "sla_default",
+            "name": "Set SLA: 3 working days",
+            "description": "Everyone else: next update due within 24 working hours (3 working days at 9:00-17:00). Set your working hours and timezone here.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    },
+                    "sla_amount": {
+                        "value": "24",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "hour",
+                        "templating": "hog"
+                    },
+                    "sla_business_hours": {
+                        "value": {
+                            "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                            "time": ["09:00", "17:00"],
+                            "timezone": "UTC"
+                        },
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "",
+            "type": "exit",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "reason": "Done"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function"]
+}
