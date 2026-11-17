@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
+from posthog.models.scoping import team_scope
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
@@ -249,6 +250,7 @@ def releases_enabled(
     distinct_id: str,
     email: str | None,
     raise_on_error: bool = False,
+    only_evaluate_locally: bool = False,
 ) -> bool:
     return feature_flags.is_releases_enabled(
         team_id=team_id,
@@ -257,6 +259,22 @@ def releases_enabled(
         distinct_id=distinct_id,
         email=email,
         raise_on_error=raise_on_error,
+        only_evaluate_locally=only_evaluate_locally,
+    )
+
+
+def get_summary(team_id: int, release_id: UUID) -> contracts.ReleaseSummary:
+    root_id = imports.root_team_id(team_id)
+    with team_scope(root_id):
+        release = logic.get_release(root_id, release_id)
+    return contracts.ReleaseSummary(
+        id=release.id,
+        name=release.name,
+        description=release.description,
+        auto_named=release.auto_named,
+        owner_first_name=release.owner.first_name if release.owner else None,
+        feature_flag_ids=list(release.feature_flag_ids),
+        updated_at=release.updated_at,
     )
 
 
