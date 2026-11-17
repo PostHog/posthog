@@ -2056,7 +2056,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             ("_ticket_assignments", "ticket"),
             ("_ticket_assignee_roles", "ticket"),
             ("_task_public_channels", "task"),
-            ("_task_slack_threads", "task"),
+            ("_task_public_slack_tasks", "task"),
         ]
     )
     def test_hogql_query_runner_partitions_cache_on_access_control(self, table: str, scope: str) -> None:

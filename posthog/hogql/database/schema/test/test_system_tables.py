@@ -1014,6 +1014,10 @@ def _create_slack_thread_mapping(
     )
 
 
+def _create_public_slack_task(team: Team, label: str) -> Task:
+    return _create_slack_thread_mapping(team, label).task
+
+
 def _create_file_system(team: Team, label: str):
     from posthog.models.file_system.file_system import FileSystem
 
@@ -1300,7 +1304,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("survey_response_archives", _create_survey_response_archive),
     ("surveys", _create_survey),
     ("_task_public_channels", _create_public_task_channel),
-    ("_task_slack_threads", _create_slack_thread_mapping),
+    ("_task_public_slack_tasks", _create_public_slack_task),
     ("tags", _create_tag),
     ("task_artifacts", _create_task_artifact),
     ("task_runs", _create_task_run),
@@ -1801,6 +1805,14 @@ class TestSystemTablesSlackTaskVisibility(NonAtomicBaseTest):
         for table, column in [("tasks", "id"), ("task_runs", "task_id")]:
             response = execute_hogql_query(f"SELECT {column} FROM system.{table}", team=self.team, user=self.user)
             assert (str(task.pk) in {str(row[0]) for row in response.results}) is expected_visible, table
+
+    def test_private_thread_mappings_are_not_readable(self) -> None:
+        public = _create_slack_thread_mapping(self.team, "public").task
+        _create_slack_thread_mapping(self.team, "dm", conversation_type="im")
+
+        response = execute_hogql_query("SELECT id FROM system._task_public_slack_tasks", team=self.team, user=self.user)
+
+        assert [str(row[0]) for row in response.results] == [str(public.pk)]
 
     def test_public_thread_does_not_expose_non_slack_task(self) -> None:
         task = Task.objects.create(

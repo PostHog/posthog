@@ -73,9 +73,9 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system._ticket_assignee_roles": frozenset({"ticket"}),
     "system._event_definition_tagged_items": frozenset({"event_definition"}),
     "system._property_definition_tagged_items": frozenset({"property_definition"}),
-    # Task predicates need these public channel IDs and Slack threads even under object-only task grants.
+    # Task predicates need these public channel and Slack task IDs even under object-only task grants.
     "system._task_public_channels": frozenset({"task"}),
-    "system._task_slack_threads": frozenset({"task"}),
+    "system._task_public_slack_tasks": frozenset({"task"}),
     "system.customer_tasks": frozenset({"account"}),
     # Insight alerts are readable only with their insight, so the reader's insight rules decide their rows.
     "system.alerts": frozenset({"insight"}),

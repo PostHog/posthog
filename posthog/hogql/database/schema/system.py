@@ -3893,34 +3893,36 @@ task_public_channels: PostgresTable = PostgresTable(
 )
 
 
-task_slack_threads: PostgresTable = PostgresTable(
-    name="_task_slack_threads",
-    postgres_table_name="slack_app_slackthreadtaskmapping",
-    description="Internal list of the Slack threads that tasks answer in, with the kind of conversation each thread is in.",
-    fields={
-        "id": StringDatabaseField(name="id"),
-        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
-        "task_id": StringDatabaseField(name="task_id"),
-        "conversation_type": StringDatabaseField(name="conversation_type", nullable=True),
-    },
-)
+class _TaskPublicSlackTasksTable(PostgresTable):
+    """Aggregates the Slack thread mappings in ClickHouse, so a query reads only the tasks that qualify,
+    never the mapping rows of private threads."""
+
+    def to_printed_clickhouse(self, context):
+        source = build_function_call(self.postgres_table_name, context)
+        team_filter = f"WHERE team_id = {int(context.team_id)} " if context.team_id is not None else ""
+        return (
+            f"(SELECT team_id, task_id AS id FROM {source} {team_filter}GROUP BY team_id, task_id "
+            "HAVING countIf(ifNull(conversation_type, '') != 'public_channel') = 0)"
+        )
 
 
 # A Slack task sits in its creator's personal space, so it is judged by its threads instead, as
 # `_readable_by_team_q` in products/tasks/backend/logic/team_task_summaries.py does: only when every
 # thread it answers in is a public Slack channel. A private channel, a direct message, a group direct
 # message, and a thread nobody classified keep the task out.
+task_public_slack_tasks: _TaskPublicSlackTasksTable = _TaskPublicSlackTasksTable(
+    name="_task_public_slack_tasks",
+    postgres_table_name="slack_app_slackthreadtaskmapping",
+    description="Internal list of the tasks whose Slack threads are all in public Slack channels.",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+    },
+)
+
 _TASK_VISIBLE_PREDICATE = """
     channel_id IN (SELECT id FROM system._task_public_channels)
-    OR (
-        origin_product = 'slack'
-        AND id IN (
-            SELECT task_id
-            FROM system._task_slack_threads
-            GROUP BY task_id
-            HAVING countIf(ifNull(conversation_type, '') != 'public_channel') = 0
-        )
-    )
+    OR (origin_product = 'slack' AND id IN (SELECT id FROM system._task_public_slack_tasks))
 """
 
 
@@ -4882,7 +4884,9 @@ class SystemTables(TableNode):
         "surveys": TableNode(name="surveys", table=surveys),
         "survey_response_archives": TableNode(name="survey_response_archives", table=survey_response_archives),
         "_task_public_channels": TableNode(name="_task_public_channels", table=task_public_channels, hidden=True),
-        "_task_slack_threads": TableNode(name="_task_slack_threads", table=task_slack_threads, hidden=True),
+        "_task_public_slack_tasks": TableNode(
+            name="_task_public_slack_tasks", table=task_public_slack_tasks, hidden=True
+        ),
         "task_artifacts": TableNode(name="task_artifacts", table=task_artifacts),
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tags": TableNode(name="tags", table=tags),
