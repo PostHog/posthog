@@ -16634,6 +16634,13 @@ export namespace Schemas {
       content: string | null;
     }
 
+    export interface AppStoreConnectReviewSignalExtra {
+      app_id: string | null;
+      rating: string | null;
+      territory: string | null;
+      created_date: string | null;
+    }
+
     export interface AppSummaryContract {
       /** User who created this app. */
       created_by?: StreamlitAppUserInfo | null;
@@ -64449,6 +64456,8 @@ export namespace Schemas {
      * * `sentinelone` - SentinelOne
      * * `jfrog_xray` - JFrog Xray
      * * `dynatrace_security` - Dynatrace Application Security
+     * * `app_store_connect` - App Store Connect
+     * * `sentry_feedback` - Sentry user feedback
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -64610,6 +64619,8 @@ export namespace Schemas {
       Sentinelone: 'sentinelone',
       JfrogXray: 'jfrog_xray',
       DynatraceSecurity: 'dynatrace_security',
+      AppStoreConnect: 'app_store_connect',
+      SentryFeedback: 'sentry_feedback',
     } as const;
 
     /**
@@ -64820,7 +64831,9 @@ export namespace Schemas {
        * * `aws_macie` - AWS Macie
        * * `sentinelone` - SentinelOne
        * * `jfrog_xray` - JFrog Xray
-       * * `dynatrace_security` - Dynatrace Application Security */
+       * * `dynatrace_security` - Dynatrace Application Security
+       * * `app_store_connect` - App Store Connect
+       * * `sentry_feedback` - Sentry user feedback */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -108917,6 +108930,8 @@ export namespace Schemas {
      * * `sentinelone` - sentinelone
      * * `jfrog_xray` - jfrog_xray
      * * `dynatrace_security` - dynatrace_security
+     * * `app_store_connect` - app_store_connect
+     * * `sentry_feedback` - sentry_feedback
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -109078,6 +109093,8 @@ export namespace Schemas {
       Sentinelone: 'sentinelone',
       JfrogXray: 'jfrog_xray',
       DynatraceSecurity: 'dynatrace_security',
+      AppStoreConnect: 'app_store_connect',
+      SentryFeedback: 'sentry_feedback',
     } as const;
 
     /**
@@ -109414,6 +109431,12 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface SentryFeedbackSignalExtra {
+      project_slug: string | null;
+      event_id: string | null;
+      date_created: string | null;
+    }
+
     export interface SonarcloudScannerFindingSignalExtra {
       severity: string | null;
       type: string | null;
@@ -109534,7 +109557,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | BingWebmasterToolsSearchOpportunitySignalExtra | AhrefsSearchOpportunitySignalExtra | SemrushSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | RootlyIncidentSignalExtra | ZendutyIncidentSignalExtra | SplunkObservabilityCloudIncidentSignalExtra | UptimerobotIncidentSignalExtra | RootlyAlertsIncidentSignalExtra | IncidentIoAlertsIncidentSignalExtra | FirehydrantAlertsIncidentSignalExtra | GrafanaIrmAlertGroupsIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | BingWebmasterToolsSearchOpportunitySignalExtra | AhrefsSearchOpportunitySignalExtra | SemrushSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | RootlyIncidentSignalExtra | ZendutyIncidentSignalExtra | SplunkObservabilityCloudIncidentSignalExtra | UptimerobotIncidentSignalExtra | RootlyAlertsIncidentSignalExtra | IncidentIoAlertsIncidentSignalExtra | FirehydrantAlertsIncidentSignalExtra | GrafanaIrmAlertGroupsIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | AppStoreConnectReviewSignalExtra | SentryFeedbackSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -109707,7 +109730,9 @@ export namespace Schemas {
        * * `aws_macie` - aws_macie
        * * `sentinelone` - sentinelone
        * * `jfrog_xray` - jfrog_xray
-       * * `dynatrace_security` - dynatrace_security */
+       * * `dynatrace_security` - dynatrace_security
+       * * `app_store_connect` - app_store_connect
+       * * `sentry_feedback` - sentry_feedback */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
