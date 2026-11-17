@@ -27,7 +27,7 @@ use deltalake::Path;
 use deltalite_core::errors::Error;
 use deltalite_core::handle::TableHandle;
 use deltalite_core::history::{
-    format_months, history_upsert, HistoryUpsertOptions, HistoryUpsertStats,
+    format_months, history_upsert, HistoryUpsertOptions, HistoryUpsertStats, LateRows,
 };
 use deltalite_core::limits::ProcessLimits;
 use deltalite_core::table::MultipartConfig;
@@ -119,7 +119,7 @@ async fn create(dir: &std::path::Path, partition_by: &[&str]) -> TableHandle {
 fn opts() -> HistoryUpsertOptions {
     HistoryUpsertOptions {
         key_columns: vec!["id".into()],
-        order_column: "v".into(),
+        order_columns: vec!["v".into()],
         valid_from_column: "valid_from".into(),
         valid_to_column: "valid_to".into(),
         partition_column: "p".into(),
@@ -1119,4 +1119,131 @@ fn register_race_scheme() {
     let scheme = url::Url::parse("dlrace://").expect("static url");
     object_store_factories().insert(scheme.clone(), Arc::new(RaceFactory));
     logstore_factories().insert(scheme, Arc::new(RaceFactory));
+}
+
+/// Options of a webhook history: late rows go into the past, and `payload` is the event id.
+fn late() -> HistoryUpsertOptions {
+    HistoryUpsertOptions {
+        late_rows: LateRows::Insert,
+        dedupe_column: Some("payload".into()),
+        ..opts()
+    }
+}
+
+#[tokio::test]
+async fn a_late_row_splits_the_covering_version_and_moves_it_to_its_new_month() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = create(dir.path(), &["p"]).await;
+    for rows in [
+        [
+            (Some("k"), 1, "2026-10-10T00:00:00Z", "k1", 1),
+            (Some("other"), 1, "2026-10-20T00:00:00Z", "o1", 2),
+        ],
+        [
+            (Some("k"), 3, "2026-12-12T00:00:00Z", "k3", 3),
+            (Some("other"), 3, "2026-12-20T00:00:00Z", "o3", 4),
+        ],
+    ] {
+        apply_with(&mut h, &rows, late()).await.unwrap();
+    }
+
+    let stats = apply_with(
+        &mut h,
+        &[(Some("k"), 2, "2026-11-11T00:00:00Z", "k2", 5)],
+        late(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (
+            stats.rows_late,
+            stats.versions_split,
+            stats.versions_opened,
+            stats.versions_closed,
+            stats.files_removed,
+            stats.rows_copied,
+        ),
+        (1, 1, 0, 0, 1, 1),
+        "only the December file is rewritten, and the other key's row in it is copied: \
+         {stats:?}"
+    );
+    let expected = sorted(vec![
+        closed(
+            "2026-11",
+            Some("k"),
+            1,
+            "2026-10-10T00:00:00Z",
+            "2026-11-11T00:00:00Z",
+            "k1",
+        ),
+        closed(
+            "2026-12",
+            Some("k"),
+            2,
+            "2026-11-11T00:00:00Z",
+            "2026-12-12T00:00:00Z",
+            "k2",
+        ),
+        open(Some("k"), 3, "2026-12-12T00:00:00Z", "k3"),
+        closed(
+            "2026-12",
+            Some("other"),
+            1,
+            "2026-10-20T00:00:00Z",
+            "2026-12-20T00:00:00Z",
+            "o1",
+        ),
+        open(Some("other"), 3, "2026-12-20T00:00:00Z", "o3"),
+    ]);
+    assert_eq!(read(&h).await, expected);
+
+    let version = h.version();
+    let again = apply_with(
+        &mut h,
+        &[
+            (Some("k"), 2, "2026-11-11T00:00:00Z", "k2", 6),
+            (Some("k"), 1, "2026-10-10T00:00:00Z", "k1", 7),
+        ],
+        late(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (again.committed, again.rows_redelivered),
+        (false, 2),
+        "{again:?}"
+    );
+    assert_eq!(h.version(), version);
+    assert_eq!(read(&h).await, expected);
+}
+
+#[tokio::test]
+async fn a_late_row_needs_valid_from_to_grow_with_the_order_value() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = create(dir.path(), &["p"]).await;
+    apply_with(
+        &mut h,
+        &[
+            (Some("k"), 1, "2026-10-10T00:00:00Z", "k1", 1),
+            (Some("k"), 3, "2026-12-12T00:00:00Z", "k3", 2),
+        ],
+        late(),
+    )
+    .await
+    .unwrap();
+    let before = read(&h).await;
+
+    let err = apply_with(
+        &mut h,
+        &[(Some("k"), 2, "2027-01-01T00:00:00Z", "k2", 3)],
+        late(),
+    )
+    .await
+    .unwrap_err();
+
+    assert!(
+        err.to_string().contains("valid_from must not decrease"),
+        "{err}"
+    );
+    assert_eq!(read(&h).await, before);
 }
