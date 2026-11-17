@@ -85,7 +85,7 @@ products/mcp_store/backend/catalog.py @PostHog/team-context-and-mcp
 
 # MCP guidance rules write text into the context of every customer's agent mid-session, steering
 # what it calls next, so review is the gate on what we tell agents.
-services/mcp/src/hono/guidance/rules.ts @PostHog/team-context-and-mcp
+services/mcp/src/hono/guidance/ @PostHog/team-context-and-mcp
 
 # The exec tool and the server instructions are the same kind of gate. The instructions are the
 # text every customer's agent reads before its first call, and exec parses and rejects every call
