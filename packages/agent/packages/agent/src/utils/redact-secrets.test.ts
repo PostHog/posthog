@@ -8,9 +8,14 @@ import { SECRET_HEADERS, TOKEN_RULES, type TokenRule } from "./secret-rules";
 
 const CHUNK_KINDS = ["agent_message_chunk", "agent_thought_chunk"];
 
-// A shaped rule (the JWT) matches a complete string only in its full shape.
+const SAMPLE_BODY = "AAAA1111AAAA1111";
+
+// A shaped rule matches a complete string only in its full shape.
 function sampleToken(rule: TokenRule): string {
-  return rule.shape ? `${rule.prefix}aaaa.1111` : `${rule.prefix}aaaa1111`;
+  const token = `${rule.prefix}${SAMPLE_BODY}`;
+  return rule.shape && !rule.shape.test(token)
+    ? `${rule.prefix}aaaa.1111`
+    : token;
 }
 
 const chunkCases: [string, string, string, string][] = TOKEN_RULES.flatMap(
@@ -18,7 +23,7 @@ const chunkCases: [string, string, string, string][] = TOKEN_RULES.flatMap(
     CHUNK_KINDS.map((sessionUpdate): [string, string, string, string] => [
       rule.label,
       sessionUpdate,
-      `${rule.prefix}aaaa1111`,
+      `${rule.prefix}${SAMPLE_BODY}`,
       rule.prefix,
     ]),
 );
@@ -91,7 +96,7 @@ describe("redactSecrets", () => {
             })
             .join("");
           expect(result).toBe(text.replaceAll(token, "[REDACTED]"));
-          expect(JSON.stringify(events)).not.toContain("aaaa1111");
+          expect(JSON.stringify(events)).not.toContain(SAMPLE_BODY);
         }
       }
     },
@@ -180,6 +185,57 @@ describe("redactSecrets", () => {
     expect(streamText(["see alpha_blend here"])).toBe("see alpha_blend here");
   });
 
+  it.each([
+    ["gho_", 36],
+    ["ghu_", 36],
+    ["ghr_", 36],
+    ["sk-proj-", 48],
+    ["AKIA", 16],
+    ["xoxb-", 30],
+    ["xoxp-", 30],
+    ["xoxa-", 30],
+    ["xoxr-", 30],
+    ["xoxs-", 30],
+    ["glpat-", 20],
+  ])(
+    "redacts a %s token whole and at every chunk split, not inside a word",
+    (prefix, length) => {
+      const token = prefix + "A".repeat(length);
+      const text = `KEY=${token} end`;
+      expect(redactSecrets(text)).toBe("KEY=[REDACTED] end");
+      for (let cut = 1; cut < text.length; cut++) {
+        expect(streamText([text.slice(0, cut), text.slice(cut)])).toBe(
+          "KEY=[REDACTED] end",
+        );
+      }
+      expect(redactSecrets(`x${token}`)).toBe(`x${token}`);
+    },
+  );
+
+  it.each([
+    ["a github oauth token", "ghost_story and gho"],
+    ["a github user-to-server token", "ghulam_khan and ghu"],
+    ["a github refresh token", "ghrelin_level and ghr"],
+    ["an openai project api key", "sk-projects-list and sk-pro"],
+    ["an aws access key id", "AKIRA Kurosawa and AKI"],
+    ["a slack bot token", "xoxo-hugs and xoxb"],
+    ["a slack user token", "xoxo-hugs and xoxp"],
+    ["a slack legacy workspace token", "xoxo-hugs and xoxa"],
+    ["a slack refresh token", "xoxo-hugs and xoxr"],
+    ["a slack legacy session token", "xoxo-hugs and xoxs"],
+    ["a gitlab personal access token", "glpa-style and glpat"],
+  ])("keeps a lookalike of %s intact at every chunk split", (_label, text) => {
+    expect(redactSecrets(text)).toBe(text);
+    for (let cut = 1; cut < text.length; cut++) {
+      expect(streamText([text.slice(0, cut), text.slice(cut)])).toBe(text);
+    }
+  });
+
+  it("keeps an AWS access key id lookalike with a short body", () => {
+    const short = `AKIA${"A".repeat(15)}`;
+    expect(redactSecrets(`id ${short} end`)).toBe(`id ${short} end`);
+  });
+
   it("keeps a prefix-bearing word intact across every chunk split", () => {
     const text = "see alpha_blend graphe_x here";
     for (let cut = 1; cut < text.length; cut++) {
@@ -191,18 +247,18 @@ describe("redactSecrets", () => {
     "redacts an escaped %s token split at every point",
     (prefix) => {
       for (const text of [
-        `x%3D${prefix}aaaa1111 end`,
-        `x\\n${prefix}aaaa1111 end`,
-        `x\u001b[1;32m${prefix}aaaa1111 end`,
-        `x\\u001b[32m${prefix}aaaa1111 end`,
-        `x\\u00e9${prefix}aaaa1111 end`,
-        `x\\xe9${prefix}aaaa1111 end`,
-        `x\u001b[${"1;".repeat(40)}32m${prefix}aaaa1111 end`,
-        `x\\u001b[${"1;".repeat(40)}32m${prefix}aaaa1111 end`,
+        `x%3D${prefix}${SAMPLE_BODY} end`,
+        `x\\n${prefix}${SAMPLE_BODY} end`,
+        `x\u001b[1;32m${prefix}${SAMPLE_BODY} end`,
+        `x\\u001b[32m${prefix}${SAMPLE_BODY} end`,
+        `x\\u00e9${prefix}${SAMPLE_BODY} end`,
+        `x\\xe9${prefix}${SAMPLE_BODY} end`,
+        `x\u001b[${"1;".repeat(40)}32m${prefix}${SAMPLE_BODY} end`,
+        `x\\u001b[${"1;".repeat(40)}32m${prefix}${SAMPLE_BODY} end`,
       ]) {
         for (let cut = 1; cut < text.length; cut++) {
           const out = streamText([text.slice(0, cut), text.slice(cut)]);
-          expect(out).not.toContain("aaaa1111");
+          expect(out).not.toContain(SAMPLE_BODY);
         }
       }
     },
@@ -210,8 +266,8 @@ describe("redactSecrets", () => {
 
   it("keeps a long colour code's opener when a partial prefix is held", () => {
     const colour = `\u001b[${"1;".repeat(40)}32m`;
-    const out = streamText(["x p", `${colour}ph`, "a_aaaa1111 end"]);
-    expect(out).not.toContain("aaaa1111");
+    const out = streamText(["x p", `${colour}ph`, `a_${SAMPLE_BODY} end`]);
+    expect(out).not.toContain(SAMPLE_BODY);
   });
 
   it("keeps the word check across a held prefix released with new text", () => {

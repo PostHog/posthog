@@ -69,6 +69,73 @@ export const TOKEN_RULES: TokenRule[] = [
     body: URL_SAFE_BODY,
     wordStart: true,
   },
+  {
+    label: "github oauth access token",
+    prefix: "gho_",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "github user-to-server token",
+    prefix: "ghu_",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "github refresh token",
+    prefix: "ghr_",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "openai project api key",
+    prefix: "sk-proj-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "aws access key id",
+    prefix: "AKIA",
+    body: /[A-Z0-9]/,
+    shape: /AKIA[A-Z0-9]{16}/,
+    wordStart: true,
+  },
+  {
+    label: "slack bot token",
+    prefix: "xoxb-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "slack user token",
+    prefix: "xoxp-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "slack legacy workspace token",
+    prefix: "xoxa-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "slack refresh token",
+    prefix: "xoxr-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "slack legacy session token",
+    prefix: "xoxs-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
+  {
+    label: "gitlab personal access token",
+    prefix: "glpat-",
+    body: URL_SAFE_BODY,
+    wordStart: true,
+  },
 ];
 
 export const LOOPBACK_PROXY_TOKEN =
