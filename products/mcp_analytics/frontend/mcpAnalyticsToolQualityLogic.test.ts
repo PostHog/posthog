@@ -380,6 +380,43 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['tool_a'])
         })
 
+        it('ignores a failure from a rows request that a newer one replaced', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const pendingRows: { resolve: (response: unknown) => void; reject: (error: Error) => void }[] = []
+            mockApi.query.mockImplementation((query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery
+                    ? new Promise((resolve, reject) => pendingRows.push({ resolve, reject }))
+                    : Promise.resolve({ results: [] })
+            )
+            jest.useFakeTimers()
+            try {
+                logic.actions.setSearchTerm('old')
+                await jest.advanceTimersByTimeAsync(300)
+                logic.actions.setSearchTerm('new')
+                await jest.advanceTimersByTimeAsync(300)
+                expect(pendingRows).toHaveLength(2)
+
+                pendingRows[0].reject(new Error('Internal server error'))
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.toolRowsLoadFailed).toBe(false)
+                expect(logic.values.toolRowsPageLoading).toBe(true)
+
+                pendingRows[1].resolve({
+                    ...emptyToolRowsResponse,
+                    results: [toolRowResult('tool_new')],
+                    totalCount: 1,
+                })
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.toolRowsLoadFailed).toBe(false)
+                expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['tool_new'])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('sends search, global sort, and page offsets to the rows query', async () => {
             mockApi.query.mockImplementation(async (query: any) =>
                 query.kind === NodeKind.MCPToolQualityRowsQuery
