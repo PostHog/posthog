@@ -23,17 +23,16 @@ from products.data_warehouse.backend.direct_redshift import (
 )
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
+    persist_schema_metadata,
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
 )
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
-    extract_available_column_names,
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
     normalize_namespace,
-    prune_enabled_columns,
     sql_schema_metadata,
 )
 
@@ -233,28 +232,18 @@ def reconcile_redshift_schemas(
             source_schema=resolved_schema,
             source_table_name=resolved_table,
         )
-        new_sync_type_config = {**(matched.sync_type_config or {}), "schema_metadata": schema_metadata}
-        # Persist the detected primary key without clobbering a value already stored — e.g. an
-        # explicit override set during creation or a prior refresh.
-        if source_schema.detected_primary_keys and not new_sync_type_config.get("primary_key_columns"):
-            new_sync_type_config["primary_key_columns"] = source_schema.detected_primary_keys
-        matched.sync_type_config = new_sync_type_config
-        update_fields = ["sync_type_config", "updated_at"]
-
         # Drop dead columns so next sync doesn't emit `SELECT … missing_col`.
-        available_names = extract_available_column_names(schema_metadata)
-        pruned = prune_enabled_columns(matched.enabled_columns, available_names)
-        if pruned.removed:
+        removed_columns = persist_schema_metadata(
+            matched, schema_metadata=schema_metadata, detected_primary_keys=source_schema.detected_primary_keys
+        )
+        if removed_columns:
             log.info(
                 "redshift.reconcile_schemas.pruned_enabled_columns",
                 source_id=str(source.id),
                 schema_id=str(matched.id),
                 schema_name=matched.name,
-                removed_columns=pruned.removed,
+                removed_columns=removed_columns,
             )
-            matched.enabled_columns = pruned.kept
-            update_fields.append("enabled_columns")
-        matched.save(update_fields=update_fields)
 
         if not is_direct:
             # Warehouse mode: the ingestion workflow manages `DataWarehouseTable` itself.

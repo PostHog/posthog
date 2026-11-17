@@ -2037,6 +2037,53 @@ def update_sync_type_config_keys(
         return config
 
 
+def persist_schema_metadata(
+    schema: "ExternalDataSchema",
+    *,
+    schema_metadata: dict[str, Any],
+    detected_primary_keys: list[str] | None = None,
+) -> list[str]:
+    """Store discovered `schema_metadata` on a schema row, plus `detected_primary_keys` when the row
+    has no primary key yet, and drop `enabled_columns` the source no longer has. Returns the dropped
+    column names and refreshes `schema` in place.
+
+    Only these keys are merged, under the row lock, because syncs write other `sync_type_config`
+    keys (CDC positions, watermarks) at the same time. Scheduled discovery calls this for every
+    table of a source, so a row whose stored values already match is not written.
+    """
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (  # noqa: PLC0415
+        extract_available_column_names,
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (  # noqa: PLC0415
+        prune_enabled_columns,
+    )
+
+    available_names = extract_available_column_names(schema_metadata)
+    stored = schema.sync_type_config if isinstance(schema.sync_type_config, dict) else {}
+    if (
+        stored.get("schema_metadata") == schema_metadata
+        and (not detected_primary_keys or stored.get("primary_key_columns"))
+        and not prune_enabled_columns(schema.enabled_columns, available_names).removed
+    ):
+        return []
+
+    def _merge(config: dict[str, Any]) -> None:
+        config["schema_metadata"] = schema_metadata
+        # Never replace a stored key, such as an explicit override chosen at source creation.
+        if detected_primary_keys and not config.get("primary_key_columns"):
+            config["primary_key_columns"] = detected_primary_keys
+
+    with transaction.atomic():
+        locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
+        pruned = prune_enabled_columns(locked.enabled_columns, available_names)
+        if pruned.removed:
+            locked.enabled_columns = pruned.kept
+            locked.save(update_fields=["enabled_columns", "updated_at"])
+        schema.sync_type_config = update_sync_type_config_keys(schema.id, schema.team_id, mutate=_merge)
+    schema.enabled_columns = locked.enabled_columns
+    return pruned.removed
+
+
 def save_repartition_checkpoint_if_claimed(
     schema: ExternalDataSchema, *, claim_token: str, checkpoint: dict[str, Any]
 ) -> bool:
