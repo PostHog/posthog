@@ -1,6 +1,7 @@
 from typing import Any, cast
 
-from django.http import HttpResponse
+from django.core.signals import got_request_exception
+from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase
 
 from django_structlog.middlewares import RequestMiddleware
@@ -9,9 +10,27 @@ from parameterized import parameterized
 from posthog.request_log_signal_handlers import redact_credential_query_params
 
 
+def _ok_view(request: HttpRequest) -> HttpResponse:
+    return HttpResponse()
+
+
+def _failing_view(request: HttpRequest) -> HttpResponse:
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        got_request_exception.send(sender=None, request=request)
+    return HttpResponse(status=500)
+
+
 class TestRequestLogSignalHandlers(SimpleTestCase):
-    def test_request_logging_redacts_api_key_query_param(self) -> None:
-        middleware = RequestMiddleware(lambda request: HttpResponse())
+    @parameterized.expand(
+        [
+            ("finished", _ok_view, "request_finished"),
+            ("failed", _failing_view, "request_failed"),
+        ]
+    )
+    def test_request_logging_redacts_api_key_query_param(self, _name: str, view: Any, final_event: str) -> None:
+        middleware = RequestMiddleware(view)
         request = RequestFactory().get("/api/projects/", {"personal_api_key": "phx_testvalue", "limit": "10"})
 
         with self.assertLogs("django_structlog.middlewares.request", level="INFO") as logs:
@@ -20,7 +39,7 @@ class TestRequestLogSignalHandlers(SimpleTestCase):
         event_dicts = [cast(dict[str, Any], record.msg) for record in logs.records]
         assert [(event_dict["event"], event_dict["request"]) for event_dict in event_dicts] == [
             ("request_started", "GET /api/projects/?personal_api_key=<redacted>&limit=10"),
-            ("request_finished", "GET /api/projects/?personal_api_key=<redacted>&limit=10"),
+            (final_event, "GET /api/projects/?personal_api_key=<redacted>&limit=10"),
         ]
 
     @parameterized.expand(

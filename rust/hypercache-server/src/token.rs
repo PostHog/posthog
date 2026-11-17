@@ -131,5 +131,7 @@ mod tests {
         assert_eq!(loggable_token("phx_abcdefghijklmnop"), "phx_…mnop");
         assert_eq!(loggable_token("legacy-token-value"), "lega…alue");
         assert_eq!(loggable_token("short"), "***");
+        assert_eq!(loggable_token("12345678"), "***");
+        assert_eq!(loggable_token("123456789"), "1234…6789");
     }
 }
