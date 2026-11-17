@@ -1,6 +1,6 @@
 """Reads for the review stage: a team's busiest call types, then a spread of calls from the ones triage picked."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -63,19 +63,20 @@ ORDER BY calls DESC, call_type
 LIMIT {{limit}}
 """
 
-# Per snippet, the sampled generations whose input holds it and how many of them are of one call type. ILIKE
-# matches the case-insensitive contains an evaluation condition runs.
+# Per call type and snippet, the sampled generations whose input holds the snippet and how many of them are of the
+# call type. ILIKE matches the case-insensitive contains an evaluation condition runs.
 _SNIPPET_MATCHES_SQL = f"""
 SELECT
+    name,
     pattern,
     countIf(input ILIKE pattern) AS matched,
-    countIf(source = 'input' AND call_type = {{name}} AND input ILIKE pattern) AS in_call_type
+    countIf(source = 'input' AND call_type = name AND input ILIKE pattern) AS in_call_type
 FROM (
     SELECT {_CALL_TYPE_COLUMNS}, input
     {_GENERATIONS}
 )
-ARRAY JOIN {{patterns}} AS pattern
-GROUP BY pattern
+ARRAY JOIN {{names}} AS name, {{patterns}} AS pattern
+GROUP BY name, pattern
 """
 
 # Candidates are chosen by a hash of their uuid, which spreads each call type's candidates over the day. The
@@ -222,22 +223,27 @@ def load_call_types(team: Team, window: ProfileWindow, per_mille: int) -> list[C
 
 
 def snippet_matches(
-    team: Team, window: ProfileWindow, per_mille: int, call_type: CallTypeRow, snippets: Sequence[str]
-) -> list[SnippetMatches]:
-    """Counts each snippet's matches in a `per_mille` hash sample."""
-    patterns = [f"%{snippet}%" for snippet in snippets]
+    team: Team, window: ProfileWindow, per_mille: int, snippets: Mapping[str, Sequence[str]]
+) -> dict[str, list[SnippetMatches]]:
+    """Counts the matches of each input-named call type's snippets, keyed by call type name, in one scan of a
+    `per_mille` hash sample."""
+    pairs = [(name, f"%{snippet}%") for name, candidates in snippets.items() for snippet in candidates]
     rows = run_ai_events_query(
         team,
         _SNIPPET_MATCHES_SQL,
         {
             **_placeholders(window, per_mille),
-            "name": ast.Constant(value=call_type.name),
-            "patterns": ast.Constant(value=patterns),
+            "names": ast.Constant(value=[name for name, _ in pairs]),
+            "patterns": ast.Constant(value=[pattern for _, pattern in pairs]),
         },
         "EvalSuggestionsSnippetMatches",
     )
-    found = {str(row[0]): SnippetMatches(matched=int(row[1]), in_call_type=int(row[2])) for row in rows}
-    return [found.get(pattern, SnippetMatches(matched=0, in_call_type=0)) for pattern in patterns]
+    found = {(str(row[0]), str(row[1])): SnippetMatches(matched=int(row[2]), in_call_type=int(row[3])) for row in rows}
+    none = SnippetMatches(matched=0, in_call_type=0)
+    return {
+        name: [found.get((name, f"%{snippet}%"), none) for snippet in candidates]
+        for name, candidates in snippets.items()
+    }
 
 
 def load_review_calls(

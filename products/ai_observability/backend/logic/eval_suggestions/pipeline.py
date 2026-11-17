@@ -50,6 +50,7 @@ from .config import SuggestionSettings, runs_for_organization
 from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
 from .measure import discover_sample, hydrate_sample, measure, structured_outputs
 from .profile import TeamProfile, fetch_profile, find_structured_gaps, gap_holds, sample_per_mille
+from .queries import MAX_EXECUTION_TIME_SECONDS
 from .ranking import Proposal
 from .runs import Handoff
 
@@ -264,7 +265,7 @@ def _reviewed_proposals(
     cards = call_review.parse_cards(review_call.answer, rendering)
     spent += review_call.cost_usd
     calibrated = _calibrate(team, run, cards, rendering, judge_model, budget, deadline)
-    snippets = _prompt_snippets(team, day, per_mille, call_types, [card for card, _ in calibrated.kept])
+    snippets = _prompt_snippets(team, day, per_mille, call_types, [card for card, _ in calibrated.kept], deadline)
     proposals = [
         ranking.review_proposal(
             judge_calibration.measured(card, calibration),
@@ -297,18 +298,22 @@ def _prompt_snippets(
     per_mille: int,
     call_types: Sequence[CallTypeRow],
     cards: Sequence[call_review.ReviewCard],
+    deadline: float | None,
 ) -> dict[str, str]:
     """The snippet that selects each input-named call type on the cards, keyed by call type. Each candidate is
-    counted on the day's generations, and a call type whose candidates all match other generations gets none."""
-    chosen: dict[str, str] = {}
-    for call_type in {c.key: c for card in cards for c in card.call_types if c.source == "input"}.values():
-        candidates = ranking.prompt_snippets(call_type, [c for c in call_types if c.key != call_type.key])
-        if not candidates:
-            continue
-        snippet = ranking.choose_snippet(candidates, snippet_matches(team, window, per_mille, call_type, candidates))
-        if snippet is not None:
-            chosen[call_type.key] = snippet
-    return chosen
+    counted on the day's generations, and a call type whose candidates all match other generations gets none.
+    Without time left for the count, no call type gets one, and the run leaves their cards out."""
+    unnamed = {c.name: c for card in cards for c in card.call_types if c.source == "input"}
+    candidates = {
+        name: ranking.prompt_snippets(call_type, [c for c in call_types if c.key != call_type.key])
+        for name, call_type in unnamed.items()
+    }
+    candidates = {name: texts for name, texts in candidates.items() if texts}
+    if not candidates or _time_left(deadline) < MAX_EXECUTION_TIME_SECONDS:
+        return {}
+    matches = snippet_matches(team, window, per_mille, candidates)
+    chosen = {unnamed[name].key: ranking.choose_snippet(texts, matches[name]) for name, texts in candidates.items()}
+    return {key: snippet for key, snippet in chosen.items() if snippet is not None}
 
 
 def _publish_fixes_only(

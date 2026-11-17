@@ -209,6 +209,8 @@ EARLIER = [
     call_review.EarlierCard(
         dedupe_key="review:prompt_name:onboarding:tone", status="expired", title="Tone", checks="Tone"
     ),
+    # A variant whose prompt name starts with the support call type's.
+    call_review.EarlierCard(dedupe_key=f"review:{SUPPORT.key}:v2:tone", status="dismissed", title="V2", checks="Tone"),
 ]
 
 

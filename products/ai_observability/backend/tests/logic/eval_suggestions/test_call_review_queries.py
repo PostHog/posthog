@@ -72,12 +72,22 @@ class TestCallReviewQueries(ClickhouseTestMixin, BaseTest):
         window = ProfileWindow(start=end - timedelta(days=1), end=end)
         call_types = call_review_queries.load_call_types(self.team, window, 1000)
         [summarizer_type] = [c for c in call_types if c.calls == 3]
+        [reviewer_type] = [c for c in call_types if c.calls == 2]
 
         matches = call_review_queries.snippet_matches(
-            self.team, window, 1000, summarizer_type, ["summarize one trace", "You review summaries", "absent text"]
+            self.team,
+            window,
+            1000,
+            {
+                summarizer_type.name: ["summarize one trace", "You review summaries", "absent text"],
+                reviewer_type.name: ["summarize one trace", "You review summaries"],
+            },
         )
 
-        assert [(m.matched, m.in_call_type) for m in matches] == [(5, 3), (2, 0), (0, 0)]
+        assert {name: [(m.matched, m.in_call_type) for m in found] for name, found in matches.items()} == {
+            summarizer_type.name: [(5, 3), (2, 0), (0, 0)],
+            reviewer_type.name: [(5, 2), (2, 2)],
+        }
 
 
 def test_the_calls_query_runs_its_candidate_subquery_once_across_shards() -> None:

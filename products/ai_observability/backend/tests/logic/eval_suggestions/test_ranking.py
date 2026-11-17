@@ -518,6 +518,37 @@ def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
     assert proposal.score > 0
 
 
+PAYMENTS_RULES = (
+    "You review pull requests for the payments service and list every risk you find, ordered by how much money "
+    "each one could lose for the team"
+)
+
+
+@parameterized.expand(
+    [
+        # Before stripping, the run of spaces is the longest text.
+        (
+            "blank_run_before_the_instructions",
+            "Answer in one line." + " " * 200 + "\nYou write the release notes for a mobile app",
+            "You translate the reply",
+            "You write the release notes for a mobile app",
+        ),
+        (
+            "other_prompt_shares_the_start_of_the_run",
+            f"{PAYMENTS_RULES}, then you sign off as the payments reviewer",
+            f"{PAYMENTS_RULES}, then you sign off as the search reviewer",
+            f"{PAYMENTS_RULES}, then you sign off as the payments reviewer"[-ranking.MAX_SNIPPET_CHARS :].strip(),
+        ),
+    ]
+)
+def test_a_prompt_offers_text_that_no_other_call_type_holds(_name: str, system: str, other: str, first: str) -> None:
+    call_type = _call_type("input", "1", messages=_messages(system))
+
+    snippets = ranking.prompt_snippets(call_type, [_call_type("input", "2", messages=_messages(other))])
+
+    assert snippets[:1] == [first]
+
+
 @parameterized.expand(
     [
         ("first_selects_its_call_type", [(10, 10), (4, 4)], "first"),

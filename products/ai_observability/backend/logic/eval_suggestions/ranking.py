@@ -509,12 +509,16 @@ def prompt_snippets(call_type: CallTypeRow, others: Sequence[CallTypeRow]) -> li
     # input does not hold.
     shared = _JSON_ESCAPE.sub("\0", call_type.example_input[:CALL_TYPE_INPUT_CHARS])
     snippets: list[str] = []
-    for run in sorted(_PLAIN_TEXT.findall(shared), key=len, reverse=True):
-        snippet = run.strip()[:MAX_SNIPPET_CHARS].strip()
-        if len(snippet) < MIN_SNIPPET_CHARS or len(snippets) == SNIPPET_CANDIDATES:
+    for run in sorted((run.strip() for run in _PLAIN_TEXT.findall(shared)), key=len, reverse=True):
+        if len(run) < MIN_SNIPPET_CHARS:
             break
-        if snippet not in snippets and not any(snippet.lower() in text for text in elsewhere):
-            snippets.append(snippet)
+        # Two prompts can open a long run with the same text, so its end is a candidate too.
+        for snippet in (run[:MAX_SNIPPET_CHARS].strip(), run[-MAX_SNIPPET_CHARS:].strip()):
+            if len(snippets) == SNIPPET_CANDIDATES:
+                return snippets
+            unique = not any(snippet.lower() in text for text in elsewhere)
+            if len(snippet) >= MIN_SNIPPET_CHARS and snippet not in snippets and unique:
+                snippets.append(snippet)
     return snippets
 
 

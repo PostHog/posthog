@@ -604,8 +604,11 @@ class TestRunRecords(BaseTest):
 
         first = create_run(self.team, "scheduled")
         publish(first, [reviewed("review:a", "dates"), reviewed("review:b", "tone"), CHECK], {})
+        # Suggested before the memory window, and dismissed within it.
         EvalSuggestion.objects.for_team(self.team.pk).filter(dedupe_key="review:b").update(
-            status=EvalSuggestionStatus.DISMISSED, decided_at=timezone.now()
+            status=EvalSuggestionStatus.DISMISSED,
+            decided_at=timezone.now(),
+            created_at=timezone.now() - timedelta(days=100),
         )
         publish(create_run(self.team, "scheduled"), [reviewed("review:a", "refund dates")], {})
 

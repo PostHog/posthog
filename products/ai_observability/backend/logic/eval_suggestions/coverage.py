@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -474,10 +475,12 @@ def dismissed_dedupe_keys(team: Team) -> frozenset[str]:
 
 
 def earlier_review_cards(team: Team) -> list[EarlierCard]:
-    """The latest card of each check the call review suggested within DISMISSAL_MEMORY, newest first."""
+    """The latest card of each check the call review suggested or the team decided on within DISMISSAL_MEMORY,
+    newest first. A dismissal counts from its decision, as in dismissed_dedupe_keys."""
+    since = timezone.now() - DISMISSAL_MEMORY
     rows = (
         EvalSuggestion.objects.for_team(team.pk)
-        .filter(template_key=REVIEW_TEMPLATE_KEY, created_at__gte=timezone.now() - DISMISSAL_MEMORY)
+        .filter(Q(created_at__gte=since) | Q(decided_at__gte=since), template_key=REVIEW_TEMPLATE_KEY)
         .order_by("dedupe_key", "-created_at")
         .distinct("dedupe_key")
         .values_list("dedupe_key", "status", "draft", "created_at")

@@ -472,8 +472,12 @@ def _system_section(system: str) -> str:
 
 
 def _covers(dedupe_key: str, call_type: CallTypeRow) -> bool:
-    """Whether a review card's dedupe key lists the call type, as review_dedupe_key writes it."""
-    return re.search(rf"[:,]{re.escape(call_type.key)}[,:]", dedupe_key) is not None
+    """Whether a review card's dedupe key lists the call type. review_dedupe_key writes `review:`, the call type keys
+    joined by commas, then a colon and the check's words, which hold no colon."""
+    if not dedupe_key.startswith(f"{REVIEW_TEMPLATE_KEY}:") or ":" not in dedupe_key[len(REVIEW_TEMPLATE_KEY) + 1 :]:
+        return False
+    listed = f",{dedupe_key[len(REVIEW_TEMPLATE_KEY) + 1 : dedupe_key.rindex(':')]},"
+    return f",{call_type.key}," in listed
 
 
 def _earlier_cards(
