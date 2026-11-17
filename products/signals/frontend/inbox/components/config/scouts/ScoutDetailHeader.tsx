@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconArrowLeft, IconExternal, IconRefresh, IconUpload } from '@posthog/icons'
+import { IconArrowLeft, IconExternal, IconRefresh, IconStopFilled, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
@@ -21,7 +21,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutPausedByLine } from '../../../utils/scoutGroups'
-import { scoutDisplayName, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import { liveLaneRun, scoutDisplayName, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutExemptionBadge } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutHealthStrip } from './ScoutHealthStrip'
@@ -154,16 +154,24 @@ export function ScoutDetailHeader({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { updatingScoutIds, manualRunScoutIds, publishingScoutIds, runNotePopoverConfigId } =
+    const { updatingScoutIds, manualRunScoutIds, publishingScoutIds, runNotePopoverConfigId, stoppingScoutRuns } =
         useValues(scoutFleetLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const { currentProjectId } = useValues(teamLogic)
-    const { updateScoutConfig, runScoutNow, publishScoutToCommunity, setRunNotePopoverConfigId } =
+    const { updateScoutConfig, runScoutNow, stopScoutRun, publishScoutToCommunity, setRunNotePopoverConfigId } =
         useActions(scoutFleetLogic)
 
     const updating = updatingScoutIds.includes(config.id)
     const running = manualRunScoutIds.includes(config.id)
+    const stopping = config.id in stoppingScoutRuns
+    const liveRun = liveLaneRun(rollup?.runs ?? [], new Date())
+    // The backend refuses a second run while one holds the lane, so say why before the click.
+    const laneBusyReason = stopping
+        ? 'Wait for the run to stop'
+        : liveRun
+          ? 'A run is in progress. Stop it to start a new one.'
+          : null
     const publishing = publishingScoutIds.includes(config.id)
     const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
     const isOwner = !!user && (config.owners ?? []).some((owner) => owner.uuid === user.uuid)
@@ -206,12 +214,27 @@ export function ScoutDetailHeader({
                 <ScoutOwners config={config} />
                 <span className="flex-1" />
                 <LeaveScoutNoteButton skillName={config.skill_name} />
+                {(liveRun || stopping) && (
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        size="small"
+                        icon={<IconStopFilled />}
+                        loading={stopping}
+                        disabledReason={stopping ? 'Stopping the run' : undefined}
+                        tooltip="Cancel the run in progress. Its sandbox shuts down, and the scout can run again."
+                        data-attr="scout-stop-run"
+                        onClick={() => stopScoutRun(config.id)}
+                    >
+                        {stopping ? 'Stopping…' : 'Stop run'}
+                    </LemonButton>
+                )}
                 <LemonButton
                     type="secondary"
                     size="small"
                     icon={<IconRefresh />}
                     loading={running}
-                    disabledReason={running ? 'Starting a run' : undefined}
+                    disabledReason={running ? 'Starting a run' : laneBusyReason}
                     tooltip="Dispatch a run now, outside the schedule. Counts against the project's daily run budget."
                     onClick={() => runScoutNow(config.id)}
                     sideAction={{
@@ -221,10 +244,12 @@ export function ScoutDetailHeader({
                         // A run note reaches the agent verbatim, so the backend asks for the same
                         // skill editor access as a scout note.
                         disabledReason:
+                            laneBusyReason ??
                             getAccessControlDisabledReason(
                                 AccessControlResourceType.LlmSkill,
                                 AccessControlLevel.Editor
-                            ) ?? undefined,
+                            ) ??
+                            undefined,
                         dropdown: {
                             placement: 'bottom-end',
                             closeOnClickInside: false,

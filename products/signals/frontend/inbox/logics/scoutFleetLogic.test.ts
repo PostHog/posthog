@@ -17,6 +17,7 @@ import {
     signalsScoutChatTasksCreate,
     signalsScoutConfigList,
     signalsScoutConfigRun,
+    signalsScoutConfigStop,
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsRecentPerScout,
@@ -34,6 +35,7 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigDestroy: jest.fn(),
     signalsScoutConfigList: jest.fn(),
     signalsScoutConfigRun: jest.fn(),
+    signalsScoutConfigStop: jest.fn(),
     signalsScoutConfigSync: jest.fn(),
     signalsScoutConfigUpdate: jest.fn(),
     signalsScoutRunsFindingsSummary: jest.fn(),
@@ -50,6 +52,7 @@ const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.Mock
 >
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
 const mockSignalsScoutConfigRun = signalsScoutConfigRun as jest.MockedFunction<typeof signalsScoutConfigRun>
+const mockSignalsScoutConfigStop = signalsScoutConfigStop as jest.MockedFunction<typeof signalsScoutConfigStop>
 const mockSignalsScoutConfigSync = signalsScoutConfigSync as jest.MockedFunction<typeof signalsScoutConfigSync>
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
@@ -156,6 +159,7 @@ describe('scoutFleetLogic', () => {
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigRun.mockReset()
+        mockSignalsScoutConfigStop.mockReset()
         mockSignalsScoutConfigSync.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
         mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
@@ -172,6 +176,7 @@ describe('scoutFleetLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.useRealTimers()
     })
 
     it.each([false, true])('keeps the first-report scout out of the normal UI unless staff=%s', async (isStaff) => {
@@ -318,6 +323,37 @@ describe('scoutFleetLogic', () => {
             .mock.calls.filter(([, properties]) => properties?.action_type === 'run_now')
         expect(runNowEvents.map(([, properties]) => properties?.has_note)).toEqual(capturedHasNote)
         expect(JSON.stringify(runNowEvents)).not.toContain('checkout')
+    })
+
+    it('keeps a stopped run in the stopping state until a poll sees it finish', async () => {
+        jest.useFakeTimers()
+        const live = makeRun({ status: 'in_progress', completed_at: null })
+        mockSignalsScoutConfigStop.mockResolvedValue(live as any)
+        mockSignalsScoutRunsRecentPerScout.mockResolvedValue([live])
+
+        logic.actions.stopScoutRun(BASE_CONFIG.id)
+        await expectLogic(logic).toDispatchActions(['stopScoutRunAccepted', 'loadScoutRunsForSkillSuccess'])
+        expect(logic.values.stoppingScoutRuns).toEqual({ [BASE_CONFIG.id]: live.run_id })
+
+        mockSignalsScoutRunsRecentPerScout.mockResolvedValue([{ ...live, status: 'cancelled' }])
+        jest.advanceTimersByTime(5_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.stoppingScoutRuns).toEqual({})
+    })
+
+    it.each([
+        ['a run cancelled before it started', () => Promise.resolve(makeRun({ status: 'cancelled' }) as any)],
+        ['a run that already finished', () => Promise.resolve(makeRun() as any)],
+        ['no run in progress', () => Promise.reject({ status: 404 })],
+        ['an unreachable workflow', () => Promise.reject({ status: 503, detail: 'Try again.' })],
+    ])('leaves the stopping state at once for %s', async (_name, respond) => {
+        mockSignalsScoutConfigStop.mockImplementation(respond)
+
+        logic.actions.stopScoutRun(BASE_CONFIG.id)
+        expect(logic.values.stoppingScoutRuns).toEqual({ [BASE_CONFIG.id]: null })
+        await expectLogic(logic).toDispatchActions(['stopScoutRunFinished'])
+
+        expect(logic.values.stoppingScoutRuns).toEqual({})
     })
 
     // The roster is the only consumer of the tag filter, so assert through the rows it renders.
