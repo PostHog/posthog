@@ -3,8 +3,7 @@ import { View, type ViewInstance } from 'react-native'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import { BackChip } from './BackChip'
-import { BlurEdge } from './BlurEdge'
-import { FadeEdge } from './FadeEdge'
+import { HeaderBackdrop } from './HeaderBackdrop'
 import { NativeScreenChrome } from './NativeScreenChrome'
 import { screenLayout } from './screenLayout'
 import { scrollTitleOpacity } from './scrollTitleOpacity'
@@ -48,14 +47,12 @@ function CustomScreenChrome({
     const [rightWidth, setRightWidth] = useState(0)
     const top = topOffset(insets, screenLayout.top)
     const sideInset = layout.detailGutter + Math.max(leftWidth, rightWidth) + 8
-    const solid = (top + screenLayout.rowHeight) / (top + screenLayout.rowHeight + screenLayout.bottomPadding)
     const titleStyle = useAnimatedStyle(() => ({
         opacity: title ? scrollTitleOpacity(title.scrollY.value, title.revealEnd) : 0,
     }))
     return (
         <View style={[styles.chrome, { paddingTop: top }]}>
-            <BlurEdge solid={solid} blurTarget={blurTarget} />
-            <FadeEdge direction="down" solid={solid} opacity={layout.chromeTint} />
+            <HeaderBackdrop fadeStart={top + screenLayout.rowHeight} blurTarget={blurTarget} />
             <View onLayout={(event) => setLeftWidth(event.nativeEvent.layout.width)}>
                 {nativeRail ? null : <BackChip onPress={onBack} testID={backTestID} />}
             </View>

@@ -4,8 +4,7 @@ import { View, type ViewInstance } from 'react-native'
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import { BackChip } from '@/ui/BackChip'
-import { BlurEdge } from '@/ui/BlurEdge'
-import { FadeEdge } from '@/ui/FadeEdge'
+import { HeaderBackdrop } from '@/ui/HeaderBackdrop'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
 import { PillControl } from '@/ui/PillControl'
@@ -80,8 +79,7 @@ export function ChatHeader({
             ]}
             testID="chat-header"
         >
-            <BlurEdge solid={0.7} blurTarget={blurTarget} />
-            <FadeEdge direction="down" solid={0.7} opacity={layout.chromeTint} />
+            <HeaderBackdrop fadeStart={insets.top + HEADER_TOP + ROW_HEIGHT} blurTarget={blurTarget} />
             {nativeRail ? (
                 <NativeChatChrome
                     onBack={onBack}
