@@ -1,0 +1,19 @@
+[dependencies]
+# ruleid: posthog-sdk-major-pin-rust
+posthog-rs = "*"
+# ruleid: posthog-sdk-major-pin-rust
+posthog-rs = ">=0.30"
+# ruleid: posthog-sdk-major-pin-rust
+posthog-rs = { version = "*", features = ["async-client"] }
+# ruleid: posthog-sdk-major-pin-rust
+posthog-rs = { git = "https://github.com/PostHog/posthog-rs" }
+# ok: posthog-sdk-major-pin-rust
+posthog-rs = { version = "0.33.1", features = ["async-client", "capture-v1"] }
+# ok: posthog-sdk-major-pin-rust
+posthog-rs = { version = "=0.30.0", default-features = false }
+# ok: posthog-sdk-major-pin-rust
+posthog-rs = { workspace = true }
+# ok: posthog-sdk-major-pin-rust
+posthog-rs = { git = "https://github.com/PostHog/posthog-rs", rev = "abc123" }
+# ok: posthog-sdk-major-pin-rust
+posthog-symbol-data = "*"
