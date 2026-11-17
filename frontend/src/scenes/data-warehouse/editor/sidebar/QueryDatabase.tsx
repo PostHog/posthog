@@ -75,7 +75,7 @@ import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 import { LineageTarget, SeeLineageMenuItem } from './SeeLineageMenuItem'
 import { TreeRowOverflowText } from './TreeRowOverflowText'
-import { getMaterializedViewTooltip, getTableKindLabel } from './viewKind'
+import { getTableKindLabel } from './viewKind'
 
 export function getSidebarAddJoinSourceTableName(
     recordType: string | undefined,
@@ -1390,7 +1390,8 @@ export const QueryDatabase = ({
                         !!item.children?.length &&
                         !expandedItemIds.includes(item.id)
                     if (item.record?.type === 'view' && item.record.isSavedQuery && item.record.view?.is_materialized) {
-                        return getMaterializedViewTooltip(item.record.view.sync_frequency)
+                        // The icon carries the kind and the name slides on hover, so there is nothing to add.
+                        return undefined
                     }
                     if (!description && !showExpandHint) {
                         return label

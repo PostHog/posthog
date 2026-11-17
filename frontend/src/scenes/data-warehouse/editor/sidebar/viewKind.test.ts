@@ -1,4 +1,4 @@
-import { getMaterializedViewTooltip, getTableKindLabel } from './viewKind'
+import { getTableKindLabel } from './viewKind'
 
 describe('viewKind', () => {
     describe('getTableKindLabel', () => {
@@ -25,17 +25,6 @@ describe('viewKind', () => {
             ['a row with no record has no badge', undefined, null],
         ])('%s', (_name, record, expected) => {
             expect(getTableKindLabel(record)).toEqual(expected)
-        })
-    })
-
-    describe('getMaterializedViewTooltip', () => {
-        test.each([
-            ['names a known cadence', '6hour', 'Materialized view - set to refresh every 6 hours'],
-            ['names a daily cadence', '24hour', 'Materialized view - set to refresh every 1 day'],
-            ['names only the kind when the view never refreshes', 'never', 'Materialized view'],
-            ['names only the kind when the view has no frequency', undefined, 'Materialized view'],
-        ])('%s', (_name, syncFrequency, expected) => {
-            expect(getMaterializedViewTooltip(syncFrequency)).toEqual(expected)
         })
     })
 })
