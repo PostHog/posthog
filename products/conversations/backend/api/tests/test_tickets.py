@@ -52,6 +52,7 @@ from products.conversations.backend.api.tickets import (
     MAX_TAGS_ADDED_PER_UPDATE,
     ComposeTicketSerializer,
     TicketReplyRequestSerializer,
+    TicketUpdateRequestSerializer,
     TicketViewSet,
 )
 from products.conversations.backend.models import (

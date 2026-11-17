@@ -16,7 +16,6 @@ TIERED_CLARIFY_PATCH = "tiered-clarify-2026-09"
 # that has no clarifying question to findings.
 GROUNDING_AWARE_GATE_PATCH = "grounding-aware-gate-2026-11"
 MAX_THREAT_TYPE_CHARS = 100
-
 # Histories without this marker never ran the brief activity, so replay must not add it.
 WRITE_BRIEF_PATCH = "write-ticket-brief-2026-10"
 MAX_CLARIFICATION_ROUNDS = 1
