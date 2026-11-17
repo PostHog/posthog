@@ -333,6 +333,8 @@ class ReviewMeta:
     # Recorded here, so a replay fans out over the same lens parts. Older histories decode as no lens sessions.
     lens_chunk_count: int = 0
     devex_lens: bool = False
+    # The PR changes a file the devex team owns, whether the flag gave the turn the lens or not.
+    devex_lens_routed: bool = False
     # True when the PR passed the lens part cap, so the status comment or the Standard review says it ran in larger parts.
     lens_chunks_capped: bool = False
     # A single-agent turn that runs its sessions as sub-agents of one coordinator session. Recorded here
@@ -615,7 +617,10 @@ class AppendCodeReviewArtefactInput:
 
 @frozen
 class FlashSessionStats:
-    """How a single-agent turn's sandbox sessions went, as the workflow saw them."""
+    """How a single-agent turn's sandbox sessions went, as the workflow saw them.
+
+    The devex lens session counts only in the `devex_*` fields, so the others compare routed and unrouted turns.
+    """
 
     # Lens sessions that failed for another reason than their timeout, and the ones that timed out.
     lens_failures: int
@@ -626,6 +631,10 @@ class FlashSessionStats:
     coordinator: bool = False
     # Sessions whose agent failed on another arm than the control arm and that ran again on the control arm.
     arm_fallbacks: int = 0
+    # None on a turn without the devex lens.
+    devex_failed: bool | None = None
+    devex_timed_out: bool | None = None
+    devex_session_seconds: float | None = None
 
 
 @frozen
@@ -696,6 +705,8 @@ class TrackReviewStartedInput:
     arm_set: str = CONTROL_ARM_SET
     zero_change_skip_arm: bool = False
     delta_band_arm: bool = False
+    devex_lens_routed: bool = False
+    devex_lens_arm: bool = False
 
 
 @frozen
@@ -843,13 +854,19 @@ def _devex_lens_files(repository: str, pr_files: list[PRFile], *, token: str, in
 
     The rules come from the default branch, so a pull request that edits an `owners.yaml` does not change the answer.
     A renamed file is matched at its new path only, so a rename out of a devex-owned path leaves the lens.
-    Empty when the repository declares no ownership or its files could not be read.
+    Empty when the repository declares no ownership or its files could not be read or parsed.
     """
     paths = [pr_file.filename for pr_file in pr_files]
     files = AuthenticatedRepoFiles(
         repository, GitHubFilesFetcher.from_token(token, installation_id=installation_id, priority=Priority.BATCH)
     )
-    ownership = resolve_path_owners(repository, paths, files=files)
+    try:
+        ownership = resolve_path_owners(repository, paths, files=files)
+    except Exception:
+        # The fetch runs this on every Standard turn, and the lens is optional. An `owners.yaml` on the default
+        # branch that does not parse must cost the turn its devex lens, not the whole review.
+        logger.exception("Could not resolve path ownership in %s; the turn runs without the devex lens", repository)
+        return []
     return [path for path in paths if ownership.team_by_path[path] == DEVEX_OWNER_TEAM]
 
 
@@ -978,12 +995,15 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     coordinator = single_agent and pr_number is not None and standard_coordinator_on(input.repository, pr_number)
     separate_sessions = single_agent and not coordinator
     # The coordinator has no sub-agent slot for it, so a coordinated PR runs without the devex lens.
-    devex_lens_files = (
+    # The route is resolved with the flag off too, so a turn the flag kept from the lens is a matched control.
+    devex_owned_files = (
         _devex_lens_files(input.repository, fetched.pr_files, token=token, installation_id=installation_id)
-        if not turn_skipped
-        and separate_sessions
-        and pr_number is not None
-        and devex_lens_on(input.repository, pr_number)
+        if not turn_skipped and separate_sessions and pr_number is not None
+        else []
+    )
+    devex_lens_files = (
+        devex_owned_files
+        if devex_owned_files and pr_number is not None and devex_lens_on(input.repository, pr_number)
         else []
     )
     persist_pr_snapshot(
@@ -1023,6 +1043,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
         coordinator=coordinator,
         devex_lens=bool(devex_lens_files),
+        devex_lens_routed=bool(devex_owned_files),
         zero_change_skip=pr_number is not None and skips_zero_change_follow_ups(input.repository, pr_number),
         # The delta review only exists for separate sessions, so a coordinated PR stays in the control arm.
         delta_band=separate_sessions
@@ -1633,6 +1654,7 @@ def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_le
         delta_since=input.delta_since_head_sha if change is not None else None,
         changed_since_review=changed_since_review,
         changed_code_only=changed_code_only,
+        whole_pr_files=snapshot.pr_files,
         prior_findings=load_prior_findings(
             team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
         ),
@@ -2465,6 +2487,9 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
                 "flash_slowest_session_seconds": sessions.slowest_session_seconds,
                 "flash_coordinator": sessions.coordinator,
                 "flash_arm_fallbacks": sessions.arm_fallbacks,
+                "flash_devex_failed": sessions.devex_failed,
+                "flash_devex_timed_out": sessions.devex_timed_out,
+                "flash_devex_session_seconds": sessions.devex_session_seconds,
             }
         )
     return properties
@@ -2505,6 +2530,8 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
             "single_agent_arm_set": input.arm_set,
             "zero_change_skip_arm": input.zero_change_skip_arm,
             "delta_band_arm": input.delta_band_arm,
+            "devex_lens_routed": input.devex_lens_routed,
+            "devex_lens_arm": input.devex_lens_arm,
             **_pr_size_properties(snapshot),
             "pr_draft": _pr_draft(snapshot),
         },

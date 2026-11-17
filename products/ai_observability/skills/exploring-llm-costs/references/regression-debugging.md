@@ -3,6 +3,14 @@
 "Our LLM bill jumped — why?" is almost always one of: more calls, bigger
 prompts, a new model, or a change in cache-hit rate. Work through them in order.
 
+## Contents
+
+- [Step 1: Confirm and scope the regression](#step-1--confirm-and-scope-the-regression)
+- [Step 2: Look for a model mix shift](#step-2--look-for-a-model-mix-shift)
+- [Step 3: Look for prompt bloat](#step-3--look-for-prompt-bloat)
+- [Step 4: Look for cache degradation](#step-4--look-for-cache-degradation)
+- [Step 5: Isolate the feature](#step-5--isolate-the-feature)
+
 ## Step 1 — Confirm and scope the regression
 
 ```sql

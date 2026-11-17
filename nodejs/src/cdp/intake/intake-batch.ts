@@ -1,12 +1,13 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 import { retryIfRetriable } from '~/common/utils/retries'
 
 import { HogFlow } from '../schema/hogflow'
 import type { CyclotronV2Manager } from '../services/cyclotron-v2'
+import { SerializedJobState, StateOpener, openSealedState } from '../services/cyclotron-v2/job-codec'
 import { IDEMPOTENCY_KEY_TTL_MS } from '../services/cyclotron-v2/manager'
 import { CyclotronV2IdempotentOutcome } from '../services/cyclotron-v2/types'
 import { CdpDeadLetterService, DeadLetterCircuitBreakerError } from '../services/dead-letter/cdp-dead-letter.service'
@@ -41,6 +42,13 @@ const claimErrorsCounter = new Counter({
     labelNames: ['kind'] as const,
 })
 
+const claimDelayMs = new Histogram({
+    name: 'cdp_intake_claim_delay_ms',
+    help: 'Time from the route producing an async intake run to its first claim committing, by kind.',
+    labelNames: ['kind'] as const,
+    buckets: [50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 300_000],
+})
+
 const breakerTripsCounter = new Counter({
     name: 'cdp_intake_breaker_trips_total',
     help: 'Intake batches failed instead of dead-lettered, because too much of the batch could not parse.',
@@ -55,6 +63,7 @@ export type IntakeBatchServices = {
         'prepareLifecycleRow' | 'queuePreparedRow' | 'handOffQueuedRows'
     >
     emailStatus: Pick<EmailStatusService, 'queue' | 'flush'>
+    stateOpener: StateOpener
 }
 
 export type IntakeBatchOptions = {
@@ -185,12 +194,17 @@ async function claimRuns(runs: IntakeRun[], services: IntakeBatchServices, optio
         options
     )
 
+    const claimedAt = Date.now()
     runs.forEach((run, i) => {
         claimsCounter.labels({ kind: options.kind, outcome: outcomes[i] }).inc()
+        // Only an async run's first insert counts: a shadow copy never waits a caller, and a redelivery is not a new wait.
+        if (!run.message.shadow && outcomes[i] === 'created' && run.producedAt !== undefined) {
+            claimDelayMs.labels({ kind: options.kind }).observe(claimedAt - run.producedAt)
+        }
         if (outcomes[i] === 'created') {
             services.invocationResults.queuePreparedRow(runningRows[i])
             if (run.message.kind === 'transactional-email') {
-                queueSend(run, services.emailStatus)
+                queueSend(run, services)
             }
         } else if (outcomes[i] === 'mismatch') {
             // The run shares its id with the first request of its key, so no row can name it without naming that one.
@@ -227,11 +241,19 @@ function claimWithRetry(
     )
 }
 
-function queueSend({ message }: IntakeRun, emailStatus: IntakeBatchServices['emailStatus']): void {
+function queueSend({ message }: IntakeRun, { emailStatus, stateOpener }: IntakeBatchServices): void {
     const priorityClass = message.job.priority === EMAIL_QUEUE_PRIORITY.bulk ? 'bulk' : 'fast'
     cdpEmailQueuedTotal.labels(priorityClass).inc()
     const state = message.job.state?.state as Partial<HogFlowInvocationContext> | null
-    const recipient = state?.event?.properties?.to
+    // The recipient can be sealed. It is opened in a copy, because the message's own state goes to Postgres as it is.
+    const opened = message.job.state?.sealed
+        ? openSealedState(
+              structuredClone(message.job.state) as SerializedJobState,
+              { id: message.job.id, teamId: message.teamId },
+              stateOpener
+          )
+        : null
+    const recipient = (opened?.state ?? state)?.event?.properties?.to
     emailStatus.queue({
         teamId: message.teamId,
         messageId: message.job.id,

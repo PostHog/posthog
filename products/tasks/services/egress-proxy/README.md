@@ -24,7 +24,8 @@ Run the regional proxy and registry first, using development signing keys and an
 The CA key stays with the controller; the relay key stays in its sidecar.
 The mounted verifier bundle must include the run's signing key.
 
-Pass a JSON configuration file to `python manage.py probe_agent_egress --config /path/to/probe.json`:
+Set `AGENT_EGRESS_PROBE_CONFIG_DIR` to a dedicated directory containing only probe configuration files, writable only by the worker operator. Keep certificate keys outside it.
+Pass a JSON file from that directory to `python manage.py probe_agent_egress --config /path/to/probes/probe.json`:
 
 ```json
 {
@@ -55,6 +56,28 @@ Snapshots and normal agent startup are refused in this profile. Filesystem resto
 
 DNS remains outside this route. The probe does not establish complete containment, production ingress, durable audit delivery or product-workflow compatibility.
 Output contains status counts and sandbox/execution IDs. Proxy audit events still use the stdout contract below.
+
+### Run the probe through Temporal
+
+Start a development Tasks worker, then add `--temporal --task-queue <worker-queue>` to the probe command.
+The worker needs the same configuration directory setting, file and certificate paths. Both command modes reject file access unless development probes are enabled, and reject paths or symlinks outside that directory. Configuration errors omit file contents. Private keys and capabilities never enter workflow history.
+Ctrl+C cancels the workflow and requests cleanup. A rejected probe response fails the run without retrying it.
+
+```text
+Temporal workflow
+  provision VM and relay -> enroll execution
+  renew lease every 10s alongside probe requests
+  on completion, cancellation or failure -> revoke execution -> destroy VM
+```
+
+Both command modes use the same lifecycle and persist an owner, execution, VM and sidecar IDs under `state.agent_egress_probe`.
+Each activity reads that binding again. A restarted worker can renew a live lease; an expired execution needs a fresh VM and key.
+Old cleanup targets its own execution and VM, leaving a replacement alone. An already-deleted VM counts as cleaned up; other cleanup failures remain retryable and do not replace the original workflow failure.
+Revocation records its timestamp, initiating service and reason. Existing registrations have no invented audit history.
+
+Provisioning has no automatic retry: a worker crash before saving the provider IDs can leave an unregistered VM until its TTL expires. Production integration needs resumable provisioning and bounded retention for cancellation markers before reusing this lifecycle.
+Workflow termination skips cleanup, so authority expires with the lease and the VM stops at its TTL.
+The workflow remains development-only and sends synthetic probes. Normal task launches and agent startup are unchanged.
 
 ## Run the processes
 
