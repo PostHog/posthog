@@ -16,17 +16,23 @@ from django.db import router
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 
 from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict, RoutingMode
+from products.stamphog.backend.logic.attestation_checks import PendingCheck, has_reported
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.routing.attestation import read_attestation_proof
 from products.stamphog.backend.logic.routing.service import (
     FULL_ROUTED_HEAD,
     PINNED_ROUTED_HEAD,
+    REQUESTED_OWNERS,
+    SCOPE_ATTESTED,
     SCOPE_FULL,
     SCOPE_PINNED,
     STATUS_DONE,
     STATUS_WAITING,
     TRIGGER_APPROVAL_RETRACTED,
+    TRIGGER_ATTESTATION,
     TRIGGER_EXTERNAL_REVIEW,
     TRIGGER_SAFETY_NET,
     RoutingBusy,
@@ -43,6 +49,7 @@ from products.stamphog.backend.logic.routing.service import (
     save_waiting,
     stored_routing,
     verdict_trigger,
+    waiting_attestation_checks,
 )
 from products.stamphog.backend.models import StamphogRepoConfig
 
@@ -76,6 +83,9 @@ class ReviewPath:
     will_review: WillReview
     # Schedules the safety net for (repo_config, pr_number).
     schedule_safety_net: Callable[[StamphogRepoConfig, int], None]
+    # Schedules poll number `poll` for the attestation checks of (repo_config, pr_number, head_sha, poll). It schedules
+    # nothing past the last poll, and the safety net routes the head after that.
+    schedule_attestation_poll: Callable[[StamphogRepoConfig, int, str, int], None]
     # The latest finished review of (repo_config, pr_number, head_sha), or None.
     finished_review: Callable[[StamphogRepoConfig, int, str], FinishedReview | None]
     # Whether (repo_config, pr_number, head_sha) has a review that is not superseded, finished or not.
@@ -118,9 +128,10 @@ class _Step:
     head_sha: str
     mode: RoutingMode
     trigger: str
-    # FALLBACK only: the head waits for stamphog's verdict instead of routing now.
+    # The head waits instead of routing now: for stamphog's verdict, or for `attestation_checks` when there are any.
     wait: bool = False
     scope: str = SCOPE_FULL
+    attestation_checks: tuple[PendingCheck, ...] = ()
 
 
 def _load_state(repo_config: StamphogRepoConfig, pr_number: int, task_id: str) -> _State:
@@ -172,8 +183,16 @@ def _execute(
         # Scheduled before the record is saved, so a retry after a failed schedule schedules again.
         # A second safety net is harmless: only one task can claim the pull request.
         review_path.schedule_safety_net(state.repo_config, state.pr_number)
+        if step.attestation_checks:
+            review_path.schedule_attestation_poll(state.repo_config, state.pr_number, step.head_sha, 1)
         won = save_waiting(
-            pr_obj, expected=state.stored, previous=state.record, head_sha=step.head_sha, trigger=step.trigger
+            pr_obj,
+            expected=state.stored,
+            previous=state.record,
+            head_sha=step.head_sha,
+            mode=step.mode,
+            trigger=step.trigger,
+            attestation_checks=step.attestation_checks,
         )
         claim = None
     else:
@@ -257,12 +276,17 @@ def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, rev
         # Both modes route once per head, whatever started it. The `opened` task reads the live pull
         # request, so it already routes a draft marked ready before the task ran, and the
         # `ready_for_review` delivery for that head must not request the same owners again. A waiting
-        # record left by FALLBACK requested nobody, so ALWAYS still routes that head.
+        # record requested nobody, so ALWAYS still decides that head.
         if mode == RoutingMode.FALLBACK or record.get("status") != STATUS_WAITING:
             return None
-    if mode == RoutingMode.FALLBACK and record is not None and record.get(FULL_ROUTED_HEAD):
+    if mode == RoutingMode.ALWAYS:
+        # A head that only pinned attestations cover waits for their checks, because a verified proof can leave the
+        # owners unasked. A head that waits for them already, such as one marked ready again, waits anew.
+        checks = read_attestation_proof(client, repo_config.repository, pr, verify=False).checks
+        return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=action, wait=bool(checks), attestation_checks=checks)
+    if record is not None and record.get(FULL_ROUTED_HEAD):
         return None
-    wait = mode == RoutingMode.FALLBACK and review_path.will_review(repo_config, pr, count_silent=True)
+    wait = review_path.will_review(repo_config, pr, count_silent=True)
     if wait:
         # A fast verdict can land before this task stores a record, and the verdict task drops it as a PR that
         # opened before routing was on. So a head that already has a verdict routes by it instead of waiting.
@@ -358,13 +382,17 @@ def route_on_pull_request_event(
     _schedule_net_after_partial_pins(repo_config, pr_number, review_path)
 
 
-def _fallback_repo_config(team_id: int, repo_config_id: str) -> StamphogRepoConfig | None:
-    repo_config = (
+def _repo_config(team_id: int, repo_config_id: str) -> StamphogRepoConfig | None:
+    return (
         StamphogRepoConfig.objects.for_team(team_id)
         .using(router.db_for_write(StamphogRepoConfig))
         .filter(id=repo_config_id)
         .first()
     )
+
+
+def _fallback_repo_config(team_id: int, repo_config_id: str) -> StamphogRepoConfig | None:
+    repo_config = _repo_config(team_id, repo_config_id)
     if repo_config is None or repo_config.routing_mode != RoutingMode.FALLBACK:
         return None
     return repo_config
@@ -466,7 +494,20 @@ def route_after_verdict(
     _schedule_net_after_partial_pins(repo_config, pr_number, review_path)
 
 
+def _attestation_safety_net_step(client: StamphogGitHubClient, state: _State) -> _Step | None:
+    """Route the live head in full when the checks of an ALWAYS head did not end its wait in time."""
+    if not waiting_attestation_checks(state.record):
+        return None
+    pr = _live_head(client, state.repo_config, state.pr_number)
+    if pr is None:
+        return None
+    return _Step(pr=pr, head_sha=_head_sha(pr), mode=RoutingMode.ALWAYS, trigger=TRIGGER_SAFETY_NET)
+
+
 def _safety_net_step(client: StamphogGitHubClient, state: _State, *, review_path: ReviewPath) -> _Step | None:
+    if state.repo_config.routing_mode == RoutingMode.ALWAYS:
+        # ALWAYS routes once per opened or ready head, so only a head that waits for its attestation checks is left.
+        return _attestation_safety_net_step(client, state)
     record = state.record
     if record is not None and record.get(FULL_ROUTED_HEAD):
         return None
@@ -493,18 +534,100 @@ def _safety_net_step(client: StamphogGitHubClient, state: _State, *, review_path
 def route_on_safety_net(
     *, team_id: int, repo_config_id: str, pr_number: int, task_id: str, review_path: ReviewPath
 ) -> None:
-    """Route a FALLBACK pull request in full on its current head, unless it was already routed.
+    """Route a pull request in full on its current head, unless it was already routed.
 
-    ``task_id`` is the Celery task id, which a retry of the same task keeps, so a retry knows its own claim.
+    FALLBACK routes a head that still waits for the verdict, and ALWAYS one that still waits for its attestation
+    checks. ``task_id`` is the Celery task id, which a retry of the same task keeps, so a retry knows its own claim.
     """
-    repo_config = _fallback_repo_config(team_id, repo_config_id)
-    if repo_config is None:
+    repo_config = _repo_config(team_id, repo_config_id)
+    if repo_config is None or repo_config.routing_mode == RoutingMode.OFF:
         return
     client = StamphogGitHubClient(repo_config.installation_id)
     state = _load_state(repo_config, pr_number, task_id)
     if _resume(client, state):
         return
     step = _safety_net_step(client, state, review_path=review_path)
+    _execute(client, state, step, review_path, retry_when_busy=False)
+
+
+def _checks_reported(client: StamphogGitHubClient, repository: str, head_sha: str, checks: list[PendingCheck]) -> bool:
+    """Whether every check reported on the head. A shed or rate-limited read answers False, so the poll tries again."""
+    try:
+        return all(has_reported(client, repository, head_sha, check) for check in checks)
+    except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
+        return False
+
+
+def _keeps_a_reviewer(pr: dict[str, Any], state: _State, *, review_path: ReviewPath) -> bool:
+    """Whether the pull request keeps a reviewer when routing requests nobody.
+
+    A pending review request that no routing of the pull request made counts, such as one that the author's bot
+    made. A stamphog approval that stands over the head counts too.
+    """
+    routed = {owner.casefold() for owner in (state.record or {}).get(REQUESTED_OWNERS) or []}
+    pending = [f"@{user.get('login')}" for user in pr.get("requested_reviewers") or []]
+    pending += [str(team.get("slug")) for team in pr.get("requested_teams") or []]
+    if any(reviewer.casefold() not in routed for reviewer in pending):
+        return True
+    return review_path.approval_stands(state.repo_config, state.pr_number, _head_sha(pr))
+
+
+def _attestation_poll_step(
+    client: StamphogGitHubClient, state: _State, *, head_sha: str, poll: int, review_path: ReviewPath
+) -> _Step | None:
+    record = state.record
+    checks = waiting_attestation_checks(record)
+    if not checks or record is None or record.get("head_sha") != head_sha:
+        # Another trigger already decided this head, or a newer wait polls for its own head.
+        return None
+    pr = _live_head(client, state.repo_config, state.pr_number)
+    if pr is None:
+        # A pull request that is marked ready again waits anew with a new poll.
+        return None
+    live_head_sha = _head_sha(pr)
+    if live_head_sha != head_sha:
+        # A proof covers the files of the head it names, and a push starts no new wait.
+        return _Step(pr=pr, head_sha=live_head_sha, mode=RoutingMode.ALWAYS, trigger=TRIGGER_ATTESTATION)
+    repository = state.repo_config.repository
+    if not _checks_reported(client, repository, head_sha, checks):
+        review_path.schedule_attestation_poll(state.repo_config, state.pr_number, head_sha, poll + 1)
+        return None
+    proof = read_attestation_proof(client, repository, pr, verify=True)
+    # Requesting nobody must not leave the pull request without a reviewer, for example when stamphog refused it.
+    attested = proof.proven and _keeps_a_reviewer(pr, state, review_path=review_path)
+    return _Step(
+        pr=pr,
+        head_sha=head_sha,
+        mode=RoutingMode.ALWAYS,
+        trigger=TRIGGER_ATTESTATION,
+        scope=SCOPE_ATTESTED if attested else SCOPE_FULL,
+    )
+
+
+def route_after_attestation_poll(
+    *,
+    team_id: int,
+    repo_config_id: str,
+    pr_number: int,
+    head_sha: str,
+    poll: int,
+    task_id: str,
+    review_path: ReviewPath,
+) -> None:
+    """Decide an ALWAYS head that waits for its attestation checks, once every one of them reported.
+
+    A verified proof of every changed file requests nobody while the pull request keeps a reviewer. Anything else
+    routes in full. A check that did not report yet schedules the next poll. ``task_id`` is the Celery task id,
+    which a retry of the same task keeps, so a retry knows its own claim.
+    """
+    repo_config = _repo_config(team_id, repo_config_id)
+    if repo_config is None or repo_config.routing_mode != RoutingMode.ALWAYS:
+        return
+    client = StamphogGitHubClient(repo_config.installation_id)
+    state = _load_state(repo_config, pr_number, task_id)
+    if _resume(client, state):
+        return
+    step = _attestation_poll_step(client, state, head_sha=head_sha, poll=poll, review_path=review_path)
     _execute(client, state, step, review_path, retry_when_busy=False)
 
 

@@ -25,7 +25,6 @@ from celery import Task, shared_task
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
-from posthog.egress.limiter.policies import Priority
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
@@ -52,6 +51,7 @@ from products.stamphog.backend.logic.approval_retention import (
     base_merge_is_clean,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
+from products.stamphog.backend.logic.attestation_checks import PendingCheck, has_reported
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
@@ -64,6 +64,7 @@ from products.stamphog.backend.logic.routing.triggers import (
     FinishedReview,
     ReviewPath,
     route_after_approval_retracted,
+    route_after_attestation_poll,
     route_after_external_review,
     route_after_verdict,
     route_on_pull_request_event,
@@ -2110,14 +2111,6 @@ _ATTESTATION_WAKE = "attestation_check_wake"
 _ATTESTATION_WAKES_PER_HEAD = 3
 
 
-@frozen
-class PendingCheck:
-    """The check name and publishing App id that a policy ``attestations`` entry pins."""
-
-    name: str
-    app_id: int
-
-
 def pending_attestation_checks(run: ReviewRun) -> list[PendingCheck]:
     """The checks ``run`` recorded as pending, when they are the only reason for its WAIT.
 
@@ -2153,20 +2146,6 @@ def waits_on_attestations(run: ReviewRun) -> bool:
     return wakes < _ATTESTATION_WAKES_PER_HEAD
 
 
-def _has_reported(client: StamphogGitHubClient, repository: str, head_sha: str, check: PendingCheck) -> bool:
-    # The engine's own test for a pending check, so the new review finds every check it waited for.
-    # GitHub filters by name and App, so a poll does not page through every check run of the head.
-    check_runs = client.get_check_runs(
-        repository, head_sha, check_name=check.name, app_id=check.app_id, priority=Priority.BATCH
-    )
-    return any(
-        check_run.get("name") == check.name
-        and (check_run.get("app") or {}).get("id") == check.app_id
-        and check_run.get("status") == "completed"
-        for check_run in check_runs
-    )
-
-
 def rereview_once_attestations_reported(run: ReviewRun) -> bool:
     """Queue a new review when every check ``run`` waits on has reported. False means poll again.
 
@@ -2187,7 +2166,7 @@ def rereview_once_attestations_reported(run: ReviewRun) -> bool:
         return True
     client = StamphogGitHubClient(repo_config.installation_id)
     try:
-        if not all(_has_reported(client, repo_config.repository, run.head_sha, check) for check in pending):
+        if not all(has_reported(client, repo_config.repository, run.head_sha, check) for check in pending):
             return False
     except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
         return False
@@ -2201,8 +2180,13 @@ _ROUTING_MAX_RETRIES = 4
 _ROUTING_RETRY_BASE_SECONDS = 30
 # Another task holds the routing claim. It finishes within seconds, so the retry comes soon.
 ROUTING_BUSY_RETRY_SECONDS = 60
-# FALLBACK mode routes in full when no verdict arrived for a waiting head after this long.
+# FALLBACK mode routes in full when no verdict arrived for a waiting head after this long, and ALWAYS mode when the
+# attestation checks of a waiting head did not end the wait.
 ROUTING_SAFETY_NET_SECONDS = 30 * 60
+# ALWAYS mode polls the attestation checks of a waiting head at this interval until the safety net routes it. A
+# Celery countdown, like the safety net, because the routing claim and its retries live in Celery tasks.
+ROUTING_ATTESTATION_POLL_SECONDS = 2 * 60
+_ROUTING_ATTESTATION_MAX_POLLS = ROUTING_SAFETY_NET_SECONDS // ROUTING_ATTESTATION_POLL_SECONDS
 
 
 def _stamphog_will_review(repo_config: StamphogRepoConfig, pr: dict[str, Any], *, count_silent: bool) -> bool:
@@ -2230,6 +2214,23 @@ def _schedule_routing_safety_net(repo_config: StamphogRepoConfig, pr_number: int
     route_reviewers_safety_net.apply_async(
         kwargs={"team_id": repo_config.team_id, "repo_config_id": str(repo_config.id), "pr_number": pr_number},
         countdown=ROUTING_SAFETY_NET_SECONDS,
+    )
+
+
+def _schedule_routing_attestation_poll(
+    repo_config: StamphogRepoConfig, pr_number: int, head_sha: str, poll: int
+) -> None:
+    if poll > _ROUTING_ATTESTATION_MAX_POLLS:
+        return
+    route_reviewers_after_attestation.apply_async(
+        kwargs={
+            "team_id": repo_config.team_id,
+            "repo_config_id": str(repo_config.id),
+            "pr_number": pr_number,
+            "head_sha": head_sha,
+            "poll": poll,
+        },
+        countdown=ROUTING_ATTESTATION_POLL_SECONDS,
     )
 
 
@@ -2293,6 +2294,7 @@ def _approval_stands_over_head(repo_config: StamphogRepoConfig, pr_number: int, 
 _ROUTING_REVIEW_PATH = ReviewPath(
     will_review=_stamphog_will_review,
     schedule_safety_net=_schedule_routing_safety_net,
+    schedule_attestation_poll=_schedule_routing_attestation_poll,
     finished_review=_finished_review,
     has_review=_has_review_of_head,
     approval_stands=_approval_stands_over_head,
@@ -2373,10 +2375,11 @@ def route_reviewers_after_verdict(
 
 @shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
 def route_reviewers_safety_net(self: Task, team_id: int, repo_config_id: str, pr_number: int) -> None:
-    """Route a FALLBACK pull request in full on its current head, unless it was already routed.
+    """Route a pull request in full on its current head, unless it was already routed.
 
-    A full routing on any head, or a pinned-only routing after an approval of the current head,
-    means nothing is left to do.
+    In FALLBACK mode, a full routing on any head, or a pinned-only routing after an approval of the
+    current head, means nothing is left to do. In ALWAYS mode, only a head that still waits for its
+    attestation checks routes.
     """
     _run_routing_step(
         self,
@@ -2384,6 +2387,30 @@ def route_reviewers_safety_net(self: Task, team_id: int, repo_config_id: str, pr
             team_id=team_id,
             repo_config_id=repo_config_id,
             pr_number=pr_number,
+            task_id=self.request.id or "",
+            review_path=_ROUTING_REVIEW_PATH,
+        ),
+        pr_number=pr_number,
+    )
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
+def route_reviewers_after_attestation(
+    self: Task, team_id: int, repo_config_id: str, pr_number: int, head_sha: str, poll: int
+) -> None:
+    """Poll the attestation checks that an ALWAYS head waits for, and decide the head once they all reported.
+
+    A verified proof of every changed file requests nobody while the pull request keeps a reviewer.
+    Anything else routes in full. ``poll`` counts the polls of the head, so the chain stops at the safety net.
+    """
+    _run_routing_step(
+        self,
+        lambda: route_after_attestation_poll(
+            team_id=team_id,
+            repo_config_id=repo_config_id,
+            pr_number=pr_number,
+            head_sha=head_sha,
+            poll=poll,
             task_id=self.request.id or "",
             review_path=_ROUTING_REVIEW_PATH,
         ),

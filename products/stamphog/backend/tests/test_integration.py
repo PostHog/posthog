@@ -35,6 +35,7 @@ from products.stamphog.backend.facade.enums import (
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
 from products.stamphog.backend.logic import gateway_tokens
+from products.stamphog.backend.logic.attestation_checks import PendingCheck
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     build_routing_context,
@@ -46,7 +47,6 @@ from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.tasks import (
-    PendingCheck,
     pending_attestation_checks,
     process_inbox_pr_review,
     request_manual_review,

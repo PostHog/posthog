@@ -124,7 +124,7 @@ export const RoutingModeEnumApi = {
 } as const
 
 /**
- * * `waiting` - Waiting for stamphog's verdict
+ * * `waiting` - Waiting for stamphog's verdict or an attestation check
  * * `routing` - Routing
  * * `requested` - Requested
  * * `done` - Done
@@ -141,18 +141,20 @@ export const RoutingStatusEnumApi = {
 /**
  * * `full` - Every owner
  * * `pinned` - Pinned owners only
+ * * `attested` - No owners, every file attested
  */
 export type RoutingScopeEnumApi = (typeof RoutingScopeEnumApi)[keyof typeof RoutingScopeEnumApi]
 
 export const RoutingScopeEnumApi = {
     Full: 'full',
     Pinned: 'pinned',
+    Attested: 'attested',
 } as const
 
 export interface StamphogPullRequestRoutingApi {
-    /** The phase of the latest routing record: 'waiting' (fallback mode, the head waits for stamphog's verdict or the safety net), 'routing' (a task holds the claim and requested nobody yet), 'requested' (the review requests went out, the routing comment is not finished) or 'done'.
+    /** The phase of the latest routing record: 'waiting' (the head waits for the safety net and for stamphog's verdict in fallback mode, or for a policy attestation check in always mode), 'routing' (a task holds the claim and requested nobody yet), 'requested' (the review requests went out, the routing comment is not finished) or 'done'.
      *
-     * * `waiting` - Waiting for stamphog's verdict
+     * * `waiting` - Waiting for stamphog's verdict or an attestation check
      * * `routing` - Routing
      * * `requested` - Requested
      * * `done` - Done */
@@ -163,19 +165,20 @@ export interface StamphogPullRequestRoutingApi {
      * * `always` - Always
      * * `fallback` - When stamphog does not approve */
     readonly mode: RoutingModeEnumApi
-    /** 'full', or 'pinned' when a stamphog approval asks only the owners of sensitive and new paths. Null while the record waits.
+    /** 'full', 'pinned' when a stamphog approval asks only the owners of sensitive and new paths, or 'attested' when a verified policy attestation covers every changed file and the pull request already has a reviewer, so nobody is requested. Null while the record waits.
      *
      * * `full` - Every owner
-     * * `pinned` - Pinned owners only */
+     * * `pinned` - Pinned owners only
+     * * `attested` - No owners, every file attested */
     readonly scope: RoutingScopeEnumApi | null
     /** The head commit the record is for. It can be older than the pull request head. */
     readonly head_sha: string
-    /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+    /** What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted', 'attestation' (the attestation checks the head waited for reported) or 'safety_net'. */
     readonly trigger: string
     /** True when a 'routing' or 'requested' claim is older than the takeover limit. The task can still be alive, and a later delivery does not always finish an expired 'requested' claim. */
     readonly claim_expired: boolean
     /**
-     * When the head started to wait for stamphog's verdict. Null unless waiting.
+     * When the head started to wait for stamphog's verdict or an attestation check. Null unless waiting.
      * @nullable
      */
     readonly waiting_since: string | null
@@ -736,6 +739,7 @@ export interface ReviewRequestResponseApi {
  * * `no_answer` - No answer
  * * `stamphog_approved` - Stamphog approved
  * * `files_truncated` - Files truncated
+ * * `attested` - Every file attested
  */
 export type LlmSkipReasonEnumApi = (typeof LlmSkipReasonEnumApi)[keyof typeof LlmSkipReasonEnumApi]
 
@@ -746,6 +750,7 @@ export const LlmSkipReasonEnumApi = {
     NoAnswer: 'no_answer',
     StamphogApproved: 'stamphog_approved',
     FilesTruncated: 'files_truncated',
+    Attested: 'attested',
 } as const
 
 /**
@@ -776,6 +781,7 @@ export const RoutingOwnerOutcomeEnumApi = {
  * * `model_kept` - Kept by the model
  * * `model_cut` - Cut by the model
  * * `stamphog_approved` - Stamphog approved
+ * * `attested` - Every file attested
  */
 export type RoutingOwnerReasonEnumApi = (typeof RoutingOwnerReasonEnumApi)[keyof typeof RoutingOwnerReasonEnumApi]
 
@@ -788,6 +794,7 @@ export const RoutingOwnerReasonEnumApi = {
     ModelKept: 'model_kept',
     ModelCut: 'model_cut',
     StamphogApproved: 'stamphog_approved',
+    Attested: 'attested',
 } as const
 
 /**
@@ -823,7 +830,7 @@ export const OwnerKindEnumApi = {
 } as const
 
 export interface StamphogRoutingRunOwnerApi {
-    /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
+    /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved', or on an 'attested' run, it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
      *
      * * `requested` - Requested
      * * `labeled` - Labeled
@@ -832,7 +839,7 @@ export interface StamphogRoutingRunOwnerApi {
      * * `not_requested` - Not requested
      * * `already_requested` - Already requested */
     readonly outcome: RoutingOwnerOutcomeEnumApi
-    /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
+    /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut', 'attested' (a verified policy attestation covers every changed file, so nobody was requested) or 'stamphog_approved' (older runs only).
      *
      * * `sensitive` - Owns a sensitive path
      * * `new_path` - Owns a new path
@@ -841,7 +848,8 @@ export interface StamphogRoutingRunOwnerApi {
      * * `cut_skipped` - Cut step skipped
      * * `model_kept` - Kept by the model
      * * `model_cut` - Cut by the model
-     * * `stamphog_approved` - Stamphog approved */
+     * * `stamphog_approved` - Stamphog approved
+     * * `attested` - Every file attested */
     readonly reason: RoutingOwnerReasonEnumApi
     /** The changed paths that pinned the owner, so no cut could remove them. */
     readonly pins: readonly StamphogRoutingPinApi[]
@@ -875,12 +883,13 @@ export interface StamphogRoutingRunApi {
      * * `always` - Always
      * * `fallback` - When stamphog does not approve */
     readonly mode: RoutingModeEnumApi
-    /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+    /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted', 'attestation' (the attestation checks the head waited for reported) or 'safety_net'. */
     trigger: string
-    /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
+    /** 'full', 'pinned' when a stamphog approval asked only the owners of sensitive and new paths, or 'attested' when a verified policy attestation covered every changed file and nobody was requested.
      *
      * * `full` - Every owner
-     * * `pinned` - Pinned owners only */
+     * * `pinned` - Pinned owners only
+     * * `attested` - No owners, every file attested */
     readonly scope: RoutingScopeEnumApi
     /** Whether the pull request came from a fork, which skips the model. */
     fork?: boolean
@@ -891,7 +900,8 @@ export interface StamphogRoutingRunApi {
      * * `nothing_cuttable` - Nothing cuttable
      * * `no_answer` - No answer
      * * `stamphog_approved` - Stamphog approved
-     * * `files_truncated` - Files truncated */
+     * * `files_truncated` - Files truncated
+     * * `attested` - Every file attested */
     readonly llm_skipped: LlmSkipReasonEnumApi | null
     /** The model the cut request reached. Blank when no request reached the gateway. */
     model?: string
@@ -941,7 +951,7 @@ export interface StamphogRoutingFileApi {
 }
 
 export interface StamphogRoutingRunOwnerDetailApi {
-    /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
+    /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved', or on an 'attested' run, it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
      *
      * * `requested` - Requested
      * * `labeled` - Labeled
@@ -950,7 +960,7 @@ export interface StamphogRoutingRunOwnerDetailApi {
      * * `not_requested` - Not requested
      * * `already_requested` - Already requested */
     readonly outcome: RoutingOwnerOutcomeEnumApi
-    /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
+    /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut', 'attested' (a verified policy attestation covers every changed file, so nobody was requested) or 'stamphog_approved' (older runs only).
      *
      * * `sensitive` - Owns a sensitive path
      * * `new_path` - Owns a new path
@@ -959,7 +969,8 @@ export interface StamphogRoutingRunOwnerDetailApi {
      * * `cut_skipped` - Cut step skipped
      * * `model_kept` - Kept by the model
      * * `model_cut` - Cut by the model
-     * * `stamphog_approved` - Stamphog approved */
+     * * `stamphog_approved` - Stamphog approved
+     * * `attested` - Every file attested */
     readonly reason: RoutingOwnerReasonEnumApi
     /** The changed paths that pinned the owner, so no cut could remove them. */
     readonly pins: readonly StamphogRoutingPinApi[]
@@ -995,12 +1006,13 @@ export interface StamphogRoutingRunDetailApi {
      * * `always` - Always
      * * `fallback` - When stamphog does not approve */
     readonly mode: RoutingModeEnumApi
-    /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted' or 'safety_net'. */
+    /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', 'approval_retracted', 'attestation' (the attestation checks the head waited for reported) or 'safety_net'. */
     trigger: string
-    /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
+    /** 'full', 'pinned' when a stamphog approval asked only the owners of sensitive and new paths, or 'attested' when a verified policy attestation covered every changed file and nobody was requested.
      *
      * * `full` - Every owner
-     * * `pinned` - Pinned owners only */
+     * * `pinned` - Pinned owners only
+     * * `attested` - No owners, every file attested */
     readonly scope: RoutingScopeEnumApi
     /** Whether the pull request came from a fork, which skips the model. */
     fork?: boolean
@@ -1011,7 +1023,8 @@ export interface StamphogRoutingRunDetailApi {
      * * `nothing_cuttable` - Nothing cuttable
      * * `no_answer` - No answer
      * * `stamphog_approved` - Stamphog approved
-     * * `files_truncated` - Files truncated */
+     * * `files_truncated` - Files truncated
+     * * `attested` - Every file attested */
     readonly llm_skipped: LlmSkipReasonEnumApi | null
     /** The model the cut request reached. Blank when no request reached the gateway. */
     model?: string
@@ -1182,6 +1195,7 @@ export type StamphogRoutingRunsListParams = {
      * * `model_kept` - Kept by the model
      * * `model_cut` - Cut by the model
      * * `stamphog_approved` - Stamphog approved
+     * * `attested` - Every file attested
      * @minLength 1
      */
     reason?: StamphogRoutingRunsListReason
@@ -1216,4 +1230,5 @@ export const StamphogRoutingRunsListReason = {
     ModelKept: 'model_kept',
     ModelCut: 'model_cut',
     StamphogApproved: 'stamphog_approved',
+    Attested: 'attested',
 } as const

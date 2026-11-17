@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
@@ -25,6 +26,7 @@ from products.stamphog.backend.tasks.tasks import (
     ROUTING_SAFETY_NET_SECONDS,
     queue_routing_after_approval_retracted,
     queue_routing_after_verdict,
+    route_reviewers_after_attestation,
     route_reviewers_after_external_review,
     route_reviewers_after_verdict,
     route_reviewers_safety_net,
@@ -49,6 +51,7 @@ _OWNERS_FILES = {
 }
 _CUT_BETA = {"cuts": [{"owner": "team-beta", "reason": "Only renames an import."}]}
 SAFETY_NET_SCHEDULE = "products.stamphog.backend.tasks.tasks.route_reviewers_safety_net.apply_async"
+ATTESTATION_POLL_SCHEDULE = "products.stamphog.backend.tasks.tasks.route_reviewers_after_attestation.apply_async"
 _RECORD_ROUTING_RUN = "products.stamphog.backend.logic.routing.service.record_routing_run"
 # team-alpha owns a new directory, so it is pinned. The run log says why each owner was or was not asked.
 _LOG_ONE_CUT = {
@@ -1053,6 +1056,235 @@ def test_fallback_routes_each_pull_request_once_in_full(
     assert safety_net.call_count == expected_safety_nets
     record = _stored(team.id)
     assert (record["trigger"], record["head_sha"]) == (expected_trigger, expected_head)
+
+
+_PROOF_APP_ID = 4242
+_PROOF_PUBLISHER = ".github/workflows/dependency-proof.yml"
+_ALL_FILES = ["products/alpha/a.py", "products/alpha/new/b.py", "products/beta/b.py", "products/gamma/c.py"]
+
+
+def _proof_policy(paths: str) -> str:
+    return (
+        "attestations:\n"
+        "  - name: dependency_proof\n"
+        "    check: 'Dependency proof'\n"
+        f"    app_id: {_PROOF_APP_ID}\n"
+        "    lifts: [deps_toolchain]\n"
+        f"    paths: ['{paths}']\n"
+        f"    publisher_files: ['{_PROOF_PUBLISHER}']\n"
+    )
+
+
+def _proof_check(
+    files: list[str] | None = None, *, conclusion: str = "success", status: str = "completed"
+) -> dict[str, Any]:
+    marker = {
+        "files": _ALL_FILES if files is None else files,
+        "pr": PR_NUMBER,
+        "head_sha": HEAD_SHA,
+        "merge_base": "mergebase000",
+        "blobs": {_PROOF_PUBLISHER: "publisher-blob-1"},
+    }
+    return {
+        "id": 1,
+        "name": "Dependency proof",
+        "app": {"id": _PROOF_APP_ID},
+        "status": status,
+        "conclusion": conclusion,
+        "output": {"summary": f"Every dependency proven.\n<!-- stamphog:v1 {json.dumps(marker)} -->"},
+    }
+
+
+_NOTHING_TO_ATTEST = {**_proof_check(), "output": {"summary": "Nothing to attest"}}
+_CLIENT_LIBRARIES_REQUESTED = ("requested_team", "client-libraries")
+_TEAM_ALPHA_REQUESTED = ("requested_team", "team-alpha")
+_STAMPHOG_APPROVED = ("approved",)
+_POLL = ("poll",)
+_ATTESTED = ("done", "attested", "attestation", HEAD_SHA)
+_FULL_AFTER_POLL = ("done", "full", "attestation", HEAD_SHA)
+_FULL_AT_OPEN = ("done", "full", "opened", HEAD_SHA)
+
+
+@pytest.fixture
+def attestation_poll() -> Iterator[MagicMock]:
+    with patch(ATTESTATION_POLL_SCHEDULE) as schedule:
+        yield schedule
+
+
+_PROVEN = "^products/"
+_FULL_AFTER_ONE_POLL = (_FULL_AFTER_POLL, [1])
+
+
+@pytest.mark.parametrize(
+    "name,paths,check,setup_kwargs,steps,expected_record,expected_polls",
+    [
+        # The upgrader bot requested its owning team itself, so routing adds nobody once the proof verifies.
+        (
+            "proven_with_a_pending_request",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+            _ATTESTED,
+            [1],
+        ),
+        ("proven_with_a_standing_approval", _PROVEN, _proof_check(), {}, [_STAMPHOG_APPROVED, _POLL], _ATTESTED, [1]),
+        # Requesting nobody would leave the pull request without a reviewer.
+        ("proven_without_a_reviewer", _PROVEN, _proof_check(), {}, [_POLL], *_FULL_AFTER_ONE_POLL),
+        # An earlier routing made this request, so it is not a reviewer that the pull request keeps on its own.
+        (
+            "proven_with_only_a_request_routing_made",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [("routed_before", "team-alpha"), _TEAM_ALPHA_REQUESTED, _POLL],
+            *_FULL_AFTER_ONE_POLL,
+        ),
+        (
+            "nothing_to_attest",
+            _PROVEN,
+            _NOTHING_TO_ATTEST,
+            {},
+            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+            *_FULL_AFTER_ONE_POLL,
+        ),
+        (
+            "refused",
+            _PROVEN,
+            _proof_check(conclusion="failure"),
+            {},
+            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+            *_FULL_AFTER_ONE_POLL,
+        ),
+        (
+            "a_file_the_proof_does_not_name",
+            _PROVEN,
+            _proof_check(_ALL_FILES[:-1]),
+            {},
+            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+            *_FULL_AFTER_ONE_POLL,
+        ),
+        (
+            "a_publisher_the_default_branch_changed",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_CLIENT_LIBRARIES_REQUESTED, ("publisher_changed",), _POLL],
+            *_FULL_AFTER_ONE_POLL,
+        ),
+        # The proof names the old head, and a push starts no new wait.
+        (
+            "head_moved",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_CLIENT_LIBRARIES_REQUESTED, ("push",), _POLL],
+            ("done", "full", "attestation", _HEAD_2),
+            [1],
+        ),
+        (
+            "check_still_running",
+            _PROVEN,
+            _proof_check(status="in_progress"),
+            {},
+            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+            ("waiting", None, "opened", HEAD_SHA),
+            [1, 2],
+        ),
+        # A pull request marked ready on a new head waits anew, and the poll of the older wait leaves it alone.
+        (
+            "poll_of_an_older_wait",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_CLIENT_LIBRARIES_REQUESTED, ("push",), ("ready",), _POLL],
+            ("waiting", None, "ready_for_review", _HEAD_2),
+            [1, 1],
+        ),
+        # A late success never removes the requests that the safety net made.
+        (
+            "safety_net_before_the_check",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_CLIENT_LIBRARIES_REQUESTED, ("net",), _POLL],
+            ("done", "full", "safety_net", HEAD_SHA),
+            [1],
+        ),
+        # Each of these can never be proven, so the pull request routes when it opens.
+        ("a_file_outside_every_attestation", "^products/alpha/", _proof_check(), {}, [], _FULL_AT_OPEN, []),
+        ("a_truncated_file_list", _PROVEN, _proof_check(), {"changed_files": 5}, [], _FULL_AT_OPEN, []),
+        ("a_policy_the_engine_refuses", "(", _proof_check(), {}, [], _FULL_AT_OPEN, []),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
+    name: str,
+    paths: str,
+    check: dict[str, Any],
+    setup_kwargs: dict[str, Any],
+    steps: list[tuple[str, ...]],
+    expected_record: tuple[str, str | None, str, str],
+    expected_polls: list[int],
+    team,
+    user,
+    routing_chain,
+    safety_net,
+    attestation_poll,
+) -> None:
+    recorder = routing_chain.recorder
+    recorder.policy_files[".stamphog/policy.yml"] = _proof_policy(paths)
+    recorder.check_runs[(REPO, HEAD_SHA)] = [check]
+    recorder.default_branch_blob_shas[_PROOF_PUBLISHER] = "publisher-blob-1"
+    _setup(routing_chain, team, user, **setup_kwargs)
+    _route()
+    pr = recorder.prs[(REPO, PR_NUMBER)]
+
+    for step in steps:
+        if step[0] == "requested_team":
+            pr["requested_teams"] = [{"slug": step[1]}]
+        elif step[0] == "routed_before":
+            with team_scope(team.id):
+                pr_obj = PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER)
+                pr_obj.routing = {**(pr_obj.routing or {}), "requested_owners": [step[1]]}
+                pr_obj.save(update_fields=["routing"])
+        elif step[0] == "approved":
+            with team_scope(team.id):
+                ReviewRun.objects.for_team(team.id).create(
+                    team_id=team.id,
+                    pull_request=PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER),
+                    head_sha=HEAD_SHA,
+                    status=ReviewRunStatus.COMPLETED,
+                    verdict=ReviewVerdict.APPROVED,
+                    posted_review_id=902,
+                )
+            _post_approval(routing_chain, 902)
+        elif step[0] == "publisher_changed":
+            recorder.default_branch_blob_shas[_PROOF_PUBLISHER] = "publisher-blob-2"
+        elif step[0] == "push":
+            _push(routing_chain, _HEAD_2)
+        elif step[0] == "ready":
+            _route("ready_for_review")
+        elif step[0] == "net":
+            _fire_safety_net(safety_net)
+        else:
+            first_poll = attestation_poll.call_args_list[0].kwargs["kwargs"]
+            route_reviewers_after_attestation.apply(kwargs=first_poll, throw=True)
+
+    record = _stored(team.id)
+    assert (record["status"], record.get("scope"), record["trigger"], record["head_sha"]) == expected_record
+    full = expected_record[1] == "full"
+    assert _requested(routing_chain) == (({"carol"}, {"team-alpha", "team-beta"}) if full else (set(), set()))
+    assert [call.kwargs["kwargs"]["poll"] for call in attestation_poll.call_args_list] == expected_polls
+    if expected_record[1] == "attested":
+        assert routing_chain.cut_model.calls == []
+        assert record["llm_skipped"] == "attested"
+        # FALLBACK reads this mark as a full routing of the pull request, which an attested run is not.
+        assert "full_routed_head" not in record
+        assert recorder.github_writes == []
+        assert _run_log(team.id) == dict.fromkeys(
+            ["team-alpha", "team-beta", "@carol"], ("not_requested", "attested", "")
+        )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

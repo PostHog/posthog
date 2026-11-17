@@ -37,6 +37,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.ownership.github_files import GitHubFilesFetcher, is_absent
 
+from products.stamphog.backend.logic.attestation_checks import PendingCheck
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 
 logger = structlog.get_logger(__name__)
@@ -99,6 +100,14 @@ class GateAttestation:
     manifests: tuple[str, ...] = ()
     # False only when the engine said that no CI check lifted a deny for this PR.
     lifted: bool = True
+
+
+@frozen
+class AttestationProof:
+    # The check of each pinned attestation that matches a changed path. Empty unless they match every changed path.
+    checks: tuple[PendingCheck, ...]
+    # True only when the verified proofs of those attestations name every changed path.
+    proven: bool
 
 
 def pregate_skip_reason(pr: Mapping[str, object], files: list[dict], head_sha: str) -> str | None:
@@ -359,4 +368,24 @@ def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, 
         gates=[gate for gate in gates if isinstance(gate, dict)] if isinstance(gates, list) else [],
         manifests=tuple(str(path) for path in manifests) if isinstance(manifests, list) else (),
         lifted=parsed.get("lifted") is not False,
+    )
+
+
+def run_engine_attestation_proof(context: Mapping[str, object], policy_files: Mapping[str, str]) -> AttestationProof:
+    """Run ``review_local.py --attestation-proof`` on ``context`` under ``policy_files`` and parse its answer.
+
+    ``context`` needs the PR, its files, its check runs with their pins and its merge base. Without check
+    runs, the answer still names the checks to wait for. It emits no analytics event.
+    """
+    stdout = _run_engine_gates_only(context, policy_files, "--attestation-proof", {})
+    lines = [line for line in stdout.splitlines() if line.strip()]
+    try:
+        parsed = json.loads(lines[-1]) if lines else None
+    except json.JSONDecodeError as exc:
+        raise EnginePregateError("the engine attestation proof printed no JSON result") from exc
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("checks"), list):
+        raise EnginePregateError("the engine attestation proof result is not an object with checks")
+    return AttestationProof(
+        checks=tuple(PendingCheck(name=str(entry["check"]), app_id=int(entry["app_id"])) for entry in parsed["checks"]),
+        proven=parsed.get("proven") is True,
     )

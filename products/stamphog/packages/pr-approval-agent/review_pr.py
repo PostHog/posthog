@@ -355,6 +355,30 @@ class Pipeline:
             return POLICY.attestations
         return tuple(attestation for attestation in POLICY.attestations if attestation.pins_publisher)
 
+    def attestation_proof(self) -> dict:
+        """What the pinned attestations prove about every path of the diff, for the server's reviewer routing.
+
+        Only an entry that declares `publisher_files` counts, as for an admitted bot, because a job of any PR
+        can post the check of every other entry. ``checks`` names each such entry whose `paths` match a path
+        of the diff, and stays empty unless together they match every path. ``proven`` is True only when
+        their verified proofs name every path, the old path of a rename included.
+        """
+        paths = self.pr.deny_paths
+        matching = [
+            attestation
+            for attestation in POLICY.attestations
+            if attestation.publisher_files and any(covers(attestation, path) for path in paths)
+        ]
+        if not paths or any(not any(covers(attestation, path) for attestation in matching) for path in paths):
+            return {"checks": [], "proven": False}
+        pr = self.pr
+        reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
+        proven = pinned_files(matching, pr.check_runs, paths, reviewed)
+        return {
+            "checks": [{"check": attestation.check, "app_id": attestation.app_id} for attestation in matching],
+            "proven": set(paths) <= proven,
+        }
+
     def refuses_bot_author(self) -> bool:
         """True when the PR author is a bot that neither carve-out admits.
 
