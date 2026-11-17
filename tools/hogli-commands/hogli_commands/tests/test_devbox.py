@@ -5029,6 +5029,82 @@ class TestDevboxExec:
         assert captured == [["ssh", "coder.devbox-foo", remote_command]]
 
 
+class TestDevboxClaudeCommands:
+    @pytest.fixture(autouse=True)
+    def _stub_runtime(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: True)
+
+    @pytest.mark.parametrize("delete_secret", [True, False])
+    def test_login_offers_to_delete_token_secret_then_opens_interactive_login(
+        self, monkeypatch: pytest.MonkeyPatch, delete_secret: bool
+    ) -> None:
+        exec_args: list[list[str]] = []
+        deleted: list[str] = []
+        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
+        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: True)
+        monkeypatch.setattr(
+            devbox_cli,
+            "delete_user_secret",
+            lambda name: deleted.append(name) or subprocess.CompletedProcess([], 0, "", ""),
+        )
+        monkeypatch.setattr(coder.os, "execvp", lambda file, args: exec_args.append(args))
+
+        result = runner.invoke(cli, ["devbox:claude:login"], input="y\n" if delete_secret else "n\n")
+
+        assert result.exit_code == 0, result.output
+        assert deleted == (["CLAUDE_CODE_OAUTH_TOKEN"] if delete_secret else [])
+        assert exec_args == [["ssh", "-t", "coder.devbox-foo", "bash -lc 'claude auth login'"]]
+
+    def test_login_refuses_another_users_box(self) -> None:
+        result = runner.invoke(cli, ["devbox:claude:login", "@alice"])
+
+        assert result.exit_code != 0
+        assert "your own devbox" in result.output
+
+    def test_status_prints_only_login_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        status = {
+            "loggedIn": True,
+            "authMethod": "claude.ai",
+            "email": "jane@example.com",
+            "orgName": "Example Org",
+            "subscriptionType": "max",
+            "configDirectory": "/home/coder/.claude",
+            "loginExpiresAt": "2027-01-01T00:00:00Z",
+        }
+        commands: list[list[str]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "run_in_workspace",
+            lambda name, command, timeout: (
+                commands.append(command) or subprocess.CompletedProcess([], 0, json.dumps(status), "")
+            ),
+        )
+
+        result = runner.invoke(cli, ["devbox:claude:status"])
+
+        assert result.exit_code == 0, result.output
+        assert commands == [["bash", "-lc", "claude auth status --json"]]
+        assert "jane@example.com" in result.output
+        assert "Example Org" in result.output
+        assert "max" in result.output
+        assert "/home/coder/.claude" not in result.output
+        assert "2027" not in result.output
+
+    def test_status_fails_when_the_box_does_not_answer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli,
+            "run_in_workspace",
+            lambda name, command, timeout: subprocess.CompletedProcess([], 255, "", "Connection refused"),
+        )
+
+        result = runner.invoke(cli, ["devbox:claude:status"])
+
+        assert result.exit_code != 0
+        assert "Couldn't read the Claude Code login" in result.output
+
+
 class TestSetupGitSigning:
     """Test the Git commit signing step in devbox:setup.
 

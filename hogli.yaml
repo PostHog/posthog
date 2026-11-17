@@ -176,6 +176,15 @@ devbox:
         click: hogli_commands.devbox.cli:devbox_remote_exec
         description: Run a command inside your devbox (non-interactive)
         untracked: true
+    devbox:claude:login:
+        click: hogli_commands.devbox.cli:devbox_claude_login
+        description: Log in to Claude Code on your devbox
+    devbox:claude:status:
+        click: hogli_commands.devbox.cli:devbox_claude_status
+        description: Show which Claude Code account your devbox uses
+    devbox:claude:logout:
+        click: hogli_commands.devbox.cli:devbox_claude_logout
+        description: Log out of Claude Code on your devbox
     devbox:open:
         click: hogli_commands.devbox.cli:devbox_open
         description: Open devbox in browser, VS Code, or Cursor

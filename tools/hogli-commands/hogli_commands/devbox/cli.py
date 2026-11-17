@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import zlib
 import errno
 import shlex
@@ -88,6 +89,7 @@ from .coder import (
     print_setup_summary,
     region_from_workspace_name,
     restart_workspace,
+    run_in_workspace,
     run_with_capacity_fallback,
     server_supports_user_secrets,
     share_workspace,
@@ -272,6 +274,10 @@ def _existing_default_name(workspaces: list[dict[str, Any]], region: str) -> str
 def is_own_default_target(workspace: str) -> bool:
     """Whether *workspace* is ``@<your username>``, which names your own default box."""
     return workspace.startswith("@") and "/" not in workspace and workspace[1:].lower() == get_username()
+
+
+def _targets_own_box(workspace: str | None) -> bool:
+    return workspace is None or not workspace.startswith("@") or is_own_default_target(workspace)
 
 
 def _resolve_own_label(target_name: str) -> tuple[str, list[dict[str, Any]] | None]:
@@ -1060,6 +1066,85 @@ def devbox_help() -> None:
         click.echo(f"  hogli {name:<20} {help_text}")
     click.echo()
     click.echo("Run `hogli <command> --help` for command-specific options.")
+
+
+_CLAUDE_AUTH_TIMEOUT = 60
+
+
+@dataclass(frozen=True)
+class ClaudeLogin:
+    """The non-secret fields of ``claude auth status --json`` on a devbox."""
+
+    logged_in: bool
+    auth_method: str
+    email: str | None
+    organization: str | None
+    plan: str | None
+
+
+def _remote_claude_auth(*args: str) -> list[str]:
+    # The template installs Claude Code to ~/.local/bin, which only a login shell puts on PATH.
+    return ["bash", "-lc", shlex.join(["claude", "auth", *args])]
+
+
+def _optional_text(payload: dict[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _read_claude_login(name: str) -> ClaudeLogin | None:
+    """Return the Claude Code login on the box, or ``None`` when the box does not answer with a status."""
+    try:
+        result = run_in_workspace(name, _remote_claude_auth("status", "--json"), timeout=_CLAUDE_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None
+    # `claude auth status` exits 1 when nobody is logged in, so the JSON on stdout decides, not the exit code.
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return ClaudeLogin(
+        logged_in=payload.get("loggedIn") is True,
+        auth_method=_optional_text(payload, "authMethod") or "none",
+        email=_optional_text(payload, "email"),
+        organization=_optional_text(payload, "orgName"),
+        plan=_optional_text(payload, "subscriptionType") or _optional_text(payload, "planTier"),
+    )
+
+
+def _logout_claude(name: str) -> bool:
+    try:
+        result = run_in_workspace(name, _remote_claude_auth("logout"), timeout=_CLAUDE_AUTH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0
+
+
+def _offer_to_delete_claude_token_secret() -> None:
+    """Offer to delete the setup-token secret, which outranks any login on the box."""
+    click.echo(click.style(f"Your {CLAUDE_CODE_OAUTH_ENV} Coder user secret is set.", fg="yellow"))
+    click.echo("  Claude Code on your devboxes uses that token instead of a login on the box.")
+    if not click.confirm("Delete the secret so your devboxes use the login?", default=True):
+        click.echo("Kept the secret. Claude Code on your devboxes keeps using the token.")
+        return
+    if delete_user_secret(CLAUDE_CODE_OAUTH_ENV).returncode != 0:
+        click.echo(
+            click.style(
+                f"Couldn't delete the secret. Run `hogli devbox:secret:rm {CLAUDE_CODE_OAUTH_ENV}` to try again.",
+                fg="yellow",
+            )
+        )
+        return
+    click.echo(
+        f"Deleted the {CLAUDE_CODE_OAUTH_ENV} secret. Restart each running devbox (`hogli devbox:restart`) "
+        "so it drops the token."
+    )
+
+
+def _claude_token_secret_is_set() -> bool:
+    return server_supports_user_secrets() and has_claude_oauth_secret()
 
 
 def maybe_configure_claude_secret(configure_claude: bool | None, *, known_secret_names: set[str] | None = None) -> None:
@@ -1864,6 +1949,14 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
     _print_connection_info(name)
 
 
+def _ensure_ssh_alias(name: str) -> None:
+    if coder_ssh_alias_configured(name):
+        return
+    _fail(
+        "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
+    )
+
+
 @click.command(name="devbox:ssh", help="SSH into your devbox")
 @workspace_argument
 def devbox_ssh(workspace: str | None) -> None:
@@ -1899,11 +1992,77 @@ def devbox_remote_exec(workspace_name: str | None, flox: bool, command: tuple[st
     """
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace_name)
-    if not coder_ssh_alias_configured(name):
-        _fail(
-            "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
-        )
+    _ensure_ssh_alias(name)
     exec_replace(name, list(command), in_flox=flox)
+
+
+@click.command(name="devbox:claude:login", help="Log in to Claude Code on your devbox")
+@workspace_argument
+def devbox_claude_login(workspace: str | None) -> None:
+    """Run `claude auth login` on the box in an interactive session.
+
+    The login stays on the box's disk until `devbox:claude:logout` or `devbox:destroy`.
+    Run it again to switch to another account.
+    """
+    ensure_runtime_ready()
+    if not _targets_own_box(workspace):
+        _fail("Log in to Claude Code only on your own devbox.")
+    name, _ = resolve_workspace_name(workspace)
+    _ensure_ssh_alias(name)
+    if _claude_token_secret_is_set():
+        _offer_to_delete_claude_token_secret()
+    click.echo(f"Starting `claude auth login` on '{name}'. Run this command again to switch accounts.")
+    exec_replace(name, _remote_claude_auth("login"), tty=True)
+
+
+@click.command(name="devbox:claude:status", help="Show which Claude Code account your devbox uses")
+@workspace_argument
+def devbox_claude_status(workspace: str | None) -> None:
+    """Print the login fields of `claude auth status` on the box, without any credential."""
+    ensure_runtime_ready()
+    name, _ = resolve_workspace_name(workspace)
+    _ensure_ssh_alias(name)
+    login = _read_claude_login(name)
+    if login is None:
+        _fail(
+            f"Couldn't read the Claude Code login on '{name}'. Check that the devbox runs with `hogli devbox:status`."
+        )
+
+    rows = [
+        ("Devbox", name),
+        ("Logged in", "yes" if login.logged_in else "no"),
+        ("Auth method", login.auth_method),
+        ("Email", login.email),
+        ("Organization", login.organization),
+        ("Plan", login.plan),
+    ]
+    for label, value in rows:
+        if value:
+            click.echo(f"{label + ':':<14}{value}")
+    if login.auth_method == "oauth_token":
+        click.echo(
+            f"The {CLAUDE_CODE_OAUTH_ENV} user secret supplies this login. "
+            "Remote Control and usage checks don't work with it."
+        )
+    if not login.logged_in:
+        click.echo("Run `hogli devbox:claude:login` to log in.")
+
+
+@click.command(name="devbox:claude:logout", help="Log out of Claude Code on your devbox")
+@workspace_argument
+def devbox_claude_logout(workspace: str | None) -> None:
+    """Run `claude auth logout` on the box, which deletes the login stored there."""
+    ensure_runtime_ready()
+    name, _ = resolve_workspace_name(workspace)
+    _ensure_ssh_alias(name)
+    if not _logout_claude(name):
+        _fail(f"Couldn't log out of Claude Code on '{name}'. Check that the devbox runs with `hogli devbox:status`.")
+    click.echo(f"Logged out of Claude Code on '{name}'.")
+    if _claude_token_secret_is_set():
+        click.echo(
+            f"Your {CLAUDE_CODE_OAUTH_ENV} user secret still gives the box a token. "
+            "Run `hogli devbox:config:rm claude` and restart the box to remove it."
+        )
 
 
 def _sync_warning(name: str, editor: str) -> str:
@@ -2189,10 +2348,6 @@ def _forward_port_candidates(name: str) -> list[int]:
         _FORWARD_PORT_RANGE[(start + offset) % len(_FORWARD_PORT_RANGE)] for offset in range(len(_FORWARD_PORT_RANGE))
     ]
     return derived if extract_workspace_label(name) else [_BOX_APP_PORT, *derived]
-
-
-def _targets_own_box(workspace: str | None) -> bool:
-    return workspace is None or not workspace.startswith("@") or is_own_default_target(workspace)
 
 
 @click.command(name="devbox:forward", help="Forward PostHog UI to localhost")
