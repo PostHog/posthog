@@ -12,6 +12,7 @@ posthog/test/test_check_product_migrations.py::TestCheckProductMigrations
 products/posthog_ai/scripts/hogql_example/test/test_hogql_example.py::TestRenderHogQLExample
 products/streamlit_apps/backend/tests/test_tasks.py::TestAutoRestartCrashedStreamlitSandboxes
 products/streamlit_apps/backend/tests/test_tasks.py::TestStopIdleStreamlitSandboxes
+products/subscriptions/backend/temporal/ai_subscription/test/test_delivery.py::TestAiReportOneClickUnsubscribe
 products/web_analytics/dags/tests/test_cache_warming.py::TestFleetQuerySelection
 products/web_analytics/dags/tests/test_cache_warming.py::TestSplitWarmableQueries
 products/web_analytics/dags/tests/test_cache_warming.py::TestWarmableQueriesCaching
