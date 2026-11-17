@@ -39,7 +39,7 @@ migrations = [
   "posthog/rbac/migrations/**",
 ]
 
-# The cross-package relation, named once (D97, D105): a first-party destination in another package.
+# The cross-package relation, named once: a first-party destination in another package.
 # A third-party end reads no package, so it is no crossing.
 [conditions]
 crosses-package = "src.package != dst.package and dst.external == none"
@@ -49,11 +49,11 @@ crosses-package = "src.package != dst.package and dst.external == none"
 public-surface-reports = "surface.tier == 'product' and surface.package != src.package and src.history != true and not (surface.exported or (src.wiring == 'registration' and surface.wiring == 'location') or (surface.permanent == true and src.tier == 'core'))"
 # A facade's own code, its fixtures left out.
 facade-code = "src.zone == 'facade' and src.zone != 'fixtures'"
-# A capability submodule hands out wiring and holds no body (D94): a module the `capability` zone
+# A capability submodule hands out wiring and holds no body: a module the `capability` zone
 # names, or any facade module that is no contracts, data or fixtures module and hands out a name
 # from where core runs a product's code.
 capability-module = "src.zone == 'capability' or (src.zone == 'facade' and src.zone not in ['contracts', 'data-api', 'fixtures'] and src.handout_zones in ['wiring', 'tasks', 'models', 'migrations'])"
-# The settings keys request-path does not follow (D103): what they name is not the per-request
+# The settings keys request-path does not follow: what they name is not the per-request
 # pipeline (middleware, authentication, permissions, throttling, sessions, token validation). Every
 # other settings entry is followed, so a key this list lacks adds rows and never hides one.
 setting-registers-apps = "edge.setting in ['INSTALLED_APPS', 'CELERY_IMPORTS', 'SHELL_PLUS_POST_IMPORTS']"  # registers apps, task modules and shell imports
@@ -76,7 +76,7 @@ only-registers = "src.wiring == 'registration' and edge.listed == '1'"
 # members, `source_vendor`), under the tree's own package.
 in-sources-tree = "dst.path startswith 'products/warehouse_sources/sources/'"
 sources-member  = "src.source_vendor != none"
-# What a facade may not do (D115), on a model use or a reference by `[discovery] reference_names`.
+# What a facade may not do, on a model use or a reference by `[discovery] reference_names`.
 # A write or a row lock reads the Django pack's shape of the use, the shape of the local it flows
 # into (`flow_shape`) and the instance writes on its value (`instance_write`); leaving the team
 # scope reads the chain as written (`chain`).
@@ -96,7 +96,7 @@ owners    = { type = "set" }
 stage     = { type = "enum", values = ["proto-product"] }
 django    = { type = "ordered", values = ["settings", "framework", "orm"] }
 testcode  = { type = "bool" }
-# Read by own-database only, which is off for now (D118).
+# Read by own-database only, which is off for now.
 # database  = { type = "string", on = "symbol", required_on = "kind == 'model'" }
 # Frozen history outside the `migration` context: migration files nobody rewrites.
 history   = { type = "bool" }
@@ -108,7 +108,7 @@ wiring    = { type = "enum", values = ["location", "registration"] }
 # Interfaces the old boundary config (tach.toml, `isolation:permanent-interface`) declares permanent:
 # core reaches them past the facade by design, and the contract-check inputs watch them.
 permanent = { type = "bool" }
-# The core models a contract may name (D65, D98).
+# The core models a contract may name.
 may_cross = { type = "bool", on = "symbol" }
 # A core module the request pipeline starts from that no setting names: the class every API view inherits.
 request_seed = { type = "bool" }
@@ -317,7 +317,7 @@ match        = ["**/tests/**", "**/test/**", "**/test_*.py", "**/conftest.py"]
 except_paths = ["posthog/temporal/ingestion_acceptance_test/test_cases_discovery.py"]
 set          = { testcode = true }
 
-# The core models a contract may name (D65, D98): read once, by the contract policy's
+# The core models a contract may name: read once, by the contract policy's
 # `allow_symbols`, for both of its reporters, so the verdict does not depend on how deep a model sits.
 [[assign]]
 symbols = { names = [
@@ -355,7 +355,7 @@ match = [
 set   = { testcode = true }
 
 # Every first-party folder no other assignment claims is its own package; services/ and tools/
-# hold separate deployables, one package per second-level folder (D105). The folders are named,
+# hold separate deployables, one package per second-level folder. The folders are named,
 # so a file in a new top folder reads unknown and a cross-package rule cannot pass it silently.
 [[assign]]
 match = "{top}/**"
@@ -444,8 +444,7 @@ behavior        = "abc"
 # A slot typed with one of these says nothing: it is unknown.
 unknown_types   = ["typing.Any", "builtins.dict", "typing.Dict", "builtins.object"]
 # A mapping with type arguments is typed. An unknown type that is no mapping (`Any`, `object`) as a
-# mapping's argument is an opaque payload: allowed in a parameter or a field, never in a return value
-# (D93).
+# mapping's argument is an opaque payload: allowed in a parameter or a field, never in a return value.
 mappings        = ["builtins.dict", "typing.Dict", "typing.Mapping", "typing.MutableMapping", "collections.abc.Mapping", "collections.abc.MutableMapping"]
 opaque_payload  = "except-return"
 signatures      = true
@@ -505,7 +504,7 @@ symbols  = [
 audience = "src.zone == 'api'"
 shape    = "registration"
 
-# Doors of core packages (D112), fitted to how code uses them. Tests may reach past them
+# Doors of core packages, fitted to how code uses them. Tests may reach past them
 # (public-surface). egress: each vendor's package init, transport and clients, GitHub's pacing, and
 # the shared limiter's policies and outbound facade.
 [exports.egress]
@@ -670,7 +669,7 @@ growth_key = ["dst.symbol", "src.package"]
 
 [rules.facade-no-state]
 primitive  = "edge"
-doc        = "A facade changes no state (D115). In facade code, a write (create, save, update, delete and their bulk and async forms, also through a local the use flows into), a transaction or a row lock (`transaction.atomic`, `select_for_update`) or a read that leaves the team scope (`objects.unscoped()`, the `all_teams` manager, the `unscoped()` context) is a finding. A read by id, by team or by the caller's filters is allowed. Not seen: a decision on what the database returned that leads to no write; a definition carried in a read's filter; a write on a value that came from a parameter, a helper, a loop or a related manager; a scope-leaving call later in a chain or on a local."
+doc        = "A facade changes no state. In facade code, a write (create, save, update, delete and their bulk and async forms, also through a local the use flows into), a transaction or a row lock (`transaction.atomic`, `select_for_update`) or a read that leaves the team scope (`objects.unscoped()`, the `all_teams` manager, the `unscoped()` context) is a finding. A read by id, by team or by the caller's filters is allowed. Not seen: a decision on what the database returned that leads to no write; a definition carried in a read's filter; a write on a value that came from a parameter, a helper, a loop or a related manager; a scope-leaving call later in a chain or on a local."
 why        = "A facade calls the internals of its product and maps the result to contract types. A write, a lock or a transaction in the facade puts the rules that change the data of the product into the facade. A read that leaves the team scope there skips the scope that the internals keep."
 ways       = [
   { safety = "care", text = "Move the whole operation into the internals of the product, for example backend/logic/: its checks, its transaction or lock, and its write. In the facade, call that function and map its result to a contract type." },
@@ -941,7 +940,7 @@ growth_key    = ["edge.location", "edge.label", "src.package"]
 # function is not.
 [rules.request-path]
 primitive     = "reach"
-doc           = "A product module that core's request pipeline reaches by module-level imports is a watched file (D103): wiring-watched checks it. The search starts at the modules settings name, except under the keys that are not the per-request pipeline, and at the view base class, and goes on through product code. A list, not debt."
+doc           = "A product module that core's request pipeline reaches by module-level imports is a watched file: wiring-watched checks it. The search starts at the modules settings name, except under the keys that are not the per-request pipeline, and at the view base class, and goes on through product code. A list, not debt."
 why           = "A product file that the request pipeline of core imports is a watched file, and wiring-watched checks it. This rule makes a list and never blocks."
 ways          = [
   { safety = "safe", text = "No action is needed here. If wiring-watched reports the file, add the file to the contract-check inputs." },
@@ -994,9 +993,9 @@ inputs     = { adapter = "turbo", task = "backend:contract-check" }
 identity   = "entity"
 growth_key = ["subject"]
 
-# What the Isolated level reads of code outside the product (D108, its reader scope widened by
-# D123): a product file that core, a tool or another product reaches past the export is watched, as
-# a request-path file is; a product's own code and tests do not count. turbo-discover cascades into a
+# What the Isolated level reads of code outside the product: a product file that core, a tool or
+# another product reaches past the export is watched, as a request-path file is; a product's own
+# code and tests do not count. turbo-discover cascades into a
 # product's dependents only when its contract-check is affected, so another product's reader misses
 # a change to an unwatched file as surely as core does. A list: public-surface holds the crossing as
 # debt. A facade re-export does not end the reach (T7): the file that defines what a
@@ -1090,7 +1089,7 @@ growth_key = ["src.package", "dst.package"]
 
 [rules.no-product-lists-in-core]
 primitive  = "edge"
-doc        = "A core registration point (the modules the preset marks with `wiring = \"registration\"`: the Temporal worker and schedules, the query runner, the Celery schedule, the Max presets) lists products by name: each product module it names is a row (B14, D104). Core calling a product's facade anywhere else is allowed (D93). Migrations are frozen history and are not judged; Django settings may name product paths as strings; core production code may name a declared permanent interface. Not caught: a new hard-coded product list in a core module the preset does not mark as a registration point."
+doc        = "A core registration point (the modules the preset marks with `wiring = \"registration\"`: the Temporal worker and schedules, the query runner, the Celery schedule, the Max presets) lists products by name: each product module it names is a row (B14). Core calling a product's facade anywhere else is allowed. Migrations are frozen history and are not judged; Django settings may name product paths as strings; core production code may name a declared permanent interface. Not caught: a new hard-coded product list in a core module the preset does not mark as a registration point."
 why        = "Products register themselves. A core registration point must not list products by name."
 ways       = [
   { safety = "care", text = "Register the object from the product, through its AppConfig or a registry entry. Remove the line from core." },
@@ -1139,7 +1138,7 @@ growth_key = ["dst.symbol", "src.package"]
 
 [rules.migration-database]
 primitive     = "edge"
-doc           = "A migration of the repo depends only on migrations that run on the same databases. The Django test stays the authority (D117): a third-party app's migrations are not read, and a dependency list hoglint cannot read (computed or augmented) is incomplete."
+doc           = "A migration of the repo depends only on migrations that run on the same databases. The Django test stays the authority: a third-party app's migrations are not read, and a dependency list hoglint cannot read (computed or augmented) is incomplete."
 why           = "A migration must depend only on migrations that run on the same databases. Otherwise the setup of a database fails."
 ways          = [
   { safety = "care", text = "Remove the dependency, or move the migration to the app whose database it uses." },
@@ -1151,7 +1150,7 @@ on_unresolved = "incomplete"
 identity      = "migration-pair"
 growth_key    = ["edge.child", "edge.parent"]
 
-# Off for now (D118): own-database has no producer and its policy was never decided.
+# Off for now: own-database has no producer and its policy was never decided.
 # [rules.own-database]
 # primitive  = "layout"
 # doc        = "A product model has its own database route (B7). Incomplete until the pack sets `database` on models."
@@ -1191,7 +1190,7 @@ growth_key = ["temporal_subtree"]
 
 [rules.has-facade]
 primitive = "layout"
-doc       = "A product has a facade: a contracts module or package, and an api module that defines a function. The Isolated level asks for it (D108); a list, not debt."
+doc       = "A product has a facade: a contracts module or package, and an api module that defines a function. The Isolated level asks for it; a list, not debt."
 why       = "The Isolated level needs a facade: a contracts module and an api module that defines a function."
 ways      = [
   { safety = "care", text = "Add backend/facade/contracts.py and backend/facade/api.py to the product." },
@@ -1219,7 +1218,7 @@ ledger    = false
 # Reviewed exceptions to these rules live in hoglint.exceptions.toml.
 
 # ── Levels ─────────────────────────────────────────────────────
-# Isolated is specified apart from lint acceptance (D108). Only what can make the skip miss tests
+# Isolated is specified apart from lint acceptance. Only what can make the skip miss tests
 # blocks, ledgered or not: an unwatched file that code outside the product reaches past the export,
 # the product's own presentation past its facade, and unwatched wiring. The product also needs its
 # facade. Every other finding is a lint matter only.
