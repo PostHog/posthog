@@ -40,7 +40,7 @@ def source_repository_from_signals(signals: list[SignalData]) -> str | None:
     return next(iter(repositories)) if len(repositories) == 1 else None
 
 
-def source_issue_urls(signals: list[SignalData], source_issues: Sequence[SourceIssue] = ()) -> list[str]:
+def source_issue_urls(signals: list[SignalData], source_issues: Sequence[SourceIssue]) -> list[str]:
     """The normalized URLs of the GitHub issues a report was filed from, deduplicated, in first-seen order.
 
     Two records name them: a GitHub issue signal, and the `source_issue` artefact a scout writes when it

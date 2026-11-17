@@ -894,25 +894,15 @@ class TestSourceIssueCarveOut:
     _ISSUES = ["https://github.com/posthog/posthog/issues/7", "https://github.com/posthog/posthog-js/issues/8"]
 
     @pytest.mark.parametrize("code_available", [True, False])
-    def test_research_and_actionability_prompts_exempt_the_report_own_source_issues(self, code_available):
+    @pytest.mark.parametrize("issues", [_ISSUES, []])
+    def test_research_and_actionability_prompts_exempt_only_the_report_own_source_issues(self, code_available, issues):
         # A person files an issue and assigns it to themselves to ask for the work. Read as competing
         # work, the assignment makes the report already_addressed and hides Implement.
         prompts = [
-            build_initial_research_prompt(
-                _make_signal({}), 1, code_available=code_available, source_issue_urls=self._ISSUES
-            ),
-            build_actionability_prompt(1, code_available=code_available, source_issue_urls=self._ISSUES),
+            build_initial_research_prompt(_make_signal({}), 1, code_available=code_available, source_issue_urls=issues),
+            build_actionability_prompt(1, code_available=code_available, source_issue_urls=issues),
         ]
         for prompt in prompts:
-            assert all(url in prompt for url in self._ISSUES)
-            assert "never count as `already_addressed`" in prompt
-
-    @pytest.mark.parametrize("code_available", [True, False])
-    def test_prompts_list_no_source_issue_without_one(self, code_available):
-        prompts = [
-            build_initial_research_prompt(_make_signal({}), 1, code_available=code_available),
-            build_actionability_prompt(1, code_available=code_available),
-        ]
-        for prompt in prompts:
-            assert "own source issues" not in prompt
-            assert "github.com" not in prompt
+            assert all(url in prompt for url in issues)
+            assert ("never count as `already_addressed`" in prompt) is bool(issues)
+            assert ("github.com" in prompt) is bool(issues)
