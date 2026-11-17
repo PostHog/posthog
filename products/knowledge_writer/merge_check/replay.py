@@ -14,7 +14,10 @@ from anthropic import APIError
 from posthog.egress.limiter.policies import Priority
 
 from ..backend.facade.contracts import MergeCheckReport
-from ..backend.settings import DocsSource, docs_source_for
+from ..backend.logic.pull_requests import changed_files_for, decoded_text, head_texts, publication_refusal
+from ..backend.logic.server_commit import BaseEntry, BaseTree, ancestor_directories
+from ..backend.logic.writer_change import WriterChangeRefused, parse_writer_change
+from ..backend.settings import DEFAULT_DOCS_PATHS, DocsSource, docs_source_for
 from .check import run_merge_check
 from .judge import judge_client
 from .sources import (
@@ -24,6 +27,7 @@ from .sources import (
     UnexpectedGitHubResponse,
     landed_change,
     read_closed_pull_requests,
+    read_github,
 )
 
 MAX_RECENT_MERGES = 100
@@ -44,6 +48,8 @@ UNSCORED_TRUTH_VALUES = frozenset({"not_applicable"})
 def replay_command(arguments: argparse.Namespace) -> int:
     if arguments.eval:
         return eval_command(arguments)
+    if arguments.publish_eval:
+        return publish_eval_command(arguments.publish_eval)
     flagged = 0
     github = environment_github()
     source = docs_source_for(arguments.docs_repository)
@@ -297,6 +303,135 @@ def criterion_text(value: object) -> str | None:
     return str(value)
 
 
+def publish_eval_command(labelled_commits_path: Path) -> int:
+    github = CachedGitHub(environment_github(), GITHUB_CACHE_DIRECTORY)
+    wrong_commits_by_kind: dict[str, list[str]] = {"false_publish": [], "false_refuse": []}
+    labelled_commits = [json.loads(line) for line in labelled_commits_path.read_text().splitlines() if line.strip()]
+    failed_commits: list[str] = []
+    for labelled_commit in labelled_commits:
+        repository, commit_sha = labelled_commit["repository"], labelled_commit["commit_sha"]
+        try:
+            refusal = commit_publication_refusal(github, repository, commit_sha)
+        except EVAL_ROW_ERRORS as error:
+            failed_commits.append(commit_sha)
+            error_line = {
+                "commit_sha": commit_sha,
+                "error": type(error).__name__,
+                "status_code": error_status_code(error),
+                "message": str(error)[:ERROR_MESSAGE_LIMIT],
+            }
+            print(json.dumps(error_line), flush=True)  # noqa: T201 — eval row
+            continue
+        publishes = refusal is None
+        print(  # noqa: T201 — one eval row per labelled commit
+            json.dumps(
+                {
+                    "commit_sha": commit_sha,
+                    "truth": labelled_commit["truth"],
+                    "publishes": publishes,
+                    "refusal": refusal,
+                }
+            ),
+            flush=True,
+        )
+        if publishes and labelled_commit["truth"] == "refuse":
+            wrong_commits_by_kind["false_publish"].append(commit_sha)
+        if not publishes and labelled_commit["truth"] == "publish":
+            wrong_commits_by_kind["false_refuse"].append(commit_sha)
+    summary = {
+        "commits": len(labelled_commits),
+        "failed": len(failed_commits),
+        **{kind: len(shas) for kind, shas in wrong_commits_by_kind.items()},
+    }
+    print(json.dumps({**summary, "wrong_commits": wrong_commits_by_kind, "failed_commits": failed_commits}))  # noqa: T201 — eval summary
+    return 0
+
+
+def commit_publication_refusal(github: GitHubReader, repository: str, commit_sha: str) -> str | None:
+    comparison = parent_comparison(github, repository, commit_sha)
+    try:
+        change = parse_writer_change(writer_change_manifest(github, repository, comparison["files"]))
+    except WriterChangeRefused as refused:
+        return refused.reason
+    if not change.paths:
+        return "no_changes"
+    tree = parent_tree(github, repository, comparison["base_commit"]["commit"]["tree"]["sha"], change.paths)
+    changed_files = changed_files_for(change, tree)
+    if changed_files is None:
+        return "unsafe_base_entry"
+    return publication_refusal(
+        changed_files, (DEFAULT_DOCS_PATHS.strip("/"),), repository, tree.texts, head_texts(change)
+    )
+
+
+def parent_comparison(github: GitHubReader, repository: str, commit_sha: str) -> dict:
+    commit = read_github(
+        github, f"/repos/{repository}/commits/{commit_sha}", endpoint="/repos/{owner}/{repo}/commits/{ref}"
+    )
+    parent_sha = commit.json()["parents"][0]["sha"]
+    comparison = read_github(
+        github,
+        f"/repos/{repository}/compare/{parent_sha}...{commit_sha}",
+        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+    )
+    return comparison.json()
+
+
+def writer_change_manifest(github: GitHubReader, repository: str, compared_files: list[dict]) -> bytes:
+    written = {
+        compared_file["filename"]: blob_base64(github, repository, compared_file["sha"])
+        for compared_file in compared_files
+        if compared_file["status"] != "removed"
+    }
+    deleted = [
+        compared_file["previous_filename"] if compared_file["status"] == "renamed" else compared_file["filename"]
+        for compared_file in compared_files
+        if compared_file["status"] in ("removed", "renamed")
+    ]
+    return json.dumps({"written": written, "deleted": deleted}).encode()
+
+
+def blob_base64(github: GitHubReader, repository: str, blob_sha: str) -> str:
+    blob = read_github(
+        github, f"/repos/{repository}/git/blobs/{blob_sha}", endpoint="/repos/{owner}/{repo}/git/blobs/{file_sha}"
+    )
+    return "".join(blob.json()["content"].split())
+
+
+def parent_tree(github: GitHubReader, repository: str, root_tree_sha: str, paths: frozenset[str]) -> BaseTree:
+    directories = sorted({directory for path in paths for directory in ancestor_directories(path)})
+    tree_sha_by_directory = {"": root_tree_sha}
+    listed_entries: dict[str, dict] = {}
+    for directory in directories:
+        tree_sha = tree_sha_by_directory.get(directory)
+        if tree_sha is None:
+            continue
+        listing = read_github(
+            github, f"/repos/{repository}/git/trees/{tree_sha}", endpoint="/repos/{owner}/{repo}/git/trees/{tree_sha}"
+        )
+        for entry in listing.json()["tree"]:
+            entry_path = f"{directory}/{entry['path']}" if directory else entry["path"]
+            listed_entries[entry_path] = entry
+            if entry["type"] == "tree":
+                tree_sha_by_directory[entry_path] = entry["sha"]
+    every_path = paths | {directory for directory in directories if directory}
+    return BaseTree(
+        entries={
+            path: BaseEntry(mode=int(listed_entries[path]["mode"], 8), oid=listed_entries[path]["sha"])
+            if path in listed_entries
+            else None
+            for path in every_path
+        },
+        texts={path: parent_blob_text(github, repository, listed_entries.get(path)) for path in paths},
+    )
+
+
+def parent_blob_text(github: GitHubReader, repository: str, entry: dict | None) -> str | None:
+    if entry is None or entry["type"] != "blob":
+        return None
+    return decoded_text(base64.b64decode(blob_base64(github, repository, entry["sha"])))
+
+
 def read_merges(merges_path: Path) -> list[dict]:
     merges = [json.loads(line) for line in merges_path.read_text().splitlines() if line.strip()]
     if any(not isinstance(merge.get("pull_request_number"), int) for merge in merges):
@@ -332,6 +467,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     merge_source.add_argument(
         "--recent", type=recent_merge_count, help="replay the merged pull requests among the last N closed ones"
+    )
+    merge_source.add_argument(
+        "--publish-eval",
+        type=Path,
+        help="score the publish check against docs commits labelled publish or refuse, such as evals/publish_check.jsonl",
     )
     replay.add_argument("--repository", default="PostHog/posthog", help="owner/name of the merged repository")
     replay.add_argument(
