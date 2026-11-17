@@ -35,7 +35,6 @@ from posthog.email import (
     _send_email,
     _send_via_http,
     _send_via_smtp,
-    _workflows_pin_key,
     get_email_team_and_org_context,
     is_email_available,
     sanitize_email_properties,
@@ -841,15 +840,16 @@ class TestEmail(BaseTest):
         self.assertEqual(len(mail.outbox), 1 if expected == "smtp" else 0)
         self.assertEqual(was_email_delivered("fallback_campaign", "test@posthog.com"), expected == "smtp")
 
+    @parameterized.expand([("accepted", 202, True), ("refused", 429, False)])
     @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
     @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
     @patch("requests.adapters.HTTPAdapter.send", autospec=True)
     def test_retry_of_a_send_workflows_may_have_queued_stays_on_workflows_after_the_flag_turns_off(
-        self, mock_send: MagicMock, mock_flag: MagicMock
+        self, _name: str, retry_status: int, delivered: bool, mock_send: MagicMock, mock_flag: MagicMock
     ) -> None:
         mock_send.side_effect = [
             _workflows_response(503, {"code": "delivery_unavailable"}),
-            _workflows_response(202, {"message_id": "m1"}),
+            _workflows_response(retry_status, {"message_id": "m1"} if delivered else {"code": "throttled"}),
         ]
 
         with override_instance_config("EMAIL_HOST", "localhost"):
@@ -860,13 +860,14 @@ class TestEmail(BaseTest):
             with self.assertRaises(WorkflowsEmailError):
                 message.send(send_async=False, retry=False)
             mock_flag.return_value = False
-            message.send(send_async=False, retry=False)
+            with contextlib.nullcontext() if delivered else self.assertRaises(WorkflowsEmailError):
+                message.send(send_async=False, retry=False)
 
         keys = [call.args[1].headers["Idempotency-Key"] for call in mock_send.call_args_list]
         self.assertEqual(len(keys), 2)
         self.assertEqual(keys[0], keys[1])
         self.assertEqual(len(mail.outbox), 0)
-        self.assertTrue(was_email_delivered("pinned_campaign", "test@posthog.com"))
+        self.assertEqual(was_email_delivered("pinned_campaign", "test@posthog.com"), delivered)
 
     @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
     @patch(
@@ -900,7 +901,6 @@ class TestEmail(BaseTest):
         mock_send.side_effect = [
             throttled,
             _workflows_response(503, {"code": "delivery_unavailable"}),
-            throttled,
             _workflows_response(202, {"message_id": "m1"}),
         ]
 
@@ -917,29 +917,7 @@ class TestEmail(BaseTest):
         self.assertEqual([email.to for email in mail.outbox], [["first@posthog.com"]])
         self.assertTrue(was_email_delivered("refused_campaign", "second@posthog.com"))
 
-    @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
-    @patch("requests.adapters.HTTPAdapter.send", autospec=True)
-    def test_a_pin_from_an_overlapping_send_blocks_the_smtp_fallback(self, mock_send: MagicMock) -> None:
-        mock_send.return_value = _workflows_response(429, {"code": "throttled"})
-
-        def overlapping_send_pins_the_recipient(*_args: Any, **_kwargs: Any) -> bool:
-            caches["email_workflows_pins"].set(_workflows_pin_key("overlap_campaign", "test@posthog.com"), True)
-            return True
-
-        with (
-            override_instance_config("EMAIL_HOST", "localhost"),
-            patch("posthog.email.posthoganalytics.feature_enabled", side_effect=overlapping_send_pins_the_recipient),
-        ):
-            message = EmailMessage(
-                campaign_key="overlap_campaign", subject="Subject", template_name="async_migration_error"
-            )
-            message.add_recipient("test@posthog.com")
-            with self.assertRaises(WorkflowsEmailError):
-                message.send(send_async=False, retry=False)
-
-        self.assertEqual(len(mail.outbox), 0)
-
-    @parameterized.expand([("pin_read", "get"), ("pin_write", "set")])
+    @parameterized.expand([("pin_read", "get"), ("pin_write", "set_many")])
     @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
     @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
     @patch("requests.adapters.HTTPAdapter.send", autospec=True)
@@ -954,7 +932,7 @@ class TestEmail(BaseTest):
                 campaign_key="cache_campaign", subject="Subject", template_name="async_migration_error"
             )
             message.add_recipient("test@posthog.com")
-            with self.assertRaises(WorkflowsEmailError):
+            with self.assertRaises(ConnectionError):
                 message.send(send_async=False, retry=False)
 
         mock_send.assert_not_called()

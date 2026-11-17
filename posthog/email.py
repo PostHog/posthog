@@ -5,7 +5,6 @@ import hashlib
 import smtplib
 import datetime
 import dataclasses
-from collections.abc import Callable
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -391,18 +390,11 @@ class _RenderedEmail:
     subject: str
     html: str
     reply_to: str | None
+    pinned: frozenset[str] = frozenset()
 
-
-def _workflows_pin_key(campaign_key: str, raw_email: str) -> str:
-    return f"email_workflows_pin:{_workflows_idempotency_key(campaign_key, raw_email)}"
-
-
-def _pin_op(op: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    try:
-        return op(*args, **kwargs)
-    except Exception as err:
-        # Retried, never guessed: a pin read as missing could send an email Workflows queued again over SMTP.
-        raise WorkflowsEmailError(str(err), code="pin_unavailable") from err
+    def send_over_smtp(self, to: list[dict[str, str]], campaign_key: str) -> None:
+        if to:
+            _send_via_smtp(to, campaign_key, self.subject, "", self.html, {}, self.reply_to)
 
 
 def _smtp_email_via_workflows(dest: dict[str, str], template_name: str) -> bool:
@@ -428,12 +420,7 @@ def _smtp_email_via_workflows(dest: dict[str, str], template_name: str) -> bool:
 def _send_rendered_via_workflows(
     capture: ScopedCapture, dest: dict[str, str], campaign_key: str, template_name: str, rendered: _RenderedEmail
 ) -> dict[str, Any] | Literal["smtp"]:
-    """Send a Django-rendered email through Workflows, or return "smtp" when Workflows certainly queued nothing."""
-    idempotency_key = _workflows_idempotency_key(campaign_key, dest["raw_email"])
-    pin_key = _workflows_pin_key(campaign_key, dest["raw_email"])
-    # Read and written under the recipient's row lock, so an overlapping send sees this one's pin.
-    pinned = bool(_pin_op(caches["email_workflows_pins"].get, pin_key))
-    _pin_op(caches["email_workflows_pins"].set, pin_key, True, timeout=WORKFLOWS_PIN_TTL_SECONDS)
+    """Send a Django-rendered email through Workflows, or over SMTP when Workflows certainly queued nothing."""
     reply_to = rendered.reply_to or get_instance_setting("EMAIL_REPLY_TO")
     try:
         # Celery owns the retries, and the short timeout keeps the MessagingRecord row lock brief.
@@ -450,7 +437,7 @@ def _send_rendered_via_workflows(
                 distinct_id=dest.get("distinct_id") or None,
                 # The API makes a send with no saved template sensitive, which turns click tracking off.
                 sensitive=False,
-                idempotency_key=idempotency_key,
+                idempotency_key=_workflows_idempotency_key(campaign_key, dest["raw_email"]),
             )
     except EmailError as sdk_err:
         cause = sdk_err.__cause__
@@ -461,24 +448,23 @@ def _send_rendered_via_workflows(
             status_code=sdk_err.status_code,
             attr=sdk_err.field,
         )
-        # An address only Workflows refuses, such as one with an international domain, can still go out over SMTP.
-        if not pinned and _workflows_queued_nothing(err):
-            _pin_op(caches["email_workflows_pins"].delete, pin_key)
-            EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc()
-            logger.warning("email_workflows_fallback_to_smtp", template_name=template_name, code=err.code)
-            _capture_email_event(
-                capture,
-                dest,
-                "transactional email failed",
-                {
-                    "template_name": template_name,
-                    "campaign_key": campaign_key,
-                    "error": str(err)[:500],
-                    "fallback": "smtp",
-                },
-            )
-            return "smtp"
-        raise err from sdk_err
+        # A pinned recipient never falls back. An address only Workflows refuses, such as one with an international
+        # domain, still goes out over SMTP.
+        if dest["raw_email"] in rendered.pinned or not _workflows_queued_nothing(err):
+            raise err from sdk_err
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc()
+        logger.warning("email_workflows_fallback_to_smtp", template_name=template_name, code=err.code)
+        _capture_email_event(
+            capture,
+            dest,
+            "transactional email failed",
+            {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500], "fallback": "smtp"},
+        )
+        try:
+            rendered.send_over_smtp([dest], campaign_key)
+        except (*_TRANSIENT_SMTP_ERRORS, smtplib.SMTPException) as smtp_err:
+            raise WorkflowsEmailError(str(smtp_err), code="smtp_unavailable") from smtp_err
+        return "smtp"
     return {"message_id": result.id, "replayed": result.replayed}
 
 
@@ -493,12 +479,6 @@ def _capture_email_event(capture: ScopedCapture, dest: dict[str, str], event: st
         logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
 
 
-def _workflows_undeliverable(err: WorkflowsEmailError) -> bool:
-    return (err.status_code == 422 and err.code in WORKFLOWS_UNDELIVERABLE_422_CODES) or (
-        err.status_code == 400 and err.code == "invalid_input" and err.attr == "to"
-    )
-
-
 def _send_one(
     capture: ScopedCapture,
     dest: dict[str, str],
@@ -510,14 +490,16 @@ def _send_one(
     """Send one email through Workflows and return its response.
 
     Returns None when Workflows refused the recipient as undeliverable, so the email is dropped, and "smtp" when a
-    rendered email falls back to SMTP.
+    rendered email went out over SMTP instead.
     """
     try:
         if rendered:
             return _send_rendered_via_workflows(capture, dest, campaign_key, template_name, rendered)
         return _send_one_via_workflows(dest, campaign_key, get_workflows_template_id(template_name), properties)
     except WorkflowsEmailError as err:
-        if _workflows_undeliverable(err):
+        if (err.status_code == 422 and err.code in WORKFLOWS_UNDELIVERABLE_422_CODES) or (
+            err.status_code == 400 and err.code == "invalid_input" and err.attr == "to"
+        ):
             logger.info("email_workflows_recipient_undeliverable", template_name=template_name)
             _capture_email_event(
                 capture,
@@ -536,14 +518,26 @@ def _send_via_http(
     properties: dict,
     will_retry: bool = True,
     rendered: _RenderedEmail | None = None,
-) -> tuple[list[str], list[dict[str, str]]]:
-    """Sends emails using the Workflows transactional email API.
-
-    Returns the addresses Workflows refused as undeliverable, and the recipients of a rendered email that fall back to
-    SMTP.
-    """
+) -> list[str]:
+    """Sends emails using the Workflows transactional email API"""
     if not is_http_email_service_available():
         raise Exception("Missing Workflows transactional email API key")
+
+    if rendered:
+        pins = caches["email_workflows_pins"]
+        pin_keys = {
+            dest["raw_email"]: f"email_workflows_pin:{_workflows_idempotency_key(campaign_key, dest['raw_email'])}"
+            for dest in to
+        }
+        # Cache errors raise before any send, because a pin read as missing could send a queued email again over SMTP.
+        pinned = frozenset(email for email, key in pin_keys.items() if pins.get(key))
+        workflows_to = [d for d in to if d["raw_email"] in pinned or _smtp_email_via_workflows(d, template_name)]
+        # Sent first, so a Workflows retry never holds back the recipients Workflows does not serve.
+        rendered.send_over_smtp([d for d in to if d not in workflows_to], campaign_key)
+        if not workflows_to:
+            return []
+        pins.set_many({pin_keys[d["raw_email"]]: True for d in workflows_to}, timeout=WORKFLOWS_PIN_TTL_SECONDS)
+        to, rendered = workflows_to, dataclasses.replace(rendered, pinned=pinned)
 
     if not current_task or current_task.request.is_eager:
         # The dedicated client blocks on its flush, which would hold the request. The web process keeps running,
@@ -565,11 +559,10 @@ def _send_via_http_batch(
     properties: dict,
     will_retry: bool = True,
     rendered: _RenderedEmail | None = None,
-) -> tuple[list[str], list[dict[str, str]]]:
+) -> list[str]:
     sent_count = 0
     already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
     undeliverable: list[str] = []
-    smtp_to: list[dict[str, str]] = []
     dest: dict[str, str] | None = None
     try:
         for dest in to:
@@ -585,7 +578,7 @@ def _send_via_http_batch(
 
                 provider_response = _send_one(capture, dest, campaign_key, template_name, properties, rendered)
                 if provider_response == "smtp":
-                    smtp_to.append(dest)
+                    already_sent_count += 1
                     continue
                 if provider_response is None:
                     # sent_at stays unset, so raise_if_delivery_rejected tells a synchronous caller nothing went out.
@@ -634,7 +627,7 @@ def _send_via_http_batch(
             )
         # Count every recipient that did not get through (the failing one + any not yet attempted),
         # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
-        unsent_count = len(to) - already_sent_count - sent_count - len(undeliverable) - len(smtp_to)
+        unsent_count = len(to) - already_sent_count - sent_count - len(undeliverable)
         # An earlier attempt with this key is still queueing the email, so only a last attempt is a failed send.
         in_flight = isinstance(err, WorkflowsEmailError) and err.code == "idempotency_key_in_flight"
         if not (in_flight and retrying):
@@ -645,7 +638,7 @@ def _send_via_http_batch(
             # The retry sends the same idempotency key, so Workflows returns an email it already queued instead of
             # sending a second one, and recipients already marked sent are skipped.
             raise
-    return undeliverable, smtp_to
+    return undeliverable
 
 
 def _send_via_smtp(
@@ -901,86 +894,66 @@ def _send_email_now(
     properties: Optional[dict] = None,
     retry_in_worker: bool = False,
 ) -> list[str]:
-    def send_over_smtp(recipients: list[dict[str, str]]) -> None:
-        if recipients:
-            _send_via_smtp(
-                to=recipients,
-                campaign_key=campaign_key,
-                subject=subject,
-                txt_body=txt_body,
-                html_body=html_body,
-                headers=headers,
-                reply_to=reply_to,
-            )
-
-    try:
-        if use_http and is_http_email_service_available():
+    rendered = None
+    # The pinned SDK cannot send custom headers yet.
+    if (
+        not use_http
+        and not headers
+        and template_name not in SMTP_ONLY_TEMPLATE_NAMES
+        and is_smtp_email_service_available()
+    ):
+        rendered = _RenderedEmail(subject=subject, html=html_body, reply_to=reply_to)
+    if (use_http or rendered) and is_http_email_service_available():
+        try:
             return _send_via_http(
                 to=to,
                 campaign_key=campaign_key,
                 template_name=template_name,
                 properties=properties or {},
                 will_retry=_send_will_retry(retry_in_worker),
-            )[0]
-        if (
-            is_smtp_email_service_available()
-            and is_http_email_service_available()
-            and template_name not in SMTP_ONLY_TEMPLATE_NAMES
-            # The pinned SDK cannot send custom headers yet.
-            and not headers
-        ):
-            workflows_to = [
-                dest
-                for dest in to
-                if _pin_op(caches["email_workflows_pins"].get, _workflows_pin_key(campaign_key, dest["raw_email"]))
-                or _smtp_email_via_workflows(dest, template_name)
-            ]
-            # Sent first, so a Workflows retry never holds back the recipients Workflows does not serve.
-            send_over_smtp([dest for dest in to if dest not in workflows_to])
-            if not workflows_to:
-                return []
-            undeliverable, fallback_to = _send_via_http(
-                to=workflows_to,
-                campaign_key=campaign_key,
-                template_name=template_name,
-                properties=properties or {},
-                will_retry=_send_will_retry(retry_in_worker),
-                rendered=_RenderedEmail(subject=subject, html=html_body, reply_to=reply_to),
+                rendered=rendered,
             )
-            send_over_smtp(fallback_to)
-            return undeliverable
-    except RETRYABLE_HTTP_SEND_ERRORS as err:
-        if not retry_in_worker:
-            task = _worker_send_task()
-            if task is not None:
-                # After the last wait, Celery raises `err` instead of scheduling another attempt.
-                countdowns = HTTP_SEND_RETRY_COUNTDOWNS_SECONDS
-                raise task.retry(
-                    exc=err,
-                    countdown=countdowns[min(task.request.retries, len(countdowns) - 1)],
-                    max_retries=len(countdowns),
-                )
-            raise
-        # The retry sends the same idempotency key, so Workflows does not send the email twice.
-        _send_email.apply_async(
-            kwargs={
-                "campaign_key": campaign_key,
-                "to": to,
-                "subject": subject,
-                "headers": headers,
-                "txt_body": txt_body,
-                "html_body": html_body,
-                "template_name": template_name,
-                "reply_to": reply_to,
-                "use_http": use_http,
-                "properties": properties,
-            }
+        except RETRYABLE_HTTP_SEND_ERRORS as err:
+            if not retry_in_worker:
+                task = _worker_send_task()
+                if task is not None:
+                    # After the last wait, Celery raises `err` instead of scheduling another attempt.
+                    countdowns = HTTP_SEND_RETRY_COUNTDOWNS_SECONDS
+                    raise task.retry(
+                        exc=err,
+                        countdown=countdowns[min(task.request.retries, len(countdowns) - 1)],
+                        max_retries=len(countdowns),
+                    )
+                raise
+            # The retry sends the same idempotency key, so Workflows does not send the email twice.
+            _send_email.apply_async(
+                kwargs={
+                    "campaign_key": campaign_key,
+                    "to": to,
+                    "subject": subject,
+                    "headers": headers,
+                    "txt_body": txt_body,
+                    "html_body": html_body,
+                    "template_name": template_name,
+                    "reply_to": reply_to,
+                    "use_http": use_http,
+                    "properties": properties,
+                }
+            )
+            return []
+    elif is_smtp_email_service_available():
+        _send_via_smtp(
+            to=to,
+            campaign_key=campaign_key,
+            subject=subject,
+            txt_body=txt_body,
+            html_body=html_body,
+            headers=headers,
+            reply_to=reply_to,
         )
         return []
-    if not is_smtp_email_service_available():
+    else:
         raise Exception("Email is not enabled in this instance.")
-    send_over_smtp(to)
-    return []
 
 
 _send_email = shared_task(**EMAIL_TASK_KWARGS, name="posthog.email._send_email")(_send_email_now)
