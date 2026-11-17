@@ -386,7 +386,7 @@ function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Ph
         incomplete ||=
             span <= 0 ||
             edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS) ||
-            new Set(window.map(({ startedAt }) => startedAt)).size > 1
+            window.some(({ startedAt }) => startedAt * 1000 > step.from)
         if (span <= 0) {
             continue
         }

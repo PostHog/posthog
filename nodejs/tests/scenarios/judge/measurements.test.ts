@@ -740,6 +740,11 @@ describe('measurements', () => {
                 ...every5s(0, 115, 3, (at) => ({ fetch: at < 90 ? at : at - 87 })).map((restarting) =>
                     restarting.at >= atS(90) ? { ...restarting, startedAt: FROM / 1000 + 87 } : restarting
                 ),
+                ...every5s(0, 115, 4, (at) => ({ fanout: at < 60 ? at : at - 61 }))
+                    .filter(({ at }) => at !== atS(60))
+                    .map((restarting) =>
+                        restarting.at > atS(60) ? { ...restarting, startedAt: FROM / 1000 + 61 } : restarting
+                    ),
             ],
             drive: { startedAt: atS(0), endedAt: atS(120) },
             steps: [
@@ -752,9 +757,11 @@ describe('measurements', () => {
             { name: 'step_claims_per_second', key: 'hogflow_1x', unit: 'jobs/s', value: 1, incomplete: true },
             { name: 'step_claims_per_second', key: 'email_1x', unit: 'jobs/s', value: 2 },
             { name: 'step_claims_per_second', key: 'fetch_1x', unit: 'jobs/s', value: 1 },
+            { name: 'step_claims_per_second', key: 'fanout_1x', unit: 'jobs/s', value: 1 },
             { name: 'step_claims_per_second', key: 'hogflow_10x', unit: 'jobs/s', value: 10 },
             { name: 'step_claims_per_second', key: 'email_10x', unit: 'jobs/s', value: 0, incomplete: true },
             { name: 'step_claims_per_second', key: 'fetch_10x', unit: 'jobs/s', value: 53 / 55, incomplete: true },
+            { name: 'step_claims_per_second', key: 'fanout_10x', unit: 'jobs/s', value: 1, incomplete: true },
         ])
     })
 
