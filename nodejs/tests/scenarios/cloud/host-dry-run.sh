@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Runs the run host's scripts in a clean Ubuntu 24.04 container, in the order a real host runs them:
 # host-bootstrap.sh, then host-prepare.sh, then host-run-card.sh. Downloads, checksums and builds are real.
-# Stand-ins replace what only a real host has: S3, the instance role, ECR, the Docker daemon and the Aurora
-# cluster (a Postgres container with TLS). Each stand-in logs its calls to <work dir>/stand-ins.log.
+# Stand-ins replace what only a real host has: S3, the instance role, the pooler image in ECR (run as
+# Ubuntu's pgbouncer from the same config) and the Aurora cluster (a Postgres container with TLS on the
+# network). Docker runs for real inside the container. Each stand-in logs its calls to <work dir>/stand-ins.log.
 #
 # The run host is amd64. On an arm64 machine, where rustc does not run under amd64 emulation, the script
 # first checks every pinned amd64 download and the files the bootstrap extracts from it, then runs the host
@@ -62,7 +63,11 @@ arm64_bootstrap() {
         "$bootstrap"
 }
 
-cleanup() { docker rm -f "$name-host" "$name-db" >/dev/null 2>&1 || true; }
+cleanup() {
+    docker rm -f "$name-host" "$name-db" >/dev/null 2>&1 || true
+    docker volume rm "$name-docker" >/dev/null 2>&1 || true
+    docker network rm "$name" >/dev/null 2>&1 || true
+}
 trap cleanup EXIT
 
 mkdir -p "$work/stand-ins" "$work/bucket/runs/$run_id/input"
@@ -101,7 +106,7 @@ case "${1:-} ${2:-}" in
     "sts get-caller-identity")
         echo '{"Account":"000000000000","Arn":"arn:aws:sts::000000000000:assumed-role/dry-run/host"}' ;;
     "rds describe-db-clusters")
-        echo '{"Endpoint":"127.0.0.1","Port":5432,"MasterUserSecret":{"SecretArn":"arn:aws:secretsmanager:us-east-1:000000000000:secret:dry-run"}}' ;;
+        echo '{"Endpoint":"cluster","Port":5432,"MasterUserSecret":{"SecretArn":"arn:aws:secretsmanager:us-east-1:000000000000:secret:dry-run"}}' ;;
     "secretsmanager get-secret-value")
         jq -cn --arg password "$DRY_RUN_DB_PASSWORD" '{username:"posthog",password:$password}' ;;
     "ecr get-login-password")
@@ -116,23 +121,32 @@ cat >"$work/stand-ins/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 echo "docker $*" >>/dry-run/stand-ins.log
-case "${1:-}" in
-    info | pull) ;;
-    login) cat >/dev/null ;;
-    run)
-        name=$(sed -n 's/.* --name \([^ ]*\) .*/\1/p' <<<" $* ")
-        mount=$(sed -n 's/.* -v \([^:]*\):.*/\1/p' <<<" $* ")
-        command -v pgbouncer >/dev/null || apt-get install -y -q pgbouncer >/dev/null
-        mkdir -p "/dry-run/pooler/$name"
-        cp "$mount"/* "/dry-run/pooler/$name/"
-        sed -i "s#^auth_file = .*#auth_file = /dry-run/pooler/$name/userlist.txt#" "/dry-run/pooler/$name/pgbouncer.ini"
-        chown -R nobody "/dry-run/pooler/$name"
-        setsid pgbouncer -u nobody "/dry-run/pooler/$name/pgbouncer.ini" >"/dry-run/pooler/$name.log" 2>&1 &
-        echo "$name" ;;
-    logs) tail -n "$3" "/dry-run/pooler/$4.log" ;;
-    *)
-        echo "dry run: no Docker daemon for docker $*" >&2
-        exit 1 ;;
+real=/usr/bin/docker
+daemon() {
+    "$real" info >/dev/null 2>&1 && return
+    (setsid dockerd >>/dry-run/dockerd.log 2>&1 &)
+    for _ in $(seq 60); do "$real" info >/dev/null 2>&1 && return; sleep 1; done
+    echo "dry run: dockerd did not start; see dockerd.log" >&2
+    exit 1
+}
+pooler() {
+    local name mount
+    name=$(sed -n 's/.* --name \([^ ]*\) .*/\1/p' <<<" $* ")
+    mount=$(sed -n 's/.* -v \([^:]*\):.*/\1/p' <<<" $* ")
+    command -v pgbouncer >/dev/null || apt-get install -y -q pgbouncer >/dev/null
+    mkdir -p "/dry-run/pooler/$name"
+    cp "$mount"/* "/dry-run/pooler/$name/"
+    sed -i "s#^auth_file = .*#auth_file = /dry-run/pooler/$name/userlist.txt#" "/dry-run/pooler/$name/pgbouncer.ini"
+    chown -R nobody "/dry-run/pooler/$name"
+    setsid pgbouncer -u nobody "/dry-run/pooler/$name/pgbouncer.ini" >"/dry-run/pooler/$name.log" 2>&1 &
+    echo "$name"
+}
+case " $* " in
+    " login "*.dkr.ecr.*) cat >/dev/null ;;
+    " pull "*.dkr.ecr.*) ;;
+    " run "*" --entrypoint pgbouncer "*) pooler "$@" ;;
+    " logs "*" scenario-pooler-"*) tail -n "$3" "/dry-run/pooler/$4.log" ;;
+    *) daemon && exec "$real" "$@" ;;
 esac
 EOF
 
@@ -170,11 +184,12 @@ cat "/dry-run/bucket/runs/$RUN_ID/host/done"
 EOF
 
 password='dry:Run#1?&%x'
-docker run -d --name "$name-db" \
+docker network create "$name" >/dev/null
+docker run -d --name "$name-db" --network "$name" --network-alias cluster \
     -e POSTGRES_USER=posthog -e POSTGRES_PASSWORD="$password" -e POSTGRES_DB=cyclotron_node \
     "postgres:${engine:-16}" \
     -c ssl=on -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key \
     >/dev/null
-docker run --name "$name-host" --platform "$platform" --network "container:$name-db" \
+docker run --name "$name-host" --platform "$platform" --network "$name" --privileged -v "$name-docker:/var/lib/docker" \
     -e RUN_ID="$run_id" -e CARD_SECONDS="$card_seconds" -e DRY_RUN_DB_PASSWORD="$password" \
     -v "$work:/dry-run" ubuntu:24.04 bash /dry-run/host.sh 2>&1 | tee "$work/host.log"
