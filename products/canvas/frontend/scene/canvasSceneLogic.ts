@@ -682,13 +682,13 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                     ? 'You can view this canvas but not change it. Ask its creator or a project admin for edit access.'
                     : null,
         ],
-        /** A private canvas is its owner's alone, so access rules only apply once others can see it. */
+        /** Access rules only govern the project-wide audience of a public canvas: in a personal or private
+         * space the space decides who sees it, and the default rule would not change who can edit. */
         canManageAccess: [
             (s) => [s.userAccessLevel, s.visibility],
             (userAccessLevel: AccessControlLevel | null, visibility: CanvasVisibility | null): boolean =>
                 !!userAccessLevel &&
-                !!visibility &&
-                visibility !== 'private' &&
+                visibility === 'public' &&
                 accessLevelSatisfied(AccessControlResourceType.Canvas, userAccessLevel, AccessControlLevel.Manager),
         ],
         sandboxDocumentUrl: [
