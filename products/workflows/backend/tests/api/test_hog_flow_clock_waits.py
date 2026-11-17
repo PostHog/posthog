@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -102,22 +104,36 @@ class TestUnwakeableWaitRejection(APIBaseTest):
         assert status == 400, body
         assert "depends on the current time" in str(body)
 
-    def test_rejects_a_wait_on_a_relative_date(self):
-        # Real-time filters compare a relative date against the time they run, so this condition
-        # turns true as time passes, with nothing for the matcher to wake it on.
-        wait = wait_on("true")
-        wait["config"]["condition"]["filters"]["properties"] = [
-            {"key": "signed_up_at", "type": "person", "operator": "is_date_before", "value": "-7d"}
+    @parameterized.expand(
+        [
+            ("conditional_branch", "conditions", True),
+            ("wait_until_condition", "condition", False),
         ]
+    )
+    def test_relative_date_condition_reads_the_clock_only_in_a_branch(
+        self, action_type: str, condition_key: str, reads_the_clock: bool
+    ):
+        filters = {
+            "properties": [{"key": "signed_up_at", "type": "person", "operator": "is_date_before", "value": "-7d"}]
+        }
+        condition = {"filters": filters}
+        config: dict[str, Any] = {condition_key: [condition] if condition_key == "conditions" else condition}
+        if action_type == "wait_until_condition":
+            config["max_wait_duration"] = "20d"
+        action = {"id": "condition_1", "name": "condition_1", "type": action_type, "config": config}
 
         with patch(
             "posthog.hogql.property.posthoganalytics.feature_enabled",
             side_effect=lambda flag, *args, **kwargs: flag == RUN_TIME_RELATIVE_DATES_FLAG,
         ):
-            status, body = self._post(wait)
+            status, body = self._post(action)
 
-        assert status == 400, body
-        assert "depends on the current time" in str(body)
+        assert status == 201, body
+        stored = next(a for a in HogFlow.objects.get(id=body["id"]).actions if a["id"] == "condition_1")
+        stored_condition = stored["config"][condition_key]
+        if condition_key == "conditions":
+            stored_condition = stored_condition[0]
+        assert ("now" in stored_condition["filters"]["bytecode"]) is reads_the_clock
 
     @parameterized.expand(
         [

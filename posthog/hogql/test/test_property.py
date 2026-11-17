@@ -480,7 +480,9 @@ class TestProperty(BaseTest):
     )
     @time_machine.travel("2026-04-09T12:00:00Z", tick=False)
     def test_property_to_expr_date_operator_relative(self, _name, value, operator, op, expected_rhs):
-        result = self._property_to_expr({"type": "event", "key": "a", "value": value, "operator": operator})
+        # The run-time flag is on, but a query compiles outside real-time filters, so it keeps the constant.
+        with patch("posthog.hogql.property.posthoganalytics.feature_enabled", return_value=True):
+            result = self._property_to_expr({"type": "event", "key": "a", "value": value, "operator": operator})
         assert isinstance(result, ast.CompareOperation)
         assert result.op == op
         assert isinstance(result.right, ast.Call)

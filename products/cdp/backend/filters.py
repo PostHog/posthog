@@ -1,5 +1,6 @@
 import json
 from collections.abc import Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Optional
 
@@ -656,13 +657,24 @@ def _resolve_warehouse_columns(
     )
 
 
-@relative_dates_resolved_at_run_time()
 def compile_filters_bytecode(
     filters: Optional[dict],
     team: Team,
     actions: Optional[dict[int, Action]] = None,
     cohort_membership_supported: bool = False,
     allowed_cohort_ids: Optional[set[int]] = None,
+    relative_dates_at_run_time: bool = True,
+) -> dict:
+    with relative_dates_resolved_at_run_time() if relative_dates_at_run_time else nullcontext():
+        return _compile_filters_bytecode(filters, team, actions, cohort_membership_supported, allowed_cohort_ids)
+
+
+def _compile_filters_bytecode(
+    filters: Optional[dict],
+    team: Team,
+    actions: Optional[dict[int, Action]],
+    cohort_membership_supported: bool,
+    allowed_cohort_ids: Optional[set[int]],
 ) -> dict:
     filters = filters or {}
     try:
