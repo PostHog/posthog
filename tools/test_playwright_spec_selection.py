@@ -32,9 +32,12 @@ FAKE_SPECS = {
     "products/surveys/frontend/e2e/crud.spec.ts",
 }
 FAKE_MAP = {
-    "force_full": ["posthog/**", "pnpm-lock.yaml", "playwright/*.ts"],
+    "force_full": ["posthog/migrations/**", "posthog/settings/**", "pnpm-lock.yaml", "playwright/*.ts"],
     "ignore": ["docs/**", "**/*.md"],
     "smoke_subset": ["playwright/e2e/auth.spec.ts"],
+    "backend_smoke": ["posthog/*.py", "posthog/**/*.py", "products/*/backend/**/*.py"],
+    "backend_smoke_specs": ["playwright/e2e/auth.spec.ts", "playwright/e2e/product-analytics/dashboards.spec.ts"],
+    "backend_explicit": {"posthog/hogql/**": ["playwright/e2e/product-analytics/"]},
     "scenes_smoke_only": ["inbox"],
     "products": {"surveys": ["products/surveys/frontend/e2e/"]},
     "scenes": {
@@ -51,34 +54,37 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
 
     def test_select_behavior_matrix(self) -> None:
         # (name, changed files, expected mode,
-        #  selected -> expected specs; full -> (reason category, reason detail))
-        cases: list[tuple[str, list[str], str, set[str] | tuple[str, str]]] = [
+        #  selected -> (expected specs, selection reason category); full -> (reason category, reason detail))
+        cases: list[tuple[str, list[str], str, tuple[set[str], str] | tuple[str, str]]] = [
             (
                 "mapped product frontend narrows to that product's specs",
                 ["products/surveys/frontend/logic.ts"],
                 "selected",
-                {"products/surveys/frontend/e2e/crud.spec.ts"},
+                ({"products/surveys/frontend/e2e/crud.spec.ts"}, ""),
             ),
             (
                 "mapped scene narrows to its spec dir (nested change still resolves)",
                 ["frontend/src/scenes/insights/views/deep/nested.ts"],
                 "selected",
-                {
-                    "playwright/e2e/product-analytics/dashboards.spec.ts",
-                    "playwright/e2e/product-analytics/insights/trends.spec.ts",
-                },
+                (
+                    {
+                        "playwright/e2e/product-analytics/dashboards.spec.ts",
+                        "playwright/e2e/product-analytics/insights/trends.spec.ts",
+                    },
+                    "",
+                ),
             ),
             (
                 "explicit rule maps a spec-less product frontend",
                 ["products/web_analytics/frontend/tiles.ts"],
                 "selected",
-                {"playwright/e2e/auth.spec.ts"},
+                ({"playwright/e2e/auth.spec.ts"}, ""),
             ),
             (
                 "directly edited spec runs itself",
                 ["playwright/e2e/auth.spec.ts"],
                 "selected",
-                {"playwright/e2e/auth.spec.ts"},
+                ({"playwright/e2e/auth.spec.ts"}, ""),
             ),
             # Fail-closed: the core safety property. Any of these dropping to "selected" is a
             # coverage hole. Category + detail are the analytics grouping keys (detail names the
@@ -98,19 +104,20 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
             ("unrecognized path forces full", ["some/random/file.ts"], "full", ("unmapped_path", "some/random/")),
             # unmapped_path detail is normalized to a bounded dir prefix, not the raw (high-cardinality) file path.
             ("deep unmapped path caps to leading segments", ["a/b/c/d/e.ts"], "full", ("unmapped_path", "a/b/c/")),
-            # force_full wins even when another changed file would have narrowed; detail is the matched pattern.
+            # force_full wins even when another changed file would have narrowed, and over
+            # backend_smoke for the same file; detail is the matched pattern.
             (
-                "force-full pattern forces full alongside a mappable file",
-                ["products/surveys/frontend/logic.ts", "posthog/models/team.py"],
+                "force-full backend file forces full alongside a mappable file",
+                ["products/surveys/frontend/logic.ts", "posthog/migrations/0999_add_field.py"],
                 "full",
-                ("force_full", "posthog/**"),
+                ("force_full", "posthog/migrations/**"),
             ),
             # `*` must not cross `/`: a nested spec dir change must not be swallowed by `playwright/*.ts`.
             (
                 "single-star force-full does not swallow nested spec changes",
                 ["playwright/e2e/billing/billing.spec.ts"],
                 "selected",
-                {"playwright/e2e/billing/billing.spec.ts"},
+                ({"playwright/e2e/billing/billing.spec.ts"}, ""),
             ),
             ("empty diff defaults to full", [], "full", ("empty_diff", "")),
             # Ignore-listed paths must not force full (that's the feature) and must not
@@ -119,7 +126,7 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                 "ignored file contributes nothing alongside a mapped file",
                 ["docs/handbook/page.txt", "products/surveys/frontend/logic.ts"],
                 "selected",
-                {"products/surveys/frontend/e2e/crud.spec.ts"},
+                ({"products/surveys/frontend/e2e/crud.spec.ts"}, ""),
             ),
             (
                 "all-ignored diff falls closed to full with its own category",
@@ -129,9 +136,9 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
             ),
             (
                 "force-full wins over ignore for the same file",
-                ["posthog/README.md"],
+                ["posthog/settings/README.md"],
                 "full",
-                ("force_full", "posthog/**"),
+                ("force_full", "posthog/settings/**"),
             ),
             # A smoke-only scene (declared: no direct coverage) narrows to the smoke
             # subset instead of forcing full — regressing this reverts the scene to
@@ -140,7 +147,54 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                 "smoke-only scene narrows to the smoke subset",
                 ["frontend/src/scenes/inbox/components/Inbox.tsx"],
                 "selected",
-                {"playwright/e2e/auth.spec.ts"},
+                ({"playwright/e2e/auth.spec.ts"}, ""),
+            ),
+            (
+                "all-backend diff narrows to the backend smoke specs",
+                ["posthog/api/insight.py", "products/surveys/backend/api/survey.py"],
+                "selected",
+                (
+                    {"playwright/e2e/auth.spec.ts", "playwright/e2e/product-analytics/dashboards.spec.ts"},
+                    "backend_smoke",
+                ),
+            ),
+            (
+                "backend file in a mapped area adds that area's specs",
+                ["posthog/hogql/printer/printer.py"],
+                "selected",
+                (
+                    {
+                        "playwright/e2e/auth.spec.ts",
+                        "playwright/e2e/product-analytics/dashboards.spec.ts",
+                        "playwright/e2e/product-analytics/insights/trends.spec.ts",
+                    },
+                    "backend_targeted",
+                ),
+            ),
+            (
+                "backend mixed with a mapped frontend file runs both",
+                ["posthog/api/insight.py", "products/surveys/frontend/logic.ts"],
+                "selected",
+                (
+                    {
+                        "playwright/e2e/auth.spec.ts",
+                        "playwright/e2e/product-analytics/dashboards.spec.ts",
+                        "products/surveys/frontend/e2e/crud.spec.ts",
+                    },
+                    "backend_smoke_mixed",
+                ),
+            ),
+            (
+                "backend file does not mask an unmapped non-backend file",
+                ["posthog/api/insight.py", "some/random/file.ts"],
+                "full",
+                ("unmapped_path", "some/random/"),
+            ),
+            (
+                "non-Python file in a mapped backend area stays unmapped",
+                ["posthog/hogql/grammar/HogQLParser.g4"],
+                "full",
+                ("unmapped_path", "posthog/hogql/grammar/"),
             ),
         ]
         for name, changed, mode, expected in cases:
@@ -148,12 +202,15 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
                 result = self._select(changed)
                 self.assertEqual(result["mode"], mode, msg=name)
                 if mode == "selected":
-                    self.assertEqual(set(result["spec_files"]), expected, msg=name)
+                    specs, selection_category = expected
+                    self.assertEqual(set(result["spec_files"]), specs, msg=name)
+                    self.assertEqual(result["selection_reason_category"], selection_category, msg=name)
                 else:
                     category, detail = expected
                     self.assertTrue(result["full_run_reasons"], msg=f"{name}: expected a reason")
                     self.assertEqual(result["full_run_reason_category"], category, msg=name)
                     self.assertEqual(result["full_run_reason_detail"], detail, msg=name)
+                    self.assertEqual(result["selection_reason_category"], "", msg=name)
 
     def test_over_ceiling_forces_full(self) -> None:
         changed = [f"products/surveys/frontend/f{i}.ts" for i in range(selection.MAX_CHANGED_FILES + 1)]
@@ -167,13 +224,10 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         all_specs = selection.discover_specs(selection.REPO_ROOT)
         self.assertTrue(all_specs, "no Playwright specs discovered — wrong REPO_ROOT?")
 
-        targets: list[str] = list(area_map.get("smoke_subset", []))
-        for spec_globs in area_map.get("products", {}).values():
-            targets += spec_globs
-        for spec_globs in area_map.get("scenes", {}).values():
-            targets += spec_globs
-        for spec_globs in area_map.get("explicit", {}).values():
-            targets += spec_globs
+        targets: list[str] = list(area_map.get("smoke_subset", [])) + list(area_map.get("backend_smoke_specs", []))
+        for section in ("products", "scenes", "explicit", "backend_explicit"):
+            for spec_globs in area_map.get(section, {}).values():
+                targets += spec_globs
 
         for target in targets:
             with self.subTest(target):
@@ -193,11 +247,12 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         area_map = selection.load_map(selection.MAP_PATH)
         overlap = set(area_map.get("scenes_smoke_only", [])) & set(area_map.get("scenes", {}))
         self.assertEqual(overlap, set(), msg="scene(s) listed in both scenes and scenes_smoke_only")
-        if area_map.get("scenes_smoke_only"):
-            self.assertTrue(
-                area_map.get("smoke_subset"),
-                msg="scenes_smoke_only requires a non-empty smoke_subset",
-            )
+        for source_key, specs_key in (("scenes_smoke_only", "smoke_subset"), ("backend_smoke", "backend_smoke_specs")):
+            if area_map.get(source_key):
+                self.assertTrue(
+                    area_map.get(specs_key),
+                    msg=f"{source_key} requires a non-empty {specs_key}",
+                )
 
     def test_ignore_patterns_never_match_specs(self) -> None:
         # An over-broad ignore entry (e.g. "playwright/**") would make a directly-edited
@@ -234,9 +289,9 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         all_specs = selection.discover_specs(selection.REPO_ROOT)
 
         reachable: set[str] = set()
-        for target in area_map.get("smoke_subset", []):
+        for target in area_map.get("smoke_subset", []) + area_map.get("backend_smoke_specs", []):
             reachable |= selection.expand_target(target, all_specs)
-        for section in ("products", "scenes", "explicit"):
+        for section in ("products", "scenes", "explicit", "backend_explicit"):
             for targets in area_map.get(section, {}).values():
                 for target in targets:
                     reachable |= selection.expand_target(target, all_specs)

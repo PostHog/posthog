@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any, cast
 
 import pytest
@@ -7,18 +8,20 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.alerts_platform.backend.delivery import routing
+from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.routing import ROUTING_FLAG, deliver_routes
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused, RefusedEverywhere
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
+    AnnouncedTransition,
     DestinationType,
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic.platform_alert_events import AnnouncementRead, AnnouncementStatus
-from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.tests.test_delivery_evaluation import (
     CONFIGURATION_ID,
     SLACK,
@@ -43,12 +46,15 @@ class TestDeliverRoutes(APIBaseTest):
             check_interval_minutes=5,
             destinations_owner=PlatformAlertOwner.PLATFORM,
             labels={"team": "infra"},
+            annotations={"runbook": "https://example.com/runbook"},
         )
         self._route("C-infra", [{"label": "team", "op": "=", "value": "infra"}], 0)
         self._route("C-billing", [{"label": "team", "op": "=", "value": "billing"}], 1)
         self._route("C-all", [], 2)
 
-    def _route(self, channel: str, matchers: list[dict[str, str]], position: int) -> None:
+    def _route(
+        self, channel: str, matchers: list[dict[str, str]], position: int, event_kinds: tuple[str, ...] = ("firing",)
+    ) -> None:
         receiver = AlertReceiver.objects.for_team(self.team.id).create(
             team=self.team,
             name=channel,
@@ -56,10 +62,10 @@ class TestDeliverRoutes(APIBaseTest):
             config=cast(AlertDestinationData, {**SLACK, "slack_channel_id": channel}),
         )
         AlertRoute.objects.for_team(self.team.id).create(
-            team=self.team, receiver=receiver, matchers=matchers, event_kinds=["firing"], position=position
+            team=self.team, receiver=receiver, matchers=matchers, event_kinds=list(event_kinds), position=position
         )
 
-    def _deliver(self, flag: Any = True) -> int:
+    def _deliver(self, flag: Any = True, transitions: tuple[AnnouncedTransition, ...] | None = None) -> int:
         def feature_enabled(key: str, *args: Any, **kwargs: Any) -> Any:
             if isinstance(flag, Exception):
                 raise flag
@@ -73,7 +79,8 @@ class TestDeliverRoutes(APIBaseTest):
             patch(
                 "products.alerts_platform.backend.logic.platform_alert_events._read_evaluation",
                 return_value=AnnouncementRead(
-                    status=AnnouncementStatus.FOUND, announcement=_announcement(_transition(AlertEventKind.FIRING))
+                    status=AnnouncementStatus.FOUND,
+                    announcement=_announcement(*(transitions or (_transition(AlertEventKind.FIRING),))),
                 ),
             ),
             patch(f"{_MODULE}.DatabaseThreadStore"),
@@ -95,6 +102,41 @@ class TestDeliverRoutes(APIBaseTest):
 
         assert [channel for channel, _ in RecordingTransport.sends] == expected_channels
         assert sent == len(expected_channels)
+        for _, message in RecordingTransport.sends:
+            assert message.rule_details == (
+                MessageDetail(label="team", value="infra"),
+                MessageDetail(label="runbook", value="https://example.com/runbook"),
+            )
+
+    def test_routes_each_group_on_its_own_labels_under_the_rules(self) -> None:
+        self._route("C-rotation-a", [{"label": "rotation", "op": "=", "value": "a"}], 3, ("firing", "resolved"))
+        self._route("C-rotation-b", [{"label": "rotation", "op": "=", "value": "b"}], 4)
+        PlatformAlert.objects.for_team(self.team.id).create(
+            team=self.team, configuration_id=CONFIGURATION_ID, grouping_key="gone", labels={"rotation": "a"}
+        )
+        groups = (
+            replace(_transition(AlertEventKind.FIRING, "a"), labels={"rotation": "a"}),
+            replace(_transition(AlertEventKind.FIRING, "b"), labels={"rotation": "b"}),
+            replace(_transition(AlertEventKind.FIRING, "billing"), labels={"team": "billing"}),
+            # A group the check stopped returning resolves without labels, routed on its stored ones.
+            _transition(AlertEventKind.RESOLVED, "gone"),
+        )
+
+        sent = self._deliver(transitions=groups)
+
+        heard = [(channel, message.labels.get("rotation", "-")) for channel, message in RecordingTransport.sends]
+        assert heard == [
+            ("C-infra", "a"),
+            ("C-infra", "b"),
+            ("C-infra", "-"),
+            ("C-all", "a"),
+            ("C-all", "b"),
+            ("C-all", "-"),
+            ("C-rotation-a", "a"),
+            ("C-rotation-a", "-"),
+            ("C-rotation-b", "b"),
+        ]
+        assert sent == 4
 
     @parameterized.expand(
         [

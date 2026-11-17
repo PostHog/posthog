@@ -205,6 +205,22 @@ class InvalidRequest(TransactionalEmailError):
     code = "invalid_request"
 
 
+class SandboxFieldsUnsupported(TransactionalEmailError):
+    code = "sandbox_fields_unsupported"
+
+    def __init__(self, message: str, attr: str | None = None) -> None:
+        super().__init__(message)
+        self.attr = attr
+
+
+class SandboxRecipientNotMember(TransactionalEmailError):
+    code = "sandbox_recipient_not_member"
+
+
+class SandboxSenderNotAvailable(TransactionalEmailError):
+    code = "sandbox_sender_unavailable"
+
+
 @frozen
 class EmailTracking:
     opens: bool = True
@@ -231,11 +247,24 @@ class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 
 
+class SendWarningCode(LabeledStrEnum):
+    SANDBOX_SENDER = "sandbox_sender", "Sent from the sandbox sender"
+
+
+@frozen
+class SendWarning:
+    code: SendWarningCode
+    message: str
+    setup_url: str
+    agent_action: str
+
+
 @frozen
 class QueuedEmail:
     message_id: str
     # True when an earlier request with the same idempotency key already queued this email.
     replayed: bool = False
+    warnings: tuple[SendWarning, ...] = ()
     # The total size of the email's files, as the CDP service verified them. None when it didn't say.
     attachment_bytes: int | None = None
 
@@ -340,6 +369,7 @@ class TransactionalEmailLogEntry:
     template_id: str | None
     # Empty when the template was deleted.
     template_name: str
+    code_email_id: str | None
     sending_domain: str
     opened: bool
     clicked: bool
@@ -401,6 +431,8 @@ class TransactionalEmailStatsRow:
     # The template id or the sending domain.
     key: str
     label: str
+    template_id: str | None
+    code_email_id: str | None
     sent: int
     delivered: int
     bounced: int
@@ -417,6 +449,25 @@ class TransactionalEmailResults:
     revenue: float
     # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
     median_hours_to_convert: float | None
+
+
+@frozen
+class TransactionalEmailConversions:
+    sends: int
+    converted: int
+
+
+@frozen
+class TransactionalEmailImpact:
+    sent: int
+    delivered: int
+    opened: int
+    clicked: int
+    not_clicked: int
+    untracked: int
+    window_days: int
+    after_click: TransactionalEmailConversions | None
+    without_click: TransactionalEmailConversions | None
 
 
 class CodeEmailSourceOrigin(LabeledStrEnum):

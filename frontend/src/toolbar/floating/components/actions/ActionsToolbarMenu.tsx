@@ -14,9 +14,8 @@ import { ActionsListView } from '~/toolbar/floating/components/actions/ActionsLi
 import { ToolbarMenu } from '~/toolbar/floating/components/bar/ToolbarMenu'
 import { actionsLogic } from '~/toolbar/shared/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/shared/actions/actionsTabLogic'
-import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarAppUrl } from '~/toolbar/shared/toolbarConfigLogic'
 import { urls } from '~/toolbar/shared/urls'
-import { joinWithUiHost } from '~/toolbar/shared/utils'
 
 const ActionsListToolbarMenu = (): JSX.Element => {
     const { searchTerm } = useValues(actionsLogic)
@@ -24,8 +23,6 @@ const ActionsListToolbarMenu = (): JSX.Element => {
 
     const { newAction } = useActions(actionsTabLogic)
     const { allActions, sortedActions, allActionsLoading } = useValues(actionsLogic)
-
-    const { uiHost } = useValues(toolbarConfigLogic)
 
     useOnMountEffect(getActions)
 
@@ -54,7 +51,7 @@ const ActionsListToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
                 <div className="flex items-center justify-between flex-1">
-                    <Link to={joinWithUiHost(uiHost, urls.actions())} target="_blank" className="text-primary">
+                    <Link to={toolbarAppUrl(urls.actions())} target="_blank" className="text-primary">
                         View &amp; edit all actions <IconOpenInNew />
                     </Link>
                     <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>

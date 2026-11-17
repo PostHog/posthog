@@ -20,8 +20,6 @@ import { WorkflowsEmailTrackingConsentSettings } from '../../scenes/settings/Wor
 import { FrequencyCapChoice } from './onboardingWizardSteps'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
-const ADMIN_ONLY_REASON = 'Only project admins can change sending rules'
-
 const CAP_OPTIONS: LemonRadioOption<FrequencyCapChoice>[] = [
     {
         value: 'recommended',
@@ -57,12 +55,12 @@ export function WizardSendingRulesStep(): JSX.Element {
         shownFrequencyCapChoice,
         shownCustomFrequencyCap,
         shownHoldHours,
-        canEditSendingRules,
+        sendingRulesDisabledReason,
         shownEngagementEvents,
     } = useValues(workflowsOnboardingWizardLogic)
     const { setFrequencyCapChoice, setCustomFrequencyCap, setHoldHours, setEngagementEventsChoice } =
         useActions(workflowsOnboardingWizardLogic)
-    const disabledReason = canEditSendingRules ? undefined : ADMIN_ONLY_REASON
+    const disabledReason = sendingRulesDisabledReason ?? undefined
     const { maxMessages, windowDays } = shownCustomFrequencyCap
 
     return (

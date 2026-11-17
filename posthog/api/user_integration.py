@@ -74,8 +74,13 @@ from posthog.models.user_integration import (
     ReauthorizationRequired,
     UserGitHubIntegration,
     UserIntegration,
+    revoke_slack_user_token,
 )
-from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission
+from posthog.permissions import (
+    APIScopePermission,
+    TimeSensitiveActionPermission,
+    get_request_reachable_organization_ids,
+)
 from posthog.rate_limit import CodexConnectUserThrottle, UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
 
@@ -375,6 +380,10 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         if not request_user.is_staff:
             raise exceptions.PermissionDenied(
                 "As a non-staff user you're only allowed to access the `@me` user instance."
+            )
+        if get_request_reachable_organization_ids(self.request) is not None:
+            raise exceptions.PermissionDenied(
+                "A token limited to some organizations or projects can only access the `@me` user instance."
             )
         user = User.objects.filter(uuid=uuid_param, is_active=True).first()
         if user is None:
@@ -900,6 +909,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         ).first()
         if integration is None:
             raise exceptions.NotFound("No Slack link found for this Slack user id.")
+        revoke_slack_user_token(integration)
         integration.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

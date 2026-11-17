@@ -113,14 +113,16 @@ class YocoSource(ResumableSource[YocoSourceConfig, YocoResumeConfig]):
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Yoco",
             caption=(
-                "Import payments, orders, refunds, payouts, catalogue, and staff from your Yoco "
-                "business.\n\n"
+                "Import payments, orders, refunds, payouts, catalogue, staff, and Capital financing "
+                "from your Yoco business.\n\n"
                 f"Create an API key in the [Yoco Developer Console]({YOCO_DEVELOPER_CONSOLE_URL}). "
                 "Give the key the scopes for the tables you want to sync: `business/orders:read` "
                 "for payments, orders, refunds, and payment links, `business/payouts:read` for "
                 "payouts and payout entries, `business/catalogue:read` for items, categories, "
-                "brands, and modifier groups, `business/locations:read` for locations, "
-                "`business/staff:read` for staff, and `business/devices:read` for card machines."
+                "brands, modifier groups, and taxes, `business/locations:read` for locations, "
+                "`business/staff:read` for staff, `business/devices:read` for card machines, "
+                "`business/capital_advances:read` for active Capital advances, and "
+                "`business/capital_offers:read` for active Capital offers."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/yoco",
             iconPath="/static/services/yoco.png",

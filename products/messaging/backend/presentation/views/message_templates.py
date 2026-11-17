@@ -41,7 +41,7 @@ from posthog.api.mixins import ResponseDeclaration, ValidatedRequest, validated_
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
-from posthog.event_usage import groups, report_user_action
+from posthog.event_usage import get_event_source, get_mcp_properties, groups, report_user_action, sanitize_header_value
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.file_system.constants import resolved_workflows_list_v2
@@ -90,6 +90,7 @@ from products.messaging.backend.facade.transactional_email import (
     FieldNotAccepted,
     MessageTooLarge,
     QueuedEmail,
+    SendWarningCode,
     TransactionalEmailError,
     TransactionalEmailStage,
     check_transactional_update,
@@ -497,15 +498,18 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+EMAIL_IMPACT_FLAG = "workflows-email-impact"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
 USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
 
 
 DISTINCT_ID_HELP_TEXT = (
-    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, "
-    "bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. "
-    "The template can't read the person's properties, so pass everything it needs in `message_data`."
+    "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. "
+    "Defaults to the recipient's email address. The events join the person who has this ID, or start a new person "
+    "when nobody has it. No events are captured when the project's engagement events setting is off, or when "
+    "`tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read "
+    "the person's properties, so pass everything it needs in `message_data`."
 )
 
 
@@ -741,6 +745,23 @@ class MakeTransactionalSerializer(serializers.Serializer):
     )
 
 
+class SendWarningSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=SendWarningCode.choices,
+        help_text="What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender "
+        "because the project has no verified sending domain, so it only reaches members of the organization.",
+    )
+    message = serializers.CharField(help_text="What happened and what to do next, in words a person can read.")
+    setup_url = serializers.CharField(
+        help_text="Absolute URL of the page where the project verifies a sending domain: the page of its unverified "
+        "sender when it has one, otherwise the page that adds a new one."
+    )
+    agent_action = serializers.CharField(
+        help_text="The next step for an AI agent that made the send: what to tell the user, and which PostHog MCP "
+        "tool starts the domain setup."
+    )
+
+
 class SendTransactionalEmailResponseSerializer(serializers.Serializer):
     message_id = serializers.CharField(
         help_text="ID of the queued send. Delivery and engagement are reported against the template asynchronously."
@@ -749,6 +770,17 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
         help_text="True when an earlier request with the same `Idempotency-Key` already queued this email. "
         "No new email was sent, and `message_id` is the earlier send's ID."
     )
+    warnings = SendWarningSerializer(
+        many=True,
+        required=False,
+        help_text="Things the caller should act on although the email was queued. Left out when there are none.",
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if not data.get("warnings"):
+            data.pop("warnings", None)
+        return data
 
 
 class TransactionalEmailRejected(exceptions.ValidationError):
@@ -760,6 +792,8 @@ class TransactionalEmailRejected(exceptions.ValidationError):
         "sending_paused": 422,
         "recipient_suppressed": 422,
         "recipient_unreachable": 422,
+        "sandbox_recipient_not_member": 422,
+        "sandbox_sender_unavailable": 403,
     }
     # The caller has to change the request. Without this the error handler types it `validation_error`.
     default_type = "invalid_request"
@@ -822,6 +856,10 @@ def require_transactional_email_api(team: Any) -> None:
     _require_flag(team, TRANSACTIONAL_EMAIL_API_FLAG)
 
 
+def require_email_impact(team: Any) -> None:
+    _require_flag(team, EMAIL_IMPACT_FLAG)
+
+
 def require_email_from_code(team: Any) -> None:
     _require_flag(team, EMAIL_FROM_CODE_FLAG)
 
@@ -863,14 +901,21 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     400: OpenApiResponse(
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
         "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, or "
-        "the project has reached its limit of template keys and the `template_key` is new"
+        "the project has reached its limit of template keys and the `template_key` is new. A code send from a "
+        "project with no verified sending domain goes out from the sandbox sender, which refuses `cc`, `bcc`, "
+        "`reply_to`, `attachments` and a custom `from`"
+    ),
+    403: OpenApiResponse(
+        description="The project has no verified sending domain, and the sandbox sender isn't available for its "
+        "organization"
     ),
     404: OpenApiResponse(description="Template not found"),
     409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
     422: OpenApiResponse(
         description="The email can't go out: the recipient is suppressed or can't receive email, sending is "
         "suspended for the project or paused for this transactional email, or the Idempotency-Key was already "
-        "used for a different request"
+        "used for a different request, or the email would go out from the sandbox sender to someone outside the "
+        "organization"
     ),
     429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
     503: OpenApiResponse(description="The email pipeline did not confirm the send"),
@@ -1025,6 +1070,8 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
+            if queued.warnings:
+                outcome["warning_codes"] = [warning.code for warning in queued.warnings]
             if attachments:
                 outcome["attachment_bytes"] = queued.attachment_bytes
         except FieldNotAccepted as e:
@@ -1121,12 +1168,14 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
 
     def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
         self._send_reported = True
-        # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
         try:
             posthoganalytics.capture(
                 distinct_id=request.user.distinct_id,
                 event="transactional email api send",
                 properties={
+                    "source": get_event_source(request),
+                    **get_mcp_properties(request),
+                    "migrated_from": sanitize_header_value(request.headers.get("X-PostHog-Migrated-From")),
                     "team_id": self.team_id,
                     "auth_method": "project_secret_api_key"
                     if is_authenticated_via_project_secret_api_key(request)

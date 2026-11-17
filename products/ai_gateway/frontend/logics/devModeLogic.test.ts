@@ -1,4 +1,26 @@
-import { cliCallbackUrl, parseCliRequest } from './devModeLogic'
+import { cliCallbackUrl, formatDuration, parseCliPick, parseCliRequest } from './devModeLogic'
+
+describe('formatDuration', () => {
+    test.each([
+        [3600, '1 hour'],
+        [5400, '1 hour 30 minutes'],
+        [2 * 3600, '2 hours'],
+        [3 * 86400, '3 days'],
+        [86400 + 3600, '25 hours'],
+    ])('labels %d seconds as %s', (seconds, label) => {
+        expect(formatDuration(seconds)).toBe(label)
+    })
+})
+
+describe('devModeLogic CLI pick', () => {
+    test.each([
+        ['both values', { cli_cap_usd: '200', cli_ttl_seconds: '259200' }, { capUsd: 200, ttlSeconds: 259200 }],
+        ['neither value', {}, { capUsd: null, ttlSeconds: null }],
+        ['junk values', { cli_cap_usd: 'lots', cli_ttl_seconds: '1.5' }, { capUsd: null, ttlSeconds: null }],
+    ])('parses %s', (_name, params, expected) => {
+        expect(parseCliPick(params)).toEqual(expected)
+    })
+})
 
 const CHALLENGE = 'a'.repeat(43)
 
