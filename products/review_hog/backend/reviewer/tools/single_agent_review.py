@@ -71,8 +71,6 @@ _COMMIT_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
 RULE_FILE_NAMES = frozenset({"AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "REVIEW.md", "SKILL.md"})
 RULE_DIRECTORIES = frozenset({".agents", ".claude"})
-# The prompt asks the session to quote a named rule file in a shell command, so a path the
-# author could use to break out of the quotes or the sentence is counted, never repeated.
 _SHELL_SAFE_PATH = re.compile(r"[A-Za-z0-9._/-]+")
 
 
@@ -203,6 +201,8 @@ class SingleAgentPrompt:
         """The changed rule files the prompt can name, and how many more have a path it must not repeat.
 
         A rename counts under both names, because renaming a rule file away removes it from the checkout.
+        The session is asked to quote a named path in a shell command, so a path the author could use to
+        break out of the quotes or the sentence is counted, never repeated.
         """
         paths = list(
             dict.fromkeys(
