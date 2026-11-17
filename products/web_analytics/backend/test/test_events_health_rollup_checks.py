@@ -6,9 +6,10 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 from parameterized import parameterized
 
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
-from posthog.temporal.health_checks.rollups.freshness import RollupWindow
+from posthog.temporal.health_checks.rollups.freshness import RollupWindow, invalidate_published_days
 from posthog.temporal.health_checks.rollups.tests.helpers import window_ending_yesterday
 
+from products.event_definitions.backend.models import EventDefinition
 from products.web_analytics.backend.models.health_rollups import EventsHealthDaily, SessionIdState
 from products.web_analytics.backend.temporal.health_checks.no_live_events import NoLiveEventsCheck
 from products.web_analytics.backend.temporal.health_checks.no_pageleave_events import NoPageleaveEventsCheck
@@ -40,6 +41,23 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
             )
             for index, (event, custom, scroll, count) in enumerate(rows)
         )
+
+    def _publish_window_for_another_project(self, window: RollupWindow) -> None:
+        other_team_id = self.team.id + 1000
+        days = (window.start + dt.timedelta(days=offset) for offset in range((window.end - window.start).days + 1))
+        EventsHealthDaily.objects.unscoped().bulk_create(
+            EventsHealthDaily(
+                team_id=other_team_id,
+                day=day,
+                event="$pageview",
+                has_custom_api_host=False,
+                has_scroll_depth=False,
+                session_id_state=SessionIdState.VALID,
+                event_count=1,
+            )
+            for day in days
+        )
+        invalidate_published_days(EventsHealthDaily)
 
     def _flagged(self, check: RollupHealthCheck, rows: list[Row]) -> bool:
         window = window_ending_yesterday(check.window_days)
@@ -79,3 +97,28 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events()
 
         self.assertEqual(self._flagged(NoLiveEventsCheck(), []), expected)
+
+    @parameterized.expand(
+        [
+            ("web_project_gone_silent", True, "$pageview", True, True),
+            ("app_project_gone_silent", True, "$screen", True, True),
+            ("nothing_ingested_yet", False, None, False, True),
+            ("server_only_project", True, "$mcp_tool_call", True, False),
+            ("pageview_placeholder_never_seen", True, "$pageview", False, False),
+        ]
+    )
+    def test_no_live_events_skips_projects_that_never_sent_web_events(
+        self, _name: str, ingested_event: bool, defined_event: str | None, seen: bool, expected: bool
+    ) -> None:
+        self.team.ingested_event = ingested_event
+        self.team.save()
+        if defined_event:
+            EventDefinition.objects.create(
+                team=self.team,
+                project_id=self.team.project_id,
+                name=defined_event,
+                last_seen_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=90) if seen else None,
+            )
+        self._publish_window_for_another_project(window_ending_yesterday(NoLiveEventsCheck.window_days))
+
+        self.assertEqual(self.team.id in NoLiveEventsCheck().detect([self.team.id]), expected)

@@ -144,7 +144,6 @@
 1 products/product_analytics/backend/hogql_queries/funnels/funnel_event_query.py
 1 products/product_analytics/backend/hogql_queries/paths/test/test_paths_query_runner.py
 1 products/product_analytics/backend/temporal/upgrade_queries_workflow.py
-1 products/product_tours/backend/generate_tour_content/generate.py
 1 products/pulse/backend/temporal/activities.py
 1 products/replay_vision/backend/tests/test_gemini_cleanup_activities.py
 1 products/revenue_analytics/backend/views/core.py
@@ -358,7 +357,6 @@
 1 products/warehouse_sources/sources/travis_ci/travis_ci.py
 1 products/warehouse_sources/sources/trigger_dev/settings.py
 1 products/warehouse_sources/sources/trigger_dev/trigger_dev.py
-1 products/warehouse_sources/sources/twelve_data/twelve_data.py
 1 products/warehouse_sources/sources/twelve_labs/twelve_labs.py
 1 products/warehouse_sources/sources/uk_companies_house/uk_companies_house.py
 1 products/warehouse_sources/sources/unleash/settings.py
@@ -366,10 +364,8 @@
 1 products/warehouse_sources/sources/upstash/settings.py
 1 products/warehouse_sources/sources/veeqo/settings.py
 1 products/warehouse_sources/sources/veeqo/veeqo.py
-1 products/warehouse_sources/sources/vultr/settings.py
 1 products/warehouse_sources/sources/webflow/settings.py
 1 products/warehouse_sources/sources/webflow/webflow.py
-1 products/warehouse_sources/sources/weights_and_biases/weights_and_biases.py
 1 products/warehouse_sources/sources/whop/whop.py
 1 products/warehouse_sources/sources/wikipedia_pageviews/wikipedia_pageviews.py
 1 products/warehouse_sources/sources/woocommerce/woocommerce.py
@@ -378,9 +374,7 @@
 1 products/warehouse_sources/sources/yousign/yousign.py
 1 products/warehouse_sources/sources/zapsign/zapsign.py
 1 products/warehouse_sources/sources/zendesk/settings.py
-1 products/warehouse_sources/sources/zendesk_sell/zendesk_sell.py
 1 products/warehouse_sources/sources/zendesk_sunshine/zendesk_sunshine.py
-1 products/warehouse_sources/sources/zenduty/settings.py
 1 products/warehouse_sources/sources/zenloop/settings.py
 1 products/warehouse_sources/sources/zoho_crm/zoho_crm.py
 1 products/warehouse_sources/backend/temporal/data_imports/tests/e2e/test_google_ads_source.py
@@ -413,7 +407,6 @@
 2 posthog/dags/data_deletion_requests.py
 2 posthog/dags/part_breaker.py
 2 posthog/dags/person_overrides.py
-2 posthog/dags/scripts/extract_reconciliation_results.py
 2 posthog/helpers/email_utils.py
 1 posthog/hogql/context.py
 2 posthog/hogql/database/models.py
@@ -593,12 +586,9 @@
 4 products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py
 5 posthog/api/proxy_record_diagnostics.py
 5 posthog/api/services/llm_prompt.py
-5 posthog/dags/person_property_reconciliation.py
 5 posthog/temporal/ai_observability/evaluation_clustering/models.py
 5 posthog/temporal/ai_observability/run_trace_evaluation.py
 5 posthog/temporal/proxy_service/create.py
-5 posthog/temporal/session_replay/surfacing_score_export_sweep/types.py
-5 posthog/temporal/session_replay/surfacing_scoring_sweep/types.py
 5 products/ai_observability/backend/llm/types.py
 5 products/apm/backend/logic/anomaly_detection/validation/harness.py
 5 products/batch_exports/backend/temporal/backfill_batch_export.py
@@ -622,7 +612,7 @@
 6 products/marketing_analytics/backend/services/mapping_suggester.py
 6 products/tasks/backend/temporal/task_management/workflow.py
 7 posthog/session_recordings/synthetic_playlists.py
-5 posthog/temporal/experiments/models.py
+5 products/experiments/backend/temporal/timeseries/models.py
 7 products/batch_exports/backend/temporal/monitoring.py
 7 products/growth/backend/sdk_health.py
 7 products/marketing_analytics/backend/services/types.py

@@ -7,13 +7,15 @@ from unittest.mock import patch
 from parameterized import parameterized
 from pydantic import TypeAdapter
 
-from posthog.models import Team
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
-from products.product_analytics.backend.facade.contracts import InsightSeries
+from products.product_analytics.backend.facade.contracts import InsightSeries, SavedInsightDefinition
 from products.today.backend.facade import contracts
-from products.today.backend.facade.contracts import PulsePin
+from products.today.backend.facade.contracts import HighlightFindings, HighlightSource, PulsePin
 from products.today.backend.logic import pinned, pulse_pins
 from products.today.backend.logic.today_highlights import routine
 from products.today.backend.temporal.inputs import PinnedNumber, ResolvePinsInputs
@@ -35,6 +37,10 @@ def key_metric(key: str, this_week: float, last_week: float) -> KeyMetric:
     )
 
 
+def failing_names(_team: Team, _user: User, _keys: list[str]) -> dict[str, str]:
+    raise TimeoutError("slow")
+
+
 class TestPinnedNumbers(BaseTest):
     def test_saving_pins_twice_in_a_child_environment_updates_the_one_row(self) -> None:
         child = Team.objects.create(
@@ -45,7 +51,8 @@ class TestPinnedNumbers(BaseTest):
             pulse_pins.set_pins(team=child, user_id=self.user.id, pins=[PulsePin(key=key, name=key)])
 
         self.assertEqual(
-            [pin.key for pin in pulse_pins.get_pins(team=child, user_id=self.user.id, scopes=None)], ["insight:second"]
+            [pin.key for pin in pulse_pins.get_choices(team=child, user_id=self.user.id, scopes=None).pins],
+            ["insight:second"],
         )
 
     @parameterized.expand(
@@ -61,7 +68,7 @@ class TestPinnedNumbers(BaseTest):
             ("a key with key metrics", ["today:read", "customer_analytics:read"], ["revenue"]),
         ]
     )
-    def test_reading_pins_returns_only_the_ones_the_scopes_cover(
+    def test_reading_pins_and_hidden_numbers_returns_only_the_ones_the_scopes_cover(
         self, _name: str, scopes: list[str] | None, expected: list[str]
     ) -> None:
         pulse_pins.set_pins(
@@ -74,11 +81,73 @@ class TestPinnedNumbers(BaseTest):
             ],
         )
 
-        found = pulse_pins.get_pins(
-            team=self.team, user_id=self.user.id, scopes=None if scopes is None else frozenset(scopes)
+        pulse_pins.set_hidden(team=self.team, user_id=self.user.id, keys=["insight:a", "revenue"])
+        granted = None if scopes is None else frozenset(scopes)
+
+        choices = pulse_pins.get_choices(team=self.team, user_id=self.user.id, scopes=granted)
+        with (
+            patch.object(
+                pulse_pins,
+                "viewable_insight_definitions",
+                return_value={"a": SavedInsightDefinition(id=1, short_id="a", name="A", query={})},
+            ),
+            patch.object(pulse_pins, "get_key_metric_names", return_value={"revenue": "Revenue"}),
+        ):
+            hidden = pulse_pins.named_hidden(
+                team=self.team,
+                user=self.user,
+                keys=choices.hidden,
+                scopes=granted,
+            )
+
+        self.assertEqual(
+            ([pin.key for pin in choices.pins], [number.key for number in hidden]),
+            (expected, [key for key in expected if key != "insight:b"]),
         )
 
-        self.assertEqual([pin.key for pin in found], expected)
+    @parameterized.expand(
+        [
+            ("a key metric", "customer_analytics", None, ["signup_event", "experiment:7"]),
+            ("a key metric without access", "customer_analytics", "none", ["experiment:7"]),
+            ("a product number without access", "experiment", "none", ["signup_event"]),
+        ]
+    )
+    def test_a_hidden_number_is_named_only_for_a_person_who_can_view_its_resource(
+        self, _name: str, resource: str, access_level: str | None, expected: list[str]
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        if access_level:
+            create_access_control(team_id=self.team.id, resource=resource, access_level=access_level)
+        names = {"experiment:7": "Checkout redesign", "insight:other": "Not this source's"}
+        sources = (
+            HighlightSource(
+                name="experiments",
+                find=lambda _c: HighlightFindings(),
+                scopes=("experiment:read",),
+                number_names=lambda _team, _user, keys: names,
+            ),
+            HighlightSource(
+                name="broken",
+                find=lambda _c: HighlightFindings(),
+                number_names=failing_names,
+            ),
+        )
+
+        with (
+            patch.object(pulse_pins, "get_key_metric_names", return_value={"signup_event": "Signups"}),
+            patch.object(pulse_pins, "load_sources", return_value=sources),
+        ):
+            hidden = pulse_pins.named_hidden(
+                team=self.team,
+                user=self._create_user("reader@example.com"),
+                keys=["signup_event", "experiment:7"],
+                scopes=None,
+            )
+
+        self.assertEqual([number.key for number in hidden], expected)
 
     @parameterized.expand(
         [

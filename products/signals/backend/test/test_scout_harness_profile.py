@@ -37,7 +37,7 @@ from products.business_knowledge.backend.models.knowledge_document import Knowle
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.testing import create_dashboard
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -530,33 +530,27 @@ class TestExistingInboxReports(BaseTest):
 
 class TestRecentDashboards(BaseTest):
     def test_orders_by_last_accessed_desc(self) -> None:
-        old = Dashboard.objects.create(team=self.team, name="old")
-        new = Dashboard.objects.create(team=self.team, name="new")
-        Dashboard.objects.filter(id=old.id).update(last_accessed_at=timezone.now() - timedelta(hours=2))
-        Dashboard.objects.filter(id=new.id).update(last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="old", last_accessed_at=timezone.now() - timedelta(hours=2))
+        create_dashboard(team_id=self.team.id, name="new", last_accessed_at=timezone.now())
         result = _recent_dashboards(self.team)
         assert [r["name"] for r in result] == ["new", "old"]
 
     def test_excludes_deleted(self) -> None:
-        live = Dashboard.objects.create(team=self.team, name="live")
-        gone = Dashboard.objects.create(team=self.team, name="gone", deleted=True)
-        Dashboard.objects.filter(id=live.id).update(last_accessed_at=timezone.now())
-        Dashboard.objects.filter(id=gone.id).update(last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="live", last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="gone", deleted=True, last_accessed_at=timezone.now())
         result = _recent_dashboards(self.team)
         assert [r["name"] for r in result] == ["live"]
 
     def test_excludes_never_accessed(self) -> None:
         # last_accessed_at null = never opened — surfacing it as "recent" would lie.
-        accessed = Dashboard.objects.create(team=self.team, name="accessed")
-        Dashboard.objects.filter(id=accessed.id).update(last_accessed_at=timezone.now())
-        Dashboard.objects.create(team=self.team, name="never")  # last_accessed_at = null
+        create_dashboard(team_id=self.team.id, name="accessed", last_accessed_at=timezone.now())
+        create_dashboard(team_id=self.team.id, name="never")  # last_accessed_at = null
         result = _recent_dashboards(self.team)
         assert [r["name"] for r in result] == ["accessed"]
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
-        d = Dashboard.objects.create(team=other, name="other-team")
-        Dashboard.objects.filter(id=d.id).update(last_accessed_at=timezone.now())
+        create_dashboard(team_id=other.id, name="other-team", last_accessed_at=timezone.now())
         result = _recent_dashboards(self.team)
         assert result == []
 

@@ -15,6 +15,8 @@ from parameterized import parameterized
 from pydantic import ValidationError
 from rest_framework import status
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
@@ -38,7 +40,13 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.metrics.backend.alerts.evaluation import ABSENT_RESOLVE_AFTER, INFLIGHT_KEY, evaluate_metrics_alert_batch
-from products.metrics.backend.alerts.freshness import evaluation_time, fetch_metrics_freshness
+from products.metrics.backend.alerts.freshness import (
+    CHECKPOINT_EVAL_DELAY,
+    IngestionReach,
+    fetch_metrics_freshness,
+    fetch_partition_checkpoint,
+    freshness_workload,
+)
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
@@ -66,19 +74,71 @@ class TestMetricsAlertCreate(APIBaseTest):
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
 
-    def _create(self, source_config: dict[str, object]) -> Any:
+    def _create(self, source_config: dict[str, object], **settings: object) -> Any:
         return self.client.post(
             f"/api/projects/{self.team.id}/platform_alerts/",
-            {"source_kind": "metrics", "name": "Consumer lag", "enabled": True, "source_config": source_config},
+            {
+                "source_kind": "metrics",
+                "name": "Consumer lag",
+                "enabled": True,
+                "source_config": source_config,
+                **settings,
+            },
             format="json",
         )
 
-    def test_a_metrics_alert_is_created_through_the_platform_api(self) -> None:
-        response = self._create({"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}})
+    @parameterized.expand([("default", {}, 1), ("every_5_minutes", {"check_interval_minutes": 5}, 5)])
+    def test_a_metrics_alert_is_created_through_the_platform_api(
+        self, _name: str, settings: dict[str, object], expected_interval: int
+    ) -> None:
+        response = self._create({"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}}, **settings)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["source_kind"] == "metrics"
-        assert response.json()["check_interval_minutes"] == 1
+        assert response.json()["check_interval_minutes"] == expected_interval
+
+    @parameterized.expand([("not_dividing_an_hour", 7), ("over_an_hour", 120), ("zero", 0)])
+    def test_an_interval_outside_the_allowed_set_is_refused(self, _name: str, minutes: int) -> None:
+        created = self._create({"query": _QUERY, "condition": {"kind": "present"}}).json()
+        url = f"/api/projects/{self.team.id}/platform_alerts/{created['id']}/"
+
+        refused_create = self._create(
+            {"query": _QUERY, "condition": {"kind": "present"}}, check_interval_minutes=minutes
+        )
+        refused_edit = self.client.patch(url, {"check_interval_minutes": minutes}, format="json")
+
+        assert refused_create.status_code == status.HTTP_400_BAD_REQUEST, refused_create.json()
+        assert refused_create.json()["attr"] == "check_interval_minutes"
+        assert refused_edit.status_code == status.HTTP_400_BAD_REQUEST, refused_edit.json()
+        assert refused_edit.json()["attr"] == "check_interval_minutes"
+        assert self.client.get(url).json()["check_interval_minutes"] == 1
+
+    def test_an_edit_moves_the_alert_to_a_new_interval_and_a_later_edit_keeps_it(self) -> None:
+        created = self._create({"query": _QUERY, "condition": {"kind": "present"}}).json()
+        url = f"/api/projects/{self.team.id}/platform_alerts/{created['id']}/"
+        with team_scope(self.team.id):
+            platform_testing.set_check_interval_minutes(UUID(created["id"]), 60)
+            platform_testing.set_due_at(UUID(created["id"]), timezone.now() + timedelta(minutes=50))
+
+        moved = self.client.patch(url, {"check_interval_minutes": 5}, format="json")
+        renamed = self.client.patch(url, {"name": "Consumer lag, renamed"}, format="json")
+
+        assert moved.status_code == status.HTTP_200_OK, moved.json()
+        assert datetime.fromisoformat(moved.json()["next_check_at"]) <= timezone.now() + timedelta(minutes=2)
+        assert renamed.status_code == status.HTTP_200_OK, renamed.json()
+        assert renamed.json()["check_interval_minutes"] == 5
+
+    @parameterized.expand([("an_hour", 60, status.HTTP_201_CREATED), ("past_an_hour", 61, status.HTTP_400_BAD_REQUEST)])
+    def test_a_metrics_alert_can_look_back_over_an_hour_of_checks(
+        self, _name: str, periods: int, expected: int
+    ) -> None:
+        response = self._create(
+            {"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}},
+            evaluation_periods=periods,
+            datapoints_to_alarm=periods,
+        )
+
+        assert response.status_code == expected, response.json()
 
     def test_a_project_without_the_metrics_rollout_flag_cannot_create_one(self) -> None:
         self.enterContext(
@@ -97,19 +157,28 @@ class TestMetricsAlertCreate(APIBaseTest):
 class TestEvaluationTime(SimpleTestCase):
     @parameterized.expand(
         [
-            ("ingestion_slightly_behind", timedelta(seconds=-30), timedelta(seconds=-30)),
-            ("ingestion_lagging", timedelta(minutes=-20), timedelta(minutes=-20)),
-            ("ingestion_past_the_due_time", timedelta(seconds=30), timedelta(0)),
-            ("freshness_unknown", None, timedelta(0)),
+            ("ingestion_slightly_behind", timedelta(seconds=-30), None, timedelta(seconds=-30)),
+            ("ingestion_lagging", timedelta(minutes=-20), None, timedelta(minutes=-20)),
+            ("ingestion_past_the_due_time", timedelta(seconds=30), None, timedelta(0)),
+            ("freshness_unknown", None, None, timedelta(0)),
+            ("checkpoint_overrides_freshness", timedelta(0), timedelta(0), -CHECKPOINT_EVAL_DELAY),
+            ("checkpoint_well_past_the_due_time", None, timedelta(minutes=5), timedelta(0)),
         ]
     )
     def test_a_check_reads_no_later_than_ingestion_reached(
-        self, _name: str, freshness_offset: timedelta | None, expected_offset: timedelta
+        self,
+        _name: str,
+        freshness_offset: timedelta | None,
+        checkpoint_offset: timedelta | None,
+        expected_offset: timedelta,
     ) -> None:
         due_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
         freshness = None if freshness_offset is None else due_at + freshness_offset
+        checkpoint = None if checkpoint_offset is None else due_at + checkpoint_offset
 
-        assert evaluation_time(due_at, freshness) == due_at + expected_offset
+        reach = IngestionReach(checkpoint=checkpoint, newest_point=freshness)
+
+        assert reach.evaluation_time(due_at) == due_at + expected_offset
 
 
 def _vector(*series: tuple[dict[str, str], str]) -> dict[str, Any]:
@@ -122,11 +191,43 @@ def _vector(*series: tuple[dict[str, str], str]) -> dict[str, Any]:
     }
 
 
+def _matrix(end: datetime, *series: tuple[dict[str, str], list[str]]) -> dict[str, Any]:
+    """A range result whose values are oldest first and end at `end`, one minute apart."""
+    return {
+        "status": "success",
+        "data": {
+            "resultType": "matrix",
+            "result": [
+                {
+                    "metric": labels,
+                    "values": [
+                        [(end - timedelta(minutes=len(values) - 1 - index)).timestamp(), value]
+                        for index, value in enumerate(values)
+                    ],
+                }
+                for labels, values in series
+            ],
+        },
+    }
+
+
 def _response(status_code: int, body: dict[str, Any]) -> requests.Response:
     response = requests.Response()
     response.status_code = status_code
     response._content = json.dumps(body).encode()
     return response
+
+
+class TestFreshnessWorkload(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("promql_still_on_logs_snuffle", "http://snuffle-logs:9091", Workload.LOGS),
+            ("promql_on_metrics_snuffle", "http://snuffle-metrics:9091", Workload.METRICS),
+        ]
+    )
+    def test_reads_the_cluster_promql_reads(self, _name: str, metrics_url: str, expected: Workload) -> None:
+        with override_settings(SNUFFLE_APM_URL="http://snuffle-logs:9091", SNUFFLE_METRICS_URL=metrics_url):
+            assert freshness_workload() == expected
 
 
 class TestMetricsFreshnessRead(ClickhouseTestMixin, APIBaseTest):
@@ -158,6 +259,37 @@ class TestMetricsFreshnessRead(ClickhouseTestMixin, APIBaseTest):
         assert now - timedelta(seconds=5) <= freshness <= datetime.now(UTC)
 
 
+class TestPartitionCheckpointRead(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics_kafka_metrics")
+
+    def _deliver(self, partition: int, observed: datetime) -> None:
+        sync_execute(
+            "INSERT INTO metrics_kafka_metrics (_partition, _topic, max_offset, max_observed_timestamp) VALUES",
+            [(partition, "clickhouse_metrics", 1, observed)],
+        )
+
+    @parameterized.expand(
+        [
+            ("every_partition_recent", timedelta(seconds=40), timedelta(seconds=40)),
+            ("one_partition_stalled", timedelta(minutes=6), None),
+        ]
+    )
+    def test_reads_the_oldest_partitions_newest_capture(
+        self, _name: str, slowest_age: timedelta, expected_age: timedelta | None
+    ) -> None:
+        now = datetime.now(UTC).replace(microsecond=0)
+        # A partition's older block must not lower its checkpoint.
+        self._deliver(0, now - timedelta(minutes=30))
+        self._deliver(0, now - timedelta(seconds=10))
+        self._deliver(1, now - slowest_age)
+
+        checkpoint = fetch_partition_checkpoint(self.team, max_execution_time=5)
+
+        assert checkpoint == (None if expected_age is None else now - expected_age)
+
+
 class TestMetricsAlertEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -167,6 +299,9 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self.enterContext(patch("products.metrics.backend.promql.snuffle_request", self.snuffle))
         self.freshness = self.enterContext(
             patch("products.metrics.backend.alerts.evaluation.fetch_metrics_freshness", return_value=None)
+        )
+        self.checkpoint = self.enterContext(
+            patch("products.metrics.backend.alerts.evaluation.fetch_partition_checkpoint", return_value=None)
         )
         with team_scope(self.team.id):
             self.configuration_id = create_configuration(
@@ -220,6 +355,10 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         assert self._kinds(first) == {"a": AlertEventKind.FIRING, "b": AlertEventKind.FIRING}
         assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - timedelta(seconds=30)).timestamp())
+        assert self.snuffle.call_args.kwargs["ch_user"] == ClickHouseUser.ALERTS_PLATFORM_METRICS
+        # The step sizes an implicit MetricsQL rollup window, so it matches the range query's step.
+        assert self.snuffle.call_args.kwargs["data"]["step"] == "60s"
+        assert self.snuffle.call_args.kwargs["workload"] == Workload.METRICS
 
         self._next_check(first)
         self.snuffle.return_value = _response(
@@ -238,7 +377,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         assert self._kinds(self._evaluate()) == {}
 
-        self.freshness.return_value = self.due_at - timedelta(seconds=30)
+        self.freshness.return_value = self.due_at
         resolved = self._evaluate()
 
         assert self._kinds(resolved) == {"a": AlertEventKind.RESOLVED}
@@ -248,6 +387,108 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self.freshness.return_value = self.due_at - timedelta(seconds=30)
 
         assert self._kinds(self._evaluate()) == {}
+
+    def test_a_missing_series_resolves_at_once_when_every_partition_has_caught_up(self) -> None:
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000"), ({"group": "b"}, "2000")))
+        first = self._evaluate()
+
+        assert self._kinds(first) == {"a": AlertEventKind.FIRING, "b": AlertEventKind.FIRING}
+        assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - CHECKPOINT_EVAL_DELAY).timestamp())
+
+        self._next_check(first)
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "b"}, "NaN")))
+
+        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
+
+    def test_a_window_fires_only_once_the_condition_has_held_for_every_check_in_it(self) -> None:
+        self.checkpoint.return_value = self.due_at
+        read_at = self.due_at - CHECKPOINT_EVAL_DELAY
+        with team_scope(self.team.id):
+            platform_testing.set_evaluation_window(self.configuration_id, periods=3, datapoints=3)
+        self.snuffle.return_value = _response(
+            200,
+            _matrix(
+                read_at,
+                ({"group": "held"}, ["2000", "2000", "2000"]),
+                ({"group": "new"}, ["10", "10", "2000"]),
+                ({"group": "gap"}, ["2000", "10", "2000"]),
+            ),
+        )
+        first = self._evaluate()
+
+        assert self._kinds(first) == {"held": AlertEventKind.FIRING}
+        request = self.snuffle.call_args
+        assert request.args[2] == "/api/v1/query_range"
+        assert request.kwargs["data"]["start"] == str((read_at - timedelta(minutes=2)).timestamp())
+        assert request.kwargs["data"]["end"] == str(read_at.timestamp())
+        assert request.kwargs["data"]["step"] == "60s"
+
+        self._next_check(first)
+        self.checkpoint.return_value = self.due_at
+        # A value with no number reaches no verdict, so the firing group must not resolve on it.
+        self.snuffle.return_value = _response(
+            200, _matrix(self.due_at - CHECKPOINT_EVAL_DELAY, ({"group": "held"}, ["2000", "2000", "NaN"]))
+        )
+
+        assert self._kinds(self._evaluate()) == {}
+
+    def test_a_group_missing_now_keeps_its_earlier_breaches(self) -> None:
+        self.checkpoint.return_value = self.due_at
+        with team_scope(self.team.id):
+            platform_testing.set_evaluation_window(self.configuration_id, periods=3, datapoints=2)
+        self.snuffle.return_value = _response(
+            200, _matrix(self.due_at - CHECKPOINT_EVAL_DELAY, ({"group": "a"}, ["2000", "2000", "2000"]))
+        )
+        first = self._evaluate()
+
+        assert self._kinds(first) == {"a": AlertEventKind.FIRING}
+
+        self._next_check(first)
+        self.checkpoint.return_value = self.due_at
+        read_at = self.due_at - CHECKPOINT_EVAL_DELAY
+        # Two of the last three checks breached, so the group stays firing though it is missing now.
+        self.snuffle.return_value = _response(
+            200,
+            {
+                "status": "success",
+                "data": {
+                    "resultType": "matrix",
+                    "result": [
+                        {
+                            "metric": {"group": "a"},
+                            "values": [
+                                [(read_at - timedelta(minutes=2)).timestamp(), "2000"],
+                                [(read_at - timedelta(minutes=1)).timestamp(), "2000"],
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert self._kinds(self._evaluate()) == {}
+
+    def test_a_check_behind_its_last_read_waits_until_ingestion_passes_it(self) -> None:
+        self.freshness.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        first = self._evaluate()
+
+        assert self._kinds(first) == {"a": AlertEventKind.FIRING}
+
+        last_read = self.due_at
+        self._next_check(first)
+        self.checkpoint.return_value = last_read + CHECKPOINT_EVAL_DELAY - timedelta(seconds=15)
+        deferred = self._evaluate_batch()
+
+        assert (deferred.outcomes, deferred.omitted) == ((), 1)
+
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "10")))
+
+        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
+        assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - CHECKPOINT_EVAL_DELAY).timestamp())
 
     def test_a_firing_held_back_by_a_mute_is_not_announced_on_a_value_with_no_number(self) -> None:
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
@@ -262,6 +503,36 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "NaN")))
 
         assert self._kinds(self._evaluate()) == {}
+
+    def test_team_missing_counts_skipped(self) -> None:
+        # Deleting the team would cascade its configurations, leaving no check due, so the read misses instead.
+        with team_scope(self.team.id):
+            second_id = create_configuration(
+                team_id=self.team.id,
+                source_kind=SourceKind.METRICS,
+                edit=PlatformAlertConfigurationEdit(
+                    name="Second",
+                    enabled=True,
+                    source_config={"query": _QUERY, "condition": {"operator": "gt", "threshold": 1}},
+                    grouping=Grouping(mode=GroupingMode.SINGLE, keys=()),
+                    schedule_restriction=None,
+                    evaluation_periods=1,
+                    datapoints_to_alarm=1,
+                    cooldown_minutes=0,
+                ),
+                created_by_id=self.user.id,
+            ).id
+            platform_testing.set_due_at(second_id, self.due_at)
+
+        with (
+            patch("products.metrics.backend.alerts.evaluation.Team") as team_model,
+            patch("products.metrics.backend.alerts.evaluation.increment_checks_skipped") as skipped,
+        ):
+            team_model.objects.filter.return_value.first.return_value = None
+            evaluation = self._evaluate_batch()
+
+        assert (evaluation.outcomes, self.snuffle.call_count) == ((), 0)
+        assert [call.args for call in skipped.call_args_list] == [("metrics", "team_missing")] * 2
 
     @override_settings(ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES=1)
     def test_a_batch_over_the_pool_limit_stays_due_for_a_later_tick(self) -> None:
@@ -307,7 +578,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
     def test_destinations_are_alert_destination_rows_that_the_firing_reaches(self) -> None:
         workspace = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
-        destinations_url = f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/"
+        destinations_url = f"/api/projects/{self.team.id}/platform_alerts/{self.configuration_id}/destinations/"
         slack = self.client.post(
             destinations_url,
             {
@@ -353,41 +624,3 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         with team_scope(self.team.id):
             assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()
-
-    @parameterized.expand(
-        [
-            ("alert_only", ["alert:read"], status.HTTP_403_FORBIDDEN),
-            ("metrics_only", ["metrics:read"], status.HTTP_403_FORBIDDEN),
-            ("alert_and_metrics", ["alert:read", "metrics:read"], status.HTTP_200_OK),
-        ]
-    )
-    def test_reading_destinations_needs_both_alert_and_metrics_scopes(
-        self, _name: str, scopes: list[str], expected: int
-    ) -> None:
-        self.client.logout()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
-
-        response = self.client.get(f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/")
-
-        assert response.status_code == expected, response.json()
-
-    @parameterized.expand(
-        [
-            ("http_webhook", {"type": "webhook", "webhook_url": "http://example.com/alerts"}, "webhook_url"),
-            ("teams_url_not_from_teams", {"type": "teams", "webhook_url": "https://example.com/alerts"}, "webhook_url"),
-            (
-                "unconnected_slack_workspace",
-                {"type": "slack", "slack_workspace_id": 999999, "slack_channel_id": "C123"},
-                "slack_workspace_id",
-            ),
-        ]
-    )
-    def test_a_destination_that_could_never_deliver_is_refused(
-        self, _name: str, body: dict[str, object], field: str
-    ) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/", body, format="json"
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == field

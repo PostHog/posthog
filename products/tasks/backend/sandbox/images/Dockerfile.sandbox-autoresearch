@@ -17,7 +17,7 @@ RUN pip install --break-system-packages --no-cache-dir \
     numpy==2.3.5 \
     pandas==2.3.3 \
     scikit-learn==1.7.2 \
-    pyarrow==23.0.1 \
+    pyarrow==26.0.1 \
     scipy==1.16.3
 # xgboost is on the recipe allowlist. Its Linux wheel declares nvidia-nccl-cu12 (322 MB) for
 # multi-GPU training; training runs on CPU, so install it without dependencies (numpy and scipy

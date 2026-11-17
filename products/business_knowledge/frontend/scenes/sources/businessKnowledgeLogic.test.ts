@@ -62,6 +62,8 @@ const MOCK_SOURCE: KnowledgeSourceApi = {
     file_size_bytes: null,
     always_include: false,
     library_ids: [],
+    cited_run_count: 0,
+    last_cited_at: null,
 }
 
 const mockedApi = api as jest.Mocked<typeof api>
@@ -230,6 +232,21 @@ describe('businessKnowledgeLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockedApi.updateSource).toHaveBeenCalledWith(MOCK_SOURCE.id, { library_ids: [libraryId] })
+    })
+
+    it('fills the file source name from the file only until the user types one', () => {
+        const firstFile = new File(['a'], 'refund-policy.pdf')
+        const secondFile = new File(['b'], 'shipping.docx')
+
+        logic.actions.setSourceFile(firstFile)
+        expect(logic.values.fileSource).toMatchObject({ file: firstFile, name: 'refund-policy' })
+
+        logic.actions.setSourceFile(secondFile)
+        expect(logic.values.fileSource).toMatchObject({ file: secondFile, name: 'shipping' })
+
+        logic.actions.setFileSourceValue('name', 'Shipping rules')
+        logic.actions.setSourceFile(firstFile)
+        expect(logic.values.fileSource).toMatchObject({ file: firstFile, name: 'Shipping rules' })
     })
 
     it('keeps the persisted filters apart per team', () => {

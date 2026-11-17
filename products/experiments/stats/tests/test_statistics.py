@@ -51,14 +51,16 @@ QUANTILE_TREATMENT = QuantileStatistic(
 )
 
 
-def _iid_quantile(nu: float, n: int, lower: float, upper: float, n_clusters: int | None = None) -> QuantileStatistic:
+def _iid_quantile(
+    nu: float, n: int, lower: float, upper: float, n_clusters: int | None = None, quantile: float | None = None
+) -> QuantileStatistic:
     # One event per user, so the design effect is K / (K - 1).
     k = n if n_clusters is None else n_clusters
     return QuantileStatistic(
         nu=nu,
         n=n,
         n_clusters=k,
-        quantile=(lower + upper) / 2,
+        quantile=(lower + upper) / 2 if quantile is None else quantile,
         quantile_lower=lower,
         quantile_upper=upper,
         n_star=max([n_star for n_star in QUANTILE_N_STAR_GRID if n_star <= n], default=QUANTILE_N_STAR_GRID[0]),
@@ -70,22 +72,62 @@ def _iid_quantile(nu: float, n: int, lower: float, upper: float, n_clusters: int
     )
 
 
-# (name, treatment, control) pairs in which the treatment quantile has no usable variance.
+# 10 users with 90 events each and 100 users with one event each, so the events come from about 12 effective users.
+DOMINANT_USERS_QUANTILE = QuantileStatistic(
+    nu=0.9,
+    n=1000,
+    n_clusters=500,
+    quantile=12.0,
+    quantile_lower=11.0,
+    quantile_upper=13.0,
+    n_star=800,
+    s_sum=900,
+    s_sum_squares=65860,
+    n_sum=1000,
+    n_sum_squares=81100,
+    s_n_sum_of_products=72990,
+)
+
+ZERO_VARIANCE_ERROR = "Quantile has zero variance"
+TIED_VALUES_ERROR = "Quantile variance is unreliable - too many events tie with the quantile value"
+DOMINANT_USERS_ERROR = "Quantile variance is unreliable - a few users produce most of the events"
+
 DEGENERATE_QUANTILE_CASES = [
     (
         "collapsed_bounds",
         _iid_quantile(nu=0.6, n=700, lower=4.0, upper=4.0),
         _iid_quantile(nu=0.6, n=700, lower=3.9, upper=4.1),
+        ZERO_VARIANCE_ERROR,
     ),
     (
         "tail_too_small_for_quantile",
         _iid_quantile(nu=0.98, n=150, lower=3.9, upper=4.1),
         _iid_quantile(nu=0.98, n=6_000, lower=3.9, upper=4.1),
+        ZERO_VARIANCE_ERROR,
     ),
     (
         "single_cluster",
         _iid_quantile(nu=0.6, n=700, lower=3.9, upper=4.1, n_clusters=1),
         _iid_quantile(nu=0.6, n=700, lower=3.9, upper=4.1),
+        ZERO_VARIANCE_ERROR,
+    ),
+    (
+        "quantile_tied_with_lower_bound",
+        _iid_quantile(nu=0.6, n=700, lower=4.0, upper=4.1, quantile=4.0),
+        _iid_quantile(nu=0.6, n=700, lower=3.9, upper=4.1),
+        TIED_VALUES_ERROR,
+    ),
+    (
+        "quantile_tied_with_upper_bound",
+        _iid_quantile(nu=0.6, n=700, lower=3.9, upper=4.0, quantile=4.0),
+        _iid_quantile(nu=0.6, n=700, lower=3.9, upper=4.1),
+        TIED_VALUES_ERROR,
+    ),
+    (
+        "few_effective_users",
+        DOMINANT_USERS_QUANTILE,
+        _iid_quantile(nu=0.9, n=1000, lower=11.0, upper=13.0),
+        DOMINANT_USERS_ERROR,
     ),
 ]
 

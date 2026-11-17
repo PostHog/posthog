@@ -1,8 +1,3 @@
-from products.experiments.backend.temporal import (
-    ACTIVITIES,
-    EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
-    WORKFLOWS,
-)
 from products.experiments.backend.temporal.canary_workflow import ExperimentPrecomputeCanaryWorkflow
 from products.experiments.backend.temporal.enrollment_census_activities import run_experiment_enrollment_census
 from products.experiments.backend.temporal.enrollment_census_workflow import (
@@ -10,6 +5,11 @@ from products.experiments.backend.temporal.enrollment_census_workflow import (
 )
 from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
 from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
+from products.experiments.backend.temporal.registry import (
+    ACTIVITIES,
+    EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    WORKFLOWS,
+)
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
     check_experiment_exposures,
     discover_scheduled_recalculation_candidates,
@@ -95,5 +95,5 @@ def test_calc_activity_registered_on_recalculation_and_activity_queues():
     ]
     assert len(recalculation_specs) == 1
     assert calculate_experiment_metric_for_recalculation in recalculation_specs[0]
-    assert activity_queue_specs == [([], EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES)] * 2
+    assert activity_queue_specs == [([], EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES)] * 4
     assert EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES == [calculate_experiment_metric_for_recalculation]

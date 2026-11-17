@@ -104,15 +104,12 @@ class TestObservationLabels(_VisionAPITestCase):
 
     def test_label_write_denied_without_scanner_editor_access_on_session_route(self) -> None:
         # The session route's get_object only checks the observation row; label writes must object-check the scanner.
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
-            side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
-        ):
-            resp = self.client.post(
-                f"/api/environments/{self.team.id}/vision/observations/{self.observation.id}/label/",
-                {"is_correct": True},
-                format="json",
-            )
+        self._restrict_scanner(self.scanner, "viewer")
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/vision/observations/{self.observation.id}/label/",
+            {"is_correct": True},
+            format="json",
+        )
         self.assertEqual(resp.status_code, 403, resp.json())
         self.assertFalse(ReplayObservationLabel.objects.filter(observation=self.observation).exists())
 
@@ -240,7 +237,6 @@ class TestObservationLabels(_VisionAPITestCase):
             "emits_signals": None,
             "query": None,
             "sampling_rate": None,
-            "sampling_mode": None,
         }
         self.assertEqual(
             labels["version_markers"],
@@ -281,7 +277,6 @@ class TestObservationLabels(_VisionAPITestCase):
                 "emits_signals": False,
                 "query": query,
                 "sampling_rate": 0.5,
-                "sampling_mode": "focused",
             }
         )
         ReplayObservation.objects.filter(id=newer.id).update(
@@ -294,7 +289,6 @@ class TestObservationLabels(_VisionAPITestCase):
                 "emits_signals": False,
                 "query": query,
                 "sampling_rate": 1.0,
-                "sampling_mode": "balanced",
             }
         )
 
@@ -302,8 +296,8 @@ class TestObservationLabels(_VisionAPITestCase):
 
         # v1 to v2 changed sampling only, so without these fields the bump looks like nothing changed.
         self.assertEqual(
-            [(m["version"], m["sampling_rate"], m["sampling_mode"]) for m in markers],
-            [(1, 0.5, "focused"), (2, 1.0, "balanced")],
+            [(m["version"], m["sampling_rate"]) for m in markers],
+            [(1, 0.5), (2, 1.0)],
         )
         self.assertEqual(
             [(m["scanner_type"], m["model"], m["provider"], m["emits_signals"], m["query"]) for m in markers],
@@ -329,17 +323,11 @@ class TestObservationLabels(_VisionAPITestCase):
         label = self.client.get(self._retrieve_url(self.observation)).json()["label"]
         self.assertEqual(label, {"is_correct": False, "feedback": "shared feedback"})
 
-    def _deny_editor(self):
-        # Viewer-level object checks still pass (reading observations); only editor is withheld.
-        return patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
-            side_effect=lambda obj, required_level=None, **_: required_level != "editor",
-        )
-
     def test_editing_label_requires_editor_access(self) -> None:
-        with self._deny_editor():
-            post = self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
-            delete = self.client.delete(self._label_url(self.observation))
+        # A viewer still reads observations; only editor is withheld.
+        self._restrict_scanner(self.scanner, "viewer")
+        post = self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
+        delete = self.client.delete(self._label_url(self.observation))
         self.assertEqual(post.status_code, 403, post.json())
         self.assertEqual(delete.status_code, 403)
         self.assertFalse(ReplayObservationLabel.objects.filter(observation=self.observation).exists())

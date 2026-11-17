@@ -250,7 +250,7 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
     )
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True, UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[])
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 async def test_insert_into_http_activity_preserves_mutation_properties_when_using_native_events(
     clickhouse_client, activity_environment, http_config
 ):

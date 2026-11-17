@@ -241,10 +241,7 @@ def start_sandbox_run(
                 mcp_scopes=BK_MCP_SCOPES,
                 output_schema=SandboxAnswer.model_json_schema(),
             ),
-            extra_run_state={
-                "mcp_exclude_tools": list(task_profiles.BUSINESS_KNOWLEDGE.mcp_exclude_tools),
-                "config_snapshot": {"connectors": {"mcp_installation_ids": []}},
-            },
+            extra_run_state={"config_snapshot": {"connectors": {"mcp_installation_ids": []}}},
         )
         if created.latest_run is None:
             raise RuntimeError("Sandbox task was created without a run")
@@ -287,12 +284,15 @@ def resume_sandbox_run(
         # another one exists, or that turn starts showing the new answer.
         if before_create is not None:
             before_create(previous)
-        run = tasks_facade.create_run(
-            task_id,
-            mode="background",
-            acting_user_id=user_id,
-            extra_state=_resumed_run_state(question=question, previous=previous, user_id=user_id),
-        )
+        try:
+            run = tasks_facade.create_run(
+                task_id,
+                mode="background",
+                acting_user_id=user_id,
+                extra_state=_resumed_run_state(question=question, previous=previous, user_id=user_id),
+            )
+        except tasks_facade.TaskRunAlreadyLiveError as error:
+            raise SandboxRunInProgress() from error
         created = CreatedTaskDTO(task_id=run.task_id, team_id=run.team_id, latest_run=run)
         if on_admitted is not None:
             on_admitted(created)

@@ -1,9 +1,10 @@
+import { canResolveReport } from '@posthog/agent-contracts/signal-report-state'
+
 import { fullName } from 'lib/utils/strings'
 
 import { buildReportImplementationPrompt } from 'products/signals/frontend/inbox/components/detail/buildReportImplementationPrompt'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import type { SignalReport } from 'products/signals/frontend/inbox/types'
-import { canResolveReport } from 'products/signals/frontend/inbox/utils/reportActions'
 import { parsePrUrlParts, safeHttpUrl } from 'products/signals/frontend/inbox/utils/reportPresentation'
 import { primaryReportPullRequest } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import type { PullRequestLinkApi } from 'products/today/frontend/generated/api.schemas'

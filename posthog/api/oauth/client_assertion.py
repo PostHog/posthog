@@ -25,7 +25,15 @@ from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jwt import PyJWK, PyJWKSet
 
-from posthog.api.oauth.cimd import CIMDFetchError, CIMDValidationError, fetch_client_json_document
+from posthog.api.oauth.cimd import (
+    THROWAWAY_JWKS_HOST_MESSAGE,
+    CIMDFetchError,
+    CIMDValidationError,
+    fetch_client_json_document,
+    is_throwaway_host,
+    jwks_domain_mismatch_message,
+    jwks_uri_shares_client_domain,
+)
 from posthog.dataclasses import frozen
 from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
 from posthog.models.oauth import OAuthApplication
@@ -170,24 +178,49 @@ def expected_assertion_audiences(*token_endpoint_paths: str) -> list[str]:
 AGENTIC_TOKEN_ENDPOINT_PATH = "/api/agentic/oauth/token"
 
 
-def describe_jwks(jwks_uri: str) -> list[str]:
+def describe_jwks(app: OAuthApplication) -> list[str]:
     """Fetch and validate a key set, returning its key ids, for diagnostics.
 
     Always goes to the network so the answer reflects what the client is serving right now
     rather than what it served up to an hour ago. Raises ClientAssertionError with the reason
     the document was rejected, which is the whole point of calling this.
     """
-    key_set = load_jwks(jwks_uri, force_refresh=True)
+    _refuse_off_domain_jwks_uri(app)
+    key_set = load_jwks(app.jwks_uri, force_refresh=True)
     return [key.key_id or "(no kid)" for key in key_set.keys]
 
 
-def load_jwks(jwks_uri: str, *, force_refresh: bool = False) -> PyJWKSet:
+def _jwks_cache_key(jwks_uri: str, max_keys: int) -> str:
+    # One entry per cap, so a client that registers a provider's JWKS URI can't cache a rejection for it.
+    return (
+        f"{JWKS_CACHE_PREFIX}{jwks_uri}" if max_keys == JWKS_MAX_KEYS else f"{JWKS_CACHE_PREFIX}{max_keys}:{jwks_uri}"
+    )
+
+
+def _refuse_off_domain_jwks_uri(app: OAuthApplication) -> None:
+    # A CIMD row stored before this rule still names its old jwks_uri until the next metadata
+    # refresh, so every path that fetches it applies the rule first.
+    if app.is_cimd_client and not jwks_uri_shares_client_domain(app.client_id, app.jwks_uri):
+        logger.warning("client_assertion_jwks_domain_mismatch", client_id=app.client_id, jwks_uri=app.jwks_uri)
+        raise ClientAssertionError(
+            f"{jwks_domain_mismatch_message(app.client_id)} Then call client_registration to apply the change."
+        )
+
+
+def load_jwks(jwks_uri: str, *, force_refresh: bool = False, max_keys: int = JWKS_MAX_KEYS) -> PyJWKSet:
     """Return the client's key set, cached, so a token exchange doesn't fetch on every call.
 
     Failures are cached too (briefly), so a client with a broken or hostile jwks_uri can't
     turn each of its requests into an outbound fetch.
     """
-    cache_key = f"{JWKS_CACHE_PREFIX}{jwks_uri}"
+    # A row stored before its host was listed still names it until the next metadata refresh,
+    # so the host is refused here too, before the cache and before PostHog sends it a request.
+    # This is not a JWKSUnavailableError, because a retry cannot succeed.
+    if is_throwaway_host(jwks_uri):
+        logger.warning("client_assertion_jwks_throwaway_host_refused", jwks_uri=jwks_uri)
+        raise ClientAssertionError(f"{THROWAWAY_JWKS_HOST_MESSAGE} Then call client_registration to apply the change.")
+
+    cache_key = _jwks_cache_key(jwks_uri, max_keys)
     cached = None if force_refresh else cache.get(cache_key)
     if cached is not None:
         if cached == "error":
@@ -195,7 +228,7 @@ def load_jwks(jwks_uri: str, *, force_refresh: bool = False) -> PyJWKSet:
         return PyJWKSet.from_dict(cached)
 
     try:
-        parsed = _fetch_jwks_document(jwks_uri)
+        parsed = _fetch_jwks_document(jwks_uri, max_keys=max_keys)
     except ClientAssertionError:
         cache.set(cache_key, "error", timeout=JWKS_NEGATIVE_CACHE_TTL_SECONDS)
         raise
@@ -204,7 +237,7 @@ def load_jwks(jwks_uri: str, *, force_refresh: bool = False) -> PyJWKSet:
     return PyJWKSet.from_dict(parsed)
 
 
-def _fetch_jwks_document(jwks_uri: str) -> dict:
+def _fetch_jwks_document(jwks_uri: str, *, max_keys: int = JWKS_MAX_KEYS) -> dict:
     """Fetch and validate the JWKS, raising ClientAssertionError on any rejection so the
     caller has a single place to record the negative cache entry."""
     try:
@@ -222,8 +255,8 @@ def _fetch_jwks_document(jwks_uri: str) -> dict:
     # Capping the key count keeps a hostile JWKS from making each verification walk a huge
     # set. Everything else about the document's shape is PyJWKSet's own validation.
     keys = parsed.get("keys")
-    if isinstance(keys, list) and len(keys) > JWKS_MAX_KEYS:
-        raise ClientAssertionError(f"JWKS must not contain more than {JWKS_MAX_KEYS} keys")
+    if isinstance(keys, list) and len(keys) > max_keys:
+        raise ClientAssertionError(f"JWKS must not contain more than {max_keys} keys")
     if isinstance(keys, list) and any(isinstance(key, dict) and key.get("kty") == "oct" for key in keys):
         raise ClientAssertionError('JWKS contains a symmetric key (kty "oct"). Publish only RSA or EC public keys.')
 
@@ -258,7 +291,7 @@ def _select_key(key_set: PyJWKSet, assertion: str) -> PyJWK:
     raise ClientAssertionError("Client assertion must carry a kid when the JWKS holds several keys")
 
 
-def select_signing_key(jwks_uri: str, assertion: str) -> PyJWK:
+def select_signing_key(jwks_uri: str, assertion: str, *, max_keys: int = JWKS_MAX_KEYS) -> PyJWK:
     """Select the assertion's signing key, re-fetching the JWKS once when the key is unknown.
 
     A client that rotates keys signs with the new ``kid`` while our cached copy of its key
@@ -266,7 +299,7 @@ def select_signing_key(jwks_uri: str, assertion: str) -> PyJWK:
     expires. The marker caps forced re-fetches at one per interval per URI.
     """
     try:
-        return _select_key(load_jwks(jwks_uri), assertion)
+        return _select_key(load_jwks(jwks_uri, max_keys=max_keys), assertion)
     except UnknownSigningKeyError:
         marker = f"{JWKS_CACHE_PREFIX}rotation-refresh:{jwks_uri}"
         if not cache.add(marker, True, timeout=JWKS_ROTATION_REFRESH_MIN_INTERVAL_SECONDS):
@@ -275,8 +308,8 @@ def select_signing_key(jwks_uri: str, assertion: str) -> PyJWK:
         # path writes the negative sentinel over the cached set: one assertion naming a bogus
         # kid while the client's JWKS endpoint is down would then lock out every assertion
         # signed with an already-cached key for the negative-cache window.
-        parsed = _fetch_jwks_document(jwks_uri)
-        cache.set(f"{JWKS_CACHE_PREFIX}{jwks_uri}", parsed, timeout=JWKS_CACHE_TTL_SECONDS)
+        parsed = _fetch_jwks_document(jwks_uri, max_keys=max_keys)
+        cache.set(_jwks_cache_key(jwks_uri, max_keys), parsed, timeout=JWKS_CACHE_TTL_SECONDS)
         return _select_key(PyJWKSet.from_dict(parsed), assertion)
 
 
@@ -302,6 +335,7 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
     if not app.jwks_uri:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
 
+    _refuse_off_domain_jwks_uri(app)
     key = select_signing_key(app.jwks_uri, assertion)
     # The selected key's own algorithm is held to the list too, because PyJWT verifies with it.
     if key.algorithm_name not in ASYMMETRIC_SIGNING_ALGORITHMS or not isinstance(

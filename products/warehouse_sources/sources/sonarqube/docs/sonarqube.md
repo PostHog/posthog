@@ -16,7 +16,7 @@ import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
 
-Sync code-quality data from your self-hosted [SonarQube Server](https://www.sonarsource.com/products/sonarqube/) into the PostHog data warehouse — projects, metric definitions, coding rules, issues, and users — so you can trend technical debt, reliability, and issue counts across your projects over time.
+Sync code-quality data from your self-hosted [SonarQube Server](https://www.sonarsource.com/products/sonarqube/) into the PostHog data warehouse — projects, their analyses, branches, and pull requests, metric definitions and values, metric history, quality gates and their status per project, coding rules, issues and their change history, security hotspots, and users — so you can trend technical debt, reliability, coverage, and issue counts across your projects over time.
 
 ## Prerequisites
 
@@ -37,7 +37,15 @@ You'll need:
 
 <SyncModes />
 
-**Issues** support incremental sync: after the first run, only issues created since the last sync are fetched (using the `createdAfter` filter on the issue creation date). Because SonarQube exposes no "updated since" filter for issues, status changes on existing issues (for example, an issue being resolved) are only picked up on a full refresh. Projects, metrics, rules, and users are small reference sets that sync with a full refresh each run.
+**Issues** support incremental sync: after the first run, only issues created since the last sync are fetched (using the `createdAfter` filter on the issue creation date). Because SonarQube exposes no "updated since" filter for issues, status changes on existing issues (for example, an issue being resolved) are only picked up on a full refresh. **Measures history** also supports incremental sync: after the first run, only analyses from a day before the last synced analysis date onward are fetched (using the `from` filter). The overlap catches analyses that the server finished processing after the last sync. **Project analyses** sync incrementally the same way, on the analysis date. Every other table syncs with a full refresh each run.
+
+**Component measures** holds one row per metric for every project, directory, and file, so it can grow large on big codebases. It is off by default; turn it on when you need file-level values. For project-level trends, use **measures history**.
+
+**Issue changelog** needs one request per issue, because SonarQube returns the history of one issue at a time. On an instance with many issues, a sync takes a long time. It is off by default.
+
+**Project pull requests** only have data on Developer Edition and above. Community Build does not analyze pull requests, so this table stays empty there.
+
+**Hotspots** use an API that SonarQube Server 2026.4 deprecated in favor of security issues. On those versions, security findings also appear in the **issues** table.
 
 ## Configuration
 

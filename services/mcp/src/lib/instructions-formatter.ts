@@ -7,6 +7,7 @@ import {
     type QueryToolInfo,
     type ToolInfo,
 } from '@/lib/instructions'
+import { metricCatalogPromptVars, resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { formatPrompt } from '@/lib/utils'
 import ACTIVITY_HISTORY_SQL from '@/templates/sections/activity-history-sql.md'
 import ACTIVITY_HISTORY from '@/templates/sections/activity-history.md'
@@ -34,17 +35,20 @@ import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
 import INBOX_FIRST from '@/templates/sections/inbox-first.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
+import METRIC_DISCOVERY_EMPTY_LEARN from '@/templates/sections/metric-discovery-empty-learn.md'
+import METRIC_DISCOVERY_EMPTY from '@/templates/sections/metric-discovery-empty.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
 import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
+import PROJECT_SCOPE from '@/templates/sections/project-scope.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
-import type { BusinessKnowledgeContent } from '@/tools/types'
+import type { BusinessKnowledgeContent, MetricCatalogContent } from '@/tools/types'
 
 /** Naming a command the catalog withholds sends the agent down a path it cannot take. */
 const WHATS_NEW_WITH_DOCS_SEARCH =
@@ -88,6 +92,7 @@ export interface InstructionsContext {
     inboxFirstEnabled?: boolean | undefined
     /** Read-only connections lack `inbox-reports-claim`, so they get no pull-request line. */
     inboxClaimEnabled?: boolean | undefined
+    metricCatalog?: MetricCatalogContent | undefined
 }
 
 const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
@@ -170,6 +175,21 @@ function envContextSections(ctx: InstructionsContext): string[] {
  * modes live in a single file, so prose can't drift.
  */
 export class InstructionsFormatter {
+    buildMetricDiscovery(ctx: InstructionsContext): string {
+        return this.compose(this.metricDiscoverySections(ctx, METRIC_DISCOVERY), ctx, { compact: false })
+    }
+
+    private metricDiscoverySections(
+        ctx: InstructionsContext,
+        rule: string,
+        opts: { learnAnalytics?: boolean } = {}
+    ): string[] {
+        if (resolveMetricCatalogMode(ctx.metricCatalog) !== 'empty') {
+            return [rule]
+        }
+        return opts.learnAnalytics ? [METRIC_DISCOVERY_EMPTY, METRIC_DISCOVERY_EMPTY_LEARN] : [METRIC_DISCOVERY_EMPTY]
+    }
+
     private knowledgeFirstSections(ctx: InstructionsContext): string[] {
         return this.knowledgeFirstSectionsForCapabilities({
             docsSearchEnabled: docsSearchAvailable(ctx),
@@ -238,7 +258,15 @@ export class InstructionsFormatter {
     private artifactSections(ctx: InstructionsContext): string[] {
         return [
             ANALYSIS_ARTIFACTS,
-            ...(ctx.tools?.some(({ name }) => name === 'explain-chart') ? [EXPLAIN_CHART] : []),
+            ...(ctx.tools?.some(({ name }) => name === 'explain-chart')
+                ? [
+                      formatPrompt(EXPLAIN_CHART, {
+                          explain_chart_link_line: ctx.tools.some(({ name }) => name === 'explain-chart-save')
+                              ? 'Where the conversation cannot show the chart explanation, call `explain-chart-save` with the same arguments and give the person the link it returns, which opens it beside the chart in PostHog.'
+                              : '',
+                      }),
+                  ]
+                : []),
             ...(ctx.notebookCellsEnabled ? [formatPrompt(NOTEBOOK_SQL, notebookSqlVars(ctx)), NOTEBOOK_PYTHON] : []),
             ...(ctx.notebookRunEnabled ? [NOTEBOOK_RUN] : []),
         ]
@@ -258,11 +286,12 @@ export class InstructionsFormatter {
     buildToolsInstructions(ctx: InstructionsContext): string {
         return this.compose(
             [
+                PROJECT_SCOPE,
                 BASIC_FUNCTIONALITY,
                 ...this.knowledgeFirstSections(ctx),
                 ...this.inboxFirstSections(ctx, false),
                 TOOL_SEARCH,
-                METRIC_DISCOVERY,
+                ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY),
                 RETRIEVING_DATA,
                 SCHEMA_WORKFLOW,
                 CATALOG_TRUST_DISCOVERY,
@@ -307,7 +336,7 @@ export class InstructionsFormatter {
 
     /** Build the top-level description of the `posthog:exec` tool. Lives in the
      *  uncapped top-level `description`, so the skills text costs no schema budget.
-     *  The skills mandate LEADS the description: it is the only signal that reaches
+     *  Project clarification and the skills mandate lead the description to reach
      *  an agent before its first tool call, and agents that answer PostHog-behavior
      *  questions by cloning the public repo never make a call for the gate to catch. */
     buildExecToolDescription(
@@ -322,6 +351,7 @@ export class InstructionsFormatter {
         const knowledgeSections = this.knowledgeFirstSectionsForCapabilities({ ...opts, execSyntax: true })
         const hasMandate = opts.skillsEnabled || knowledgeSections.length > 0
         return [
+            PROJECT_SCOPE,
             ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
             ...knowledgeSections,
             hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,
@@ -344,7 +374,7 @@ export class InstructionsFormatter {
                     'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.',
                 content: this.compose(
                     [
-                        METRIC_DISCOVERY,
+                        ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY),
                         RETRIEVING_DATA,
                         SCHEMA_WORKFLOW,
                         CATALOG_TRUST_DISCOVERY,
@@ -404,6 +434,7 @@ export class InstructionsFormatter {
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
             tools: ctx.tools,
+            metricCatalog: ctx.metricCatalog,
         }
 
         return this.compose(
@@ -414,7 +445,7 @@ export class InstructionsFormatter {
                 // content-routing paragraph is reserved for the uncapped full reference.
                 ...(skillsEnabled ? [CLI_LEARN_COMPACT] : []),
                 ...(learnSection ? [learnSection] : []),
-                METRIC_DISCOVERY_COMPACT,
+                ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY_COMPACT, { learnAnalytics: !!learnSection }),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
                 CLI_EXAMPLES_CLAUDE,
@@ -448,7 +479,7 @@ export class InstructionsFormatter {
             CLI_SYNTAX,
             ...(opts.learnEnabled ? [CLI_LEARN] : []),
             ...this.inboxFirstSections(ctx, true),
-            METRIC_DISCOVERY,
+            ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,
@@ -506,6 +537,7 @@ export class InstructionsFormatter {
             replay_vision: replayVisionAvailable(ctx) ? REPLAY_VISION : '',
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
+            ...metricCatalogPromptVars(resolveMetricCatalogMode(ctx.metricCatalog)),
         }
         const body = sections
             .map((s) => s.trim())

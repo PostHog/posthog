@@ -17,6 +17,7 @@ class TestExperimentMetricDiscriminator(SimpleTestCase):
             ("funnel_routes_to_funnel", "funnel", "series"),
             ("ratio_routes_to_ratio", "ratio", "numerator"),
             ("retention_routes_to_retention", "retention", "start_event"),
+            ("quantile_routes_to_quantile", "quantile", "quantile"),
         ]
     )
     def test_invalid_payload_routes_to_class_named_by_metric_type(
@@ -62,7 +63,7 @@ class TestExperimentMetricDiscriminator(SimpleTestCase):
         assert len(errors) == 1
         assert errors[0]["type"] == "union_tag_invalid"
         expected_tags_str = errors[0]["ctx"]["expected_tags"]
-        for tag in ("mean", "funnel", "ratio", "retention"):
+        for tag in ("mean", "funnel", "ratio", "retention", "quantile"):
             assert f"'{tag}'" in expected_tags_str, f"expected tag {tag!r} not found in {expected_tags_str!r}"
 
     def test_missing_metric_type_returns_clean_tag_error(self) -> None:
@@ -95,6 +96,14 @@ class TestExperimentMetricDiscriminator(SimpleTestCase):
                     "retention_window_end": 7,
                     "retention_window_unit": "day",
                     "start_handling": "first_seen",
+                },
+            ),
+            (
+                "quantile",
+                {
+                    "metric_type": "quantile",
+                    "source": {"kind": "EventsNode", "event": "app_ready", "math_property": "app_ready_ms"},
+                    "quantile": 0.9,
                 },
             ),
         ]

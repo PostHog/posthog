@@ -2,7 +2,7 @@ import './ActionsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored sign-up series for the stat card. The "after" series adds the click
 // the user just made at the far right.
@@ -22,7 +22,7 @@ function areaPath(line: string): string {
  * Before/after pairs are stacked in `__swap` grids and crossfaded, so nothing shifts.
  */
 export function ActionsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('ActionPreview', isStatic && 'ActionPreview--static')}>

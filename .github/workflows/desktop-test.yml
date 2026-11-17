@@ -103,7 +103,7 @@ jobs:
     unit-test:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
+        if: ${{ !cancelled() && (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) &&github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -161,7 +161,7 @@ jobs:
     electron-test:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
+        if: ${{ !cancelled() && (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) &&github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -317,7 +317,7 @@ jobs:
         # batch merges cleanly, which is what a queue run is for. A model timeout there
         # removes a PR that changes no desktop code from the queue. The PR's own run
         # still covers every branch that really changes products/desktop/packages/.
-        if: ${{ !cancelled() && ((inputs.run-suite != '' && inputs.run-e2e == 'true') || (inputs.run-suite == '' && needs.changes.result == 'success' && (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflow == 'true'))) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !startsWith(github.head_ref, 'trunk-merge/') }}
+        if: ${{ !cancelled() && (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) &&((inputs.run-suite != '' && inputs.run-e2e == 'true') || (inputs.run-suite == '' && needs.changes.result == 'success' && (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflow == 'true'))) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !startsWith(github.head_ref, 'trunk-merge/') }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -361,6 +361,8 @@ jobs:
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
+              env:
+                  SKIP_ELECTRON_REBUILD: '1'
 
             - name: Save pnpm store
               if: github.ref == 'refs/heads/master'

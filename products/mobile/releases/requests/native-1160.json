@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-1160",
+    "kind": "native",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "native-1150",
+    "notes": "Live activity is now on Home, with a world map of visitors and clearer setup, quiet, and app-only states. Pause and resume Live from the Home header. Saved graphs show their custom series names. Verify Live updates, map locations, pause and resume, and empty states on iOS and Android. Check chart legends, sign-in, reports, chats, notifications, and widgets before store promotion."
+}

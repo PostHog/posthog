@@ -207,9 +207,9 @@ describe('buildRankedResults', () => {
             products: [],
             accounts: [1, 2, 3, 4].map((n) => account(`account-${n}`, 'Billing')),
             expected: [
-                'Best matches: Billing, Billing insight 6',
-                'Accounts: Billing, Billing, Billing',
+                'Best matches: Billing insight 6, Billing',
                 'Insights: Billing insight 5, Billing insight 4, Billing insight 3, (See all 6 insights)',
+                'Accounts: Billing, Billing, Billing',
             ],
         },
         {
@@ -232,7 +232,7 @@ describe('buildRankedResults', () => {
             ],
         },
         {
-            name: 'with unified ranking, the app Settings row ranks above a product tab with the same name',
+            name: 'the app Settings row ranks above a product tab with the same name',
             query: 'settings',
             results: [],
             products: [
@@ -243,77 +243,69 @@ describe('buildRankedResults', () => {
                 },
             ],
             settings: [{ id: 'settings', name: 'Settings', category: 'settings' }],
-            unifiedRanking: true,
             expected: ['Results: Settings, Workflows Settings'],
         },
         {
-            name: 'with unified ranking, an account that matches only inside a word ranks below a name match',
+            name: 'an account that matches only inside a word ranks below a name match',
             query: 'stripe',
             results: [result('1', 'Stripe revenue', 'insight', [-1, 0, 0, 0, -1, 0, 1, 0, -1])],
             products: [],
             accounts: [account('account-1', 'Pinstripe Example Co')],
-            unifiedRanking: true,
             expected: ['Results: Stripe revenue, Pinstripe Example Co'],
         },
         {
-            name: 'with unified ranking, a domain search puts the account that owns the domain first',
+            name: 'a domain search puts the account that owns the domain first',
             query: 'example.org',
             results: [result('1', 'Example org signups', 'insight', [-2, 0, 0, 0, -2, 0, 1, 0, -1])],
             products: [],
             accounts: [account('account-1', 'Acme', ['example.org'])],
-            unifiedRanking: true,
             expected: ['Results: Acme, Example org signups'],
         },
         {
-            name: 'with unified ranking, a hyphenated flag key that starts with the search words ranks first',
+            name: 'a hyphenated flag key that starts with the search words ranks first',
             query: 'checkout flow',
             results: [
                 result('1', 'Flow of checkout events', 'insight', [-2, 0, 0, 0, -2, 0, 2, 0, -2]),
                 result('2', 'checkout-flow-redesign', 'feature_flag', [-2, 0, 0, 0, -2, 0, 5, 0, -1]),
             ],
             products: [],
-            unifiedRanking: true,
             expected: ['Results: checkout-flow-redesign, Flow of checkout events'],
         },
         {
-            name: 'with unified ranking, an account with a generic name and no CRM record ranks below a saved object',
+            name: 'an account with a generic name and no CRM record ranks below a saved object',
             query: 'studio',
             results: [result('1', 'Studio review', 'notebook', [-1, 0, 0, 0, -1, 0, 1, 0, -1])],
             products: [],
             accounts: [account('account-1', 'Studio')],
-            unifiedRanking: true,
             expected: ['Results: Studio review, Studio'],
         },
         {
-            name: 'with unified ranking, a curated account with the same name still ranks first',
+            name: 'a curated account with the same name still ranks first',
             query: 'studio',
             results: [result('1', 'Studio review', 'notebook', [-1, 0, 0, 0, -1, 0, 1, 0, -1])],
             products: [],
             accounts: [account('account-1', 'Studio', [], true)],
-            unifiedRanking: true,
             expected: ['Results: Studio, Studio review'],
         },
         {
-            name: 'with unified ranking, a snake_case name splits into words like a hyphenated one',
+            name: 'a snake_case name splits into words like a hyphenated one',
             query: 'checkout flow',
             results: [
                 result('1', 'Flow of checkout redesign', 'insight', [-2, 0, 0, 0, -2, 0, 2, 0, -2]),
                 result('2', 'checkout_flow_redesign', 'feature_flag', [-2, 0, 0, 0, -2, 0, 5, 0, -1]),
             ],
             products: [],
-            unifiedRanking: true,
             expected: ['Results: checkout_flow_redesign, Flow of checkout redesign'],
         },
         {
-            name: 'with unified ranking, a product that starts with the search ranks above an exact saved object name',
+            name: 'a product that starts with the search ranks above an exact saved object name',
             query: 'replay',
             results: [result('1', 'Replay', 'notebook', [-1, 0, 0, 0, -1, 0, 0, 0, -1])],
             products: [product('Session replay'), product('Replay vision')],
-            unifiedRanking: true,
             expected: ['Results: Replay vision, Replay, Session replay'],
         },
         {
-            name: 'with unified ranking, an exact folder match beats a name that needs a typo',
+            name: 'an exact folder match beats a name that needs a typo',
             query: 'revenue',
             results: [
                 result('1', 'Revenue board', 'dashboard', [-1, 0, 0, 0, -1, 0, 1, 0, -2]),
@@ -323,49 +315,43 @@ describe('buildRankedResults', () => {
                 },
             ],
             products: [],
-            unifiedRanking: true,
             expected: ['Results: Revenue board, Revenge'],
         },
         {
-            name: 'with unified ranking, a match inside a word beats a word that needs a typo',
+            name: 'a match inside a word beats a word that needs a typo',
             query: 'stripe',
             results: [result('1', 'Stripe revenue', 'insight', [-1, 0, 0, 0, -1, 0, 1, 0, -1])],
             products: [],
             accounts: [account('account-1', 'Pinstripe Strive')],
-            unifiedRanking: true,
             expected: ['Results: Stripe revenue, Pinstripe Strive'],
         },
         {
-            name: 'with unified ranking, a keyword with fewer typos wins over an earlier keyword',
+            name: 'a keyword with fewer typos wins over an earlier keyword',
             query: 'lajehouse',
             results: [result('1', 'Warehouse costs', 'insight', [-1, 1, 0, 0, -1, 0, 5, 0, -1])],
             products: [product('Data ops', ['managed warehouse', 'lakehouse'])],
-            unifiedRanking: true,
             expected: ['Results: Data ops'],
         },
         {
-            name: 'with unified ranking, an account the API matched keeps zero typos over a fuzzy name',
+            name: 'an account the API matched keeps zero typos over a fuzzy name',
             query: 'stripe',
             results: [result('1', 'Ada stripe com signups', 'insight', [-1, 0, 0, 0, -1, 1, 2, 0, -1])],
             products: [],
             accounts: [account('account-1', 'Strive')],
-            unifiedRanking: true,
             expected: ['Results: Ada stripe com signups, Strive'],
         },
         {
-            name: 'with unified ranking, a search keyword still matches with a typo',
+            name: 'a search keyword still matches with a typo',
             query: 'recordigns',
             results: [],
             products: [product('Session replay', ['recordings']), product('Surveys')],
-            unifiedRanking: true,
             expected: ['Results: Session replay'],
         },
         {
-            name: 'with unified ranking, an exact name ranks above an exact search keyword',
+            name: 'an exact name ranks above an exact search keyword',
             query: 'metrics',
             results: [],
             products: [product('Data catalog', ['metrics']), product('Metrics')],
-            unifiedRanking: true,
             expected: ['Results: Metrics, Data catalog'],
         },
         {
@@ -382,7 +368,7 @@ describe('buildRankedResults', () => {
             ],
         },
         {
-            name: 'with unified ranking, a flat list of one saved-object type that hits the cap ends with its see-all row',
+            name: 'a flat list of one saved-object type that hits the cap ends with its see-all row',
             query: 'revenue',
             results: Array.from({ length: RESULTS_LIMIT + 5 }, (_, n) =>
                 result(`dashboard-${n}`, `Revenue ${n}`, 'dashboard', exactWordRank(100 - n), {
@@ -390,7 +376,6 @@ describe('buildRankedResults', () => {
                 })
             ),
             products: [],
-            unifiedRanking: true,
             expected: [
                 `Results: ${Array.from({ length: RESULTS_LIMIT }, (_, n) => `Revenue ${n}`).join(', ')}, (See all ${RESULTS_LIMIT + 5} dashboards)`,
             ],
@@ -403,10 +388,9 @@ describe('buildRankedResults', () => {
             expected: [`Results: ${Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => `Pricing ${n}`).join(', ')}`],
         },
         {
-            name: 'with unified ranking, every product shows when products are the only match, past the flat list cap',
+            name: 'every product shows when products are the only match, past the flat list cap',
             query: 'pricing',
             results: [],
-            unifiedRanking: true,
             products: Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => product(`Pricing ${n}`)),
             expected: [`Results: ${Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => `Pricing ${n}`).join(', ')}`],
         },
@@ -424,34 +408,21 @@ describe('buildRankedResults', () => {
                 `Results: ${Array.from({ length: RESULTS_LIMIT + 5 }, (_, n) => `Project settings ${n}`).join(', ')}`,
             ],
         },
-    ])(
-        '$name',
-        ({
-            query,
-            results,
-            products,
-            persons = [],
-            accounts = [],
-            settings = [],
-            unifiedRanking = false,
-            expected,
-        }) => {
-            expect(
-                summary(
-                    buildRankedResults({
-                        query,
-                        highlightWords: query.split(' '),
-                        results,
-                        products,
-                        persons,
-                        accounts,
-                        settings,
-                        state: 'ready',
-                        scoped: false,
-                        unifiedRanking,
-                    })
-                )
-            ).toEqual(expected)
-        }
-    )
+    ])('$name', ({ query, results, products, persons = [], accounts = [], settings = [], expected }) => {
+        expect(
+            summary(
+                buildRankedResults({
+                    query,
+                    highlightWords: query.split(' '),
+                    results,
+                    products,
+                    persons,
+                    accounts,
+                    settings,
+                    state: 'ready',
+                    scoped: false,
+                })
+            )
+        ).toEqual(expected)
+    })
 })

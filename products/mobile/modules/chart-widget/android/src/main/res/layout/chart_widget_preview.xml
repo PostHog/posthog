@@ -1,0 +1,79 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="@drawable/chart_widget_background"
+  android:clipToOutline="true"
+  android:orientation="vertical"
+  android:padding="@dimen/chart_widget_padding">
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <ImageView
+      android:layout_width="12dp"
+      android:layout_height="12dp"
+      android:importantForAccessibility="no"
+      android:src="@drawable/chart_widget_glyph" />
+
+    <TextView
+      style="@style/ChartWidgetText.Title"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginStart="6dp"
+      android:text="@string/chart_widget_preview_title" />
+  </LinearLayout>
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="2dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <TextView
+      style="@style/ChartWidgetText.Value"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:text="@string/chart_widget_preview_value" />
+
+    <TextView
+      style="@style/ChartWidgetText.Pill"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginStart="8dp"
+      android:text="@string/chart_widget_preview_delta" />
+
+  </LinearLayout>
+
+  <ImageView
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_marginTop="8dp"
+    android:layout_weight="1"
+    android:importantForAccessibility="no"
+    android:scaleType="fitXY"
+    android:src="@drawable/chart_widget_preview_chart" />
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="6dp"
+    android:orientation="horizontal">
+
+    <TextView
+      style="@style/ChartWidgetText.Footer"
+      android:layout_width="0dp"
+      android:layout_height="wrap_content"
+      android:layout_weight="1"
+      android:text="@string/chart_widget_preview_range" />
+
+    <TextView
+      style="@style/ChartWidgetText.Footer"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:text="@string/chart_widget_preview_updated" />
+  </LinearLayout>
+</LinearLayout>

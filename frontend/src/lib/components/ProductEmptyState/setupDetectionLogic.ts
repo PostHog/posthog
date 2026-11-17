@@ -16,6 +16,7 @@ import {
     isBrowserNetworkFailure,
     isScopeNotFoundError,
     isUnavailableEndpointError,
+    NetworkError,
     readableErrorMessage,
 } from 'lib/api-error'
 import { projectLogic } from 'scenes/projectLogic'
@@ -64,9 +65,10 @@ export interface SetupDetectionLogicOptions {
      * detection on later mounts. Only that direction is cached - data never
      * disappears once ingested, while needs-setup keeps re-checking. For products
      * without a boot-time probe, this is what spares the returning user a spinner
-     * and a query on every scene entry.
+     * and a query on every scene entry. A function decides per has-data answer, for a
+     * product whose has-data can come from data that goes away.
      */
-    cacheHasData?: boolean
+    cacheHasData?: boolean | (() => boolean)
     /** Entity products can become empty when users delete their last item. Recheck mutations even after data exists. */
     allowReturnToSetup?: boolean
     /**
@@ -237,7 +239,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 // Data never disappears once it exists, so the poll's job is done.
                 if (detectedStatus === 'has-data') {
                     cache.disposables.dispose('poll')
-                    if (cacheHasData) {
+                    if (typeof cacheHasData === 'function' ? cacheHasData() : cacheHasData) {
                         writeCachedHasData(values.currentTeamId, productKey)
                     }
                 }
@@ -303,7 +305,7 @@ async function detectOrNullOnOutageOrForbidden(
             onForbidden()
             return null
         }
-        if (isBrowserNetworkFailure(error) || isUnanswerableProbeResponse(error)) {
+        if (error instanceof NetworkError || isBrowserNetworkFailure(error) || isUnanswerableProbeResponse(error)) {
             return null
         }
         throw error

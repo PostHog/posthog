@@ -28,6 +28,7 @@ function email(
         workflow_id: '01977a3c-9a00-7000-8000-000000000002',
         template_id: '01977a3c-9a00-7000-8000-000000000003',
         template_name: 'Welcome email',
+        code_email_id: null,
         sending_domain: 'example.com',
         opened: timeline.some((event) => event.kind === 'opened'),
         clicked: timeline.some((event) => event.kind === 'clicked'),
@@ -55,6 +56,19 @@ OpenedAndClicked.args = {
         { kind: 'clicked', at: '2026-06-15T09:13:05Z', reason: null },
         { kind: 'opened', at: '2026-06-15T10:02:11Z', reason: null },
     ]),
+}
+
+export const SensitiveClicksNotTracked = Template.bind({})
+SensitiveClicksNotTracked.args = {
+    email: {
+        ...email('delivered', [
+            { kind: 'queued', at: '2026-06-15T09:00:00Z', reason: null },
+            { kind: 'sent', at: '2026-06-15T09:00:01Z', reason: null },
+            { kind: 'delivered', at: '2026-06-15T09:00:03Z', reason: null },
+            { kind: 'opened', at: '2026-06-15T09:12:40Z', reason: null },
+        ]),
+        sensitive: true,
+    },
 }
 
 export const Bounced = Template.bind({})

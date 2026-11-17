@@ -20,6 +20,6 @@
   "license": "MIT",
   "devDependencies": {
     "@biomejs/biome": "2.2.4",
-    "turbo": "^2.9.16"
+    "turbo": "^2.11.10"
   }
 }

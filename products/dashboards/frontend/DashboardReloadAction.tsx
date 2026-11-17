@@ -8,12 +8,19 @@ import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
+
+import { AUTO_REFRESH_INTERVAL_OPTIONS } from './autoRefreshIntervalOptions'
+import { DashboardActivitySummary } from './DashboardActivitySummary'
+import { QuillDashboardRefreshProgress } from './QuillDashboardRefreshProgress'
+import { QuillDashboardReloadAction } from './QuillDashboardReloadAction'
+import { QuillLastRefreshText } from './QuillLastRefreshText'
 
 export const LastRefreshText = (): JSX.Element => {
     const { effectiveLastRefresh } = useValues(dashboardLogic)
@@ -55,19 +62,12 @@ export function DashboardRefreshStatusText(): JSX.Element {
     )
 }
 
-const REFRESH_INTERVAL_SECONDS = [900, 1800, 3600]
-if (process.env.NODE_ENV === 'development') {
-    REFRESH_INTERVAL_SECONDS.unshift(10)
-}
-const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
-    label: humanFriendlyDuration(value),
-    value: value,
-}))
-
 export function DashboardReloadAction(): JSX.Element {
-    const { itemsLoading, autoRefresh, blockRefresh, nextAllowedDashboardRefresh } = useValues(dashboardLogic)
+    const { dashboard, itemsLoading, autoRefresh, blockRefresh, nextAllowedDashboardRefresh } =
+        useValues(dashboardLogic)
     const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
         useActions(dashboardLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     usePageVisibilityCb(setPageVisibility)
 
@@ -78,8 +78,34 @@ export function DashboardReloadAction(): JSX.Element {
         dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
             ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
             : ''
+    const onRefreshClick = (): void => (itemsLoading ? cancelDashboardRefresh() : triggerDashboardRefresh())
 
-    const options = INTERVAL_OPTIONS.map((option) => {
+    const activitySummary = dashboard && (
+        <DashboardActivitySummary
+            dashboardId={dashboard.id}
+            createdAt={dashboard.created_at}
+            createdBy={dashboard.created_by}
+        />
+    )
+
+    if (todayRailNav) {
+        return (
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
+                {activitySummary}
+                {itemsLoading ? (
+                    <QuillDashboardRefreshProgress />
+                ) : (
+                    <QuillLastRefreshText className="@max-5xl/dashboard-filters:hidden" />
+                )}
+                <QuillDashboardReloadAction
+                    refreshDisabledReason={refreshDisabledReason}
+                    onRefreshClick={onRefreshClick}
+                />
+            </div>
+        )
+    }
+
+    const options = AUTO_REFRESH_INTERVAL_OPTIONS.map((option) => {
         return {
             ...option,
             disabledReason: !autoRefresh.enabled ? 'Enable auto refresh to set the interval' : undefined,
@@ -88,6 +114,7 @@ export function DashboardReloadAction(): JSX.Element {
 
     return (
         <div className="relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
+            {activitySummary}
             <DashboardRefreshStatusText />
 
             <Shortcut
@@ -99,7 +126,7 @@ export function DashboardReloadAction(): JSX.Element {
             >
                 <div className="relative inline-flex">
                     <LemonButton
-                        onClick={() => (itemsLoading ? cancelDashboardRefresh() : triggerDashboardRefresh())}
+                        onClick={onRefreshClick}
                         type="secondary"
                         icon={
                             itemsLoading ? (

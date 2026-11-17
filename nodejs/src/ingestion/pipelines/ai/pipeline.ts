@@ -30,7 +30,6 @@ import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
-    createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
@@ -180,7 +179,6 @@ export function createAiIngestionPipeline<
             .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
             .parseMessage({ measureEventBytes: true })
             .resolveTeam()
-            .pipe(createValidateHistoricalMigrationStep())
             .pipe(createValidateAiEventTokensStep())
             .pipe(createValidateEventMetadataStep())
             .pipe(createValidateEventPropertiesStep())

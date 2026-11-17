@@ -22,7 +22,7 @@ from posthog.models.utils import UUIDT
 from posthog.settings import DEBUG
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.utils import absolute_uri
+from posthog.utils import absolute_uri, validate_filters_override
 
 from products.exports.backend.facade.exporters import DATASET_EXPORT_KIND as DATASET_EXPORT_KIND
 
@@ -228,6 +228,14 @@ class ExportedAsset(models.Model):
         if self.is_dataset_export:
             return DATASET_EXPORT_KIND
         return "unknown"
+
+    def get_dashboard_filters(self) -> dict:
+        saved_filters = (self.dashboard.filters if self.dashboard else None) or {}
+        selected_filters = (self.export_context or {}).get("filters_override")
+        if selected_filters is None:
+            return saved_filters
+        validate_filters_override(selected_filters)
+        return {**saved_filters, **selected_filters}
 
     @property
     def export_kind(self) -> str | None:

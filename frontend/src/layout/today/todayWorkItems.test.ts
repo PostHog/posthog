@@ -15,10 +15,12 @@ import { TodayRecentGrouping, TodayRecentSort, groupRecentItems, sortRecentItems
 import {
     activeCloudRunId,
     analysisRunId,
+    appendRecentTasks,
     buildRecentItems,
     canHandOff,
     chatItem,
     groupByDay,
+    refreshRecentTasks,
     sessionBadges,
     sessionDetails,
     sessionItem,
@@ -91,6 +93,41 @@ describe('todayWorkItems', () => {
         )
 
         expect(items.map((item) => `${item.kind}:${item.id}`)).toEqual(['chat:c-new', 'session:s-old'])
+    })
+
+    it.each<[string, string[], boolean, string[], number, string[], boolean]>([
+        ['drops a session archived out of the loaded range', ['x', 'b'], true, ['a', 'b'], 2, ['x', 'b'], true],
+        [
+            'keeps every row when a page loaded while the refresh ran',
+            ['x', 'a'],
+            true,
+            ['a', 'b', 'c'],
+            2,
+            ['x', 'a', 'b', 'c'],
+            false,
+        ],
+        ['replaces the list once the fetch holds everything', ['x', 'a'], false, ['a', 'b', 'c'], 2, ['x', 'a'], false],
+    ])(
+        'a refresh of Recent %s',
+        (_, fetchedIds, fetchedHasMore, currentIds, requested, expectedIds, expectedHasMore) => {
+            const tasks = (ids: string[]): TaskListItemApi[] => ids.map((id) => session(id, '2026-03-10T12:00:00'))
+
+            const refreshed = refreshRecentTasks(tasks(fetchedIds), fetchedHasMore, tasks(currentIds), false, requested)
+
+            expect(refreshed.tasks.map((task) => task.id)).toEqual(expectedIds)
+            expect(refreshed.hasMore).toBe(expectedHasMore)
+        }
+    )
+
+    it('appends a page of older sessions without repeating a row', () => {
+        const loaded = [session('a', '2026-03-10T11:00:00'), session('b', '2026-03-10T10:00:00')]
+        const page = [
+            session('b', '2026-03-10T10:00:00'),
+            session('c', '2026-03-09T10:00:00'),
+            session('c', '2026-03-09T10:00:00'),
+        ]
+
+        expect(appendRecentTasks(loaded, page).map((task) => task.id)).toEqual(['a', 'b', 'c'])
     })
 
     it.each([

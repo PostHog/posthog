@@ -7,7 +7,8 @@ import { buildDeliverySteps } from './emailDeliverySteps'
 
 function email(
     status: TransactionalEmailLogDetailApi['status'],
-    kinds: TransactionalEmailLogEventApi['kind'][]
+    kinds: TransactionalEmailLogEventApi['kind'][],
+    sensitive = false
 ): TransactionalEmailLogDetailApi {
     return {
         message_id: '01977a3c-9a00-7000-8000-000000000001',
@@ -19,6 +20,7 @@ function email(
         workflow_id: 'workflow',
         template_id: 'template',
         template_name: 'Welcome email',
+        code_email_id: null,
         sending_domain: 'example.com',
         opened: kinds.includes('opened'),
         clicked: kinds.includes('clicked'),
@@ -30,7 +32,7 @@ function email(
         subject: 'Welcome',
         distinct_id: 'user_1',
         action_id: 'action_1',
-        sensitive: false,
+        sensitive,
     }
 }
 
@@ -63,6 +65,21 @@ describe('buildDeliverySteps', () => {
             'sent row arriving after delivered',
             email('delivered', ['queued', 'delivered', 'sent']),
             ['sent:done', 'delivered:done', 'opened:pending', 'clicked:pending'],
+        ],
+        [
+            'sensitive, so a click can never be recorded',
+            email('delivered', ['queued', 'sent', 'delivered', 'opened'], true),
+            ['sent:done', 'delivered:done', 'opened:done', 'clicked:untracked'],
+        ],
+        [
+            'sensitive with a click recorded anyway',
+            email('delivered', ['queued', 'sent', 'delivered', 'clicked'], true),
+            ['sent:done', 'delivered:done', 'opened:pending', 'clicked:done'],
+        ],
+        [
+            'sensitive and bounced',
+            email('bounced', ['queued', 'sent', 'bounced'], true),
+            ['sent:done', 'bounced:failed'],
         ],
     ])('%s', (_, input, expected) => {
         expect(buildDeliverySteps(input).map((step) => `${step.key}:${step.state}`)).toEqual(expected)

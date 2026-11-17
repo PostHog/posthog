@@ -36,7 +36,7 @@ from posthog.api.personal_api_key import validate_personal_api_key_scopes
 from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.personal_api_key_minting import mint_personal_api_key
-from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.scopes.exposure import UNPRIVILEGED_SCOPES
 
 # Device code lives for 10 minutes
 DEVICE_CODE_EXPIRY_SECONDS = 600
@@ -146,6 +146,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
     - POST /api/cli-auth/authorize/    (session auth required)
     - POST /api/cli-auth/poll/         (no auth required)
     """
+
+    _ip_restrictions_use_view_scope = True
 
     def get_permissions(self):
         """Authorize endpoint requires auth, others don't"""

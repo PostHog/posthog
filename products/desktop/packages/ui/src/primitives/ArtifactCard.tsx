@@ -1,5 +1,5 @@
 import { cn } from "@posthog/quill";
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 /**
  * One artifact card. When it can open, the whole card is the open control: a
@@ -71,32 +71,41 @@ export function ArtifactCard({
   }
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: nested real buttons forbid a <button> card
     <div
       data-artifact-card
-      role="button"
-      tabIndex={0}
-      aria-label={`View ${title}`}
       className={cn(
         baseClass,
         "cursor-pointer hover:border-gray-6 hover:bg-gray-3",
         className,
       )}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        // Only the card itself: inner controls' key presses bubble up here.
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-      onPointerEnter={onHoverStart}
-      onFocus={onHoverStart}
+      {...cardOpenProps(title, onOpen, onHoverStart)}
     >
       {body}
     </div>
   );
+}
+
+export function cardOpenProps(
+  title: string,
+  onOpen: () => void,
+  onHoverStart?: () => void,
+): HTMLAttributes<HTMLDivElement> {
+  return {
+    role: "button",
+    tabIndex: 0,
+    "aria-label": `View ${title}`,
+    onClick: onOpen,
+    onKeyDown: (event) => {
+      // Only the card itself: inner controls' key presses bubble up here.
+      if (event.target !== event.currentTarget) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onOpen();
+      }
+    },
+    onPointerEnter: onHoverStart,
+    onFocus: onHoverStart,
+  };
 }
 
 /** Inner controls of a card: their clicks must not open the card behind them. */

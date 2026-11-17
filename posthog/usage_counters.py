@@ -35,6 +35,7 @@ class UsageCounter(StrEnum):
     SURVEY_RESPONSES = "teams_with_survey_responses_count_in_period"
     # Ingested AIO events only. Offline usage is composed after organization attribution.
     AI_EVENTS = "teams_with_ai_event_count_in_period"
+    AI_OVERAGE_BYTES = "teams_with_ai_overage_bytes_in_period"
     EXCEPTIONS = "teams_with_exceptions_captured_in_period"
     CDP_INVOCATIONS = "teams_with_cdp_billable_invocations_in_period"
     FEATURE_FLAG_REQUESTS = "teams_with_decide_requests_count_in_period"
@@ -54,6 +55,7 @@ class UsageCounter(StrEnum):
     LOGS_RETENTION_BYTE_DAYS = "teams_with_logs_retention_byte_days_in_period"
     AI_CREDITS = "teams_with_ai_credits_used_in_period"
     SIGNALS_CREDITS = "teams_with_signals_credits_used_in_period"
+    SIGNALS_SPEND_CREDITS = "teams_with_signals_spend_credits_used_in_period"
     POSTHOG_CODE_CREDITS = "teams_with_posthog_code_credits_used_in_period"
     SANDBOX_COMPUTE_CREDITS = "teams_with_sandbox_compute_credits_used_in_period"
     REPLAY_VISION_CREDITS = "teams_with_replay_vision_credits_used_in_period"
@@ -71,7 +73,9 @@ LEGACY_QUERY_NAMES = {
 # Temporal workers decode a plan's modes into UsageCounter, so a worker without a counter rejects any plan that names it.
 # During a rolling deploy or a rollback, older workers still run, so a new counter stays out of plans until every worker
 # can decode it. Usage reports v2 reads these counters from their legacy query specs meanwhile.
-PLAN_DEFERRED_COUNTERS = frozenset({UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS})
+PLAN_DEFERRED_COUNTERS = frozenset(
+    {UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS, UsageCounter.AI_OVERAGE_BYTES}
+)
 
 
 class UsageCounterMode(StrEnum):
@@ -105,6 +109,7 @@ RECORD_USAGE_KEYS = {
     UsageCounter.MOBILE_BILLABLE_RECORDINGS: "mobile_replay_recordings",
     UsageCounter.SURVEY_RESPONSES: "survey_responses",
     UsageCounter.AI_EVENTS: "ai_events",
+    UsageCounter.AI_OVERAGE_BYTES: "ai_overage_bytes",
     UsageCounter.EXCEPTIONS: "exceptions",
     UsageCounter.CDP_INVOCATIONS: "cdp_billable_invocations",
     UsageCounter.FEATURE_FLAG_REQUESTS: "feature_flag_requests",
@@ -122,6 +127,7 @@ RECORD_USAGE_UNITS = {
     "mobile_replay_recordings": "recordings",
     "survey_responses": "events",
     "ai_events": "events",
+    "ai_overage_bytes": "bytes",
     "exceptions": "events",
     "cdp_billable_invocations": "invocations",
     "feature_flag_requests": "requests",
@@ -140,6 +146,7 @@ COUNTER_FLAG_NAMES = {
     UsageCounter.MOBILE_BILLABLE_RECORDINGS: "mobile-billable-recordings",
     UsageCounter.SURVEY_RESPONSES: "survey-responses",
     UsageCounter.AI_EVENTS: "ai-events",
+    UsageCounter.AI_OVERAGE_BYTES: "ai-overage-bytes",
     UsageCounter.EXCEPTIONS: "exceptions",
     UsageCounter.CDP_INVOCATIONS: "cdp-invocations",
     UsageCounter.FEATURE_FLAG_REQUESTS: "feature-flag-requests",
@@ -278,6 +285,7 @@ class UsageCounterService:
             UsageCounter.MOBILE_BILLABLE_RECORDINGS: usage_report.get_teams_with_mobile_billable_recording_count_in_period,
             UsageCounter.SURVEY_RESPONSES: usage_report.get_teams_with_survey_responses_count_in_period,
             UsageCounter.AI_EVENTS: usage_report.get_teams_with_ai_event_count_in_period,
+            UsageCounter.AI_OVERAGE_BYTES: usage_report.get_teams_with_ai_overage_bytes_in_period,
             UsageCounter.EXCEPTIONS: lambda begin, end: [
                 (team_id, count) for team_id, count in self._exceptions_query(begin, end)[1]
             ],
@@ -309,11 +317,13 @@ class UsageCounterService:
             UsageCounter.LOGS_RETENTION_BYTE_DAYS: usage_report.get_teams_with_logs_retention_byte_days_in_period,
             UsageCounter.AI_CREDITS: usage_report.get_teams_with_ai_credits_used_in_period,
             UsageCounter.SIGNALS_CREDITS: usage_report.get_teams_with_signals_credits_used_in_period,
+            UsageCounter.SIGNALS_SPEND_CREDITS: usage_report.get_teams_with_signals_spend_credits_used_in_period,
             UsageCounter.POSTHOG_CODE_CREDITS: usage_report.get_teams_with_posthog_code_credits_used_in_period,
             UsageCounter.SANDBOX_COMPUTE_CREDITS: lambda begin, end: self._sandbox_compute_query(begin, end).credits,
             UsageCounter.REPLAY_VISION_CREDITS: usage_report.get_teams_with_replay_vision_credits_used_in_period,
         }
         self._quota_events_query = usage_report.get_teams_with_billable_event_count_in_period
+        self._quota_signals_spend_query = usage_report.get_teams_with_signals_spend_quota_credits_used_in_period
         self._exceptions_query = usage_report.get_teams_with_exceptions_captured_in_period
         self._logs_retention_query = usage_report.get_teams_with_logs_retention_bytes_in_period
         self._sandbox_compute_query = usage_report.get_teams_with_billable_sandbox_compute_usage_in_period
@@ -345,6 +355,8 @@ class UsageCounterService:
     ) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- Legacy query contract: (team_id, count).
         if caller == "quota_limiting" and counter == UsageCounter.EVENTS:
             rows = self._quota_events_query(begin, end, count_distinct=False)
+        elif caller == "quota_limiting" and counter == UsageCounter.SIGNALS_SPEND_CREDITS:
+            return [(row.team_id, row.credits) for row in self._quota_signals_spend_query(begin, end)]
         else:
             rows = self._queries[counter](begin, end)
         # Flag readers return string team IDs, and the rows synced and exported readers return dictionaries.

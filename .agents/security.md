@@ -13,6 +13,11 @@ Before you create a branch or PR, choose the route:
 - **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit PostHog Cloud remotely today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution on our infrastructure, or exposure of credentials or secrets. The severity label does not necessarily decide the route: a high finding that does not meet this bar can go public. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
 - **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, issues in local tools such as a CLI or SDK that need a non-default setup like a custom host, and missing rate limits.
 
+Two questions help you choose between the embargo and a public PR:
+
+- **Is the weakness already public?** A dependency upgrade that picks up an upstream fix with a public release, advisory, or CVE does not disclose anything new, because attackers can already read the upstream patch. It goes to `PostHog/posthog` as a plain version bump. Ask team-security to look before it merges, and to decide if it must land faster than the merge queue allows.
+- **Could an attacker, or an agent that reads every public diff, exploit the weakness from your diff before the fix is live?** A merged fix takes about an hour to deploy. If the diff does not give that head start, the fix goes public. If it does and the finding meets the severe bar above, it needs the embargo.
+
 A public security fix is a normal fix with a neutral description.
 Describe what the change does, not how to exploit the old behavior.
 Leave out step-by-step reproductions, payloads, and severity ratings from the title, description, commit messages, and test names.
@@ -20,11 +25,47 @@ Leave out step-by-step reproductions, payloads, and severity ratings from the ti
 Never create a branch, push, or open a PR in `PostHog/posthog-private` without the user's confirmation in the current conversation.
 When you ask, say why the finding looks severe enough for an embargo.
 If you are unsure whether a finding is severe enough, stop and ask the user before you push to either repo.
+With the user's confirmation, a draft PR in `PostHog/posthog-private` lets team-security read the diff before anyone decides. Keep it a draft until they decide, and move the fix to `PostHog/posthog` if they say it can go public.
 Do not choose the private repo only because a change touches access control, authentication, or another security-sensitive area, or only because a branch is named `security/`.
 
 Follow the user's instructions about whether to create a branch, commit, push, or update a PR.
 
 This section is about where the fix lands; the rest of this doc is about writing secure code.
+
+## Requesting a security review
+
+The `security-review` label starts an automated security review of a PR.
+The review removes the label when it ends, so adding the label again runs another review.
+A check adds the label when a PR becomes ready for review.
+It reads the author's answer in the PR description, and it matches paths and code patterns.
+The patterns miss a change whose risk is in what it means, so the author's answer covers that change.
+
+Every PR that matches the list below carries the `security-review` label when it is ready for review.
+Check every PR against the list when you open it, not only a PR in a security area.
+Write the result on the `**Security review:**` line of the PR template's Agent context section: `needed` or `not needed`.
+
+- **Authentication:** login, signup, SSO, SAML, OIDC, OAuth grants and scopes, client registration, 2FA, passkeys, sessions, password or email changes, impersonation, invites, or account linking.
+- **Credentials:** a change that mints, scopes, stores, rotates, or revokes a key, token, JWT, or secret, or that changes encryption or signing.
+- **Authorization:** permission classes, API scopes, access control, object-level checks, sharing links, membership, or staff and admin gates. This includes a query or action that resolves an object ID from request input.
+- **New attack surface:** a new API, viewset, route, or action for a product, a public or unauthenticated endpoint, a webhook or ingress, or a new MCP or agent tool.
+- **Untrusted input in a dangerous call:** raw SQL or HogQL built from strings, HTML rendering, redirects, file paths or archives, subprocesses, or deserialization.
+- **Outbound requests:** a request to a URL that a user controls, such as an integration, a warehouse source, a webhook, an MCP server, or a proxy, or a change to egress or URL validation.
+- **Agents and sandboxes:** what an agent or sandbox can run, read, or reach, which credentials it gets, untrusted text in its prompt, or logic that approves an action automatically.
+- **Browser boundary:** the Content Security Policy, CORS, CSRF, cookies, framing, `postMessage`, or trusted proxy headers.
+- **CI and supply chain:** `pull_request_target` or `workflow_run` triggers, secrets, write tokens, publish or deploy jobs, CODEOWNERS, or the dev sandbox profile.
+- **Tenant data paths:** a query or background task that takes a team or project ID from its input, reads across projects, or reads a system table.
+- **A security fix** of any severity.
+
+Do not add the label to a PR that only changes tests, docs, copy, or styling, to a dependency bump with no security advisory, or to a file move with no other change.
+
+Do not add the label to a draft yourself, because the review reads the code at the moment the label lands.
+A later push does not start another review.
+Add the label yourself with `gh pr edit <number> --add-label security-review` in two cases:
+
+- The PR is already ready for review when you find that it matches.
+- A push to a reviewed PR changes one of the areas in the list.
+
+A review reads one layer of a stack, so answer on each layer.
 
 ## Principle of Least Privilege
 
@@ -219,33 +260,51 @@ repository does not. When the copy is there, start with these paths:
 `posthog/security/crosslang/oob_domains.json` lists the services that capture out-of-band
 interactions, such as Interactsh and Burp Collaborator, and the DNS rebinding services.
 
-Today the guards only log a match. Nothing is refused yet.
+A guard refuses a listed name, on the name alone, before any resolve. The matcher reports the
+match and the guard decides the refusal, so each surface can report it the way its caller expects.
 
-The warehouse guards emit the `oob_domain` stage of `data_imports.host_check`, which carries
-`team_id`, and the `oob_domain_resolved` stage when the caller resolved the host first. The HTTP
-adapter emits `security.oob_domain_seen` and takes its team from the activity's bound log context.
-`posthog/security/url_validation.py` emits the same event with no team at all, because no team is
-in scope there, so those lines are attributable to a host and not to a project.
+The warehouse guards emit the `oob_domain` stage of `data_imports.host_check` with the `block`
+decision, which carries `team_id`, and the `oob_domain_resolved` stage when the caller resolved
+the host first. The HTTP adapter emits `security.oob_domain_seen` and raises
+`OutOfBandDomainError`. `posthog/security/url_validation.py` emits the same event and returns a
+`BlockedName`, so every caller of `is_url_allowed`, `validate_external_url` and
+`validate_external_host` refuses the host.
+
+Three DNS helpers refuse the name and report nothing for it: `posthog/dns_hosts.py` finds no DNS
+host, `email_domain_dns.find_published_records` publishes no record so the domain never verifies,
+and `existing_email_tools.lookup_existing_email_tools` reports no tool.
+
+A refusal must be final, because the host sits in the customer's own config and every retry
+replays it. The warehouse refusals carry a prefix `Any_Source_Errors` matches, so the schema
+pauses, and they subclass `NonReportableError`, so the retries stay out of error tracking.
+`OutOfBandDomainError` is deliberately not a `RequestException`: the sources catch that broadly
+and several retry on it.
+
+`TeamAndOrgViewSetMixin` binds `team_id` into the log context of every team-scoped view, so a line
+from a guard reached through the API names the project that drove it.
 
 In Node, `validateHostnameIPLiteral` (`nodejs/src/common/utils/request.ts`) and `EmailValidationService.getSkipReason` emit `security.oob_domain_seen` too, under the guard `node_request` or `node_email_validation`.
 Both read the hand-written mirror in `nodejs/src/common/utils/oob-domains.ts`, which a parity test holds against the JSON.
 Both log `team_id`, the field the Python guards bind.
 The email guard always has a team.
 The request guard has one only when the fetch runs under `fetchAttribution`, as a CDP destination fetch and a recording export's stylesheet fetch do, and logs `team_id: null` for any other caller.
-`noteOobDomain` logs one line per host, team and guard every 15 minutes, because a retrying destination would otherwise log per attempt.
+`checkOobDomain` logs one line per host, team and guard every 15 minutes, because a retrying destination would otherwise log per attempt.
+The window gates the log line and nothing else, so every match is refused.
 
-The Rust guards call `common_dns::oob_domains::note_oob_domain` and emit `security.oob_domain_seen` under three guard names.
+The Rust guards call `common_dns::oob_domains::check_oob_domain` and emit `security.oob_domain_seen` under three guard names.
 They read the hand-written mirror in `rust/common/dns/src/oob_domains.rs`, which a parity test holds against the JSON.
-`note_oob_domain` takes the team as an `Option`, logs one line per host, team and guard every 15 minutes, and omits the `team_id` field rather than printing an empty one.
+`check_oob_domain` takes the team as an `Option`, logs one line per host, team and guard every 15 minutes, and omits the `team_id` field rather than printing an empty one.
 `cymbal_sourcemap` names the team on the source and sourcemap fetches, and omits it on a redirect hop, because one HTTP client serves every team.
 `batch_import_s3_endpoint` always names the team, which the job model carries.
 `common_dns_resolver` never names one: it fires inside the shared reqwest and Smithy resolvers, which no caller passes a team to.
 
-Every check runs on cloud only, and each runs before its guard's own DNS resolution, because the lookup alone confirms the path to whoever runs the collaborator.
+Every check runs on cloud only, so a self-hosted deployment reaches these names as it always did. Each runs before its guard's own DNS resolution, because the lookup alone confirms the path to whoever runs the collaborator.
 
 It stops the default scanner configuration. It does not stop a determined attacker, who points a
 CNAME at the collaborator or runs their own server. The IP checks and the address pinning remain
-the real controls.
+the real controls. Refusing the name stops the public rebinding services on the list, `rbndr.us` and `1u.ms`,
+on the paths that do not pin the address. A rebinding record on any other name still passes
+the name check, so address pinning and the egress proxy stay the controls there.
 
 ## Content Security Policy
 

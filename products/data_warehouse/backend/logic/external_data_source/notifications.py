@@ -7,6 +7,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.models import Team
 from posthog.tasks.email import send_external_data_failure_digest
 
 from products.warehouse_sources.backend.facade.models import (
@@ -15,6 +16,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
 )
 from products.warehouse_sources.backend.facade.pipelines import destination_named_in_failure
+from products.warehouse_sources.backend.facade.sync_alerts import alerts_replace_failure_digest
 from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
 
 logger = structlog.get_logger(__name__)
@@ -81,6 +83,12 @@ def notify_external_data_sync_failures(team_id: int) -> None:
     scheduling this for every failed job is safe.
     """
     try:
+        team = Team.objects.filter(id=team_id).first()
+        # The schemas stay unstamped, so the team's next digest lists them if the alert goes away.
+        if team is not None and alerts_replace_failure_digest(team):
+            logger.info("External data sync failure digest replaced by a warehouse alert", team_id=team_id)
+            return
+
         newer_failed_job = ExternalDataJob.objects.filter(
             schema_id=OuterRef("id"),
             status=ExternalDataJobStatus.FAILED,

@@ -36,6 +36,7 @@ from posthog.dataclasses import frozen
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
+    GITLAB_HOST,
     SANDBOX_REPOSITORIES_ROOT,
 )
 from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, ENV_DISABLE_BUNDLED_SKILLS
@@ -234,6 +235,7 @@ class SandboxConfig(BaseModel):
     cpu_request_cores: float = BURSTABLE_REQUEST_CPU_CORES
     memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
+    agent_egress_probe: bool = False
     outbound_domain_allowlist: list[str] | None = None
     network_policy_fingerprint: str | None = None
     # gVisor only. An empty domain allowlist means unrestricted network in
@@ -250,6 +252,28 @@ class SandboxConfig(BaseModel):
     # guest RAM up to the cap) instead of the fixed-size default golden. Set from the
     # tasks-hogland-hotplug-golden flag at context time; ignored by other providers.
     use_hotplug_golden: bool = False
+
+    @model_validator(mode="after")
+    def validate_agent_egress_probe(self) -> Self:
+        if self.agent_egress_probe and (
+            not (settings.DEBUG or settings.TEST)
+            or not self.vm_runtime
+            or self.template != SandboxTemplate.SLIM_BASE
+            or self.memory_gb < 2
+            or self.burstable_resources
+            or self.environment_variables
+            or self.base_image_reference
+            or self.snapshot_id
+            or self.snapshot_external_id
+            or self.resume_snapshot_external_id
+            or self.snapshot_mount_path
+            or self.require_snapshot
+            or self.custom_image_name
+            or self.outbound_domain_allowlist is not None
+            or self.block_network
+        ):
+            raise ValueError("Egress probes require a fresh, credential-free development VM")
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -318,6 +342,7 @@ PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.
 SENSITIVE_SANDBOX_ENV_NAMES: frozenset[str] = frozenset(
     {
         "GITHUB_TOKEN",
+        "GITLAB_TOKEN",
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN",
         "POSTHOG_TASK_RUN_SESSION_TOKEN",
         "POSTHOG_WIZARD_API_KEY",
@@ -335,6 +360,7 @@ SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
     r"(?P<prefix><<'POSTHOG_FILE_EOF'\n).*?(?P<suffix>\nPOSTHOG_FILE_EOF)", re.DOTALL
 )
 GITHUB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://x-access-token:)[^@\s]+(?P<suffix>@github\.com/)")
+GITLAB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://oauth2:)[^@\s]+(?P<suffix>@gitlab\.com/)")
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:
@@ -342,9 +368,11 @@ def is_public_sandbox_repo(repository: str | None) -> bool:
 
 
 def sandbox_repo_path(repository: str) -> str:
-    """Absolute path an ``org/repo`` is cloned to inside the sandbox (the agent-server's cwd)."""
-    org, repo = repository.lower().split("/")
-    return f"{SANDBOX_REPOSITORIES_ROOT}/{org}/{repo}"
+    """Absolute path a repository is cloned to inside the sandbox (the agent-server's cwd).
+
+    A GitHub ``org/repo`` and a GitLab ``group/subgroup/project`` both keep their full path.
+    """
+    return f"{SANDBOX_REPOSITORIES_ROOT}/{repository.lower()}"
 
 
 def redact_sandbox_command(command: str) -> str:
@@ -354,6 +382,7 @@ def redact_sandbox_command(command: str) -> str:
         (SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN, r"\g<name> <redacted>"),
         (SENSITIVE_FILE_HEREDOC_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
         (GITHUB_CLONE_TOKEN_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
+        (GITLAB_CLONE_TOKEN_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
     ):
         redacted = pattern.sub(substitution, redacted)
     return redacted
@@ -600,19 +629,21 @@ class SandboxBase(ABC):
         shallow: bool = True,
         branch: str | None = None,
         blobless: bool = False,
+        gitlab_token: str | None = None,
     ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_url = (
-            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
-            if github_token
-            else f"https://github.com/{org}/{repo}.git"
-        )
+        path = repository.lower()
+        if gitlab_token:
+            repo_url = f"https://oauth2:{gitlab_token}@{GITLAB_HOST}/{path}.git"
+        elif github_token:
+            repo_url = f"https://x-access-token:{github_token}@github.com/{path}.git"
+        else:
+            repo_url = f"https://github.com/{path}.git"
 
         target_path = sandbox_repo_path(repository)
-        org_path = f"{SANDBOX_REPOSITORIES_ROOT}/{org}"
+        org_path, repo = target_path.rsplit("/", 1)
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""

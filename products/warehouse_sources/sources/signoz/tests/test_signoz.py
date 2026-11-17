@@ -1,3 +1,5 @@
+import ssl
+import socket
 import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
@@ -16,6 +18,10 @@ from products.warehouse_sources.sources.signoz import signoz as sgz
 from products.warehouse_sources.sources.signoz._config import SigNozSourceConfig
 from products.warehouse_sources.sources.signoz.settings import SIGNOZ_ENDPOINTS
 from products.warehouse_sources.sources.signoz.signoz import (
+    CONNECTION_ERROR,
+    INVALID_HOST_ERROR,
+    TLS_ERROR,
+    UNEXPECTED_RESPONSE_ERROR,
     SigNozResumeConfig,
     _extract_config_items,
     _extract_raw_rows,
@@ -136,11 +142,37 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error is not None
 
-    @pytest.mark.parametrize("host", ["", "not a host!", "bad_host/"])
+    @pytest.mark.parametrize("host", ["", "not a host!", "bad_host/", "signoz.example.com:8080"])
     def test_invalid_host_is_rejected_without_a_request(self, host: str) -> None:
         is_valid, error = validate_credentials(host, "key")
         assert is_valid is False
-        assert error == "Invalid SigNoz host"
+        assert error == INVALID_HOST_ERROR
+
+    @pytest.mark.parametrize(
+        ("failure", "expected_error"),
+        [
+            (ssl.SSLError("certificate verify failed: self-signed certificate"), TLS_ERROR),
+            (TimeoutError("timed out"), CONNECTION_ERROR),
+            (ConnectionRefusedError("connection refused"), CONNECTION_ERROR),
+            (socket.gaierror("name or service not known"), CONNECTION_ERROR),
+        ],
+    )
+    def test_transport_failure_gets_a_message_without_the_raw_error(
+        self, failure: BaseException, expected_error: str
+    ) -> None:
+        with scripted_network(always(failure)):
+            is_valid, error = validate_credentials("signoz.example.com", "key")
+
+        assert is_valid is False
+        assert error == expected_error
+
+    @pytest.mark.parametrize("status_code", [404, 500])
+    def test_unexpected_status_hides_the_status_code(self, status_code: int) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            is_valid, error = validate_credentials("example.signoz.io", "key")
+
+        assert is_valid is False
+        assert error == UNEXPECTED_RESPONSE_ERROR
 
     @mock.patch("products.warehouse_sources.sources.signoz.signoz._is_host_safe")
     def test_unsafe_host_is_blocked(self, mock_host_safe: mock.MagicMock) -> None:

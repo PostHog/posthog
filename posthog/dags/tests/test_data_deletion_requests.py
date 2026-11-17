@@ -18,6 +18,8 @@ import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
+from posthog.hogql.test.utils import native_stored_document
+
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
@@ -33,6 +35,7 @@ from posthog.dags.data_deletion_requests import (
     PropertyRemovalTarget,
     _cleaned_select_list,
     _holds_rows,
+    _json_drop_keys_expr,
     _presence_params,
     _property_removal_where,
     _refuse_property_removal_unsweepable,
@@ -361,7 +364,7 @@ def test_creatorless_hogql_request_fails_and_does_not_block_pickup(user):
         dagster.build_sensor_context(instance=dagster.DagsterInstance.ephemeral())
     )
     assert isinstance(result, dagster.RunRequest)
-    assert result.run_key == f"{next_request.pk}:{next_request.attempt_count}"
+    assert result.run_key == f"{next_request.pk}:{next_request.attempt_count}:0"
 
 
 @pytest.mark.django_db
@@ -431,7 +434,7 @@ def test_pickup_sensor_routes_hogql_event_removal_request(user):
     assert isinstance(result, dagster.RunRequest)
     assert result.job_name == data_deletion_request_hogql_event_removal.name
     assert "load_hogql_event_removal_request" in result.run_config["ops"]
-    assert result.run_key == f"{request.pk}:{request.attempt_count}"
+    assert result.run_key == f"{request.pk}:{request.attempt_count}:0"
 
 
 @pytest.mark.django_db
@@ -806,7 +809,7 @@ def test_full_job_event_deletion_deferred(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
-def test_verify_queued_request_promotes_when_events_gone():
+def test_verify_queued_request_promotes_when_events_gone(cluster: ClickhouseCluster):
     from posthog.models.data_deletion_request import verify_queued_request
 
     now = datetime.now()
@@ -3454,13 +3457,71 @@ def test_pickup_sensor_routes_person_removal_request():
     assert isinstance(result, dagster.RunRequest)
     assert result.job_name == "data_deletion_request_person_removal"
     assert "load_person_removal_request" in result.run_config["ops"]
-    assert result.run_key == f"{request.pk}:{request.attempt_count}"
+    assert result.run_key == f"{request.pk}:{request.attempt_count}:0"
 
 
 @pytest.mark.django_db
-def test_pickup_sensor_run_key_changes_across_attempts():
-    # A re-approved/retried request keeps its pk but has a higher attempt_count, so
-    # the run_key must differ — otherwise Dagster dedupes and silently never relaunches.
+@pytest.mark.parametrize("older_created_by_staff", [False, None])
+def test_pickup_sensor_launches_staff_request_before_older_non_staff_request(older_created_by_staff):
+    def approved_request(created_by_staff: bool | None, approved_at: datetime) -> DataDeletionRequest:
+        return DataDeletionRequest.objects.create(
+            team_id=TEAM_ID,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=approved_at - timedelta(days=7),
+            end_time=approved_at,
+            status=RequestStatus.APPROVED,
+            approved_at=approved_at,
+            created_by_staff=created_by_staff,
+        )
+
+    now = timezone.now()
+    approved_request(older_created_by_staff, now - timedelta(days=2))
+    staff_request = approved_request(True, now - timedelta(hours=1))
+
+    result = data_deletion_request_pickup_sensor(
+        dagster.build_sensor_context(instance=dagster.DagsterInstance.ephemeral())
+    )
+
+    assert isinstance(result, dagster.RunRequest)
+    assert result.tags["deletion_request_id"] == str(staff_request.pk)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", [dagster.DagsterRunStatus.STARTED, dagster.DagsterRunStatus.CANCELING])
+def test_pickup_sensor_waits_while_a_deletion_run_is_unfinished(status):
+    DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=timezone.now() - timedelta(days=7),
+        end_time=timezone.now(),
+        status=RequestStatus.APPROVED,
+        approved_at=timezone.now(),
+    )
+    instance = dagster.DagsterInstance.ephemeral()
+    instance.create_run_for_job(
+        job_def=data_deletion_request_event_removal,
+        run_config={"ops": {"load_deletion_request": {"config": {"request_id": str(uuid4())}}}},
+        status=status,
+    )
+
+    result = data_deletion_request_pickup_sensor(dagster.build_sensor_context(instance=instance))
+
+    assert isinstance(result, dagster.SkipReason)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "attempt_count_after_first_run",
+    [
+        pytest.param(1, id="load_op_ran_then_retried"),
+        pytest.param(0, id="run_ended_before_load_op"),
+    ],
+)
+def test_pickup_sensor_run_key_changes_after_a_finished_run(attempt_count_after_first_run):
+    # Dagster drops a repeated run_key, so a request that is APPROVED again after a finished run
+    # must get a new key, or it blocks the whole queue.
     request = DataDeletionRequest.objects.create(
         team_id=TEAM_ID,
         request_type=RequestType.EVENT_REMOVAL,
@@ -3475,14 +3536,19 @@ def test_pickup_sensor_run_key_changes_across_attempts():
 
     first = data_deletion_request_pickup_sensor(dagster.build_sensor_context(instance=instance))
     assert isinstance(first, dagster.RunRequest)
-    assert first.run_key == f"{request.pk}:0"
+    assert first.run_key == f"{request.pk}:0:0"
 
-    # Simulate the load op having run once, then a retry re-approving the same request.
-    DataDeletionRequest.objects.filter(pk=request.pk).update(attempt_count=1)
+    instance.create_run_for_job(
+        job_def=data_deletion_request_event_removal,
+        run_config=first.run_config,
+        tags=first.tags,
+        status=dagster.DagsterRunStatus.FAILURE,
+    )
+    DataDeletionRequest.objects.filter(pk=request.pk).update(attempt_count=attempt_count_after_first_run)
+
     second = data_deletion_request_pickup_sensor(dagster.build_sensor_context(instance=instance))
     assert isinstance(second, dagster.RunRequest)
-    assert second.run_key == f"{request.pk}:1"
-    assert second.run_key != first.run_key
+    assert second.run_key == f"{request.pk}:{attempt_count_after_first_run}:1"
 
 
 def _property_removal_ctx(**overrides) -> DeletionRequestContext:
@@ -3523,7 +3589,12 @@ def test_native_property_removal_gate_checks_retained_copies(
         start_time=marker_time - timedelta(days=1),
         end_time=marker_time + timedelta(days=1),
     )
-    stored = {"properties": "{}", "person_properties": "{}", "temporary_properties": "{}", column: document}
+    stored = {
+        "properties": "{}",
+        "person_properties": "{}",
+        "temporary_properties": "{}",
+        column: native_stored_document(document),
+    }
 
     def execute_query(query: Query, _role: NodeRole) -> Future[list[tuple[object, ...]]]:
         assert isinstance(query.parameters, dict)
@@ -3644,13 +3715,45 @@ def test_delete_person_profiles_op_raises_only_when_the_person_is_still_live(fai
         ('{"custom":""}', "custom", 0),
         ('{"custom":{"a":""}}', "custom", 1),
         ('{"custom":{"a":"y"}}', "custom", 1),
+        ('{"custom":{}}', "custom", 1),
+        ('{"$groups":{"custom_group":"g"}}', "$groups.organization", 0),
     ],
 )
 def test_json_property_presence_expr_treats_empty_values_as_absent(document: str, prop: str, expected: int):
     predicate = json_property_presence_expr("properties", prop)
     [(present,)] = sync_execute(
         f"SELECT toUInt8({predicate}) FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties)",
-        {"raw": document, "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+        {"raw": native_stored_document(document), "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
     )
 
     assert present == expected
+
+
+@pytest.mark.parametrize(
+    "keys,changed",
+    [
+        (["plain"], {"plain": None}),
+        (["nested.secret", "plain"], {"plain": None, "nested": '{"price":2.0,"visible":"ok"}'}),
+        (["nested.missing"], {}),
+        (["tags.secret"], {"tags": '[{"keep":2}]'}),
+        (["quoted.secret"], {"quoted": '{"z":1}'}),
+        (["$feature_flags.beta"], {"$feature_flags": {}}),
+    ],
+)
+def test_json_drop_keys_expr_changes_only_the_member_that_holds_the_key(keys: list[str], changed: dict) -> None:
+    sent = (
+        '{"plain": "x", "nested": {"visible": "ok", "secret": "s", "price": 2.0}, '
+        '"unrelated": {"big": 123456789012345678901234567890, "price": 2.0}, '
+        '"quoted": "{ \\"z\\": 1, \\"secret\\": 2 }", "tags": [{"secret": 1, "keep": 2}], '
+        '"$feature_flags": {"beta": "on"}}'
+    )
+    stored = native_stored_document(sent)
+    [(rewritten,)] = sync_execute(
+        f"""SELECT toJSONString(CAST({_json_drop_keys_expr("properties", keys, "keys")}, %(json_type)s))
+        FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties)""",
+        {"raw": stored, "json_type": EVENTS_PROPERTIES_JSON_TYPE(), "keys": keys},
+    )
+
+    before = json.loads(stored)
+    after = json.loads(rewritten)
+    assert {key: after.get(key) for key in before} == {**before, **changed}

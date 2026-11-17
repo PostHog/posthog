@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
-import { IconCheckCircle } from '@posthog/icons'
+import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -10,52 +9,39 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { OpenInboxLink } from 'scenes/authentication/shared/OpenInboxLink'
 import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 
+import { LoginCodeResend } from '../components/LoginCodeResend'
 import { LoginErrorBanner } from '../components/LoginErrorBanner'
 import { loginLogic } from '../loginLogic'
 
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogMailbox = pngHoggie(mailboxPng)
 
 export function LoginCodeStep(): JSX.Element {
-    const { exitCodeVerification, resendCodeBasedVerification, submitCodeVerification } = useActions(loginLogic)
-    const {
-        codeVerificationEmail,
-        resendResponseLoading,
-        resendResponse,
-        isCodeVerificationSubmitting,
-        codeVerification,
-    } = useValues(loginLogic)
+    const { exitCodeVerification, submitCodeVerification } = useActions(loginLogic)
+    const { codeVerificationEmail, codeVerificationInboxProvider, isCodeVerificationSubmitting, codeVerification } =
+        useValues(loginLogic)
 
     return (
         <AuthSceneCard showPendingConnection>
-            <HedgehogMagnifyingGlass className="block w-auto mx-auto mb-3 h-28" />
+            <HedgehogMailbox className="block w-auto mx-auto mb-3 h-28" />
             <AuthCardTitle
-                className="mb-2"
+                className="mb-4"
                 title="Check your inbox"
                 sub={
                     <>
-                        For your security, we've emailed a 6-digit verification code to{' '}
-                        <strong>{codeVerificationEmail}</strong>.
+                        For your security, we've emailed a <span className="whitespace-nowrap">6-digit</span>{' '}
+                        verification code to <strong>{codeVerificationEmail}</strong>.{' '}
+                        <OpenInboxLink
+                            provider={codeVerificationInboxProvider}
+                            email={codeVerificationEmail}
+                            step="login_code"
+                        />
                     </>
                 }
             />
-            <div className="mb-5 flex flex-col items-center gap-1 text-sm">
-                <Link
-                    onClick={() => resendCodeBasedVerification(null)}
-                    disabledReason={resendResponseLoading ? 'Sending...' : undefined}
-                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
-                >
-                    Resend code
-                </Link>
-                {resendResponse?.success && (
-                    <p className="flex items-center gap-1 text-success mb-0" role="status">
-                        <IconCheckCircle />
-                        <span>Code sent</span>
-                    </p>
-                )}
-            </div>
             <LoginErrorBanner />
             <Form
                 logic={loginLogic}
@@ -64,7 +50,7 @@ export function LoginCodeStep(): JSX.Element {
                 // The code input renders a hidden input with a \d{6} pattern. Without noValidate,
                 // the browser blocks submit on a partial code and kea cannot show its error.
                 noValidate
-                className="flex flex-col gap-4"
+                className="flex flex-col"
             >
                 <LemonField
                     name="code"
@@ -87,7 +73,11 @@ export function LoginCodeStep(): JSX.Element {
                         }}
                     />
                 </LemonField>
+                <div className="mt-3">
+                    <LoginCodeResend />
+                </div>
                 <LemonButton
+                    className="mt-6"
                     type="primary"
                     status="alt"
                     htmlType="submit"
@@ -104,12 +94,12 @@ export function LoginCodeStep(): JSX.Element {
                 >
                     Verify and log in
                 </LemonButton>
-                <div className="flex flex-col items-center gap-3">
+                <div className="mt-3 flex justify-center text-sm">
                     <Link
                         onClick={() => exitCodeVerification()}
                         className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
                     >
-                        Back to login
+                        ← Back to login
                     </Link>
                 </div>
             </Form>

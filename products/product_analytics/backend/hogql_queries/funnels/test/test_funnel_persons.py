@@ -45,6 +45,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.test.test_journeys import journeys_for
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
@@ -985,6 +986,13 @@ class TestFunnelSessionActors(ClickhouseTestMixin, APIBaseTest):
     @time_machine.travel("2021-01-08 00:00:00.000Z", tick=False)
     def test_funnel_session_actors_search_by_email(self):
         self._create_session_funnel_data()
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="name",
+            property_type=PropertyType.Numeric,
+            is_numerical=True,
+            type=PropertyDefinition.Type.PERSON,
+        )
 
         funnels_query = self._base_funnels_query()
         funnel_actors_query = FunnelsActorsQuery(source=funnels_query, funnelStep=1)

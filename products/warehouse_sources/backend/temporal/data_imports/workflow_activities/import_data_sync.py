@@ -34,6 +34,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT, ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
+from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -58,6 +59,10 @@ from products.warehouse_sources.backend.temporal.data_imports.import_attempt imp
     current_import_attempt,
     set_attempts_before_this_execution,
 )
+from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
+    IncrementalHistoryUnavailableError,
+    attach_history_lanes,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
     get_import_attempt_duration_metric,
@@ -65,6 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_worker_shutdown_handoff_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    KeptTableCorruptError,
     count_worker_deaths,
     handle_non_retryable_error,
     report_heartbeat_timeout,
@@ -83,6 +89,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_invalid_version_race,
     is_transient_delta_maintenance_error,
     is_transient_object_store_error,
+    is_warehouse_bucket_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     capture_repartition_event,
@@ -848,8 +855,16 @@ async def _import_data_with_reporting(
             )
 
             try:
-                stored_inputs = await SourceInputsStore.aload(model.pipeline)
-                config = new_source.parse_config(stored_inputs)
+                pipeline_job_inputs = await SourceInputsStore.aload(model.pipeline)
+            except UnreadableSourceInputsError as e:
+                # `job_inputs` that do not decode, or a stripped source whose credentials row is lost
+                # (`SourceCredentialsMissingError`), fail the same way on every attempt. Any other error, such as
+                # a database timeout while reading the credentials row, propagates so the activity retries.
+                await handle_non_retryable_error(
+                    job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
+                )
+            try:
+                config = new_source.parse_config(pipeline_job_inputs)
             except CredentialsServiceFailure as e:
                 # A source whose config carries a PostHog-owned credential resolves it here, so a
                 # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
@@ -963,6 +978,13 @@ async def _import_data_with_reporting(
                     resumable_source_manager=resumable_source_manager,
                     on_resumable_retry_budget=inputs.on_resumable_retry_budget,
                 )
+
+            try:
+                await database_sync_to_async_pool(attach_history_lanes)(
+                    schema, source_response, destination_ids=list(model.destination_ids or [])
+                )
+            except IncrementalHistoryUnavailableError as e:
+                await _handle_import_error(job_inputs, logger, e)
 
             return await _run(
                 job_inputs=job_inputs,
@@ -1138,6 +1160,13 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
+    # The schema's settings or the source's shape rule out its history table, or the table that holds the only
+    # copy of its data is corrupt, so a retry fails the same way.
+    if isinstance(error, IncrementalHistoryUnavailableError | KeptTableCorruptError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
     # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
     # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
     # contract by type so every REST-based source stops immediately, rather than depending on each
@@ -1266,7 +1295,9 @@ async def _handle_import_error(
     # blip, SlowDown throttling) that surfaced during this run — e.g. resetting or opening the
     # Delta table. Not a PostHog defect and not a customer credential problem (see
     # TRANSIENT_OBJECT_STORE_ERRORS), and retrying resolves it, so it shouldn't page anyone.
-    if is_transient_object_store_error(error):
+    # The text check also catches our bucket's error after another exception type wrapped it, so
+    # the source's own patterns below never read its 403 body as a customer access denial.
+    if is_transient_object_store_error(error) or is_warehouse_bucket_error(error_msg):
         await logger.awarning(error_msg)
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
