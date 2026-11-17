@@ -412,6 +412,29 @@ Copy the three steps (compute keys, `actions/cache/restore`, prime) from `ci-age
 A miss falls through to the full migrate, so the restore is never a correctness risk.
 The only sanctioned exception is a job whose purpose is validating the migration history itself (ci-backend's `check-migrations`), where a restored dump would mask what it checks.
 
+## Token scopes
+
+Declare `permissions:` in the workflow, either one top-level block or one per job (stricter, and what most workflows here do).
+The repository default is read-only, so a workflow without a block works today and silently inherits whatever the default becomes next.
+`hogli lint:workflows` runs `WF015-explicit-permissions` over every workflow on an untrusted trigger (`pull_request`, `pull_request_target`, `issue_comment`, `workflow_run`).
+
+A trusted-context trigger (`pull_request_target`, `issue_comment`, `workflow_run`) runs with the base repository's token and secrets, so it must never check out the pull request head: that puts contributor code one `run:` step away from those credentials.
+Check out the base ref and read the head commit as data instead.
+`WF016-untrusted-trigger-checkout` fails closed: on a trusted trigger, a checkout's `ref:` and `repository:` may only be literals or read base-side contexts (`github.sha`, `github.ref`, `github.event.pull_request.base.*`, `github.event.repository.*`, `vars.*`).
+`env.*`, `matrix.*`, `needs.*.outputs`, `steps.*.outputs` and event payload fields are reported, because any of them can carry the head SHA.
+Local reusable workflows are followed to any depth, and a callee's `inputs.<name>` is judged by what its caller passes, or by the input's `default:`.
+A job that builds the head on purpose, behind its own approval gate, puts `# hogli-lint: allow-trusted-checkout -- <reason>` above its job key (`canary-flags-enable.yml` does).
+
+A reusable-workflow call is exempt from `WF015` only while every job the callee runs declares its own `permissions:`, following the callee's own local calls; a bare job anywhere in that chain is reported on the caller, because at that point it inherits the default.
+
+## Required status checks
+
+The checks that gate a merge live in the `master` branch ruleset, outside this repository, and a renamed job that produces one leaves every pull request waiting for a check that will never report.
+`.github/required-status-checks.txt` mirrors that list so a change to it is a diff, and `WF017-required-status-checks` fails when a listed name has no producing job, or when the job producing it sets `continue-on-error` (which reports the check green whatever the job did).
+A check posted from a step through the checks API, like `Backend CI on Depot / Test results`, counts as produced only when the name sits inside a step that calls the checks API (`check-runs`), so a leftover `echo` of a renamed check does not hide the rename.
+
+After changing the ruleset, run `bin/refresh-required-status-checks` and commit the result with the ruleset change.
+
 ## Runners
 
 `depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs, except light jobs on the critical path of a merge-queue required check, which pick Depot on `trunk-merge/` runs only because GitHub-hosted runners queue longer at busy hours.

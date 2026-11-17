@@ -688,6 +688,7 @@ jobs:
     # Gated on preflight.should_proceed so a synchronize event that targets a
     # canary owned by another PR (or a disabled canary) is skipped without
     # building or dispatching anything.
+    # hogli-lint: allow-trusted-checkout -- builds the PR head on purpose; preflight requires an approved PR by an org member, and /pr-canary needs a team-feature-flags actor
     build_and_enable:
         name: Build feature-flags image and enable canary
         needs: [preflight]
