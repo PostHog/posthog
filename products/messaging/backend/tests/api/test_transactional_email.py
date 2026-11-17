@@ -774,7 +774,15 @@ class TestTransactionalEmail(APIBaseTest):
         key = TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome")
         assert queue.call_args_list == ([call(args=(self.team.id, str(key.id)), retry=False)] if detection_on else [])
 
-    def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(self, mock_post, _flag, _capture):
+    @parameterized.expand(
+        [
+            ("project_path", "/api/projects/{team_id}/messaging/send/email/"),
+            ("key_scoped_path", "/api/messaging/send/email/"),
+        ]
+    )
+    def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(
+        self, mock_post, _flag, _capture, _name, path
+    ):
         self._cdp_accepts(mock_post)
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
         env_sender = Integration.objects.create(
@@ -787,15 +795,43 @@ class TestTransactionalEmail(APIBaseTest):
         }
 
         for team_id in (self.team.id, env.id, self.team.id, env.id):
-            response = clients[team_id].post(
-                f"/api/projects/{team_id}/messaging/send/email/", self._code_send(), format="json"
-            )
+            response = clients[team_id].post(path.format(team_id=team_id), self._code_send(), format="json")
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
 
         workflow_ids = [call.args[0].split("/hog_flows/")[1].split("/")[0] for call in mock_post.call_args_list]
         assert workflow_ids[0] == workflow_ids[2]
         assert workflow_ids[1] == workflow_ids[3]
         assert workflow_ids[0] != workflow_ids[1]
+
+    @parameterized.expand(
+        [
+            (f"{endpoint}_{credential}", method, route, credential)
+            for endpoint, method, route in [
+                ("send", "post", "/api/messaging/send/email/"),
+                ("uploads", "post", "/api/messaging/attachments/uploads/"),
+                ("status", "get", "/api/messaging/emails/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/"),
+                ("preferences", "post", "/api/messaging/preferences/"),
+            ]
+            for credential in ("session", "personal_api_key")
+        ]
+    )
+    def test_key_scoped_routes_refuse_credentials_that_name_no_project(
+        self, mock_post, _flag, _capture, _name, method, route, credential
+    ):
+        client = APIClient()
+        if credential == "session":
+            client.force_login(self.user)
+        else:
+            raw_token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user, label="key", secure_value=hash_key_value(raw_token), scopes=["*"]
+            )
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
+
+        response = getattr(client, method)(route, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        mock_post.assert_not_called()
 
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)

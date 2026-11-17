@@ -87,6 +87,81 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getKeyScopedMessagingAttachmentsUploadsCreateUrl = () => {
+    return `/api/messaging/attachments/uploads/`
+}
+
+/**
+ * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
+ * @summary Prepare attachment uploads
+ */
+export const keyScopedMessagingAttachmentsUploadsCreate = async (
+    attachmentUploadsRequestApi: AttachmentUploadsRequestApi,
+    options?: RequestInit
+): Promise<AttachmentUploadsResponseApi> => {
+    return apiMutator<AttachmentUploadsResponseApi>(getKeyScopedMessagingAttachmentsUploadsCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(attachmentUploadsRequestApi),
+    })
+}
+
+export const getKeyScopedMessagingEmailsRetrieveUrl = (id: string) => {
+    return `/api/messaging/emails/${id}/`
+}
+
+/**
+ * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is recorded a few seconds after the send, so a read right after a send can answer 404. Treat that 404 as `queued` and read again a few seconds later.
+ * @summary Get a transactional email's status
+ */
+export const keyScopedMessagingEmailsRetrieve = async (id: string, options?: RequestInit): Promise<EmailStatusApi> => {
+    return apiMutator<EmailStatusApi>(getKeyScopedMessagingEmailsRetrieveUrl(id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getKeyScopedMessagingPreferencesCreateUrl = () => {
+    return `/api/messaging/preferences/`
+}
+
+/**
+ * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional email too.
+ * @summary Set a recipient's topic preferences
+ */
+export const keyScopedMessagingPreferencesCreate = async (
+    setPreferencesApi: SetPreferencesApi,
+    options?: RequestInit
+): Promise<TopicPreferencesApi> => {
+    return apiMutator<TopicPreferencesApi>(getKeyScopedMessagingPreferencesCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setPreferencesApi),
+    })
+}
+
+export const getKeyScopedMessagingSendEmailCreateUrl = () => {
+    return `/api/messaging/send/email/`
+}
+
+/**
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * @summary Send a transactional email
+ */
+export const keyScopedMessagingSendEmailCreate = async (
+    sendEmailApi: SendEmailApi,
+    options?: RequestInit
+): Promise<SendTransactionalEmailResponseApi> => {
+    return apiMutator<SendTransactionalEmailResponseApi>(getKeyScopedMessagingSendEmailCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendEmailApi),
+    })
+}
+
 export const getMessagingAttachmentsUploadsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging/attachments/uploads/`
 }
