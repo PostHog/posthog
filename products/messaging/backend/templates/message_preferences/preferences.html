@@ -21,7 +21,7 @@
                                 <p id="all-marketing-off-note"
                                    class="text-sm text-gray-600"
                                    {% if not all_marketing_opted_out %}hidden{% endif %}>
-                                    These topics are off because all marketing communications are off. Turn all marketing communications back on below to switch every topic on again.
+                                    These topics are off because all marketing communications are off. Turn all marketing communications back on below to restore your topic choices.
                                 </p>
                             {% endif %}
                             {% for category in categories %}
@@ -96,12 +96,13 @@
                     }
                     topicToggles.forEach((topic) => {
                         topic.disabled = allOff
+                        topic.checked = !allOff && topic.dataset.savedStatus !== 'OPTED_OUT'
                         if (allOff) {
-                            topic.checked = false
                             topic.setAttribute('aria-describedby', allMarketingOffNote.id)
                         } else {
                             topic.removeAttribute('aria-describedby')
                         }
+                        showSavedStatus(topic)
                     })
                 }
 
@@ -131,11 +132,7 @@
                 async function savePreferences(changedToggle) {
                     saveInFlight = true
                     form.setAttribute('aria-busy', 'true')
-                    toggles.forEach((toggle) => {
-                        if (toggle === changedToggle || toggle.checked !== toggle.defaultChecked) {
-                            updateStatusLabel(toggle, 'Saving…', 'text-amber-600')
-                        }
-                    })
+                    updateStatusLabel(changedToggle, 'Saving…', 'text-amber-600')
 
                     const formData = new FormData()
                     formData.append('token', document.querySelector('input[name="token"]').value)
@@ -163,16 +160,15 @@
                             throw new Error(data.error)
                         }
 
-                        toggles.forEach(t => { t.defaultChecked = t.checked })
-                        if (allMarketingToggle.checked) {
-                            topicToggles.forEach(t => { t.dataset.savedStatus = t.checked ? 'OPTED_IN' : 'OPTED_OUT' })
+                        if (changedToggle.hasAttribute('data-topic')) {
+                            changedToggle.dataset.savedStatus = changedToggle.checked ? 'OPTED_IN' : 'OPTED_OUT'
                         }
-                        toggles.forEach(showSavedStatus)
+                        showSavedStatus(changedToggle)
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
-                        toggles.forEach(t => { t.checked = t.defaultChecked })
+                        changedToggle.checked = !changedToggle.checked
                         showTopicsForAllMarketing()
-                        toggles.forEach(showSavedStatus)
+                        showSavedStatus(changedToggle)
                         showToast(error.message || 'Failed to update preferences', true)
                     } finally {
                         saveInFlight = false
@@ -194,7 +190,6 @@
                         setTimeout(() => { card.style.transform = 'scale(1)' }, 200)
 
                         if (this === allMarketingToggle) {
-                            topicToggles.forEach((topic) => { topic.checked = allMarketingToggle.checked })
                             showTopicsForAllMarketing()
                         }
                         savePreferences(this)
