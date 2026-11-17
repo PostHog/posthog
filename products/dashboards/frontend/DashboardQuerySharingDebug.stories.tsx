@@ -63,7 +63,11 @@ const run: DashboardSharingDebugRun = {
 const meta: Meta<typeof DashboardQuerySharingDebug> = {
     title: 'Products/Dashboards/Query sharing debug',
     component: DashboardQuerySharingDebug,
-    parameters: { featureFlags: [FEATURE_FLAGS.HOGQL_QUERY_SHARING], layout: 'fullscreen' },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.HOGQL_QUERY_SHARING],
+        layout: 'fullscreen',
+        testOptions: { waitForSceneReady: true },
+    },
     args: { dashboardName: 'Example dashboard', run, summary: summarizeSharingDebug(run) },
     decorators: [
         (Story): JSX.Element => (
