@@ -108,12 +108,12 @@ class EvalSuggestionSerializer(serializers.Serializer):
     measured_failure_rate = serializers.FloatField(
         read_only=True,
         allow_null=True,
-        help_text="Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.",
+        help_text="Share (0-1) of sampled traces or generations, per the draft's target, that fail the check. Null when nothing measured it.",
     )
     sample_size = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="Traces the failure rate was measured on. Null when there is no rate.",
+        help_text="Traces or generations, per the draft's target, that the failure rate was measured on. Null when there is no rate.",
     )
     evidence = EvalSuggestionEvidenceSerializer(
         many=True, read_only=True, help_text="Up to 5 example traces, each with a one-line reason."

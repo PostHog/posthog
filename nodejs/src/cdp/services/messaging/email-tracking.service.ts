@@ -745,6 +745,8 @@ export class EmailTrackingService {
                         status: update.status,
                         reason: update.reason,
                         statusAt: new Date(update.timestamp),
+                        messageCreatedAt:
+                            update.messageCreatedAtMs === undefined ? undefined : new Date(update.messageCreatedAtMs),
                     })
                 }
             }

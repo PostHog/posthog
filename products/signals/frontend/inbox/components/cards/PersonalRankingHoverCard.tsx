@@ -3,6 +3,7 @@ import { SignalReport } from '../../types'
 import { RankingModelHeader } from './RankingModelHeader'
 import { RankingScaleNote } from './RankingScaleNote'
 import { RankingScoreRows } from './RankingScoreRows'
+import { RankingStaffFooter } from './ReportCardRankingTag'
 
 /**
  * The score details on the Personalized sort. It leads with where the report sits on the user's own
@@ -44,9 +45,7 @@ export function PersonalRankingHoverCard({
             <div className="opacity-70">
                 Your list is built from your recent activity in PostHog and these scores. It refreshes every few hours.
             </div>
-            {isStaff && ranking.model && (
-                <div className="border-t border-primary pt-1 font-mono opacity-70">{ranking.model}</div>
-            )}
+            {isStaff && <RankingStaffFooter ranking={ranking} />}
         </div>
     )
 }

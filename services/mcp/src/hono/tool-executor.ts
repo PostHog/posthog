@@ -29,10 +29,11 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
-import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { UiAppKey } from '@/resources/ui-apps.generated'
 import {
     createExecTool,
@@ -218,7 +219,7 @@ export class ToolExecutor {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(state),
                 }
             }
             return entry
@@ -260,6 +261,9 @@ export class ToolExecutor {
         const carriedContextHandle =
             hooks?.carriedContextHandle ??
             Boolean(state.requestContext.mcpSessionId || state.requestContext.mcpConversationId)
+        const carriedContextSessionKey = carriedContextHandle
+            ? (state.requestContext.mcpConversationId ?? state.requestContext.mcpSessionId)
+            : undefined
         const { analyticsMeta, args, preparedCall } = this.extractAnalyticsMetadata(
             toolName,
             rawArgs,
@@ -282,6 +286,7 @@ export class ToolExecutor {
         }
         const callState = stateForToolCall(state, analyticsMeta.intent)
         callState.carriedContextHandle = carriedContextHandle
+        callState.carriedContextSessionKey = carriedContextSessionKey
         const callParams = { ...params, arguments: args }
 
         const targetToolName =
@@ -385,9 +390,9 @@ export class ToolExecutor {
     // from the catalog, on both the native tools/list path and exec's `info` output.
     // trackToolCall stamps the catalog text by default, so it needs the served text
     // for this tool or $mcp_tool_description records words the agent never saw.
-    private servedToolDescription(toolName: string): string | undefined {
+    private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
         if (toolName === EXECUTE_SQL_TOOL_NAME) {
-            return this.instructionsBuilder.formatExecuteSqlDescription()
+            return this.instructionsBuilder.formatExecuteSqlDescription(state)
         }
         return undefined
     }
@@ -471,7 +476,7 @@ export class ToolExecutor {
                     ...errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
                 },
                 analyticsMeta,
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
             return {
                 content: [{ type: 'text', text: message }],
@@ -506,15 +511,14 @@ export class ToolExecutor {
             }
 
             toolCallsTotal.inc({ tool: tool.name, status: 'success' })
-            stop({ status: 'success' })
-
-            const duration = Date.now() - startMs
             const guidance = await this.guidanceFor(state, {
                 toolName: tool.name,
                 args: validation.data,
                 isError: false,
                 resultEmpty: isEmptyToolResult(handlerResult, tool.name),
             })
+            stop({ status: 'success' })
+            const duration = Date.now() - startMs
 
             let response: ToolResultPayload
             if (isToolCallPayload(handlerResult)) {
@@ -541,6 +545,7 @@ export class ToolExecutor {
                 })
             }
 
+            const guided = attachGuidanceNotice(response, guidance)
             void trackToolCall(
                 tool.name,
                 duration,
@@ -550,12 +555,13 @@ export class ToolExecutor {
                     ...inputShape,
                     ...skillShape,
                     input_tokens: estimateTokens(validation.data),
-                    output_tokens: estimateResponseTokens(response),
+                    output_tokens:
+                        estimateResponseTokens(response) + (guidance?.text ? estimateTokens(guidance.text) : 0),
                     ...toolResultAnalyticsProperties(response),
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 { ...analyticsMeta, parameters: validation.data, response: handlerResult },
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -572,10 +578,10 @@ export class ToolExecutor {
                 durationMs: duration,
                 isError: false,
                 input: validation.data,
-                output: response,
+                output: guided,
             })
 
-            return attachGuidanceNotice(response, guidance)
+            return guided
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
@@ -612,7 +618,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 { ...analyticsMeta, parameters: validation.data },
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
 
             const errorMessage = extractErrorMessage(error)
@@ -648,7 +654,9 @@ export class ToolExecutor {
                     tool.name,
                     state.distinctId,
                     sessionUuid,
-                    state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
+                    state.suppressAnalytics ||
+                        isPrivateScoutTrialTool(tool.name) ||
+                        hasSqlFilters(tool.name, validation.data)
                 ),
                 guidance
             )
@@ -743,7 +751,6 @@ export class ToolExecutor {
 
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
-            const duration = Date.now() - startMs
 
             const response = isToolCallPayload(handlerResult)
                 ? handlerResult
@@ -771,6 +778,10 @@ export class ToolExecutor {
                 isError: innerFailure !== undefined,
                 resultEmpty: execMetrics.resultEmpty,
             })
+            const duration = Date.now() - startMs
+            const guided = attachGuidanceNotice(response, guidance, {
+                jsonOutput: execMetrics.innerOutputFormat === 'json',
+            })
 
             void trackToolCall(
                 analyticsToolName(),
@@ -785,19 +796,18 @@ export class ToolExecutor {
                         ? skillLookupMissProperties(execMetrics.skillLookupMissKind)
                         : {}),
                     input_tokens: estimateTokens(validation.data),
-                    output_tokens: estimateResponseTokens(response),
+                    output_tokens:
+                        estimateResponseTokens(response) + (guidance?.text ? estimateTokens(guidance.text) : 0),
                     ...execMetrics.commandMeta,
                     ...(execMetrics.resultEmpty ? { mcp_result_empty: true } : {}),
                     ...toolResultAnalyticsProperties(response),
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 execAnalyticsMeta(),
-                this.servedToolDescription(analyticsToolName())
+                this.servedToolDescription(analyticsToolName(), state)
             )
 
-            return attachGuidanceNotice(response, guidance, {
-                jsonOutput: execMetrics.innerOutputFormat === 'json',
-            })
+            return guided
         } catch (error: unknown) {
             const metricTool = execToolName()
             const classification = classifyToolError(error, metricTool)
@@ -826,7 +836,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 execAnalyticsMeta(),
-                this.servedToolDescription(analyticsToolName())
+                this.servedToolDescription(analyticsToolName(), state)
             )
 
             const sessionUuid = await sessionUuidForError(state)
@@ -842,7 +852,9 @@ export class ToolExecutor {
                     sessionUuid,
                     state.suppressAnalytics ||
                         isPrivateScoutTrialTool(metricTool) ||
-                        isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
+                        isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool) ||
+                        hasSqlFilters(metricTool, execMetrics.innerInput) ||
+                        hasSqlFilters('exec', validation.data)
                 ),
                 guidance
             )
@@ -947,7 +959,7 @@ export class ToolExecutor {
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
                       ...tool,
-                      description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                      description: this.instructionsBuilder.formatExecuteSqlDescription(state),
                   }
                 : tool
         )
@@ -971,6 +983,7 @@ export class ToolExecutor {
                 ...(state.heldTools ? { heldTools: state.heldTools } : {}),
                 builtInSkillHint: this.builtInSkillHint(state),
                 oauthClientId: state.oauthClientId,
+                metricCatalogLookup: resolveMetricCatalogMode(state.metricCatalog) === 'lookup',
                 ...(state.gatewayToolsEnabled
                     ? {
                           gatewayToolsProvider: () => this.gatewayToolsFor(state),
@@ -1033,7 +1046,8 @@ export class ToolExecutor {
             state.context,
             getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
             (toolName, toolInput, appKey) =>
-                this.loadRenderUiAppData(toolName, toolInput, appKey, state, analyticsMeta ?? {})
+                this.loadRenderUiAppData(toolName, toolInput, appKey, state, analyticsMeta ?? {}),
+            { appDataInStructuredContent: state.clientProfile.isCursor() }
         )
         if (!renderUiTool) {
             return {

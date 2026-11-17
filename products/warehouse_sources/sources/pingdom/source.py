@@ -58,7 +58,7 @@ class PingdomSource(ResumableSource[PingdomSourceConfig, PingdomResumeConfig]):
 You can create an API token in [My Pingdom](https://my.pingdom.com/app/api-tokens) under Settings > Pingdom API. A read-only token is sufficient.""",
             iconPath="/static/services/pingdom.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pingdom",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

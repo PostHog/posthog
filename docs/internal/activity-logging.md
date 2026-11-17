@@ -55,6 +55,10 @@ The actor is not passed down this chain.
 `ActivityLoggingMiddleware` (`posthog/middleware.py`) stores the request user and the impersonation flag in a thread-local (`activity_storage`), and the mixin reads them back.
 Outside a request the user is `None`, and the row is stored with `is_system=True`.
 A deferred insert runs after the commit. If the transaction deleted the acting user, for example when users delete their own account, the row is stored with `user=None` and `is_system=False`.
+Pass `external_actor=True` to `log_activity` when an action originates in another organization and the row's organization must not receive its request attribution.
+The row is then stored with `user=None`, `is_system=False`, and `was_impersonated=False`, and it records no client, IP address, credential, or agent trigger.
+Personal API key rows use it when an admin of one organization changes a key that also works in other organizations.
+The acting organization retains the full attribution, even when the admin also belongs to another affected organization.
 
 The receiver is the only part a product writes.
 The mixin, the signal, and `log_activity` are core, and they work the same for every model.
@@ -327,6 +331,8 @@ Organization IP restriction configuration logs initial creation and changes to t
 
 - `GET /api/projects/:id/activity_log/` - the list the side panel reads.
 - `GET /api/projects/:id/advanced_activity_logs/` - filters, field discovery, and export.
+  `start_date` and `end_date` take ISO 8601 timestamps, so a range can be shorter than a day. Include a UTC offset such as `Z`. The REST API reads a value without one as UTC, but the MCP tool rejects it.
+  The Activity page reads times and days without an offset in the project timezone, as insights do.
 - Access control: resource `activity_log`, default level `viewer`.
 - Entitlement: both list endpoints are gated by `AvailableFeature.AUDIT_LOGS` on Cloud and apply the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). Writes always happen.
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).

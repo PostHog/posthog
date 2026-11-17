@@ -11,7 +11,8 @@ from collections.abc import Sequence
 
 from posthog.dataclasses import frozen
 
-from .adapters import REFUSALS, REPEAT_THRESHOLD, REPEATED_TOOL_CALLS, SENSITIVE_DATA, UNRECOVERED_ERRORS, AdaptedCheck
+from .adapters import REFUSALS, REPEAT_THRESHOLD, REPEATED_TOOL_CALLS, UNRECOVERED_ERRORS, AdaptedCheck
+from .call_review import ReviewCard
 from .catalog import EvalTemplate
 from .coverage import DEAD_LOOKBACK, EvalFix
 from .profile import StructuredGap
@@ -73,16 +74,6 @@ CHECKS: dict[str, _CheckWords] = {
         checks="Checks the final answer of every {scope}trace for a refusal.",
         reason="The final answer refuses the request. Refusals in earlier steps or in tool output don't count.",
     ),
-    SENSITIVE_DATA: _CheckWords(
-        noun="answers",
-        singular="includes an email address, card number or secret key",
-        plural="include an email address, card number or secret key",
-        checks="Checks the final answer of every {scope}trace for email addresses, card numbers and secret keys.",
-        reason=(
-            "The final answer contains an email address, a card number, or a secret key. "
-            "Links and version numbers don't count."
-        ),
-    ),
 }
 
 
@@ -132,7 +123,9 @@ def cost_clause(weekly_cost_usd: float | None, *, free: bool) -> str:
     return f"About ${weekly_cost_usd:,.2f} a week on your AI provider key."
 
 
-def code_check_text(check: AdaptedCheck, failure_rate: float, segment: str | None) -> CardText:
+def code_check_text(
+    check: AdaptedCheck, failure_rate: float, segment: str | None, rollout_percentage: float = 100.0
+) -> CardText:
     """`segment` is the value the check's filter keeps, such as "batch", or None when it runs on all traffic."""
     words = CHECKS.get(check.key) or _CheckWords(
         noun="traces",
@@ -148,7 +141,10 @@ def code_check_text(check: AdaptedCheck, failure_rate: float, segment: str | Non
         if failure_rate < ONE_IN_N_BELOW
         else f"{failure_rate:.0%} of {noun} {words.plural}"
     )
-    return CardText(headline=headline, outcome=f"{words.checks.replace('{scope}', scope)} {FREE}", reason=words.reason)
+    checks = words.checks.replace("{scope}", scope)
+    if rollout_percentage < 100:
+        checks = checks.replace(f"every {scope}trace", f"{rollout_percentage:g}% of {scope}traces")
+    return CardText(headline=headline, outcome=f"{checks} {FREE}", reason=words.reason)
 
 
 @frozen
@@ -218,6 +214,15 @@ def judge_text(template: EvalTemplate, target: str, cost: str) -> CardText:
             "How often it happens is not measured yet."
         ),
     )
+
+
+def _sentence(text: str) -> str:
+    return text if text.endswith((".", "!", "?")) else f"{text}."
+
+
+def review_text(card: ReviewCard, cost: str) -> CardText:
+    """The review's own words. The card shows its failure count from `measured_failure_rate` and `sample_size`."""
+    return CardText(headline=card.title, outcome=f"{_sentence(card.checks)} {cost}", reason=_sentence(card.why))
 
 
 def fix_text(fix: EvalFix) -> CardText:

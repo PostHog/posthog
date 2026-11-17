@@ -159,6 +159,13 @@ class TestFetchPage:
         assert result.rows == []
         assert result.paths == ["/api/v1/products", "/api/v1/addons/pro_1"]
 
+    def test_400_is_empty_page_for_top_level_endpoint_that_ignores_no_data_errors(self) -> None:
+        # Commissions belong to the optional Affiliate module: accounts that never enabled it get
+        # a 400 on the first page, which must not fail the sync.
+        result = _driver().run("commissions", [ScriptedResponse(status=400)])
+        assert result.raised is None
+        assert result.rows == []
+
     def test_success_returns_data_rows(self) -> None:
         result = _driver().run("customers", [_page([{"id": "1"}])])
         assert result.raised is None

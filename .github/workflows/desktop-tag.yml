@@ -12,6 +12,10 @@ on:
                 description: Skip the master Desktop Tests check, for a break-glass release.
                 type: boolean
                 default: false
+            ignore_backend_deploy:
+                description: Skip the wait for the backend deploy, for a break-glass release.
+                type: boolean
+                default: false
 
 concurrency:
     group: desktop-tag
@@ -32,8 +36,12 @@ jobs:
             contents: write
             actions: write
             checks: read
+            deployments: read
         runs-on: ubuntu-24.04
-        timeout-minutes: 60
+        # Sized for the Desktop Tests dispatch and its 25-minute wait, plus the 60-minute backend
+        # deploy wait, plus a margin for the checkout. A quiet-period sleep holds the tag and ends
+        # the run, so it never adds to the two waits.
+        timeout-minutes: 95
         steps:
             - name: Get app token
               id: app-token
@@ -45,14 +53,16 @@ jobs:
 
             # The quiet-period step below dispatches its retry with the release App's token, and the App
             # is not on the team. Only a holder of the App key can dispatch as the App. Any branch workflow
-            # can dispatch as github-actions[bot], so that bot gets no exception. Keep the two input
-            # conditions equal to the ones the later steps read, so an App run still runs Desktop Tests.
+            # can dispatch as github-actions[bot], so that bot gets no exception. Keep the input
+            # conditions equal to the ones the later steps read, so an App run still runs Desktop Tests
+            # and still waits for the backend deploy.
             - name: Check the dispatcher is on team-posthog-desktop
               if: >-
                   github.event_name == 'workflow_dispatch' &&
                   !(github.triggering_actor == 'releaser-posthog-desktop[bot]' &&
                     github.event.inputs.quiet_retries != '0' &&
-                    github.event.inputs.ignore_master_ci != 'true')
+                    github.event.inputs.ignore_master_ci != 'true' &&
+                    github.event.inputs.ignore_backend_deploy != 'true')
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   # A re-run keeps github.actor from the first attempt, so the check reads the
@@ -77,7 +87,9 @@ jobs:
                   fetch-depth: 0
                   filter: blob:none
                   token: ${{ steps.app-token.outputs.token }}
-                  sparse-checkout: .github/actions/wait-for-check
+                  sparse-checkout: |
+                      .github/actions/wait-for-check
+                      .github/scripts/desktop/wait-for-backend-deploy.sh
                   sparse-checkout-cone-mode: false
 
             - name: Check quiet period
@@ -158,8 +170,8 @@ jobs:
                   token: ${{ github.token }}
                   checkName: Desktop Tests Pass
                   ref: ${{ steps.master-ci-run.outputs.sha }}
-                  # The Linux suite finishes in about fifteen minutes. The wait plus the
-                  # quiet period stays inside the job timeout.
+                  # The Linux suite finishes in about fifteen minutes. The job timeout
+                  # includes this wait.
                   timeoutSeconds: '1500'
                   intervalSeconds: '30'
 
@@ -185,13 +197,81 @@ jobs:
 
                   echo "::warning::Desktop Tests concluded '${CONCLUSION}' on ${SHA}, so the release tag is held. ${RUN_URL}"
 
-            - name: Compute version and create tag
-              if: steps.quiet.outputs.proceed != 'false' && steps.master-ci-run.outputs.proceed != 'false' && steps.master-ci-verdict.outputs.proceed != 'false'
+            # Desktop releases auto-update users, so a release must not reach them before the
+            # Django backend it calls runs in production. The charts deploy records each Django
+            # deploy as a GitHub Deployment, and the script reads which build is live. It does
+            # not cover Rust services. The 60-minute wait is a policy: it allows for a prod deploy
+            # of the tested commit plus one more deploy cycle. A release that still waits after
+            # that goes to the next scheduled run.
+            - name: Wait for the backend to run the tested commit
+              id: backend-deploy
+              if: >-
+                  steps.quiet.outputs.proceed != 'false' &&
+                  steps.master-ci-run.outputs.proceed != 'false' &&
+                  steps.master-ci-verdict.outputs.proceed != 'false' &&
+                  github.event.inputs.ignore_backend_deploy != 'true'
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  TESTED_SHA: ${{ steps.master-ci-run.outputs.sha }}
+                  TIMEOUT_SECONDS: '3600'
+                  # Polls every two minutes, so a full wait stays well under the hourly GITHUB_TOKEN rate limit.
+                  INTERVAL_SECONDS: '120'
+              run: |
+                  # A break-glass run that skips Desktop Tests tags HEAD, so it waits for HEAD.
+                  COMMIT_SHA="${TESTED_SHA:-$(git rev-parse HEAD)}"
+                  export COMMIT_SHA
+                  # The tag step releases nothing when no desktop commit landed after the last
+                  # release tag, so the run must not wait for the backend in that case.
+                  # This fetch runs before the backend wait, so the checkout's App token is still valid.
+                  git fetch --quiet --no-tags origin master
+                  LATEST_TAG=$(git tag --list 'desktop-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^desktop-v[0-9]+\.[0-9]+(\.0)?$' | head -1 || true)
+                  if [ -n "$LATEST_TAG" ] && [ "$(git rev-list "$LATEST_TAG".."$COMMIT_SHA" --count -- products/desktop/ packages/agent/)" -eq 0 ]; then
+                    echo "No desktop commits since $LATEST_TAG, so there is no release to hold."
+                    echo "proceed=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+                  STATUS=0
+                  .github/scripts/desktop/wait-for-backend-deploy.sh || STATUS=$?
+                  case "$STATUS" in
+                    0)
+                      echo "proceed=true" >> "$GITHUB_OUTPUT"
+                      ;;
+                    3)
+                      echo "::warning::The backend in production does not run ${COMMIT_SHA} yet, so the release tag is held. The next scheduled run picks it up."
+                      echo "proceed=false" >> "$GITHUB_OUTPUT"
+                      ;;
+                    *)
+                      echo "::error::Could not check the backend deploy for ${COMMIT_SHA}, so the release tag is held."
+                      exit 1
+                      ;;
+                  esac
+
+            # An App installation token expires after one hour, and the waits above can outlast it,
+            # so the tag step mints its own token.
+            - name: Get app token for the tag push
+              id: app-token-tag
+              if: steps.quiet.outputs.proceed != 'false' && steps.master-ci-run.outputs.proceed != 'false' && steps.master-ci-verdict.outputs.proceed != 'false' && steps.backend-deploy.outputs.proceed != 'false'
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: getsentry/action-github-app-token@v4.0.0
+              with:
+                  app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
+
+            - name: Compute version and create tag
+              if: steps.quiet.outputs.proceed != 'false' && steps.master-ci-run.outputs.proceed != 'false' && steps.master-ci-verdict.outputs.proceed != 'false' && steps.backend-deploy.outputs.proceed != 'false'
+              env:
+                  GH_TOKEN: ${{ steps.app-token-tag.outputs.token }}
                   REPOSITORY: ${{ github.repository }}
                   TESTED_SHA: ${{ steps.master-ci-run.outputs.sha }}
               run: |
+                  REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY"
+                  # The checkout stored its own, possibly expired, token as an extra header for
+                  # github.com. An empty value clears that header, so git sends the fresh token.
+                  git_with_fresh_token() {
+                    git -c http.https://github.com/.extraheader= "$@"
+                  }
+
                   LATEST_TAG=$(git tag --list 'desktop-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^desktop-v[0-9]+\.[0-9]+(\.0)?$' | head -1 || true)
 
                   if [ -z "$LATEST_TAG" ]; then
@@ -202,7 +282,7 @@ jobs:
                   # The tag points at the commit the suite ran on, which can be newer than
                   # this checkout, so fetch master before the commit is used.
                   if [ -n "$TESTED_SHA" ]; then
-                    git fetch --no-tags origin master
+                    git_with_fresh_token fetch --no-tags "$REPO_URL" master
                   fi
                   TARGET="${TESTED_SHA:-HEAD}"
 
@@ -231,4 +311,4 @@ jobs:
                   git config user.email "github-actions[bot]@users.noreply.github.com"
                   git config user.name "github-actions[bot]"
                   git tag -a "$TAG" -m "Release $TAG" "$TARGET"
-                  git push "https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY" "$TAG"
+                  git_with_fresh_token push "$REPO_URL" "$TAG"

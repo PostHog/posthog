@@ -13,8 +13,33 @@ from products.warehouse_sources.sources.youtube_data.source import YoutubeDataSo
         (200, {"items": [{"id": "UC_example"}]}, None),
         (200, {"items": []}, "YouTube channel was not found."),
         (
+            200,
+            {"kind": "youtube#channelListResponse", "etag": "x", "pageInfo": {"totalResults": 0, "resultsPerPage": 5}},
+            "YouTube channel was not found.",
+        ),
+        (
             400,
-            {"error": {"message": "API key not valid. Please pass a valid API key."}},
+            {
+                "error": {
+                    "message": "API key not valid. Please pass a valid API key.",
+                    "details": [{"reason": "API_KEY_INVALID", "domain": "googleapis.com"}],
+                }
+            },
+            "YouTube credentials are invalid or expired.",
+        ),
+        (
+            400,
+            {
+                "error": {
+                    "message": "API key expired. Please renew the API key.",
+                    "details": [{"reason": "API_KEY_EXPIRED", "domain": "googleapis.com"}],
+                }
+            },
+            "YouTube credentials are invalid or expired.",
+        ),
+        (
+            400,
+            {"error": {"errors": [{"reason": "invalidParameter"}]}},
             "YouTube rejected the request.",
         ),
         (401, {"error": {"errors": [{"reason": "authError"}]}}, "YouTube credentials are invalid or expired."),

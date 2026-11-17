@@ -12,9 +12,12 @@ use capture::token::validate_token;
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;
-use tracing::error;
+use tracing::{error, warn};
+
+use crate::unknown_tokens::{UnknownTokenMode, UnknownTokens};
 
 const REJECTED_COUNTER: &str = "capture_logs_requests_rejected_total";
+const UNKNOWN_TOKEN_COUNTER: &str = "capture_logs_unknown_token_total";
 
 /// The `(status, body)` pair the handlers already return, so a rejection needs no new plumbing.
 type Rejection = (StatusCode, Json<serde_json::Value>);
@@ -41,11 +44,21 @@ impl Signal {
 #[derive(Clone)]
 pub struct Authorizer {
     token_dropper: Arc<TokenDropper>,
+    unknown_tokens: UnknownTokens,
 }
 
 impl Authorizer {
     pub fn new(token_dropper: Arc<TokenDropper>) -> Self {
-        Self { token_dropper }
+        Self {
+            token_dropper,
+            unknown_tokens: UnknownTokens::disabled(),
+        }
+    }
+
+    /// Turn away (or, in shadow mode, only count) tokens the consumer found to belong to no team.
+    pub fn with_unknown_tokens(mut self, unknown_tokens: UnknownTokens) -> Self {
+        self.unknown_tokens = unknown_tokens;
+        self
     }
 
     /// Resolve the project token from `Authorization: Bearer <token>`, falling back to the
@@ -94,9 +107,9 @@ impl Authorizer {
         }
 
         // Shape validation only rules out tokens that cannot be a project API key at all, such
-        // as a personal API key pasted into an exporter. A well-formed token belonging to no
-        // team still gets a 200 here and is dropped by the consumer, because resolving a token
-        // to a team needs Postgres, which this service does not have.
+        // as a personal API key pasted into an exporter. Whether a well-formed token belongs to
+        // a team needs Postgres, which this service does not have. The consumer finds out and
+        // publishes the tokens with no team, which `unknown_tokens` mirrors below.
         if let Err(reason) = validate_token(token) {
             error!("Rejecting request with an invalid project API key: {reason}");
             return Err(self.reject(
@@ -106,6 +119,28 @@ impl Authorizer {
                     "Invalid project API key ({reason}). Use your project API key, which you can find in your PostHog project settings."
                 )),
             ));
+        }
+
+        if self.unknown_tokens.is_unknown(token) {
+            match self.unknown_tokens.mode() {
+                UnknownTokenMode::Reject => {
+                    return Err(self.reject(
+                        signal,
+                        "unknown_token",
+                        unauthorized("Unknown project API key"),
+                    ));
+                }
+                UnknownTokenMode::Shadow => {
+                    counter!(UNKNOWN_TOKEN_COUNTER, "signal" => signal.as_str()).increment(1);
+                    if self.unknown_tokens.should_log_shadow_hit() {
+                        warn!(
+                            signal = signal.as_str(),
+                            token, "Request with a project token that belongs to no team (shadow)"
+                        );
+                    }
+                }
+                UnknownTokenMode::Off => {}
+            }
         }
 
         Ok(())
@@ -197,6 +232,138 @@ mod tests {
         assert!(authorizer()
             .authorize_token("phc_well_formed", Signal::Logs)
             .is_ok());
+    }
+
+    mod unknown_tokens {
+        use super::*;
+        use crate::unknown_tokens::{UnknownTokenMode, UnknownTokens, UNKNOWN_TOKENS_KEY};
+        use common_redis::MockRedisClient;
+        use std::time::Duration;
+
+        const NOW: i64 = 1_700_000_000_000;
+
+        async fn authorizer_in(mode: UnknownTokenMode, members: &[&str]) -> Authorizer {
+            let unknown = UnknownTokens::new(mode, Duration::from_secs(600));
+            let redis = MockRedisClient::new().zrangebyscore_ret(
+                UNKNOWN_TOKENS_KEY,
+                members.iter().map(|m| m.to_string()).collect(),
+            );
+            unknown
+                .refresh(&redis, NOW, Duration::from_secs(3600))
+                .await
+                .unwrap();
+            authorizer().with_unknown_tokens(unknown)
+        }
+
+        #[tokio::test]
+        async fn off_accepts_a_token_that_is_in_the_set() {
+            let authorizer = authorizer_in(UnknownTokenMode::Off, &["phc_ghost"]).await;
+
+            assert!(authorizer
+                .authorize_token("phc_ghost", Signal::Logs)
+                .is_ok());
+        }
+
+        #[tokio::test]
+        async fn shadow_accepts_a_token_that_is_in_the_set() {
+            let authorizer = authorizer_in(UnknownTokenMode::Shadow, &["phc_ghost"]).await;
+
+            for signal in [Signal::Logs, Signal::Traces, Signal::Metrics] {
+                assert!(authorizer.authorize_token("phc_ghost", signal).is_ok());
+            }
+        }
+
+        #[tokio::test]
+        async fn reject_answers_401_for_a_token_that_is_in_the_set() {
+            let authorizer = authorizer_in(UnknownTokenMode::Reject, &["phc_ghost"]).await;
+
+            for signal in [Signal::Logs, Signal::Traces, Signal::Metrics] {
+                let (status, body) = authorizer
+                    .authorize_token("phc_ghost", signal)
+                    .expect_err("expected rejection");
+                assert_eq!(status, StatusCode::UNAUTHORIZED);
+                assert_eq!(
+                    body.0,
+                    json!({ "error": "Unknown project API key" }),
+                    "{signal:?}"
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn reject_applies_to_a_token_from_the_header_and_the_query() {
+            let authorizer = authorizer_in(UnknownTokenMode::Reject, &["phc_ghost"]).await;
+
+            let from_header = headers(&[("Authorization", "Bearer phc_ghost")]);
+            assert!(authorizer
+                .authorize(&from_header, None, Signal::Logs)
+                .is_err());
+            assert!(authorizer
+                .authorize(&HeaderMap::new(), Some("phc_ghost"), Signal::Logs)
+                .is_err());
+        }
+
+        #[tokio::test]
+        async fn reject_accepts_a_token_that_is_not_in_the_set() {
+            let authorizer = authorizer_in(UnknownTokenMode::Reject, &["phc_ghost"]).await;
+
+            assert!(authorizer
+                .authorize_token("phc_real_project", Signal::Logs)
+                .is_ok());
+        }
+
+        #[tokio::test]
+        async fn reject_with_an_empty_set_accepts_everything() {
+            let authorizer = authorizer_in(UnknownTokenMode::Reject, &[]).await;
+
+            assert!(authorizer
+                .authorize_token("phc_anything", Signal::Logs)
+                .is_ok());
+        }
+
+        #[test]
+        fn reject_accepts_everything_when_redis_never_loaded() {
+            let unknown = UnknownTokens::new(UnknownTokenMode::Reject, Duration::from_secs(600));
+            let authorizer = authorizer().with_unknown_tokens(unknown);
+
+            assert!(authorizer
+                .authorize_token("phc_anything", Signal::Logs)
+                .is_ok());
+        }
+
+        #[tokio::test]
+        async fn reject_keeps_the_last_snapshot_when_redis_goes_down() {
+            let unknown = UnknownTokens::new(UnknownTokenMode::Reject, Duration::from_secs(600));
+            let up = MockRedisClient::new()
+                .zrangebyscore_ret(UNKNOWN_TOKENS_KEY, vec!["phc_ghost".to_string()]);
+            unknown
+                .refresh(&up, NOW, Duration::from_secs(3600))
+                .await
+                .unwrap();
+            let down = MockRedisClient::new();
+            assert!(unknown
+                .refresh(&down, NOW, Duration::from_secs(3600))
+                .await
+                .is_err());
+            let authorizer = authorizer().with_unknown_tokens(unknown);
+
+            assert!(authorizer
+                .authorize_token("phc_ghost", Signal::Logs)
+                .is_err());
+            assert!(authorizer
+                .authorize_token("phc_real_project", Signal::Logs)
+                .is_ok());
+        }
+
+        #[tokio::test]
+        async fn shape_errors_still_win_over_the_set() {
+            let authorizer = authorizer_in(UnknownTokenMode::Reject, &["phx_personal"]).await;
+
+            let (_, body) = authorizer
+                .authorize_token("phx_personal", Signal::Logs)
+                .expect_err("expected rejection");
+            assert_ne!(body.0, json!({ "error": "Unknown project API key" }));
+        }
     }
 
     struct TokenSourceCase {

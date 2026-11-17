@@ -11,17 +11,20 @@ from functools import reduce
 from typing import Any, cast
 from uuid import UUID
 
-from django.db.models import Case, Exists, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
+from django.db.models import Case, Exists, FloatField, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Coalesce
 
+from posthog.helpers.full_text_search import build_rank
 from posthog.helpers.trigram_search import NAME_FIELD, apply_trigram_search
 
 from products.alerts_platform.backend.facade.contracts import (
     ControlChangeKind,
     EnabledNativeConfiguration,
     Grouping,
+    HeldAlertSearchMatch,
     InstanceCheckState,
     NativeConfigurationMatch,
+    OwnedCopyKey,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
     PlatformAlertEvents,
@@ -197,15 +200,17 @@ def team_ids_with_copies(source_kind: str) -> tuple[int, ...]:
     )
 
 
-def owned_copy_ids(*, team_id: int, source_kind: str, created_by_uuid: UUID | None = None) -> tuple[UUID, ...]:
-    """The source row id of every copy of a kind the platform owns. With `created_by_uuid`, only the
-    ones that user created."""
+def owned_copy_keys(*, team_id: int, source_kind: str) -> tuple[OwnedCopyKey, ...]:
+    """Every copy of a kind the platform owns, newest first."""
     rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind, owner=PlatformAlertOwner.PLATFORM, legacy_configuration_id__isnull=False
     )
-    if created_by_uuid is not None:
-        rows = rows.filter(created_by__uuid=created_by_uuid)
-    return tuple(cast(UUID, legacy_id) for legacy_id in rows.values_list("legacy_configuration_id", flat=True))
+    return tuple(
+        OwnedCopyKey(created_at=created_at, legacy_configuration_id=cast(UUID, legacy_id), created_by_id=creator_id)
+        for created_at, legacy_id, creator_id in rows.order_by("-created_at", "-id").values_list(
+            "created_at", "legacy_configuration_id", "created_by_id"
+        )
+    )
 
 
 def owned_copies(
@@ -229,21 +234,36 @@ def owned_copies(
 
 
 def native_configuration_matches(
-    *, team_id: int, source_kind: str, search: str | None = None
+    *,
+    team_id: int,
+    source_kind: str,
+    search: str | None = None,
+    owned_copies: bool = False,
+    source_config_contains: Mapping[str, Any] | None = None,
+    created_by_id: int | None = None,
 ) -> tuple[NativeConfigurationMatch, ...]:
-    """Every configuration of a kind with no source row, or with `search` only the ones whose name
-    matches it, both tiers included. A source decides the tiers across its own rows and these."""
-    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
-        source_kind=source_kind, legacy_configuration_id__isnull=True
-    )
+    """Every configuration of a kind with no source row, and with `owned_copies` also the copies the
+    platform owns, or with `search` only the ones whose name matches it, both tiers included. A source
+    decides the tiers across its own rows and these."""
+    wanted = Q(legacy_configuration_id__isnull=True)
+    if owned_copies:
+        wanted |= Q(owner=PlatformAlertOwner.PLATFORM)
+    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(wanted, source_kind=source_kind)
+    if source_config_contains:
+        rows = rows.filter(source_config__contains=dict(source_config_contains))
+    if created_by_id is not None:
+        rows = rows.filter(created_by_id=created_by_id)
+    columns = ("id", "created_at", "created_by_id", "source_config", "legacy_configuration_id")
     if not search:
         return tuple(
             NativeConfigurationMatch(
-                id=row_id, created_at=created_at, created_by_id=created_by_id, source_config=source_config
+                id=row_id,
+                created_at=created_at,
+                created_by_id=created_by_id,
+                source_config=source_config,
+                legacy_configuration_id=legacy_id,
             )
-            for row_id, created_at, created_by_id, source_config in rows.values_list(
-                "id", "created_at", "created_by_id", "source_config"
-            )
+            for row_id, created_at, created_by_id, source_config, legacy_id in rows.values_list(*columns)
         )
     searched = apply_trigram_search(rows, search, span_prefix="platform_alert.search", fields=(NAME_FIELD,))
     return tuple(
@@ -252,17 +272,70 @@ def native_configuration_matches(
             created_at=created_at,
             created_by_id=created_by_id,
             source_config=source_config,
+            legacy_configuration_id=legacy_id,
             is_exact=bool(is_exact),
             search_score=score,
         )
-        for row_id, created_at, created_by_id, source_config, is_exact, score in searched.values_list(
-            "id", "created_at", "created_by_id", "source_config", "_is_exact", "_search_score"
+        for row_id, created_at, created_by_id, source_config, legacy_id, is_exact, score in searched.values_list(
+            *columns, "_is_exact", "_search_score"
         )
     )
 
 
 def _unmuted_at(at: datetime) -> Q:
     return Q(snooze_until__isnull=True) | Q(snooze_until__lte=at)
+
+
+# The rank below which core search drops a match, so platform alerts rank on the same scale as its own rows.
+_SEARCH_RANK_THRESHOLD = 0.05
+
+
+def search_held_configurations(
+    *, team_ids: Collection[int], source_kind: str, query: str | None
+) -> tuple[HeldAlertSearchMatch, ...]:
+    """The alerts of a kind whose settings the platform holds in these teams, ranked by how well their name
+    matches `query`, or in name order without one. Runtime state stays out, so a caller reads it only for the
+    page it shows, with `runtime_by_public_id`."""
+    if not team_ids:
+        return ()
+    # The caller names the teams, as a source's readers of its own rows across teams do.
+    rows = PlatformAlertConfiguration.objects.unscoped().annotate(
+        rank=build_rank({"name": "A"}, query, config="simple") if query else Value(None, output_field=FloatField())
+    )
+    rows = rows.filter(
+        Q(legacy_configuration_id__isnull=True) | Q(owner=PlatformAlertOwner.PLATFORM),
+        team_id__in=list(team_ids),
+        source_kind=source_kind,
+    )
+    rows = (
+        rows.filter(rank__gt=_SEARCH_RANK_THRESHOLD).order_by("-rank", "id") if query else rows.order_by("name", "id")
+    )
+    matches = rows.annotate(public_id=_PUBLIC_ID).values_list(
+        "public_id", "team_id", "name", "enabled", "source_config", "check_interval_minutes", "snooze_until", "rank"
+    )
+    return tuple(
+        HeldAlertSearchMatch(
+            public_id=public_id,
+            team_id=team_id,
+            name=name,
+            enabled=enabled,
+            source_config=source_config,
+            check_interval_minutes=check_interval_minutes,
+            snooze_until=snooze_until,
+            rank=rank,
+        )
+        for public_id, team_id, name, enabled, source_config, check_interval_minutes, snooze_until, rank in matches
+    )
+
+
+def held_configuration_ids(*, team_id: int, source_kind: str) -> list[UUID]:
+    """The ids of a team's alerts of a kind whose settings the platform holds: every alert with no source row,
+    and every copy the platform owns."""
+    return list(
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(Q(legacy_configuration_id__isnull=True) | Q(owner=PlatformAlertOwner.PLATFORM), source_kind=source_kind)
+        .values_list("id", flat=True)
+    )
 
 
 def enabled_native_configurations(

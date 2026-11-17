@@ -107,7 +107,8 @@ _UNPARSEABLE = object()
 
 def _rust_body(rust_response: Any) -> Any:
     # Both sides render a falsy/null payload as an empty 200 body; treat empty as None so it
-    # equals Django's Response(None).data.
+    # equals Django's Response(None).data. A disabled flag's body is the JSON literal null, which
+    # also parses to None, so this comparison does not tell the two bodies apart.
     if not rust_response.content:
         return None
     try:

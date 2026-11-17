@@ -13,10 +13,13 @@ import type {
     AlertCreateDestinationApi,
     AlertCreatePagerDutyDestinationApi,
     AlertCreateUrlDestinationApi,
+    AlertCustomizeDestinationApi,
     AlertDeleteDestinationApi,
     AlertDestinationListItemApi,
     AlertDestinationResponseApi,
     AlertPagerDutyAvailabilityApi,
+    AlertResetDestinationApi,
+    AlertResetDestinationResponseApi,
     AlertSimulateApi,
     AlertSimulateResponseApi,
     AlertTestDeliveryResponseApi,
@@ -206,6 +209,27 @@ export const alertsDestinationsCreate = async (
     })
 }
 
+export const getAlertsDestinationsCustomizeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/destinations/customize/`
+}
+
+/**
+ * Make a destination's message editable. A destination that sends the standard message from the alerts platform gets HogFunctions with that message and stops sending from the platform. A destination that already has HogFunctions keeps them. Returns the HogFunction IDs to edit.
+ */
+export const alertsDestinationsCustomizeCreate = async (
+    projectId: string,
+    id: string,
+    alertCustomizeDestinationApi?: AlertCustomizeDestinationApi,
+    options?: RequestInit
+): Promise<AlertDestinationResponseApi> => {
+    return apiMutator<AlertDestinationResponseApi>(getAlertsDestinationsCustomizeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertCustomizeDestinationApi),
+    })
+}
+
 export const getAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/alerts/${id}/destinations/delete/`
 }
@@ -245,6 +269,27 @@ export const alertsDestinationsPagerdutyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(alertCreatePagerDutyDestinationApi),
+    })
+}
+
+export const getAlertsDestinationsResetCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/destinations/reset/`
+}
+
+/**
+ * Send a customized destination's standard message again. Its HogFunctions are deleted, with their edits, and the alerts platform sends it from then on. Only an alert the alerts platform checks can be reset.
+ */
+export const alertsDestinationsResetCreate = async (
+    projectId: string,
+    id: string,
+    alertResetDestinationApi: AlertResetDestinationApi,
+    options?: RequestInit
+): Promise<AlertResetDestinationResponseApi> => {
+    return apiMutator<AlertResetDestinationResponseApi>(getAlertsDestinationsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertResetDestinationApi),
     })
 }
 
@@ -346,7 +391,7 @@ export const getAlertsSimulateCreateUrl = (projectId: string) => {
 }
 
 /**
- * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
+ * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI and forecast detectors make real model calls, so those modes need the 'alert:write' scope. The forecast detector scores every point with a one-step forecast from the points before it.
  */
 export const alertsSimulateCreate = async (
     projectId: string,

@@ -1,7 +1,144 @@
 # Agent egress
 
-This module verifies run capabilities and relays HTTP requests to one configured endpoint.
-It does not yet include a runnable service, sandbox provisioning, credential injection, registry client or production metrics.
+The regional proxy verifies run capabilities against the Tasks registry.
+The relay forwards HTTP requests to one configured regional endpoint using mTLS.
+The only regional operation is an authenticated `GET /v1/probe`, which returns 204 without contacting an upstream.
+The probe rejects declared or streaming request bodies without waiting for their contents.
+Tasks owns registration and capability issuance.
+A development probe uses Tasks' Modal provisioning and an isolated relay sidecar. Product workflow integration and credential injection follow separately.
+
+## Probe a real development VM
+
+`probe_agent_egress` runs synthetic requests for an active development TaskRun without repositories or an existing sandbox.
+It requires `DEBUG=1` and `SANDBOX_PROVIDER=MODAL_DOCKER`. It does not start an agent or mint upstream credentials.
+
+```text
+Trusted controller -> Modal control API -> relay generates key and CSR
+Trusted controller -> sign CSR -> register execution -> deliver guest capability
+Guest -> private sidecar HTTP -> mTLS -> regional /v1/probe
+Trusted controller -> renew lease / replace capability file -> revoke on exit
+```
+
+Build the relay for the sandbox's architecture and put it at `/usr/local/bin/egress-relay` in a prebuilt Modal image with Python 3 and OpenSSL.
+Run the regional proxy and registry first, using development signing keys and an ephemeral client CA.
+The CA key stays with the controller; the relay key stays in its sidecar.
+The mounted verifier bundle must include the run's signing key.
+
+Pass a JSON configuration file to `python manage.py probe_agent_egress --config /path/to/probe.json`:
+
+```json
+{
+  "team_id": 1,
+  "run_id": "00000000-0000-4000-8000-000000000001",
+  "endpoint": "https://run-a.egress.example.com",
+  "relay_image_id": "im-example",
+  "server_ca_file": "/run/egress/server-ca.pem",
+  "client_ca_file": "/run/egress/client-ca.pem",
+  "client_ca_key_file": "/run/egress/client-ca-key.pem",
+  "duration_seconds": 360,
+  "concurrency": 16,
+  "requests_per_round": 128
+}
+```
+
+The main VM has an empty CIDR allowlist and can reach the sidecar over Modal's private bridge.
+The sidecar allows the exact regional hostname on port 443; its admin listener stays on loopback.
+The development-only `dev_proxy_ipv4` option instead allows one public `/32` and pins endpoint resolution to that address, for TCP test tunnels on other ports. This does not prove the production domain restriction.
+Modal 1.6.4 supplies the VM sidecar memory-allocation API; the VM reserves 1 GiB for the relay.
+This SDK defaults to the V2 backend unless configuration selects V1. The default also applies to ordinary Tasks sandboxes.
+
+The controller renews the registration every ten seconds during requests and refreshes the capability every three minutes.
+Each guest request reads the current capability file. Changing startup environment variables is unnecessary.
+Authority or delivery failure stops renewal and revokes that execution. Process loss leaves the lease to expire; there is no direct-network fallback.
+Replacement uses a fresh VM, relay key and execution. Expired executions cannot resume; old cleanup cannot revoke a replacement.
+Snapshots and normal agent startup are refused in this profile. Filesystem restore and production certificate renewal need later integration.
+
+DNS remains outside this route. The probe does not establish complete containment, production ingress, durable audit delivery or product-workflow compatibility.
+Output contains status counts and sandbox/execution IDs. Proxy audit events still use the stdout contract below.
+
+## Run the processes
+
+From the repository root:
+
+```bash
+go -C products/tasks/services/egress-proxy build -o /tmp/agent-egress/ ./cmd/...
+/tmp/agent-egress/egress-proxy -config /run/egress/proxy.json
+/tmp/agent-egress/egress-relay -config /run/egress/relay.json
+```
+
+Run each command in its own process.
+The proxy configuration names its TLS material, verification bundle and regional registry:
+
+```json
+{
+  "certificate_file": "/run/egress/server.pem",
+  "private_key_file": "/run/egress/server-key.pem",
+  "client_ca_file": "/run/egress/relay-ca.pem",
+  "verification_keys_file": "/run/egress/verification-keys.json",
+  "registry_url": "https://registry.example.com",
+  "registry_region": "test-region",
+  "registry_signing_key_file": "/run/egress/registry-key"
+}
+```
+
+The relay configuration names the exact run authority and its own client certificate:
+
+```json
+{
+  "endpoint": "https://run-a.egress.example.com",
+  "admin_address": "127.0.0.1:9091",
+  "certificate_file": "/run/egress/relay.pem",
+  "private_key_file": "/run/egress/relay-key.pem"
+}
+```
+
+Use `registry_ca_file` or `server_ca_file` for a private registry or regional CA, respectively.
+Keep relay private-key files outside the guest's filesystem.
+The relay receives the capability from the guest's `Authorization` header.
+Neither process accepts CONNECT or general upstream destinations.
+
+| Setting                    | Proxy default    | Relay default    |
+| -------------------------- | ---------------- | ---------------- |
+| `listen_address`           | `:8443`          | `127.0.0.1:8080` |
+| `admin_address`            | `127.0.0.1:9090` | `127.0.0.1:9090` |
+| `request_timeout_seconds`  | 30               | 300              |
+| `shutdown_timeout_seconds` | 10               | 10               |
+
+The relay's request budget includes connecting to the proxy and forwarding its response.
+The proxy's budget covers its own request handling; its only operation is currently the probe.
+The relay also waits at most 30 seconds for response headers.
+Before adding streaming adapters, set and test these budgets together, leaving room in the relay's budget for connection and forwarding time.
+
+Listener addresses must use IP literals. Administration must bind to loopback.
+It exposes `GET /livez`, `/readyz` and `/metrics` on its own listener; those routes do not exist on the request listener.
+Readiness checks local material and audit health, not registry or upstream availability.
+Keep a relay's plaintext HTTP listener on a provider-isolated bridge if it must be reachable outside loopback.
+
+Proxy limits default to `lookup_timeout_seconds=2`, `cache_entries=10000`, `cache_lookups=64` and `audit_capacity=4096`.
+The limits are configurable; unknown configuration fields and invalid limits stop startup.
+
+Send SIGHUP to the proxy after replacing its referenced TLS, CA, verification-key or registry-key files.
+It loads them together and retains the active configuration if any file is invalid.
+Failed reloads log the reason to stderr without exposing file contents.
+Every request checks the current client CA, including requests on reused TLS connections.
+Listener addresses and limits require a restart. Relay credentials also require a restart.
+SIGINT and SIGTERM drain requests, then audit output, each within the shutdown timeout.
+
+### Audit output
+
+The proxy writes versioned admission and completion events as JSON lines to stdout; lifecycle logs go to stderr.
+Events include a generated request ID, trusted run identity when authorization succeeds, operation, outcome, status and duration.
+They exclude tokens, raw URLs, headers and bodies.
+Prometheus counters distinguish unavailable authorization, rejected identity, relay transport failures and reload failures.
+
+Each request reserves room for both events before authorization.
+A full queue returns 503 without running the operation.
+An output error stops new admissions and makes readiness and liveness fail until restart.
+The `egress_audit_export_failed` gauge is 1 after an output error and 0 otherwise.
+Configure the supervisor to restart on liveness failure and send SIGTERM for normal shutdown.
+Queue pressure and planned draining do not fail liveness.
+Shutdown attempts to drain accepted events; a crash or drain timeout can lose buffered events.
+This is bounded asynchronous output, not a durable audit guarantee. Deployment must connect stdout to the regional log collector.
 
 ## Adapter contract
 
@@ -27,15 +164,87 @@ If either deadline cannot be set, the relay reports the failure through `OnError
 
 ## Registration and time
 
-`Lookup` returns the current registration. It can use a local cache while the authorization lease is valid; reads cannot extend that lease.
-The registration layer owns updates, invalidation and renewal.
+`Lookup` receives the verified team, run and execution IDs and returns their current registration.
+The registry cache serves entries within their authorization lease; reads cannot extend that lease.
 A missing run returns `ErrUnauthorized`; lookup failures and timeouts return `ErrUnavailable`.
-Production callers must return HTTP 503 for unavailable authorization and count it separately from rejected identities, without token values or per-run metric labels. Only the test handler does this mapping today.
+The regional handler returns HTTP 503 for unavailable authorization and counts it separately from rejected identities, without token values or per-run metric labels.
 
 `LookupTimeout` must be positive. An earlier request deadline wins, and lookup code must honor cancellation.
 The verifier rejects late results.
 `ClockSkew` allows drift for issued-at and not-before times; zero allows none.
 Tests allow three seconds. Capability, certificate-chain and lease expiry stay strict, even on reused TLS connections.
+
+### Tasks registration
+
+Trusted workers use `AgentEgressRegistry` in `backend/logic/services/agent_egress.py` to register, renew, revoke and issue capabilities.
+Registration binds one execution to its team, actor, relay key, exact hostname and region, with a 30-second lease.
+It keeps the run's exact team ID, including for child environments.
+Reads and registration retries do not renew it. Renewal requires a live lease; an expired or revoked execution cannot be reused.
+Replacement requires the previous execution ID and keeps the old registration revoked.
+Workers recover that ID through `latest`, which includes expired and revoked registrations but cannot authorize requests.
+The registry assigns actor epochs under the run lock: one for the first execution, increasing on each replacement and unchanged on retries.
+Cancellation requests stop lookup, renewal and issuance even before the run reaches a terminal status.
+
+Capabilities last five minutes, with `iss=posthog:tasks`, `aud=posthog:agent_egress`, `sub` set to the run ID and a separate `execution_id`.
+Issuance checks current registration and pins the signing key in the run's existing `sandbox_jwt_kid` state.
+A removed pinned key stops issuance instead of silently changing the signer.
+
+The read-only route is:
+
+```text
+GET /api/projects/{team_id}/internal/agent_egress/runs/{run_id}/executions/{execution_id}
+```
+
+It uses a separate service JWT with audience `posthog:agent_egress_registry`, `operation=lookup`, and matching `team_id`, `sub`, `execution_id` and `region` claims.
+Include integer `iat` and `exp`, at most 30 seconds apart.
+Configure `AGENT_EGRESS_REGION` and dedicated `AGENT_EGRESS_REGISTRY_JWT_SECRETS` independently per region; keys are comma-separated, newest first. Both default to empty.
+Guest capabilities cannot call this route. Missing or inactive registrations return 404; no write route is exposed.
+Registry clients must treat 401/403 as service-authentication failures, not revoked guest authority, and report them as unavailable.
+The `/internal/` route also needs private ingress when the service is deployed.
+
+### Registry client and cache
+
+`registry.New` takes a fixed HTTPS origin, region, active registry signing key and lookup timeout.
+It signs each lookup with a scoped 30-second service JWT and checks the response's team, run, execution and region.
+It refuses redirects, limits response bodies to 16 KiB and honors cancellation through body reads.
+It drains small error bodies within those same limits so HTTP/1.1 connections can be reused.
+Only a 404 or an explicitly revoked registration returns `ErrUnauthorized`; transport, service-authentication and invalid-response failures return `ErrUnavailable`.
+The default transport connects directly to the configured registry, without an environment proxy.
+
+Wrap `client.Lookup` with `registry.NewCache` and pass `cache.Lookup` to the verifier.
+Set both the maximum cached entries and concurrent registry lookups.
+The cache uses team, run and execution as its key, evicts the least recently used entry at capacity, and shares concurrent lookups for one key.
+Each cache belongs to one regional client.
+
+Active entries refresh on the first request after 19–21 seconds.
+That request waits for the lookup; other requests can use the still-valid entry.
+An unavailable registry leaves the current lease usable and schedules the next refresh attempt at least one second later.
+That retry delay survives lease expiry; requests then return unavailable until the retry is due.
+Denials and failures share the cache's entry limit and eviction policy.
+A 404 clears cached authority immediately and caches the denial for one second.
+An unavailable result can preserve an existing live lease, but cannot create or extend one.
+Cache misses fail with `ErrUnavailable` when lookup capacity is full.
+The request that starts a lookup supplies its deadline; if it is cancelled, waiting callers must retry.
+
+The cache stops using a lease three seconds before its absolute expiry and caps local validity at 27 seconds from lookup start.
+An elapsed-time deadline prevents backward clock changes from extending that window.
+Wall-clock drift beyond three seconds from the process's elapsed clock stops lookups until the clock recovers or the cache is recreated after clock synchronization.
+Workers still renew the 30-second registration lease separately.
+There is no push invalidation yet, so cached authorization can survive revocation for the remainder of its lease.
+
+### Verification keys
+
+Export the public `kid` → PEM bundle from the repository root:
+
+```bash
+python manage.py export_sandbox_jwt_public_keys > sandbox-jwt-public-keys.json
+```
+
+The export includes all configured signing keys' public halves and any explicit verification keys.
+`identity.ParseKeyBundle` accepts RSA public keys only. Private signing keys stay with the issuer.
+Publish the new public key before switching signing keys, and keep the old key while pinned runs still use it.
+Mount the bundle through `verification_keys_file`; SIGHUP reloads it without restarting the proxy.
+Launch integration must revoke the old registration before resume or restore, then register the new execution and relay key.
 
 ## General forwarding decision
 
@@ -84,6 +293,8 @@ From the repository root:
 go -C products/tasks/services/egress-proxy test -race ./...
 ```
 
-Tests use generated keys and an in-memory registry. They cover identity binding, reused HTTP/2 connections, expiry, revocation, execution changes, lookup failures, clock skew and stalled uploads.
+Go tests use generated keys and an in-memory registry. A shared synthetic fixture checks that Python issuance matches Go verification.
+Tasks tests cover registration, renewal, replacement, revocation, scoped lookup and key rotation.
+The transport tests cover identity binding, reused HTTP/2 connections, expiry, lookup failures, clock skew and stalled uploads.
 Guest-to-relay traffic uses plain HTTP on loopback; only relay-to-service TLS is tested. The deployed private bridge still needs isolation tests.
 Tests use no Modal sandbox or upstream credentials. Task launches are unchanged.

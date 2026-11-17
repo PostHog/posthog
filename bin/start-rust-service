@@ -104,7 +104,6 @@ case "$RS_SVC" in
     export KAFKA_HOSTS=localhost:9092
     export KAFKA_TOPIC=logs_ingestion
     export KAFKA_METRICS_TOPIC=metrics_ingestion
-    export VERCEL_DRAIN_ENABLED_TOKENS='*' # The route is closed by default; open it to every project in dev
     ;;
 
   capture-apm-metrics)
@@ -242,6 +241,21 @@ case "$RS_SVC" in
     export INTERNAL_REQUEST_TOKEN=${INTERNAL_REQUEST_TOKEN:-dev-internal-token}
     # Answer /flags?v=4 with the v4 response, as production does
     export FLAGS_V4_RESPONSE_ENABLED=${FLAGS_V4_RESPONSE_ENABLED:-true}
+    ;;
+
+  flags-cache-builder)
+    export RUST_LOG=info,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export READ_DATABASE_URL="${READ_DATABASE_URL:-$DEFAULT_PG}"
+    export FLAGS_REDIS_URL=${FLAGS_REDIS_URL:-redis://redis7:6379/1}
+    # Django writes the S3 copy of each entry to the local object storage, so the builder must write there too.
+    export OBJECT_STORAGE_BUCKET="${OBJECT_STORAGE_BUCKET:-posthog}"
+    export OBJECT_STORAGE_ENDPOINT="${OBJECT_STORAGE_ENDPOINT:-http://objectstorage:19000}"
+    export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-object_storage_root_user}"
+    export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-object_storage_root_password}"
+    export METRICS_PORT=9110
+    export DEV_RUST_CARGO_FEATURES=feature-flags/flags-cache-builder
     ;;
 
   hypercache-server)
@@ -422,7 +436,7 @@ cd rust
 sleep 1
 while true; do
   if ! ps -p ${RS_PID:-} &>/dev/null; then
-    cargo run --bin "$RS_SVC" &
+    cargo run --bin "$RS_SVC" ${DEV_RUST_CARGO_FEATURES:+--features "$DEV_RUST_CARGO_FEATURES"} &
     export RS_PID=$!
     echo -e "\n\033[47m>>\033[0m Restarted '$RS_SVC' with PID $RS_PID\n"
   fi
