@@ -1,15 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import {
-    type AnomalyMarker,
-    AnomalyPointsLayer,
-    DEFAULT_Y_AXIS_ID,
-    HighlightedRange,
-    type Series,
-    TimeSeriesLineChart,
-    useChartTheme,
-} from '@posthog/quill-charts'
+import { HighlightedRange, type Series, TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { getColorVar } from 'lib/colors'
@@ -18,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { AnomalyBucketShading } from './AnomalyBucketShading'
 import { anomalyChartData } from './anomalyChartData'
 
 const handleChartError = makeChartErrorHandler('anomalies-tab-row-chart')
@@ -40,19 +33,6 @@ export function AnomalyRowChart({ series, dateFrom, dateTo }: AnomalyRowChartPro
         () => (data ? [{ key: series.series_key, label: series.series_label || 'Value', data: data.values }] : []),
         [data, series.series_key, series.series_label]
     )
-    const markers = useMemo<AnomalyMarker[]>(() => {
-        if (!data) {
-            return []
-        }
-        const color = getColorVar('danger')
-        return data.flaggedIndices.map((index) => ({
-            dataIndex: index,
-            value: data.values[index],
-            color,
-            yAxisId: DEFAULT_Y_AXIS_ID,
-        }))
-    }, [data])
-
     if (!data) {
         return (
             <div className="h-28 flex items-center justify-center text-secondary text-sm">
@@ -75,7 +55,7 @@ export function AnomalyRowChart({ series, dateFrom, dateTo }: AnomalyRowChartPro
                 }}
                 onError={handleChartError}
             >
-                <AnomalyPointsLayer markers={markers} radius={4} />
+                <AnomalyBucketShading dataIndices={data.flaggedIndices} color={getColorVar('danger')} />
                 {data.firstUncheckedIndex != null && (
                     <HighlightedRange
                         // From the last checked bucket, so a single unchecked bucket still shows as a band.

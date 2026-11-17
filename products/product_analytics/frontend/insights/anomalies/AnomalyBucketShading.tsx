@@ -7,7 +7,7 @@ import { contiguousRuns } from './anomalyScorePoints'
 
 // A band narrower than this is hard to see on a chart with many buckets, such as two weeks of hours.
 const MIN_BAND_WIDTH_PX = 6
-const FILL_OPACITY = 0.14
+const FILL_OPACITY = 0.2
 
 export interface AnomalyBucketShadingProps {
     /** Indices into the chart labels of the buckets to shade. */
