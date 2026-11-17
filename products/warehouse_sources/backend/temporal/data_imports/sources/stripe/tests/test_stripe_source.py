@@ -3,7 +3,7 @@ import functools
 import threading
 import contextvars
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional, cast
@@ -38,6 +38,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
     source_inputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_event_columns import (
+    EVENT_ID_COLUMN,
+    EVENT_RANK_COLUMN,
+    EVENT_TIME_COLUMN,
+    WEBHOOK_EVENT_COLUMNS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import latest_event_per_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
@@ -1913,6 +1920,46 @@ class TestWebhookUpsertCollapse:
         )
         rows = stripe_module._webhook_table_transformer(events).to_pylist()
         assert [row["status"] for row in rows] == [expected_status]
+
+
+class TestWebhookEventRows:
+    _FILES = [
+        [_event_row("evt_paid", "invoice.paid", 1700000100, {"id": "in_1", "object": "invoice", "status": "paid"})],
+        [
+            _event_row(
+                "evt_open", "invoice.finalized", 1700000100, {"id": "in_1", "object": "invoice", "status": "open"}
+            ),
+            _event_row("evt_paid", "invoice.paid", 1700000100, {"id": "in_1", "object": "invoice", "status": "paid"}),
+        ],
+    ]
+
+    def _rows(self, *, webhook_history: bool) -> pa.Table:
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+        result = SourceDriver(StripeSource(), config).run(
+            INVOICE_RESOURCE_NAME, [], webhook_files=self._FILES, webhook_history=webhook_history
+        )
+        assert result.raised is None
+        return pa.concat_tables(result.items)
+
+    def test_history_read_keeps_every_event_once(self) -> None:
+        rows = self._rows(webhook_history=True)
+
+        assert [
+            (row[EVENT_ID_COLUMN], row["status"], row[EVENT_TIME_COLUMN], row[EVENT_RANK_COLUMN])
+            for row in rows.to_pylist()
+        ] == [
+            ("evt_open", "open", datetime.fromtimestamp(1700000100, UTC), 2),
+            ("evt_paid", "paid", datetime.fromtimestamp(1700000100, UTC), 4),
+        ]
+        assert latest_event_per_key(rows, ["id"]).column("status").to_pylist() == ["paid"]
+
+    def test_read_without_history_keeps_the_latest_object_only(self) -> None:
+        rows = self._rows(webhook_history=False)
+
+        assert rows.column("status").to_pylist() == ["paid"]
+        assert not set(WEBHOOK_EVENT_COLUMNS) & set(rows.column_names)
 
 
 def _stripe_list(data: list[dict[str, Any]], url: str, has_more: bool = False) -> dict[str, Any]:

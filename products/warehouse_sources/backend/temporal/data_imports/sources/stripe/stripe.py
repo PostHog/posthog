@@ -41,6 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import (
+    WebhookEvent,
+    WebhookEvents,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
     WebhookFallback,
     WebhookSourceManager,
@@ -1485,6 +1489,29 @@ def _refetching_webhook_table_transformer(refetcher: WebhookObjectRefetcher) -> 
     return transform
 
 
+def _webhook_event(staged: dict[str, Any]) -> WebhookEvent | None:
+    data = staged.get("data")
+    if not isinstance(data, str):
+        return None
+    obj = orjson.loads(data).get("object")
+    if not isinstance(obj, dict) or obj.get("id") is None:
+        return None
+    created = staged.get("created")
+    return WebhookEvent(
+        row=_scrub_client_secrets(obj),
+        event_id=staged.get("id"),
+        time=datetime.fromtimestamp(created, UTC) if isinstance(created, int) else None,
+        rank=_webhook_tie_break(obj),
+    )
+
+
+def webhook_events(endpoint: str) -> WebhookEvents | None:
+    # The payment method history table already keeps one row per event.
+    if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME:
+        return None
+    return WebhookEvents(read=_webhook_event, primary_keys=tuple(PRIMARY_KEYS.get(endpoint, DEFAULT_PRIMARY_KEYS)))
+
+
 def _lines_truncated(obj: dict[str, Any]) -> bool:
     lines = obj.get("lines")
     return isinstance(lines, Mapping) and bool(lines.get("has_more"))
@@ -1738,26 +1765,31 @@ def stripe_source(
             # History tables keep every event as its own row; everything else collapses each
             # batch to the latest state per object id and upserts it.
             refetch = WEBHOOK_REFETCH.get(endpoint)
+            events = webhook_events(endpoint)
             table_transformer: Callable[[pa.Table], pa.Table]
             if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME:
                 table_transformer = _webhook_history_table_transformer
             elif refetch is not None:
-                table_transformer = _refetching_webhook_table_transformer(
-                    WebhookObjectRefetcher(
-                        refetch,
-                        logger,
-                        client_factory_provider=lambda: _refetch_client_factory(
-                            api_key_provider() if api_key_provider is not None else api_key, account_id, api_version
-                        ),
-                    )
+                refetcher = WebhookObjectRefetcher(
+                    refetch,
+                    logger,
+                    client_factory_provider=lambda: _refetch_client_factory(
+                        api_key_provider() if api_key_provider is not None else api_key, account_id, api_version
+                    ),
                 )
+                table_transformer = _refetching_webhook_table_transformer(refetcher)
+                if events is not None:
+                    events = dataclasses.replace(
+                        events,
+                        complete=lambda rows: [_scrub_client_secrets(obj) for obj in refetcher.complete(rows)],
+                    )
             else:
                 table_transformer = _webhook_table_transformer
             # Objects grow once their lines or tiers are filled in, after the batch limits were
             # checked, so a batch that completes objects holds no more rows than a list sync chunk.
             batch_row_limit = STRIPE_CHUNK_SIZE if refetch is not None else DEFAULT_BATCH_ROW_LIMIT
             return webhook_source_manager.get_items(
-                table_transformer=table_transformer, batch_row_limit=batch_row_limit
+                table_transformer=table_transformer, batch_row_limit=batch_row_limit, events=events
             )
 
         return get_rows(

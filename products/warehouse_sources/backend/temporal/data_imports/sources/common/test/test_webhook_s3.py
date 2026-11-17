@@ -203,7 +203,7 @@ class TestWebhookSourceManager:
         with _mock_s3_context(mock_s3):
             result = await manager._list_webhook_parquet_files()
 
-        assert result == [
+        assert [path for path, _ in result] == [
             "s3://bucket/path/file1.parquet",
             "s3://bucket/path/file2.parquet",
         ]
@@ -232,7 +232,7 @@ class TestWebhookSourceManager:
         with _mock_s3_context(mock_s3):
             result = await manager._list_webhook_parquet_files()
 
-        assert result == ["s3://bucket/path/file1.parquet"]
+        assert [path for path, _ in result] == ["s3://bucket/path/file1.parquet"]
 
     async def test_validate_webhook_table_keeps_matching_rows(self):
         manager = _make_manager(team_id=1, schema_id="schema-abc")
@@ -301,7 +301,9 @@ class TestWebhookSourceManager:
         mock_s3._pipe_file = AsyncMock()
 
         with (
-            patch.object(manager, "_list_webhook_parquet_files", return_value=["s3://bucket/file.parquet"]),
+            patch.object(
+                manager, "_list_webhook_parquet_files", return_value=[("s3://bucket/file.parquet", "arrival")]
+            ),
             _mock_s3_context(mock_s3),
             patch(f"{_WEBHOOK_S3}.settings") as mock_settings,
         ):
@@ -334,7 +336,9 @@ class TestWebhookSourceManager:
         mock_s3._rm = AsyncMock()
 
         with (
-            patch.object(manager, "_list_webhook_parquet_files", return_value=["s3://bucket/file.parquet"]),
+            patch.object(
+                manager, "_list_webhook_parquet_files", return_value=[("s3://bucket/file.parquet", "arrival")]
+            ),
             _mock_s3_context(mock_s3),
         ):
             tables = [table async for table in manager.get_items()]
@@ -360,7 +364,9 @@ class TestWebhookSourceManager:
         transformer = MagicMock(side_effect=lambda t: t.select(["id"]))
 
         with (
-            patch.object(manager, "_list_webhook_parquet_files", return_value=["s3://bucket/file.parquet"]),
+            patch.object(
+                manager, "_list_webhook_parquet_files", return_value=[("s3://bucket/file.parquet", "arrival")]
+            ),
             _mock_s3_context(mock_s3),
         ):
             tables = [table async for table in manager.get_items(table_transformer=transformer)]
@@ -395,7 +401,7 @@ class TestWebhookSourceManager:
             patch.object(
                 manager,
                 "_list_webhook_parquet_files",
-                return_value=["s3://bucket/gone.parquet", "s3://bucket/file.parquet"],
+                return_value=[("s3://bucket/gone.parquet", "arrival"), ("s3://bucket/file.parquet", "arrival")],
             ),
             _mock_s3_context(mock_s3),
         ):
@@ -431,7 +437,7 @@ class TestWebhookSourceManager:
             patch.object(
                 manager,
                 "_list_webhook_parquet_files",
-                return_value=["s3://bucket/a.parquet", "s3://bucket/b.parquet"],
+                return_value=[("s3://bucket/a.parquet", "arrival"), ("s3://bucket/b.parquet", "arrival")],
             ),
             _mock_s3_context(mock_s3),
         ):
@@ -677,7 +683,7 @@ class TestWebhookSourceManagerWithMinIO:
         files = await manager._list_webhook_parquet_files()
 
         assert len(files) == 2
-        assert all(f.endswith(".parquet") for f in files)
+        assert all(path.endswith(".parquet") for path, _ in files)
 
     async def test_list_parquet_files_returns_empty_when_prefix_missing(self, minio_client):
         manager = _make_manager(team_id=12345, schema_id="nonexistent")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 from collections.abc import AsyncGenerator, Callable
 from enum import StrEnum
 from typing import Any, Optional
@@ -25,6 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bat
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_event_columns import ARRIVAL_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import (
+    WebhookEvents,
+    every_event_transformer,
+)
 
 # Informational key on a job's `schema_snapshot`. The job keeps `sync_type: webhook`, because the next
 # run compares it with the schema's sync type to decide whether it may continue this job's cursor.
@@ -61,6 +67,12 @@ def _stamp_webhook_fallback(job_id: str, team_id: int, fallback: WebhookFallback
             return
         snapshot = {**dict(job.schema_snapshot or {}), WEBHOOK_FALLBACK_SNAPSHOT_KEY: fallback.value}
         ExternalDataJob.objects.filter(id=job.id, team_id=team_id).update(schema_snapshot=snapshot)
+
+
+def _arrival_prefix(key: str, last_modified: datetime.datetime | None) -> str:
+    # A fixed-width UTC time sorts as text. `~` sorts after it, as the listing puts a file without a time last.
+    modified = last_modified.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ") if last_modified else "~"
+    return f"{modified}|{key}"
 
 
 def _webhook_folder(team_id: int, schema_id: str) -> str:
@@ -195,7 +207,8 @@ class WebhookSourceManager:
         )
         return bool(schema.is_webhook)
 
-    async def _list_webhook_parquet_files(self) -> list[str]:
+    async def _list_webhook_parquet_files(self) -> list[tuple[str, str]]:
+        """Each staged file's path and the arrival prefix of its rows, oldest first."""
         prefix = self._get_webhook_s3_prefix()
 
         async with aget_s3_client() as s3:
@@ -207,7 +220,7 @@ class WebhookSourceManager:
                 # the loader in arrival order. The leading `is None` flag sends entries without a
                 # LastModified to the end without ever comparing None to a timestamp.
                 entries.sort(key=lambda f: (f.get("LastModified") is None, f.get("LastModified"), f["Key"]))
-                files = [f"s3://{f['Key']}" for f in entries]
+                files = [(f"s3://{f['Key']}", _arrival_prefix(f["Key"], f.get("LastModified"))) for f in entries]
 
                 await self._logger.adebug("list_webhook_parquet_files", prefix=prefix, file_count=len(files))
 
@@ -221,8 +234,20 @@ class WebhookSourceManager:
         table_transformer: Optional[Callable[[pa.Table], pa.Table]] = None,
         batch_row_limit: int = DEFAULT_BATCH_ROW_LIMIT,
         batch_byte_limit: int = DEFAULT_BATCH_BYTE_LIMIT,
+        events: Optional[WebhookEvents] = None,
     ) -> AsyncGenerator[pa.Table]:
+        """Yield the staged rows in batches, each through `table_transformer`.
+
+        When the schema keeps webhook history and the source declares `events`, every event is
+        yielded instead, with the event columns (see `webhook_events.event_rows`).
+        """
         files = await self._list_webhook_parquet_files()
+        transformer = table_transformer
+        # Only event rows carry the arrival: some sources hash the whole row to dedupe their events.
+        stamps_arrival = False
+        if events is not None and self._inputs.webhook_history:
+            transformer = every_event_transformer(events)
+            stamps_arrival = True
 
         await self._logger.adebug(f"Webhook source reading {len(files)} files")
 
@@ -240,7 +265,7 @@ class WebhookSourceManager:
                 # the same way a single multi-typed file already does.
                 rows = [row for table in tables for row in table.to_pylist()]
                 merged = table_from_py_list(rows)
-            return table_transformer(merged) if table_transformer else merged
+            return transformer(merged) if transformer else merged
 
         batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
         # The files of a queued batch are not deleted here, because the batch can still fail to load,
@@ -249,7 +274,7 @@ class WebhookSourceManager:
         batch_number = 0
 
         async with aget_s3_client() as s3:
-            for file in files:
+            for file, arrival_prefix in files:
                 path = self._strip_s3_protocol(file)
 
                 await self._logger.adebug(f"Webhook source reading file {path}")
@@ -270,7 +295,7 @@ class WebhookSourceManager:
                     await s3._rm(path)
                     continue
 
-                table = self._transform_webhook_table(table)
+                table = self._transform_webhook_table(table, arrival_prefix if stamps_arrival else None)
 
                 if batch.add(table, path):
                     merged = await asyncio.to_thread(finalize_batch, batch.tables)
@@ -329,6 +354,8 @@ class WebhookSourceManager:
 
         return filtered
 
-    def _transform_webhook_table(self, table: pa.Table) -> pa.Table:
+    def _transform_webhook_table(self, table: pa.Table, arrival_prefix: str | None = None) -> pa.Table:
         rows = [orjson.loads(str(s)) for s in table.column("payload_json").to_pylist()]
+        if arrival_prefix is not None:
+            rows = [{**row, ARRIVAL_COLUMN: f"{arrival_prefix}#{index:09d}"} for index, row in enumerate(rows)]
         return table_from_py_list(rows)

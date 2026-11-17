@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Optional, cast
 from django.db import close_old_connections, connection
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import WebhookEvents
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -80,6 +81,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     stripe_source,
     update_webhook_events,
     validate_credentials as validate_stripe_credentials,
+    webhook_events as stripe_webhook_events,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -251,6 +253,9 @@ class StripeSource(
     @property
     def webhook_resource_map(self) -> dict[str, str]:
         return RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+    def webhook_events(self, schema_name: str) -> WebhookEvents | None:
+        return stripe_webhook_events(schema_name) if schema_name in self.webhook_resource_map else None
 
     def webhook_mapping_key(self, schema_name: str) -> str:
         # The history table consumes the same `payment_method` events as CustomerPaymentMethod,

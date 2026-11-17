@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import WebhookEvents
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import GithubSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
@@ -62,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     github_source,
     update_repo_webhook,
     validate_credentials as validate_github_credentials,
+    webhook_events as github_webhook_events,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import (
     normalize_repository,
@@ -835,6 +837,10 @@ If automatic creation failed with a permissions error, the fix depends on how yo
 
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
+
+    def webhook_events(self, schema_name: str) -> WebhookEvents | None:
+        _, endpoint = split_schema_name(schema_name)
+        return github_webhook_events(endpoint) if endpoint in GITHUB_WEBHOOK_RESOURCE_MAP else None
 
     def webhook_mapping_key(self, schema_name: str) -> str:
         # Legacy bare rows keep the bare event key (`workflow_run`); repo-qualified rows get

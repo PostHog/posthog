@@ -42,6 +42,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import (
+    WebhookEvent,
+    WebhookEvents,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import normalize_repository
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
@@ -1799,6 +1803,47 @@ def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) 
     return transform
 
 
+# A version key that counts re-runs rather than holding a time. A re-run outranks the stages of the attempt before it.
+_ATTEMPT_VERSION_KEY = "run_attempt"
+_STAGES_PER_ATTEMPT = max(_STATUS_STAGE.values()) + 1
+
+
+def _github_time(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def webhook_events(endpoint: str) -> WebhookEvents | None:
+    """The events of an endpoint that ranks its webhook rows by `version_keys`.
+
+    The change time is the first of the time keys that is set, as the keys run newest first. GitHub
+    sends no event id in the body, so a redelivery is matched by its content.
+    """
+    endpoint_config = GITHUB_ENDPOINTS.get(endpoint)
+    if endpoint_config is None or not endpoint_config.version_keys:
+        return None
+    primary_keys = tuple(_normalize_primary_key(endpoint_config.primary_key))
+    time_keys = [key for key in endpoint_config.version_keys if key != _ATTEMPT_VERSION_KEY]
+    ranks_attempts = _ATTEMPT_VERSION_KEY in endpoint_config.version_keys
+
+    def read(staged: dict[str, Any]) -> WebhookEvent | None:
+        if any(staged.get(key) is None for key in primary_keys):
+            return None
+        time = next((t for t in (_github_time(staged.get(key)) for key in time_keys) if t is not None), None)
+        attempt = staged.get(_ATTEMPT_VERSION_KEY) if ranks_attempts else None
+        stage = _STATUS_STAGE.get(staged.get("status") or "", 0)
+        rank = (attempt if isinstance(attempt, int) else 0) * _STAGES_PER_ATTEMPT + stage
+        return WebhookEvent(row=staged, time=time, rank=rank)
+
+    return WebhookEvents(read=read, primary_keys=primary_keys)
+
+
 async def _chain_webhook_items_with_reconciliation(
     webhook_items: AsyncIterator[pa.Table],
     make_reconcile_rows: Callable[[], Iterator[Any]],
@@ -1983,7 +2028,9 @@ def github_source(
                 if endpoint_config.version_keys
                 else None
             )
-            webhook_items = webhook_source_manager.get_items(table_transformer=transformer)
+            webhook_items = webhook_source_manager.get_items(
+                table_transformer=transformer, events=webhook_events(endpoint)
+            )
             if endpoint == "workflow_runs":
                 # The poll runs after the drain, so its completed row lands after the queued
                 # webhook row of the same run and wins the merge.
