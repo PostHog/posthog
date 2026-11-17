@@ -227,7 +227,6 @@ impl RecordContext<'_> {
 
     fn transform_record(&mut self, record: &mut LogRecord) -> bool {
         let mut record_globals = build_record_globals(record);
-        // Every function that does not drop the record writes to it, through its result or a failure annotation.
         for (index, function) in self.run.functions.iter().enumerate() {
             aggregates_for(&mut self.result.aggregates, &function.id);
             if index > 0 {

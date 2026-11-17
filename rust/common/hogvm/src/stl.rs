@@ -862,7 +862,6 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 } else {
                     s.split(sep).take(max).collect()
                 };
-                // Each element is a value of its own, so a short separator over a long string adds up.
                 let bytes = pieces
                     .len()
                     .saturating_mul(std::mem::size_of::<HogValue>())

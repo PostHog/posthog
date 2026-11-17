@@ -516,7 +516,6 @@ fn faults_with_times(v: Option<&JsValue>) -> HashMap<i64, (u64, JsValue)> {
 
 pub const PARITY_SITE_URL: &str = "http://localhost:8010";
 
-/// `parity-harness.ts` builds a `LogsTransformerService` only for a scenario with `hog_functions`.
 fn scenario_transformer(
     scenario: &JsValue,
     outputs: Arc<CapturingOutputs>,

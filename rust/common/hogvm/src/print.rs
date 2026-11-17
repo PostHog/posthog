@@ -12,6 +12,7 @@ use crate::values::HogMap;
 use crate::{
     memory::{HeapReference, VmHeap},
     values::{Callable, HogLiteral, HogStr, HogValue},
+    vm::MAX_JSON_SERDE_DEPTH,
 };
 
 const PRINT_RECURSION_LIMIT: usize = 64;
@@ -61,16 +62,13 @@ pub(crate) fn assert_repeats_fit(
     if matches!(value, HogValue::Lit(_)) {
         return Ok(());
     }
-    RepeatMeasure {
-        heap,
-        seen: HashSet::new(),
-        path: Vec::new(),
-        inside_repeats: 0,
-        inside_asts: 0,
-        repeated_bytes: 0,
-        max_depth,
-    }
-    .walk(value, 0)
+    RepeatMeasure::new(heap, max_depth).walk(value, 0)
+}
+
+/// For a host that runs untrusted programs: a native reads every reference to a shared string, which costs the heap a pointer.
+pub fn assert_native_arguments_fit(heap: &VmHeap, args: &[HogValue]) -> Result<(), crate::VmError> {
+    let mut measure = RepeatMeasure::new(heap, MAX_JSON_SERDE_DEPTH);
+    args.iter().try_for_each(|arg| measure.walk(arg, 0))
 }
 
 struct RepeatMeasure<'a> {
@@ -83,7 +81,19 @@ struct RepeatMeasure<'a> {
     max_depth: usize,
 }
 
-impl RepeatMeasure<'_> {
+impl<'a> RepeatMeasure<'a> {
+    fn new(heap: &'a VmHeap, max_depth: usize) -> Self {
+        RepeatMeasure {
+            heap,
+            seen: HashSet::new(),
+            path: Vec::new(),
+            inside_repeats: 0,
+            inside_asts: 0,
+            repeated_bytes: 0,
+            max_depth,
+        }
+    }
+
     fn count(&mut self, bytes: usize) -> Result<(), crate::VmError> {
         if self.inside_repeats > 0 {
             self.count_always(bytes)?;

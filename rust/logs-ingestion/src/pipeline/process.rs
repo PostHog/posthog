@@ -35,7 +35,6 @@ pub type MetricTalliesByTeam = Arc<Mutex<Vec<(i64, Arc<Mutex<MetricRuleBatchStat
 pub struct LogsProcessingPass {
     pub usage: Arc<Mutex<UsageStatsByTeam>>,
     pub metric_tallies: MetricTalliesByTeam,
-    /// Shared by both passes of a batch.
     pub transformation_budget: Option<Arc<TransformationBatchBudget>>,
 }
 

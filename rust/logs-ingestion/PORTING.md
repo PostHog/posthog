@@ -301,6 +301,8 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
   - A closure in a result converts to the Node closure object. Its upvalue ids count from 1 per conversion, and a native function reference carries Rust's `ip` and `chunk`, so those two can differ from Node's.
   - A panic in one function run fails that invocation (`logs_ingestion_transformations_unexpected_errors_total`) and keeps the record, as Node's catch does for a transformer bug. A panic between function runs also keeps the record and counts the same metric, where an error there in Node fails the message.
 - **The VM time of an input template that fails** counts toward the message and batch budgets. Node does not count it, so there a template that times out on every record runs for the whole message.
+- **A native call whose arguments reach more text than the heap has room for** fails the invocation. The count takes a global string once per reference, so 64 references to a 900 KiB body are over the limit. Node bounds the same program through the cost of each reference.
+- **A secret with an apostrophe in a thrown error message** is redacted. The message prints with `\'`, which Node's `redactSensitiveValues` does not match, so Node stores the secret there.
 - **A native call whose result is nested more than 512 levels** fails the invocation, because the port walks the result by recursion. So does `toString` of a HogQL AST value that is nested more than 64 levels or that reaches itself.
 - **Input order with a non-numeric `order`.** Node's comparator returns NaN for it, and the sort result is not defined. The port sorts such an input last.
 - **The `instance_id` of a function log** is a UUID v7. Node writes a `UUIDT`.

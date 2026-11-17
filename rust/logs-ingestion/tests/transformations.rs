@@ -203,7 +203,7 @@ async fn record_referencing_encrypted_templates_resolve_per_record() {
 #[tokio::test]
 async fn nested_secrets_are_redacted_from_print_and_error_logs() {
     let encrypted = r#"{
-        "credentials": {"value": {"token": "nested-secret-token"}, "order": 0},
+        "credentials": {"value": {"token": "nested'secret-token"}, "order": 0},
         "secret": {"value": {"a": {"b": {"c": {"d": {"e": {"f": {"g": {"token": "very-deep-secret"}}}}}}}}, "order": 1}
     }"#;
     let (service, outputs) = service(
@@ -382,6 +382,20 @@ async fn a_failed_input_template_spends_the_budgets() {
         attribute(&records[1], "posthog.transformations_skipped").as_deref(),
         Some("\"budget\"")
     );
+}
+
+// let arr := range(64); for (let i := 1; i <= 64; i := i + 1) { arr[i] := record.body }
+// let rec := record; rec.attributes.h := sha256HmacChainHex(arr); return rec
+const HASH_MANY_BODIES: &str = r#"["_H", 1, 33, 64, 2, "range", 1, 33, 1, 33, 64, 36, 1, 16, 40, 20, 36, 0, 36, 1, 32, "body", 32, "record", 1, 2, 46, 33, 1, 36, 1, 6, 37, 1, 39, -27, 35, 32, "record", 1, 1, 36, 1, 32, "attributes", 45, 32, "h", 36, 0, 2, "sha256HmacChainHex", 1, 46, 36, 1, 38, 35, 35]"#;
+
+#[tokio::test]
+async fn a_native_call_does_not_read_many_references_to_one_large_string() {
+    let staged = StagedRecord::fresh(record_from_js(&js(&format!(
+        r#"{{"uuid": "u", "body": "{}"}}"#,
+        "b".repeat(900 * 1024)
+    ))));
+    let records = run_one(function(HASH_MANY_BODIES, "{}", None), vec![staged]).await;
+    assert!(failed(&records[0]));
 }
 
 #[tokio::test]

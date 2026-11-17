@@ -43,6 +43,7 @@ pub use vm::execute_resumable;
 pub use vm::resume;
 
 // Canonical value printing (the `print(...)` oracle), used by the parity harness
+pub use print::assert_native_arguments_fit;
 pub use print::escape_string;
 pub use print::print_hog_string_output;
 pub use print::print_hog_value;

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use hogvm::{
-    ExecutionContext, HeapReference, HogLiteral, HogVM, HogValue, Num, OrderedJson, Program,
-    StepOutcome, VmError, MAX_JSON_SERDE_DEPTH,
+    assert_native_arguments_fit, ExecutionContext, HeapReference, HogLiteral, HogVM, HogValue, Num,
+    OrderedJson, Program, StepOutcome, VmError, MAX_JSON_SERDE_DEPTH,
 };
 
 use crate::attribute_value::{decode_log_attribute_value, encode_log_attribute_value};
@@ -185,7 +185,6 @@ pub fn redact_string(value: &str, sensitive: &[String]) -> Option<String> {
     Some(out)
 }
 
-/// `max_units` stops the output there, because a one-character secret makes it fourteen times the message.
 pub fn redact_sensitive_values(message: &str, sensitive: &[String], max_units: usize) -> String {
     if message.is_empty() || sensitive.is_empty() {
         return message.to_string();
@@ -194,7 +193,13 @@ pub fn redact_sensitive_values(message: &str, sensitive: &[String], max_units: u
     let mut seen: HashSet<String> = HashSet::new();
     for value in sensitive.iter().filter(|v| !v.is_empty()) {
         let escaped = json_stringify(&JsValue::string(value));
-        for variant in [value.clone(), escaped[1..escaped.len() - 1].to_string()] {
+        // A thrown message prints with its apostrophes escaped (`vm_error_text`), which Node does not redact.
+        let thrown = value.replace('\'', "\\'");
+        for variant in [
+            value.clone(),
+            escaped[1..escaped.len() - 1].to_string(),
+            thrown,
+        ] {
             if seen.insert(variant.clone()) {
                 variants.push(variant);
             }
@@ -487,6 +492,8 @@ pub fn run_program<T>(
                     if past_deadline() {
                         return Err(timed_out(ops));
                     }
+                    // No clock runs inside a native call, so the text it can read is bounded first.
+                    assert_native_arguments_fit(&vm.heap, &args).map_err(|e| vm_error_text(&e))?;
                     if name == "print" {
                         if let Some(print) = on_print.as_mut() {
                             print(&vm, args)?;
