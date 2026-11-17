@@ -351,13 +351,13 @@ class _ProjectQualityViewSet(_QualityGatedViewSet):
         for throttle_class in self.RUN_LIMIT_THROTTLES:
             throttle = throttle_class()
             if not throttle.allow_request(request, self):
-                raise Throttled(wait=self._longest_run_limit_wait(request))
+                raise Throttled(wait=self._longest_run_limit_wait(request, rejecting_wait=throttle.wait()))
 
-    def _longest_run_limit_wait(self, request: Request) -> float | None:
+    def _longest_run_limit_wait(self, request: Request, rejecting_wait: float | None) -> float | None:
         waits = (
             exhausted_throttle_wait(throttle_class(), request, self) for throttle_class in self.RUN_LIMIT_THROTTLES
         )
-        return max((wait for wait in waits if wait is not None), default=None)
+        return max((wait for wait in (rejecting_wait, *waits) if wait is not None), default=None)
 
     def _report(self, event: _CheckEvent, properties: dict[str, Any]) -> None:
         report_user_action(

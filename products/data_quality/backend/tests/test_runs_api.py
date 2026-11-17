@@ -580,6 +580,21 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert int(response["Retry-After"]) > 60
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_a_run_limit_cache_failure_still_returns_429(self, _enabled) -> None:
+        broken_cache = MagicMock()
+        broken_cache.get.side_effect = ConnectionError("redis unavailable")
+
+        with (
+            patch.object(DataQualityRunBurstRateThrottle, "rate", "1/minute"),
+            patch.object(DataQualityRunSustainedRateThrottle, "cache", broken_cache),
+        ):
+            assert self._run().status_code == status.HTTP_200_OK
+            response = self._run()
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert int(response["Retry-After"]) > 0
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_a_caller_keeps_one_run_limit_across_tokens(self, _enabled) -> None:
         first_token, second_token = (
             encode_jwt({"id": self.user.id}, timedelta(minutes=minutes), PosthogJwtAudience.IMPERSONATED_USER)

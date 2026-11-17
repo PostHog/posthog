@@ -725,7 +725,12 @@ def exhausted_throttle_wait(throttle: PersonalApiKeyRateThrottle, request: "Requ
         return None
     throttle.key = throttle.get_cache_key(request, view)
     throttle.now = throttle.timer()
-    throttle.history = [hit for hit in throttle.cache.get(throttle.key, []) if hit > throttle.now - throttle.duration]
+    try:
+        cached_history = throttle.cache.get(throttle.key, [])
+    except Exception as e:
+        capture_exception(e)
+        return None
+    throttle.history = [hit for hit in cached_history if hit > throttle.now - throttle.duration]
     if len(throttle.history) < throttle.num_requests:
         return None
     return throttle.wait()
