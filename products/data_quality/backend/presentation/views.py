@@ -19,7 +19,7 @@ from django.db.models import QuerySet
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -33,7 +33,12 @@ from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
-from posthog.rate_limit import DataQualityRunBurstRateThrottle, DataQualityRunSustainedRateThrottle, HogQLQueryThrottle
+from posthog.rate_limit import (
+    DataQualityRunBurstRateThrottle,
+    DataQualityRunProjectRateThrottle,
+    DataQualityRunSustainedRateThrottle,
+    HogQLQueryThrottle,
+)
 
 from ..facade import api
 from ..facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
@@ -329,8 +334,19 @@ class _ProjectQualityViewSet(_QualityGatedViewSet):
     def get_throttles(self) -> list[BaseThrottle]:
         throttles = super().get_throttles()
         if self.action in self.SUITE_START_ACTIONS:
-            throttles += [DataQualityRunBurstRateThrottle(), DataQualityRunSustainedRateThrottle()]
+            throttles += [
+                DataQualityRunBurstRateThrottle(),
+                DataQualityRunSustainedRateThrottle(),
+                DataQualityRunProjectRateThrottle(),
+            ]
         return throttles
+
+    def check_throttles(self, request: Request) -> None:
+        if self.action not in self.SUITE_START_ACTIONS:
+            return super().check_throttles(request)
+        for throttle in self.get_throttles():
+            if not throttle.allow_request(request, self):
+                raise Throttled(wait=throttle.wait())
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
         return ["query:read"]
@@ -607,9 +623,10 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         self._report(_CheckEvent.DELETED, _event_properties(instance))
 
     @extend_schema(
-        description="Run this check now. Returns the suite run to poll for the report. Each project can start 20 "
-        "runs a minute and 60 an hour, counted across this endpoint and POST data_quality_runs. To run every check "
-        "on a subject, call POST data_quality_runs with subject_type and subject_uuid. That counts as one run.",
+        description="Run this check now. Returns the suite run to poll for the report. Each caller can send 20 run "
+        "requests a minute and 60 an hour, and each project 180 an hour, counted across this endpoint and POST "
+        "data_quality_runs, whatever the response. To run every check on a subject, call POST data_quality_runs with "
+        "subject_type and subject_uuid. That counts as one request.",
         request=None,
         responses={200: DataQualitySuiteRunSerializer},
     )
@@ -925,8 +942,9 @@ class DataQualityRunViewSet(
     @extend_schema(
         description="Run checks now: the ones named by check_ids, every enabled check on the subject named by "
         "subject_type and subject_uuid, or every enabled check in the project when neither is given. "
-        "Returns the suite run to poll for the report. Each call counts once toward the per-project limit of 20 "
-        "runs a minute and 60 an hour, however many checks it runs.",
+        "Returns the suite run to poll for the report. Each call counts as one run request, however many checks it "
+        "runs and whatever the response. Each caller can send 20 run requests a minute and 60 an hour, and each "
+        "project 180 an hour.",
         request=DataQualityRunRequestSerializer,
         responses={200: DataQualitySuiteRunSerializer},
     )

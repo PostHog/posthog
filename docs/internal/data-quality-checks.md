@@ -34,7 +34,7 @@ The table above applies to the REST routes only. The MCP tools declare `query:re
 
 ## Run limits
 
-Each project can start 20 manual runs a minute and 60 an hour. Both `POST data_quality_checks/{id}/run/` and `POST data_quality_runs/` count toward one bucket per project, whatever credential the caller uses. A call over the limit returns HTTP 429 with `Retry-After`. One `data_quality_runs` call counts once however many checks it runs, so to run every check on a subject, start one run with `subject_type` and `subject_uuid`. Runs started by materialization, source sync and schedules are not limited.
+Each caller can send 20 manual run requests a minute and 60 an hour, keyed by personal API key, or by user for other logins. Each project can send 180 an hour across all its callers, so extra keys do not add budget. Both `POST data_quality_checks/{id}/run/` and `POST data_quality_runs/` count toward the same limits. Every request that passes authentication and permission checks counts, including one the endpoint then rejects or that runs no checks, because the throttle runs before the endpoint. A request over the caller's own limit does not count toward the project's, so one caller in a loop cannot use up their teammates' budget. A call over the limit returns HTTP 429 with `Retry-After`. One `data_quality_runs` call counts once however many checks it runs, so to run every check on a subject, start one run with `subject_type` and `subject_uuid`. MCP agents do the same with the `data-quality-run` tool. Runs started by materialization, source sync and schedules are not limited.
 
 ## Question execution foundation
 

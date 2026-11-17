@@ -9,14 +9,19 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.hogql.database.database import Database
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PersonalAPIKey
+from posthog.models import OrganizationMembership, PersonalAPIKey, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rate_limit import DataQualityRunBurstRateThrottle
+from posthog.rate_limit import (
+    DataQualityRunBurstRateThrottle,
+    DataQualityRunProjectRateThrottle,
+    DataQualityRunSustainedRateThrottle,
+)
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -521,13 +526,22 @@ class TestDataQualityRunAPI(APIBaseTest):
 
         assert start.call_args.kwargs["check_ids"] == [str(mine.id)]
 
+    @parameterized.expand(
+        [
+            ("per_minute", DataQualityRunBurstRateThrottle, "2/minute"),
+            ("per_hour", DataQualityRunSustainedRateThrottle, "2/hour"),
+            ("project_ceiling", DataQualityRunProjectRateThrottle, "2/hour"),
+        ]
+    )
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    def test_check_runs_and_suite_runs_share_one_project_run_limit(self, _enabled) -> None:
+    def test_check_runs_and_suite_runs_share_one_run_limit(
+        self, _name: str, throttle: type[SimpleRateThrottle], rate: str, _enabled
+    ) -> None:
         check = self._check(self.orders)
         run_check_url = f"{self.checks_url}{check.id}/run/"
 
         with (
-            patch.object(DataQualityRunBurstRateThrottle, "rate", "2/minute"),
+            patch.object(throttle, "rate", rate),
             patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())),
         ):
             assert self.client.post(run_check_url).status_code == status.HTTP_200_OK
@@ -536,6 +550,21 @@ class TestDataQualityRunAPI(APIBaseTest):
             assert self.client.post(run_check_url).status_code == status.HTTP_429_TOO_MANY_REQUESTS
             assert self.client.get(self.url).status_code == status.HTTP_200_OK
             assert self.client.get(f"{self.checks_url}{check.id}/runs/").status_code == status.HTTP_200_OK
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_one_member_at_their_run_limit_does_not_block_a_teammate_until_the_project_ceiling(self, _enabled) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
+
+        with (
+            patch.object(DataQualityRunBurstRateThrottle, "rate", "2/minute"),
+            patch.object(DataQualityRunProjectRateThrottle, "rate", "3/hour"),
+        ):
+            assert self._run().status_code == status.HTTP_200_OK
+            assert self._run().status_code == status.HTTP_200_OK
+            assert self._run().status_code == status.HTTP_429_TOO_MANY_REQUESTS
+            self.client.force_login(teammate)
+            assert self._run().status_code == status.HTTP_200_OK
+            assert self._run().status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     @parameterized.expand([("every_check_is_denied",), ("named_ids_match_nothing_runnable",)])
     def test_a_run_with_nothing_to_run_starts_no_workflow(self, case: str) -> None:

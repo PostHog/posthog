@@ -735,14 +735,19 @@ class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
-class DataQualityRunBurstRateThrottle(_TeamBucketRateThrottle):
+class DataQualityRunBurstRateThrottle(_UserBucketRateThrottle):
     scope = "data_quality_run_burst"
     rate = "20/minute"
 
 
-class DataQualityRunSustainedRateThrottle(_TeamBucketRateThrottle):
+class DataQualityRunSustainedRateThrottle(_UserBucketRateThrottle):
     scope = "data_quality_run_sustained"
     rate = "60/hour"
+
+
+class DataQualityRunProjectRateThrottle(_TeamBucketRateThrottle):
+    scope = "data_quality_run_project"
+    rate = "180/hour"
 
 
 # The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web
