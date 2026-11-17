@@ -15,8 +15,9 @@ from products.review_hog.backend.facade.contracts import ReviewUserPreferences
 from products.review_hog.backend.facade.enums import DefaultReviewMode, PreferenceSource, UrgencyThreshold
 
 
-def _source_field(key: str) -> serializers.ChoiceField:
+def _source_field(key: str, source: str | None = None) -> serializers.ChoiceField:
     return serializers.ChoiceField(
+        source=source,
         choices=PreferenceSource.choices,
         help_text=f"Where the effective {key} comes from: 'user' (the user set it), 'project' (the project "
         "default), or 'default' (the built-in default).",
@@ -30,7 +31,7 @@ class ReviewPreferenceSourcesSerializer(serializers.Serializer):
     urgency_threshold = _source_field("urgency_threshold")
     celebrate_clean_reviews = _source_field("celebrate_clean_reviews")
     review_inbox_prs = _source_field("review_inbox_prs")
-    stamphog_review_inbox_prs = _source_field("stamphog_review_inbox_prs")
+    approval_review_inbox_prs = _source_field("approval_review_inbox_prs", source="stamphog_review_inbox_prs")
 
 
 class ReviewProjectDefaultsSerializer(serializers.Serializer):
@@ -80,12 +81,13 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
         help_text="Review the pull requests the agent opens for Inbox reports assigned to the user: "
         "PostHog Review reviews each one and posts its findings to the pull request. Off by default.",
     )
-    stamphog_review_inbox_prs = serializers.BooleanField(
+    approval_review_inbox_prs = serializers.BooleanField(
+        source="stamphog_review_inbox_prs",
         required=False,
-        help_text="Also have hosted Stamphog review those same Inbox pull requests: an approve-first "
+        help_text="Also have auto-approval review those same Inbox pull requests: an approve-first "
         "review that posts a real GitHub approval when the change passes, and a comment when it "
-        "doesn't. Only takes effect when the project has a synced, enabled Stamphog repository "
-        "(see stamphog_connected).",
+        "doesn't. Only takes effect when the project has a synced, enabled auto-approval repository "
+        "(see approval_connected).",
     )
     sources = ReviewPreferenceSourcesSerializer(
         read_only=True,
@@ -96,11 +98,12 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
         read_only=True,
         help_text="The project defaults the Deep review preferences fall back to.",
     )
-    stamphog_connected = serializers.BooleanField(
+    approval_connected = serializers.BooleanField(
+        source="stamphog_connected",
         read_only=True,
-        help_text="Whether this project has at least one synced, enabled Stamphog repository. When "
-        "false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it "
-        "disabled with a pointer to connect the Stamphog GitHub App.",
+        help_text="Whether this project has at least one synced, enabled auto-approval repository. When "
+        "false, the approval_review_inbox_prs toggle has nothing to act on and the UI renders it "
+        "disabled with a pointer to connect the Stamphog GitHub app.",
     )
 
 
