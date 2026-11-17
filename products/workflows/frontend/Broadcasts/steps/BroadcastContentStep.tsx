@@ -12,6 +12,7 @@ import { IntegrationType } from '~/types'
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
 import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
+import { RunLinkTagHint } from '../../Workflows/hogflows/steps/components/RunLinkTagHint'
 import { utmKeysFromDefaultAfterEdit } from '../../Workflows/hogflows/steps/components/utmDefaults'
 import { UTM_TAG_KEYS, UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
 import { UtmTeamDefaultControls } from '../../Workflows/hogflows/steps/components/UtmTeamDefaultControls'
@@ -183,7 +184,9 @@ export function BroadcastContentStep(): JSX.Element {
                 bordered
                 data-attr="broadcast-tracking-toggle"
             />
-            {!emailSettings.trackingEnabled && (
+            {emailSettings.trackingEnabled ? (
+                <RunLinkTagHint />
+            ) : (
                 <span className="text-xs text-secondary">
                     Links stay as written and no tracking pixel is added, so this broadcast shows no opens or clicks.
                 </span>
