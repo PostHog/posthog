@@ -4219,5 +4219,4 @@ class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
         )
         job_table = DataModelingJob._meta.db_table
         job_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{job_table}" WHERE' in q["sql"]]
-        self.assertEqual(len(job_selects), 1, job_selects)
-        self.assertNotIn("ROW_NUMBER", job_selects[0])
+        self.assertEqual(job_selects, [])
