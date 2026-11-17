@@ -13,10 +13,10 @@ scan = ["guarddog==3.2.0"]
 test = ["pytest==9.1.1"]
 
 [tool.uv]
+exclude-newer = "7 days"
 package = false
 # `uv run` installs a group only when a job asks for it with `--group`.
 default-groups = []
-exclude-newer = "7 days"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
