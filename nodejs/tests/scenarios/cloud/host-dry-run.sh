@@ -1,21 +1,66 @@
 #!/usr/bin/env bash
-# Runs the run host's scripts in a clean amd64 Ubuntu 24.04 container, in the order a real host runs them:
+# Runs the run host's scripts in a clean Ubuntu 24.04 container, in the order a real host runs them:
 # host-bootstrap.sh, then host-prepare.sh, then host-run-card.sh. Downloads, checksums and builds are real.
 # Stand-ins replace what only a real host has: S3, the instance role, ECR, the Docker daemon and the Aurora
 # cluster (a Postgres container with TLS). Each stand-in logs its calls to <work dir>/stand-ins.log.
 #
+# The run host is amd64. On an arm64 machine, where rustc does not run under amd64 emulation, the script
+# first checks every pinned amd64 download and the files the bootstrap extracts from it, then runs the host
+# path natively with the arm64 build of each pinned download.
+#
 # Usage: host-dry-run.sh <input dir> <work dir>
 #   <input dir> holds a run's manifest.json and the inputs it lists, as the controller uploads them.
-#   Docker on the machine needs amd64 emulation when it is not amd64 itself.
 set -Eeuo pipefail
 
 input=$(cd "$1" && pwd)
 work=$(mkdir -p "$2" && cd "$2" && pwd)
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
+bootstrap=$repo/nodejs/tests/scenarios/cloud/host-bootstrap.sh
 run_id=$(jq -r .runId "$input/manifest.json")
 engine=$(sed -n 's/^engineVersion: "\([0-9]*\)\..*/\1/p' "$input/cloud-profile.yaml")
 name=scenario-dry-run-$$
 card_seconds=${SCENARIO_DRY_RUN_CARD_SECONDS:-900}
+# shellcheck disable=SC1090
+source <(grep -E '^[A-Z0-9_]+=' "$bootstrap")
+node_version=$(cat "$repo/.nvmrc")
+
+check_amd64_downloads() {
+    local dir=$work/amd64
+    mkdir -p "$dir"
+    cd "$dir"
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWS_CLI_VERSION}.zip" -o awscli.zip
+    echo "${AWS_CLI_SHA256}  awscli.zip" | sha256sum --check --strict
+    unzip -l awscli.zip aws/install | grep -q aws/install
+    curl -fsSL "https://nodejs.org/dist/${node_version}/node-${node_version}-linux-x64.tar.xz" -o "node-${node_version}-linux-x64.tar.xz"
+    curl -fsSL "https://nodejs.org/dist/${node_version}/SHASUMS256.txt" | grep " node-${node_version}-linux-x64.tar.xz\$" | sha256sum --check --strict
+    tar -tJf "node-${node_version}-linux-x64.tar.xz" | grep -q "^node-${node_version}-linux-x64/bin/node\$"
+    curl -fsSL "https://registry.npmjs.org/pnpm/-/pnpm-${PNPM_VERSION}.tgz" -o pnpm.tgz
+    echo "${PNPM_SHA256}  pnpm.tgz" | sha256sum --check --strict
+    tar -tzf pnpm.tgz | grep -q '^package/dist/pnpm.mjs$'
+    curl -fsSL "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" -o rustup-init
+    echo "${RUSTUP_INIT_SHA256}  rustup-init" | sha256sum --check --strict
+    curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" -o uv-x86_64-unknown-linux-gnu.tar.gz
+    curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz.sha256" | sha256sum --check --strict
+    tar -tzf uv-x86_64-unknown-linux-gnu.tar.gz | grep -q '^uv-x86_64-unknown-linux-gnu/uv$'
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o go.tar.gz
+    echo "${GO_SHA256}  go.tar.gz" | sha256sum --check --strict
+    tar -tzf go.tar.gz | grep -q '^go/bin/go$'
+    cd - >/dev/null
+}
+
+sha256_of() { curl -fsSL "$1" | sha256sum | cut -d' ' -f1; }
+
+arm64_bootstrap() {
+    sed \
+        -e "s#awscli-exe-linux-x86_64-#awscli-exe-linux-aarch64-#" \
+        -e "s#x86_64-unknown-linux-gnu#aarch64-unknown-linux-gnu#g" \
+        -e "s#linux-x64#linux-arm64#g" \
+        -e "s#linux-amd64#linux-arm64#" \
+        -e "s#^AWS_CLI_SHA256=.*#AWS_CLI_SHA256=$(sha256_of "https://awscli.amazonaws.com/awscli-exe-linux-aarch64-${AWS_CLI_VERSION}.zip")#" \
+        -e "s#^RUSTUP_INIT_SHA256=.*#RUSTUP_INIT_SHA256=$(sha256_of "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/aarch64-unknown-linux-gnu/rustup-init")#" \
+        -e "s#^GO_SHA256=.*#GO_SHA256=$(sha256_of "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz")#" \
+        "$bootstrap"
+}
 
 cleanup() { docker rm -f "$name-host" "$name-db" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
@@ -23,6 +68,17 @@ trap cleanup EXIT
 mkdir -p "$work/stand-ins" "$work/bucket/runs/$run_id/input"
 cp "$input"/* "$work/bucket/runs/$run_id/input/"
 git -C "$repo" archive --format tar HEAD >"$work/checkout.tar"
+case $(docker info --format '{{.Architecture}}') in
+    x86_64) platform=linux/amd64 ;;
+    aarch64)
+        platform=linux/arm64
+        echo "=== checking the pinned amd64 downloads"
+        check_amd64_downloads
+        echo "amd64 downloads match their pins"
+        arm64_bootstrap >"$work/host-bootstrap.sh"
+        ;;
+    *) echo "No dry run on $(docker info --format '{{.Architecture}}')" >&2; exit 1 ;;
+esac
 
 cat >"$work/stand-ins/aws" <<'EOF'
 #!/usr/bin/env bash
@@ -93,6 +149,10 @@ step "image setup: git, which the host image ships and a container image does no
 apt-get update -q >/dev/null && apt-get install -y -q git >/dev/null
 install -m 0755 /dry-run/stand-ins/aws /dry-run/stand-ins/docker /dry-run/stand-ins/poweroff /usr/local/sbin/
 mkdir -p /opt/posthog && tar -xf /dry-run/checkout.tar -C /opt/posthog
+if [ -f /dry-run/host-bootstrap.sh ]; then
+    echo "running the arm64 build of each pinned download"
+    cp /dry-run/host-bootstrap.sh /opt/posthog/nodejs/tests/scenarios/cloud/host-bootstrap.sh
+fi
 cd /opt/posthog
 export AWS_REGION=us-east-1 SCENARIO_RUN_ID="$RUN_ID" SCENARIO_EVIDENCE_BUCKET=dry-run
 step "host-bootstrap.sh"
@@ -115,6 +175,6 @@ docker run -d --name "$name-db" \
     "postgres:${engine:-16}" \
     -c ssl=on -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key \
     >/dev/null
-docker run --name "$name-host" --platform linux/amd64 --network "container:$name-db" \
+docker run --name "$name-host" --platform "$platform" --network "container:$name-db" \
     -e RUN_ID="$run_id" -e CARD_SECONDS="$card_seconds" -e DRY_RUN_DB_PASSWORD="$password" \
     -v "$work:/dry-run" ubuntu:24.04 bash /dry-run/host.sh 2>&1 | tee "$work/host.log"
