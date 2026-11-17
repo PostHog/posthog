@@ -5,11 +5,13 @@ decision edits that message to show the current state and replies under it, so t
 partner stays in one thread. The message carries a Block button for staff. Accepting stays in PostHog
 Admin, because granting account creation should keep the admin step-up that a Slack click skips.
 
-Clicks reach the PostHog Slack app's interactivity endpoint in `products/slack_app`, which routes them
-to the review's region with the region in the block id and calls the handlers here.
+The bot is its own Slack app. Its clicks arrive through `posthog/ingress` at
+`webhooks/provisioning-reviews/slack/interactivity`, which forwards each one to the region named in its
+block id and calls `handle_interaction`.
 """
 
 import json
+from collections.abc import Mapping
 from typing import Any
 
 from django.conf import settings
@@ -20,6 +22,7 @@ import structlog
 from celery import shared_task
 
 from posthog.egress.slack.client import SlackWebClient
+from posthog.ingress.contracts import DeliveryOwnership
 from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
 from posthog.models.user import User
 from posthog.slack.identity import resolve_slack_user
@@ -28,8 +31,10 @@ from posthog.utils import get_instance_region
 logger = structlog.get_logger(__name__)
 
 BLOCK_ACTION_ID = "cimd_review_block"
-# A URL button still sends Slack a click, which the interactivity endpoint acknowledges and ignores.
+# A URL button still sends Slack a click, which the consumer acknowledges and ignores.
 OPEN_ACTION_ID = "cimd_review_open"
+# Slack enforces this on the form, because the endpoint's answer cannot carry a validation error.
+BLOCK_REASON_MIN_LENGTH = 3
 BLOCK_MODAL_CALLBACK_ID = "cimd_review_block_modal"
 BLOCK_MODAL_REASON_BLOCK = "cimd_review_block_reason"
 BLOCK_MODAL_REASON_INPUT = "reason"
@@ -66,7 +71,7 @@ def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def review_region(payload: dict[str, Any]) -> str | None:
+def review_region(payload: Mapping[str, Any]) -> str | None:
     """The region of the review a Slack payload is about, or None when the payload isn't about a review."""
     for action in payload.get("actions") or ():
         parts = str(action.get("block_id", "")).split(":")
@@ -169,7 +174,7 @@ def _workspace_id(client: SlackWebClient) -> str | None:
     return team_id
 
 
-def staff_user_for_slack_user(payload: dict[str, Any]) -> User | None:
+def staff_user_for_slack_user(payload: Mapping[str, Any]) -> User | None:
     """The active PostHog staff user behind a Slack click, or None.
 
     Only a member of PostHog's own workspace counts, so a Slack Connect guest in the channel can't act
@@ -189,14 +194,14 @@ def staff_user_for_slack_user(payload: dict[str, Any]) -> User | None:
     return User.objects.filter(email__iexact=email, is_staff=True, is_active=True).first()
 
 
-def _review_for_action(payload: dict[str, Any]) -> CIMDProvisioningReview | None:
+def _review_for_action(payload: Mapping[str, Any]) -> CIMDProvisioningReview | None:
     for action in payload.get("actions") or ():
         if action.get("action_id") == BLOCK_ACTION_ID:
             return CIMDProvisioningReview.objects.select_related("application").filter(pk=action.get("value")).first()
     return None
 
 
-def handle_block_click(payload: dict[str, Any]) -> None:
+def handle_block_click(payload: Mapping[str, Any]) -> None:
     """Open the reason form for a staff member who clicked Block. The block itself happens on submit."""
     review = _review_for_action(payload)
     trigger_id = payload.get("trigger_id")
@@ -234,23 +239,40 @@ def handle_block_click(payload: dict[str, Any]) -> None:
                     "type": "input",
                     "block_id": BLOCK_MODAL_REASON_BLOCK,
                     "label": {"type": "plain_text", "text": "Reason"},
-                    "element": {"type": "plain_text_input", "action_id": BLOCK_MODAL_REASON_INPUT, "multiline": True},
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": BLOCK_MODAL_REASON_INPUT,
+                        "multiline": True,
+                        "min_length": BLOCK_REASON_MIN_LENGTH,
+                    },
                 },
             ],
         },
     )
 
 
-def handle_block_modal_submit(payload: dict[str, Any]) -> dict[str, Any] | None:
-    """Block the partner from the reason form. Returns a Slack error response to keep the form open, or
-    None to close it. The submit re-checks staff, because anyone with the form open can submit it."""
-    from posthog.api.oauth.provisioning_review import decide_partner  # noqa: PLC0415 - import cycle
+def interaction_ownership(payload: Mapping[str, Any]) -> DeliveryOwnership:
+    """Which region holds the review a click is about, read from the block id or the form."""
+    region = review_region(payload)
+    if region is None:
+        return DeliveryOwnership.UNDECIDED
+    return DeliveryOwnership.LOCAL if region == _region() else DeliveryOwnership.ELSEWHERE
 
+
+def handle_interaction(payload: Mapping[str, Any]) -> None:
+    """Run a staff bot click. Opening the form stays in the request, because Slack's trigger id expires
+    after three seconds; the block itself runs in a task."""
+    if payload.get("type") == "block_actions":
+        if any(action.get("action_id") == BLOCK_ACTION_ID for action in payload.get("actions") or ()):
+            handle_block_click(payload)
+        return
     view = payload.get("view") or {}
+    if payload.get("type") != "view_submission" or view.get("callback_id") != BLOCK_MODAL_CALLBACK_ID:
+        return
     try:
-        review_id = json.loads(view.get("private_metadata") or "{}").get("review_id")
+        review_id = str(json.loads(view.get("private_metadata") or "{}").get("review_id") or "")
     except (json.JSONDecodeError, AttributeError):
-        return None
+        return
     reason = (
         ((view.get("state") or {}).get("values") or {})
         .get(BLOCK_MODAL_REASON_BLOCK, {})
@@ -258,17 +280,27 @@ def handle_block_modal_submit(payload: dict[str, Any]) -> dict[str, Any] | None:
         .get("value")
         or ""
     ).strip()
-    if not reason:
-        return {"response_action": "errors", "errors": {BLOCK_MODAL_REASON_BLOCK: "Enter a reason."}}
-    staff = staff_user_for_slack_user(payload)
+    if review_id and reason:
+        block_partner_from_slack.delay(
+            review_id,
+            slack_team_id=(payload.get("team") or {}).get("id") or "",
+            slack_user_id=(payload.get("user") or {}).get("id") or "",
+            reason=reason,
+        )
+
+
+@shared_task(ignore_result=True)
+def block_partner_from_slack(review_id: str, *, slack_team_id: str, slack_user_id: str, reason: str) -> None:
+    """Block the partner from the staff bot's form. Staff are checked again here, because anyone with the
+    form open can submit it."""
+    from posthog.api.oauth.provisioning_review import decide_partner  # noqa: PLC0415 - import cycle
+
+    staff = staff_user_for_slack_user({"team": {"id": slack_team_id}, "user": {"id": slack_user_id}})
     if staff is None:
-        return {
-            "response_action": "errors",
-            "errors": {BLOCK_MODAL_REASON_BLOCK: "Only PostHog staff can block a provisioning partner."},
-        }
+        logger.warning("cimd_review_slack_block_refused", review_id=review_id, slack_user_id=slack_user_id)
+        return
     review = CIMDProvisioningReview.objects.select_related("application").filter(pk=review_id).first()
     if review is None:
-        return None
+        return
     decide_partner(review.application, accept=False, reason=f"Staff ({staff.email}, from Slack): {reason}")
-    logger.info("cimd_review_blocked_from_slack", review_id=str(review.pk), staff_user_id=staff.pk)
-    return None
+    logger.info("cimd_review_blocked_from_slack", review_id=review_id, staff_user_id=staff.pk)

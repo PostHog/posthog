@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -12,11 +13,16 @@ from parameterized import parameterized
 from posthog.api.oauth.provisioning_review import decide_partner, settle_review
 from posthog.api.oauth.provisioning_review_slack import (
     BLOCK_ACTION_ID,
+    BLOCK_ID_PREFIX,
     BLOCK_MODAL_CALLBACK_ID,
     BLOCK_MODAL_REASON_BLOCK,
     BLOCK_MODAL_REASON_INPUT,
-    handle_block_modal_submit,
+    block_partner_from_slack,
+    interaction_ownership,
 )
+from posthog.ingress.contracts import DeliveryOwnership
+from posthog.ingress.dispatch.loading import reset_consumer_registry
+from posthog.models.integration.slack import sign_slack_request
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import (
@@ -28,6 +34,7 @@ from posthog.models.user import User
 
 POSTHOG_WORKSPACE = "T_POSTHOG"
 REVIEW_CHANNEL = "C_REVIEWS"
+SIGNING_SECRET = "review-bot-signing-secret"
 
 
 def _slack_client(*, clicker_email: str = "", clicker_workspace: str = POSTHOG_WORKSPACE) -> MagicMock:
@@ -101,39 +108,68 @@ class TestProvisioningReviewSlack(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("staff_member", "staff@posthog.com", POSTHOG_WORKSPACE, "Phishing", True, None),
-            ("member_who_isnt_staff", "member@posthog.com", POSTHOG_WORKSPACE, "Phishing", False, "Only PostHog"),
-            ("slack_connect_guest", "staff@posthog.com", "T_GUEST", "Phishing", False, "Only PostHog"),
-            ("no_reason", "staff@posthog.com", POSTHOG_WORKSPACE, "  ", False, "Enter a reason"),
+            ("staff_member", "staff@posthog.com", POSTHOG_WORKSPACE, True),
+            ("member_who_isnt_staff", "member@posthog.com", POSTHOG_WORKSPACE, False),
+            ("slack_connect_guest", "staff@posthog.com", "T_GUEST", False),
         ]
     )
-    def test_block_from_slack(self, _send_email, _name, email, workspace, reason, blocks, error) -> None:
+    def test_only_staff_in_posthog_workspace_can_block(self, _send_email, _name, email, workspace, blocks) -> None:
         User.objects.create(email="staff@posthog.com", distinct_id="staff", is_staff=True)
         User.objects.create(email="member@posthog.com", distinct_id="member")
-        payload = {
-            "type": "view_submission",
-            "team": {"id": workspace},
-            "user": {"id": "U123"},
-            "view": {
-                "callback_id": BLOCK_MODAL_CALLBACK_ID,
-                "private_metadata": json.dumps({"review_id": str(self.review.pk), "region": ""}),
-                "state": {"values": {BLOCK_MODAL_REASON_BLOCK: {BLOCK_MODAL_REASON_INPUT: {"value": reason}}}},
-            },
-        }
 
         with patch(
             "posthog.api.oauth.provisioning_review_slack.SlackWebClient",
             return_value=_slack_client(clicker_email=email, clicker_workspace=workspace),
         ):
-            response = handle_block_modal_submit(payload)
+            block_partner_from_slack(
+                str(self.review.pk), slack_team_id=workspace, slack_user_id="U123", reason="Phishing"
+            )
 
         self.app.refresh_from_db()
         assert self.app.provisioning.disabled is blocks
-        if error is None:
-            assert response is None
-            assert CIMDProvisioningReview.objects.get(pk=self.review.pk).reason.startswith(
-                "Staff (staff@posthog.com, from Slack)"
+        if blocks:
+            assert CIMDProvisioningReview.objects.get(pk=self.review.pk).reason == (
+                "Staff (staff@posthog.com, from Slack): Phishing"
             )
-        else:
-            assert response is not None
-            assert error in response["errors"][BLOCK_MODAL_REASON_BLOCK]
+
+    @override_settings(PROVISIONING_REVIEW_SLACK_SIGNING_SECRET=SIGNING_SECRET)
+    def test_a_signed_block_form_reaches_the_block_task(self, _send_email) -> None:
+        reset_consumer_registry()
+        cache.clear()
+        payload = {
+            "type": "view_submission",
+            "team": {"id": POSTHOG_WORKSPACE},
+            "user": {"id": "U123"},
+            "view": {
+                "callback_id": BLOCK_MODAL_CALLBACK_ID,
+                "private_metadata": json.dumps({"review_id": str(self.review.pk), "region": ""}),
+                "state": {"values": {BLOCK_MODAL_REASON_BLOCK: {BLOCK_MODAL_REASON_INPUT: {"value": " Phishing "}}}},
+            },
+        }
+        body = urlencode({"payload": json.dumps(payload)})
+        signed = sign_slack_request(body.encode(), SIGNING_SECRET)
+
+        with patch("posthog.api.oauth.provisioning_review_slack.block_partner_from_slack") as block_task:
+            response = self.client.post(
+                "/webhooks/provisioning-reviews/slack/interactivity",
+                data=body,
+                content_type="application/x-www-form-urlencoded",
+                headers={"x-slack-signature": signed.signature, "x-slack-request-timestamp": signed.timestamp},
+            )
+
+        assert response.status_code == 202
+        block_task.delay.assert_called_once_with(
+            str(self.review.pk), slack_team_id=POSTHOG_WORKSPACE, slack_user_id="U123", reason="Phishing"
+        )
+
+    @parameterized.expand(
+        [
+            ("this_region", f"{BLOCK_ID_PREFIX}::review", DeliveryOwnership.LOCAL),
+            ("other_region", f"{BLOCK_ID_PREFIX}:EU:review", DeliveryOwnership.ELSEWHERE),
+            ("another_bot_button", "something_else", DeliveryOwnership.UNDECIDED),
+        ]
+    )
+    def test_a_click_belongs_to_the_review_region(self, _send_email, _name, block_id, ownership) -> None:
+        payload = {"type": "block_actions", "actions": [{"action_id": BLOCK_ACTION_ID, "block_id": block_id}]}
+
+        assert interaction_ownership(payload) == ownership

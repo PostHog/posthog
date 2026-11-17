@@ -23,7 +23,6 @@ import posthoganalytics
 from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
-from posthog.api.oauth import provisioning_review_slack
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
@@ -6617,16 +6616,11 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     )
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
-    partner_review_region = provisioning_review_slack.review_region(payload)
 
     local = False
     ctx_integration_id = context.get("integration_id") if context else None
     # Slack webhook endpoint: no team context available; queries are scoped by PK + kind + workspace ID
-    if partner_review_region is not None:
-        # Provisioning partner reviews live in one region's database, and the message names that region.
-        # Who may act is settled in the handlers, which accept only PostHog staff.
-        local = partner_review_region == (get_instance_region() or "")
-    elif slack_team_id and ctx_integration_id:
+    if slack_team_id and ctx_integration_id:
         local = workspace_integration_exists(ctx_integration_id, slack_team_id)
     elif slack_team_id and hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
         local = workspace_integration_exists(hinted_integration_id, slack_team_id)
@@ -6739,9 +6733,6 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
 
     if payload_type == "view_submission":
         callback_id = payload.get("view", {}).get("callback_id")
-        if callback_id == provisioning_review_slack.BLOCK_MODAL_CALLBACK_ID:
-            modal_errors = provisioning_review_slack.handle_block_modal_submit(payload)
-            return JsonResponse(modal_errors) if modal_errors else HttpResponse(status=200)
         if callback_id == INSIGHT_ALERT_SNOOZE_MODAL_CALLBACK_ID:
             return _handle_insight_alert_snooze_modal_submit(payload)
         if callback_id == turn_feedback.TURN_FEEDBACK_MODAL_CALLBACK_ID:
@@ -6752,11 +6743,6 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         actions = payload.get("actions", [])
         for action in actions:
             action_id = action.get("action_id")
-            if action_id == provisioning_review_slack.BLOCK_ACTION_ID:
-                provisioning_review_slack.handle_block_click(payload)
-                return HttpResponse(status=200)
-            if action_id == provisioning_review_slack.OPEN_ACTION_ID:
-                return HttpResponse(status=200)
             if action_id == "posthog_code_repo_select":
                 return _handle_repo_picker_submit(payload)
             if action_id == "posthog_code_repo_none":
