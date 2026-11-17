@@ -95,14 +95,14 @@ class TestWritersDrainedProvider(NonAtomicBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization = Organization.objects.create(name="Drain provider tests")
-        self.project = Team.objects.create(organization=self.organization, name="Drain provider project")
+        self.root_team = Team.objects.create(organization=self.organization, name="Drain provider project")
         self.sibling = Team.objects.create(
-            organization=self.organization, name="Drain provider sibling", parent_team=self.project
+            organization=self.organization, name="Drain provider sibling", parent_team=self.root_team
         )
         self.erasure = IntentErasure(
-            project_id=self.project.pk,
+            project_id=self.root_team.pk,
             invalidation_id=uuid4(),
-            source_team_ids=(self.project.pk, self.sibling.pk),
+            source_team_ids=(self.root_team.pk, self.sibling.pk),
         )
 
     def _run(self, team: Team, *, registered: bool, completed: bool) -> None:
@@ -124,7 +124,7 @@ class TestWritersDrainedProvider(NonAtomicBaseTest):
         ]
     )
     def test_drain_proof(self, _name: str, owner: str, registered: bool, completed: bool, pending: bool) -> None:
-        self._run(self.project if owner == "project" else self.sibling, registered=registered, completed=completed)
+        self._run(self.root_team if owner == "project" else self.sibling, registered=registered, completed=completed)
 
         if pending:
             with pytest.raises(IntentErasurePending):
