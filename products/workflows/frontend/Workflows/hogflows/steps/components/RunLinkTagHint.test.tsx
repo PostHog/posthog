@@ -22,8 +22,8 @@ describe('<RunLinkTagHint />', () => {
     })
 
     it.each([
-        { stored: undefined, text: /also get ph_workflow_run/, link: 'Turn it off in settings' },
-        { stored: false, text: /don't get ph_workflow_run/, link: 'Turn it on in settings' },
+        { stored: undefined, text: /are connected to the sessions they start/, link: 'Turn it off in settings' },
+        { stored: false, text: /aren't connected to sessions/, link: 'Turn it on in settings' },
     ])('stored $stored says "$link" and links to the setting', ({ stored, text, link }) => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
@@ -64,6 +64,6 @@ describe('<RunLinkTagHint />', () => {
             window.dispatchEvent(new Event('focus'))
         })
 
-        expect(await screen.findByText(/don't get ph_workflow_run/)).toBeInTheDocument()
+        expect(await screen.findByText(/aren't connected to sessions/)).toBeInTheDocument()
     })
 })

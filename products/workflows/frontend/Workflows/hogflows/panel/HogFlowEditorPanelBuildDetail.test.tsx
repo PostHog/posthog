@@ -135,10 +135,10 @@ describe('HogFlowEditorPanelBuildDetail', () => {
     it('shows the run link tag hint only while tracking is on', async () => {
         useMocks(emailStepMocks('cat-billing'))
         const { container } = await renderEmailStep()
-        expect(screen.getByText(/also get ph_workflow_run/)).toBeInTheDocument()
+        expect(screen.getByText(/are connected to the sessions they start/)).toBeInTheDocument()
 
         fireEvent.click(container.querySelector('[data-attr="workflow-email-tracking-toggle"]') as HTMLElement)
 
-        expect(screen.queryByText(/ph_workflow_run/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/connected to sessions/)).not.toBeInTheDocument()
     })
 })

@@ -47,7 +47,7 @@ describe('<WorkflowsRunLinkTagSettings />', () => {
             },
         })
         render(<WorkflowsRunLinkTagSettings />)
-        const toggle = screen.getByLabelText('Add ph_workflow_run to tracked email links')
+        const toggle = screen.getByLabelText('Connect tracked email clicks to sessions')
         expect(toggle).toHaveAttribute('aria-checked', String(shownOn))
 
         await userEvent.click(toggle)

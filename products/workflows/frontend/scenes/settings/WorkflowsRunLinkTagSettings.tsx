@@ -24,7 +24,7 @@ export function WorkflowsRunLinkTagSettings(): JSX.Element {
             }}
             checked={enabled}
             disabled={currentTeamLoading}
-            label="Add ph_workflow_run to tracked email links"
+            label="Connect tracked email clicks to sessions"
             bordered
             data-attr="workflows-email-run-link-tag-toggle"
         />

@@ -19,8 +19,8 @@ export function RunLinkTagHint(): JSX.Element | null {
     return (
         <span className="text-xs text-secondary" data-attr="workflows-run-link-tag-hint">
             {enabled
-                ? 'Tracked links also get ph_workflow_run, which connects each click to the session it starts. '
-                : "Tracked links don't get ph_workflow_run, so clicks aren't connected to sessions. "}
+                ? 'Tracked link clicks are connected to the sessions they start, including session replays when recording is on. '
+                : "Tracked link clicks aren't connected to sessions or session replays. "}
             <Link
                 to={urls.settings('environment-workflows', 'workflows-email-run-link-tag')}
                 target="_blank"

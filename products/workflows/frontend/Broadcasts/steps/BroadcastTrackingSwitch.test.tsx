@@ -23,11 +23,11 @@ describe('<BroadcastTrackingSwitch />', () => {
 
     it('shows the run link tag hint only while tracking is on', () => {
         const { container } = render(<StatefulSwitch />)
-        expect(screen.getByText(/also get ph_workflow_run/)).toBeInTheDocument()
+        expect(screen.getByText(/are connected to the sessions they start/)).toBeInTheDocument()
 
         fireEvent.click(container.querySelector('[data-attr="broadcast-tracking-toggle"]') as HTMLElement)
 
-        expect(screen.queryByText(/ph_workflow_run/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/connected to sessions/)).not.toBeInTheDocument()
         expect(screen.getByText(/Links stay as written/)).toBeInTheDocument()
     })
 })
