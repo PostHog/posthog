@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { IncidentIoReceiverFields } from './IncidentIoReceiverFields'
 import { PagerDutyReceiverFields } from './PagerDutyReceiverFields'
-import { RECEIVER_TYPE_OPTIONS } from './platformAlertRoutingFormat'
+import { INCIDENT_HANDOFF_NOTICE, RECEIVER_TYPE_OPTIONS } from './platformAlertRoutingFormat'
 import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
 import { SlackReceiverFields } from './SlackReceiverFields'
 import { WebhookReceiverFields } from './WebhookReceiverFields'
@@ -45,6 +45,8 @@ export function PlatformAlertReceiverModal(): JSX.Element {
                 enableFormOnSubmit
                 className="flex flex-col gap-4"
             >
+                {/* A new receiver has no routes yet, so saving it moves no firing alert. */}
+                {editingReceiver ? <LemonBanner type="info">{INCIDENT_HANDOFF_NOTICE}</LemonBanner> : null}
                 <LemonField name="name" label="Name">
                     <LemonInput placeholder="Infra on-call" data-attr="platform-alert-receiver-name" />
                 </LemonField>

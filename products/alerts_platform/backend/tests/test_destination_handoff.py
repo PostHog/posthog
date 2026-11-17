@@ -30,7 +30,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
-from products.alerts_platform.backend.logic import alert_routing, platform_writes
+from products.alerts_platform.backend.logic import alert_routing, destination_handoff, platform_writes
 from products.alerts_platform.backend.logic.platform_alert_events import insert_events
 from products.alerts_platform.backend.logic.platform_lifecycle import event_row
 from products.alerts_platform.backend.models import (
@@ -335,3 +335,20 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
         assert [
             (message.transition.grouping_key, message.incident_action) for _, message in RecordingTransport.sends
         ] == [("", IncidentAction.TRIGGER)]
+
+    @parameterized.expand(
+        [
+            # Its row is still there, so the workflow reads it by id and the resolve still goes out.
+            ("receiver_still_there", "_route_edit", [_TRIGGER_NEW, _RESOLVE_OLD]),
+            # Its row is gone and the edit's inline budget is spent, so nothing can send its resolve.
+            ("receiver_deleted", "_receiver_delete", []),
+        ]
+    )
+    def test_resolves_past_the_inline_budget(self, _name: str, edit: str, expected: list[Any]) -> None:
+        with (
+            patch.object(destination_handoff, "MAX_INLINE_RESOLVES_PER_EDIT", 0),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            cast(Callable[[str], None], getattr(self, edit))("pagerduty")
+
+        assert self._sends() == sorted(expected, key=str)

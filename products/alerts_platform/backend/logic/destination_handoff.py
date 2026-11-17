@@ -48,12 +48,27 @@ from products.alerts_platform.backend.logic.alert_routes import (
     routing_labels,
     stored_group_labels,
 )
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import (
+    AlertDestination,
+    AlertReceiver,
+    PlatformAlert,
+    PlatformAlertConfiguration,
+)
 
 logger = structlog.get_logger(__name__)
 
 # Sends run one after another in a delivery activity, which has `DELIVERY_START_TO_CLOSE` for all of them.
 MAX_SENDS_PER_HANDOFF: Final = 10
+# Resolves one edit sends from its own web request, so a large edit cannot hold a web worker for minutes.
+MAX_INLINE_RESOLVES_PER_EDIT: Final = 20
+
+
+class _InlineBudget:
+    """The inline resolves an edit has left, shared by every configuration the edit touches."""
+
+    def __init__(self) -> None:
+        self.remaining = MAX_INLINE_RESOLVES_PER_EDIT
+
 
 # The fields that say which incident a send reaches. Two destinations that agree on them hold the same
 # incident, whatever else differs, such as a PagerDuty severity or an incident.io secret.
@@ -168,6 +183,7 @@ def hand_over_after_commit(before: Snapshot) -> None:
             id__in=now_firing, owner=PlatformAlertOwner.PLATFORM
         )
     }
+    budget = _InlineBudget()
     for watched in before.watched:
         configuration = configurations.get(watched.configuration_id)
         if configuration is None:
@@ -184,6 +200,7 @@ def hand_over_after_commit(before: Snapshot) -> None:
                 firing,
                 watched.endpoints,
                 _endpoints(configuration, {key: group.labels for key, group in firing.items()}, routing=before.routing),
+                budget,
             )
 
 
@@ -192,12 +209,16 @@ def _schedule(
     firing: Mapping[str, _Group],
     before: Mapping[str, Mapping[str, _Endpoint]],
     after: Mapping[str, Mapping[str, _Endpoint]],
+    budget: _InlineBudget,
 ) -> None:
     queued: list[HandoffSend] = []
-    # Resolves go from this process with the settings read before the edit. A later edit can delete or
-    # repoint the row before a workflow would read it by id, and nothing else knows the incident is open.
-    # The settings carry a credential, so they never go on a workflow's payload.
+    # Resolves go from this process with the settings read before the edit, up to the edit's budget. A
+    # later edit can delete or repoint the row before a workflow would read it by id, and the settings
+    # carry a credential, so they never go on a workflow's payload. Past the budget, a resolve goes
+    # through the workflow by id, which a row deleted in that window loses.
     inline: list[tuple[HandoffSend, AlertDestinationData]] = []
+    stranded = 0
+    lost: list[tuple[HandoffSend, _Endpoint, bool]] = []
     for key, group in firing.items():
         was, now = before.get(key, {}), after.get(key, {})
         for where, endpoint in now.items():
@@ -205,7 +226,21 @@ def _schedule(
                 queued.append(_send_for(endpoint, key, group.started_at, gained=True))
         for where, endpoint in was.items():
             if where not in now:
-                inline.append((_send_for(endpoint, key, group.started_at, gained=False), endpoint.data))
+                send = _send_for(endpoint, key, group.started_at, gained=False)
+                lost.append((send, endpoint, _still_sends_there(configuration, endpoint, where)))
+    # A destination this edit deleted or repointed has no other path, so it takes the inline sends first.
+    for send, endpoint, still_there in sorted(lost, key=lambda item: item[2]):
+        if budget.remaining > 0:
+            budget.remaining -= 1
+            inline.append((send, endpoint.data))
+        elif still_there:
+            queued.append(send)
+        else:
+            stranded += 1
+    if stranded:
+        logger.warning(
+            "alerts_platform_handoff_resolves_dropped", configuration_id=str(configuration.id), dropped=stranded
+        )
     if not queued and not inline:
         return
     request = _request(configuration, queued or [send for send, _ in inline])
@@ -376,3 +411,16 @@ def _firing_groups(team_id: int, configuration_ids: Collection[UUID] | None) -> 
                 started_at=started_at, labels=dict(labels or {})
             )
     return firing
+
+
+def _still_sends_there(configuration: PlatformAlertConfiguration, endpoint: _Endpoint, expected: str) -> bool:
+    """Whether the destination's row still holds this address, for a workflow to read it by id."""
+    rows = (
+        AlertReceiver.objects.for_team(configuration.team_id).filter(id=endpoint.destination_id)
+        if endpoint.routed
+        else AlertDestination.objects.for_team(configuration.team_id).filter(
+            id=endpoint.destination_id, configuration_id=configuration.id
+        )
+    )
+    config = rows.values_list("config", flat=True).first()
+    return config is not None and address(cast(AlertDestinationData, config)) == expected
