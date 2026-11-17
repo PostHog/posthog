@@ -7,7 +7,7 @@ import { percentage } from 'lib/utils/numbers'
 import { emailImpactLogic } from './emailImpactLogic'
 
 export function ImpactLiftLine(): JSX.Element | null {
-    const { event, lift, impact, tracked } = useValues(emailImpactLogic)
+    const { event, lift, impact, tracked, followedNote } = useValues(emailImpactLogic)
     if (!event || !lift || !impact) {
         return null
     }
@@ -19,6 +19,7 @@ export function ImpactLiftLine(): JSX.Element | null {
                 <strong>{percentage(lift.notClicked, 1)}</strong> of delivered sends were followed by{' '}
                 <strong>{event}</strong> within <span>{days}</span> days of the send. Without click tracking, PostHog
                 can't tell whether the email led there.
+                {followedNote && <span className="text-secondary"> {followedNote}</span>}
             </p>
         )
     }
@@ -32,6 +33,7 @@ export function ImpactLiftLine(): JSX.Element | null {
                 </span>{' '}
                 <strong>{percentage(lift.notClicked, 1)}</strong> of sends nobody clicked were followed by{' '}
                 <strong>{event}</strong> within <span>{days}</span> days of the send.
+                {followedNote && <span className="text-secondary"> {followedNote}</span>}
             </p>
         )
     }
@@ -50,6 +52,7 @@ export function ImpactLiftLine(): JSX.Element | null {
                     How to read this
                 </span>
             </Tooltip>
+            {followedNote && <span className="text-secondary"> {followedNote}</span>}
         </p>
     )
 }

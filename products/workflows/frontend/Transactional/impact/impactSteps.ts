@@ -108,3 +108,22 @@ export function impactLift(impact: TransactionalEmailImpactApi): ImpactLift | nu
         notClicked: share(impact.without_click.converted, impact.without_click.sends),
     }
 }
+
+/** Says which sends the lift counts when some couldn't be followed to a person, or null when all were. */
+export function followedSendsNote(impact: TransactionalEmailImpactApi): string | null {
+    const tracked = clicksTracked(impact)
+    const parts: string[] = []
+    if (tracked && impact.after_click && impact.after_click.sends < impact.clicked) {
+        parts.push(
+            `${humanFriendlyNumber(impact.after_click.sends)} of ${humanFriendlyNumber(impact.clicked)} clicked sends`
+        )
+    }
+    const unclicked = tracked ? impact.delivered - impact.clicked : impact.delivered
+    if (impact.without_click && impact.without_click.sends < unclicked) {
+        const label = tracked ? 'sends nobody clicked' : 'delivered sends'
+        parts.push(`${humanFriendlyNumber(impact.without_click.sends)} of ${humanFriendlyNumber(unclicked)} ${label}`)
+    }
+    return parts.length > 0
+        ? `Counted over ${parts.join(' and ')}: PostHog follows the sends that name a person, and only the most recent ones on a busy email.`
+        : null
+}

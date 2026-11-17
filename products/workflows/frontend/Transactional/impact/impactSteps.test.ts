@@ -1,6 +1,6 @@
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { clicksTracked, impactLift, impactSteps } from './impactSteps'
+import { clicksTracked, followedSendsNote, impactLift, impactSteps } from './impactSteps'
 
 const impact: TransactionalEmailImpactApi = {
     sent: 100,
@@ -63,6 +63,29 @@ describe('impactSteps', () => {
 
         expect(steps.slice(2, 5).map((step) => step.missing)).toEqual(['Not tracked', 'Not tracked', 'Not tracked'])
         expect(steps[5]).toMatchObject({ value: 1, share: 1 / 90, shareOf: 'delivered' })
+    })
+
+    it.each([
+        [
+            'every send is followed',
+            { ...impact, after_click: { sends: 20, converted: 4 }, without_click: { sends: 70, converted: 1 } },
+            null,
+        ],
+        [
+            'some clicked sends are not',
+            { ...impact, without_click: { sends: 70, converted: 1 } },
+            'Counted over 16 of 20 clicked sends:',
+        ],
+        ['both groups fall short', impact, 'Counted over 16 of 20 clicked sends and 50 of 70 sends nobody clicked:'],
+        [
+            'untracked sends fall short',
+            { ...untracked, without_click: { sends: 50, converted: 1 } },
+            'Counted over 50 of 90 delivered sends:',
+        ],
+    ])('names the sends the lift counts when %s', (_, data, start) => {
+        const note = followedSendsNote(data)
+
+        expect(start === null ? note : note?.slice(0, start.length)).toBe(start)
     })
 
     it('compares clicked against not clicked, and leaves out a side with no sends', () => {

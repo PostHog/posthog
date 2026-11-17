@@ -10,7 +10,7 @@ import { TeamPublicType, TeamType } from '~/types'
 import { transactionalEmailLogImpactRetrieve } from 'products/messaging/frontend/generated/api'
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { ImpactLift, ImpactStep, clicksTracked, impactLift, impactSteps } from './impactSteps'
+import { ImpactLift, ImpactStep, clicksTracked, followedSendsNote, impactLift, impactSteps } from './impactSteps'
 
 export interface EmailImpactLogicProps {
     workflowId: string
@@ -28,6 +28,7 @@ export interface emailImpactLogicValues {
     currentTeamId: number | null // teamLogic
     days: number
     event: string | null
+    followedNote: string | null
     impact: TransactionalEmailImpactApi | null
     impactError: string | null
     impactLoading: boolean
@@ -76,6 +77,7 @@ export interface emailImpactLogicMeta {
         tracked: (impact: TransactionalEmailImpactApi | null) => boolean
         steps: (impact: TransactionalEmailImpactApi | null, event: string | null) => ImpactStep[] | null
         lift: (impact: TransactionalEmailImpactApi | null) => ImpactLift | null
+        followedNote: (impact: TransactionalEmailImpactApi | null) => string | null
         replayEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
     }
 }
@@ -152,6 +154,10 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         lift: [
             (s) => [s.impact],
             (impact: TransactionalEmailImpactApi | null): ImpactLift | null => (impact ? impactLift(impact) : null),
+        ],
+        followedNote: [
+            (s) => [s.impact],
+            (impact: TransactionalEmailImpactApi | null): string | null => (impact ? followedSendsNote(impact) : null),
         ],
         replayEnabled: [
             (s) => [s.currentTeam],
