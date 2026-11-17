@@ -5,10 +5,13 @@ rules:
           user last opened, in any tab or device. A call that sends it can act on
           a different project than the one on screen, and the API is retiring it.
 
-          Pass the explicit ID instead: `currentTeamId` / `currentProjectId` from
-          `teamLogic`, or `currentOrganizationId` from `organizationLogic`. If the
-          ID can be missing at that point, wait for it rather than falling back
-          to `'@current'`.
+          Pass the explicit ID instead: `currentProjectId` from `projectLogic`,
+          `currentTeamId` from `teamLogic`, or `currentOrganization?.id` from
+          `organizationLogic`. Each is null until loaded, so skip the call until
+          then rather than falling back to `'@current'`. Avoid
+          `teamLogic.currentProjectId`, `teamLogic.currentTeamIdStrict` and
+          `organizationLogic.currentOrganizationId`: they return `'@current'`
+          before the data loads.
 
           This covers URLs and IDs passed to generated API clients, such as
           `fooRetrieve('@current')`. `personal_api_keys/@current` names the key
