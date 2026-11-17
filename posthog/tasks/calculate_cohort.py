@@ -44,7 +44,13 @@ from products.cohorts.backend.backfill.runs import (
 )
 from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPopulationMode, ImportResolution
+from products.cohorts.backend.models.cohort import (
+    PENDING_POPULATION_CLEARED,
+    Cohort,
+    CohortOrEmpty,
+    CohortPopulationMode,
+    ImportResolution,
+)
 from products.cohorts.backend.models.util import (
     CLICKHOUSE_QUORUM_LOCKED_CODE,
     CLICKHOUSE_REPLICA_NOT_IN_QUORUM_CODE,
@@ -328,9 +334,7 @@ def _end_pending_population(cohort_id: int) -> None:
     # A reset that dispatches no population clears the mode, marker and request time. A population dispatched
     # without a claim, such as the staff re-sync, then runs as an append instead of the abandoned replace. The
     # is_calculating filter skips a cohort a request claimed again after the reset, whose fields now belong to it.
-    Cohort.objects.filter(pk=cohort_id, is_calculating=False).update(
-        pending_population_mode=None, population_marker=None, population_claimed_at=None
-    )
+    Cohort.objects.filter(pk=cohort_id, is_calculating=False).update(**PENDING_POPULATION_CLEARED)
 
 
 def reset_stuck_sourceless_static_cohorts() -> None:
@@ -353,9 +357,7 @@ def reset_stuck_sourceless_static_cohorts() -> None:
                     errors_calculating=F("errors_calculating") + 1,
                     last_error_at=now,
                     # This reset never dispatches a population, so it ends any pending one.
-                    pending_population_mode=None,
-                    population_marker=None,
-                    population_claimed_at=None,
+                    **PENDING_POPULATION_CLEARED,
                 )
             )
             if not reset:

@@ -79,6 +79,12 @@ STATIC_POPULATION_RUN_FIELDS = frozenset(
     }
 )
 
+PENDING_POPULATION_CLEARED: dict[str, None] = {
+    "pending_population_mode": None,
+    "population_marker": None,
+    "population_claimed_at": None,
+}
+
 
 class CohortConditionFlags(TypedDict):
     """Boolean flags describing which kinds of leaf conditions a cohort's filters contain,

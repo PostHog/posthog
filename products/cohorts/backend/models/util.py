@@ -67,7 +67,13 @@ from posthog.schema_enums import ChartDisplayType, ProductKey
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPopulationMode, _normalize_uuid
+from products.cohorts.backend.models.cohort import (
+    PENDING_POPULATION_CLEARED,
+    Cohort,
+    CohortOrEmpty,
+    CohortPopulationMode,
+    _normalize_uuid,
+)
 from products.cohorts.backend.models.dependencies import get_cohort_dependents
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
@@ -1788,12 +1794,9 @@ def clear_population_run_fields(
         if finished_replace is not None
         else {}
     )
-    if not owned.update(pending_population_mode=None, population_marker=None, population_claimed_at=None, **finished):
+    if not owned.update(**PENDING_POPULATION_CLEARED, **finished):
         return False
-    cohort.pending_population_mode = None
-    cohort.population_marker = None
-    cohort.population_claimed_at = None
-    for field, value in finished.items():
+    for field, value in {**PENDING_POPULATION_CLEARED, **finished}.items():
         setattr(cohort, field, value)
     return True
 

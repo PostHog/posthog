@@ -127,6 +127,7 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import (
     COHORT_REALTIME_SWITCH_FIELDS,
     DEFAULT_COHORT_INSERT_BATCH_SIZE,
+    PENDING_POPULATION_CLEARED,
     REALTIME_COHORT_MAX_PERSON_COUNT,
     STATIC_POPULATION_RUN_FIELDS,
     Cohort,
@@ -2349,14 +2350,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # Without a release, every retry is rejected for a run that was never queued.
             Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id).update(
                 is_calculating=False,
-                pending_population_mode=None,
-                population_marker=None,
-                population_claimed_at=None,
+                **PENDING_POPULATION_CLEARED,
             )
             cohort.is_calculating = False
-            cohort.pending_population_mode = None
-            cohort.population_marker = None
-            cohort.population_claimed_at = None
+            for field, value in PENDING_POPULATION_CLEARED.items():
+                setattr(cohort, field, value)
             capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
             raise ValidationError(
                 {"query": ["Couldn't start populating this cohort. Try again in a few minutes."]}
