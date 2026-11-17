@@ -124,7 +124,7 @@ const anomalyInsightGet = (): ToolBase<ReturnType<typeof AnomalyInsightGetSchema
 
 const AnomalySearchSchema = () => {
     const SignalsAnomaliesSearchRetrieveQueryParams = orvalSchemas.SignalsAnomaliesSearchRetrieveQueryParams()
-    return SignalsAnomaliesSearchRetrieveQueryParams
+    return SignalsAnomaliesSearchRetrieveQueryParams.omit({ include_points: true })
 }
 
 const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schemas.AnomalySearchResponse> => ({

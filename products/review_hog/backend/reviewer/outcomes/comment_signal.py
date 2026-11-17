@@ -10,9 +10,11 @@ one more read to see who left it (``fetch_comment_reactions``).
 
 from typing import Any
 
+from products.review_hog.backend.facade.contracts import FindingReactionSentiment
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
 from products.review_hog.backend.reviewer.constants import (
     LEGACY_FLASH_MODE_MESSAGE_PREFIX,
+    OUTCOME_REPLY_EXCERPT_MAX_CHARS,
     REPORTED_LEVELS,
     finding_heading,
 )
@@ -87,3 +89,45 @@ def engagement_method(
     if any(not matches_app_bot(rc.get("user"), app_login) for rc in replies):
         return "comment_reply_agent"
     return None
+
+
+_POSITIVE_REACTIONS = frozenset({"+1", "heart", "hooray", "rocket"})
+_NEGATIVE_REACTIONS = frozenset({"-1", "confused"})
+
+
+def reaction_sentiment(*, reactions: list[dict[str, Any]], app_login: str | None) -> FindingReactionSentiment | None:
+    """The tone of the comment's reactions, without ReviewHog's own. `laugh` and `eyes` carry no tone."""
+    contents = {
+        reaction.get("content") for reaction in reactions if not matches_app_bot(reaction.get("user"), app_login)
+    }
+    positive = not contents.isdisjoint(_POSITIVE_REACTIONS)
+    negative = not contents.isdisjoint(_NEGATIVE_REACTIONS)
+    if positive and negative:
+        return "mixed"
+    if positive:
+        return "positive"
+    return "negative" if negative else None
+
+
+def first_reply_excerpt(
+    *, comment: dict[str, Any], review_comments: list[dict[str, Any]], app_login: str | None
+) -> str | None:
+    """The start of the earliest reply that ReviewHog did not write, such as "Fixed in <sha>" or "Leaving this as is"."""
+    comment_id = comment.get("id")
+    replies = sorted(
+        (
+            rc
+            for rc in review_comments
+            if comment_id is not None
+            and rc.get("in_reply_to_id") == comment_id
+            and not matches_app_bot(rc.get("user"), app_login)
+        ),
+        key=lambda rc: rc.get("id") or 0,
+    )
+    body = (replies[0].get("body") or "").strip() if replies else ""
+    return body[:OUTCOME_REPLY_EXCERPT_MAX_CHARS] or None
+
+
+def comment_outdated(comment: dict[str, Any]) -> bool:
+    """Whether GitHub marks the comment outdated: it clears `line` once a push changed the code under it."""
+    return comment.get("line") is None

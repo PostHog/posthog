@@ -948,6 +948,7 @@ export interface TeamType extends TeamBasicType {
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    flag_calls_only_in_flag_evaluations: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     realtime_cohorts?: TeamRealtimeCohortsApi
     receive_org_level_activity_logs: boolean | null
@@ -5957,7 +5958,7 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
-// Every grantable scope object. `hogli build:openapi` generates the enum from posthog/scopes.py,
+// Every grantable scope object. `hogli build:openapi` generates the enum from posthog/scopes/,
 // through the `resource` choice fields of the access control serializers.
 export type APIScopeObject = ScopeObjectEnumApi
 

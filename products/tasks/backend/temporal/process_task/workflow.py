@@ -213,6 +213,7 @@ class ResumedSandboxState:
     last_agent_heartbeat_at: Optional[str] = None
     sandbox_ttl_expires_at: Optional[str] = None
     sandbox_ttl_snapshot_taken: bool = False
+    sandbox_ttl_snapshot_saved: bool = False
     sandbox_rotation_idle: bool = False
     first_command_dispatched_recorded: bool = False
     first_agent_activity_recorded: bool = False
@@ -306,6 +307,7 @@ class TaskEvent(StrEnum):
     SANDBOX_GONE = "sandbox_gone"
     QUOTA_RECHECK = "quota_recheck"
     SANDBOX_TTL_APPROACHING = "sandbox_ttl_approaching"
+    SANDBOX_TTL_REACHED = "sandbox_ttl_reached"
 
 
 class CIFollowUpDecision(StrEnum):
@@ -354,6 +356,7 @@ _SLACK_SETUP_PROGRESS_STEPS = frozenset({"sandbox", "clone", "checkout", "wizard
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
 _PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT = "tasks-rotation-activity-before-boot"
+_PATCH_ID_END_RUN_AT_SANDBOX_LIMIT = "tasks-end-run-at-sandbox-limit"
 
 
 def _check_rotation_activity_before_boot() -> bool:
@@ -440,6 +443,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._ci_resume_snapshot_created: bool = False
         self._sandbox_ttl_expires_at: Optional[datetime] = None
         self._sandbox_ttl_snapshot_taken: bool = False
+        self._sandbox_ttl_snapshot_saved: bool = False
         # Decided once at workflow start; gates the placeholder skip + relay spawn.
         self._is_agent_design_enabled: bool = False
         self._dev_stack_preview_enabled: bool = False
@@ -749,6 +753,28 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.sleep(remaining.total_seconds())
         return TaskEvent.SANDBOX_TTL_APPROACHING
 
+    def _sandbox_limit_scheduled(self) -> bool:
+        return (
+            self._sandbox_ttl_expires_at is not None
+            and self._sandbox_ttl_snapshot_taken
+            and workflow.patched(_PATCH_ID_END_RUN_AT_SANDBOX_LIMIT)
+        )
+
+    def _can_end_before_sandbox_limit(self) -> bool:
+        return (
+            self._sandbox_ttl_snapshot_saved
+            and self._sandbox_rotation_block_reason() is None
+            and self._pending_followup is None
+            and not self._pending_followups
+        )
+
+    async def _wait_for_sandbox_limit(self) -> TaskEvent:
+        assert self._sandbox_ttl_expires_at is not None
+        remaining = self._sandbox_ttl_expires_at - workflow.now()
+        if remaining.total_seconds() > 0 and not self._can_end_before_sandbox_limit():
+            await workflow.sleep(remaining.total_seconds())
+        return TaskEvent.SANDBOX_TTL_REACHED
+
     async def _wait_for_quota_recheck(self):
         if self._self_driving_quota_next_check_at is None:
             self._self_driving_quota_next_check_at = workflow.now() + SELF_DRIVING_QUOTA_RECHECK_INTERVAL
@@ -829,6 +855,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             possible_events.append(asyncio.create_task(self._wait_for_max_run_duration(max_run_duration)))
         if self._sandbox_deadline_snapshot_scheduled():
             possible_events.append(asyncio.create_task(self._wait_for_sandbox_deadline()))
+        if self._sandbox_limit_scheduled():
+            possible_events.append(asyncio.create_task(self._wait_for_sandbox_limit()))
         if ci_follow_up_scheduled:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
         if not warm_idle and self._self_driving_quota_recheck_scheduled():
@@ -1356,6 +1384,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                     allow_pruning=False,
                                 )
                             )
+                            self._sandbox_ttl_snapshot_saved = saved
                             if not routing_restored:
                                 detail = (
                                     "This run can't take more messages: moving it to a fresh sandbox failed "
@@ -1422,6 +1451,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                 self._completion_error = "Stopped automatically: the organization reached its self-driving pull request limit."
                                 self._task_completed = True
                     case TaskEvent.SANDBOX_GONE:
+                        await self._mark_sandbox_gone()
+                    case TaskEvent.SANDBOX_TTL_REACHED:
+                        workflow.logger.info(
+                            "sandbox_limit_reached_without_rotation",
+                            extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+                        )
                         await self._mark_sandbox_gone()
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._has_dispatchable_followup():
@@ -1911,6 +1946,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     self._sandbox_ttl_expires_at.isoformat() if self._sandbox_ttl_expires_at else None
                 ),
                 sandbox_ttl_snapshot_taken=self._sandbox_ttl_snapshot_taken,
+                sandbox_ttl_snapshot_saved=self._sandbox_ttl_snapshot_saved,
                 sandbox_rotation_idle=self._sandbox_rotation_idle,
                 first_command_dispatched_recorded=self._first_command_dispatched_recorded,
                 first_agent_activity_recorded=self._first_agent_activity_recorded,
@@ -1963,6 +1999,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             datetime.fromisoformat(resumed.sandbox_ttl_expires_at) if resumed.sandbox_ttl_expires_at else None
         )
         self._sandbox_ttl_snapshot_taken = resumed.sandbox_ttl_snapshot_taken
+        self._sandbox_ttl_snapshot_saved = resumed.sandbox_ttl_snapshot_saved
         self._first_command_dispatched_recorded = resumed.first_command_dispatched_recorded
         self._first_agent_activity_recorded = resumed.first_agent_activity_recorded
         self._boot_path = resumed.boot_path

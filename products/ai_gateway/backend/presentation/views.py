@@ -24,13 +24,14 @@ from posthog.permissions import TimeSensitiveActionPermission
 from posthog.rate_limit import IPThrottle
 
 from ..facade import api
-from ..facade.contracts import DevTokenRefused
+from ..facade.contracts import DevTokenRefused, DevTokenRequest
 from ..facade.enums import DevTokenClient
 from .serializers import (
     CliAuthorizedSerializer,
     CliAuthorizeSerializer,
     CliExchangeSerializer,
     DevTeamUsageSerializer,
+    DevTokenCreateSerializer,
     DevTokenRefusalSerializer,
     DevTokenRevokedSerializer,
     DevTokenRevokeSerializer,
@@ -56,6 +57,10 @@ class DevTokenMintThrottle(UserRateThrottle):
 class DevTokenExchangeIPThrottle(IPThrottle):
     scope = "ai_gateway_dev_token_exchange_ip"
     rate = "30/minute"
+
+
+def _token_request(data: dict) -> DevTokenRequest:
+    return DevTokenRequest(cap_usd=data.get("cap_usd"), ttl_seconds=data.get("ttl_seconds"))
 
 
 def _refusal(refused: DevTokenRefused) -> Response:
@@ -122,8 +127,10 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
         return Response(DevTeamUsageSerializer(usage).data)
 
     @validated_request(
+        request_serializer=DevTokenCreateSerializer,
         responses={
             201: OpenApiResponse(response=MintedDevTokenSerializer),
+            400: _REFUSAL,
             403: _REFUSAL,
             429: _REFUSAL,
             503: _REFUSAL,
@@ -135,7 +142,9 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
         if refused is not None:
             return _refusal(refused)
         try:
-            minted = api.mint_dev_token(cast(User, request.user), DevTokenClient.WEB)
+            minted = api.mint_dev_token(
+                cast(User, request.user), DevTokenClient.WEB, _token_request(request.validated_data)
+            )
         except DevTokenRefused as e:
             return _refusal(e)
         return Response(MintedDevTokenSerializer(minted).data, status=status.HTTP_201_CREATED)
@@ -165,7 +174,12 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
 
     @validated_request(
         request_serializer=CliAuthorizeSerializer,
-        responses={200: OpenApiResponse(response=CliAuthorizedSerializer), 403: _REFUSAL, 503: _REFUSAL},
+        responses={
+            200: OpenApiResponse(response=CliAuthorizedSerializer),
+            400: _REFUSAL,
+            403: _REFUSAL,
+            503: _REFUSAL,
+        },
         summary="Authorize a CLI login by its PKCE challenge",
     )
     @action(detail=False, methods=["post"], url_path="cli_authorize")
@@ -173,7 +187,14 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
         refused = self._caller_refusal(request)
         if refused is not None:
             return _refusal(refused)
-        code = api.authorize_cli(cast(User, request.user), request.validated_data["code_challenge"])
+        try:
+            code = api.authorize_cli(
+                cast(User, request.user),
+                request.validated_data["code_challenge"],
+                _token_request(request.validated_data),
+            )
+        except DevTokenRefused as e:
+            return _refusal(e)
         return Response(CliAuthorizedSerializer({"code": code}).data)
 
     @validated_request(
