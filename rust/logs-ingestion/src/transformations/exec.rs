@@ -715,20 +715,28 @@ pub fn execute_log_transformation(
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct InputsError {
+    pub message: String,
+    pub duration_ms: f64,
+}
+
 pub fn resolve_inputs(
     function: &HogFunction,
     project: &OrderedJson,
     record: &OrderedJson,
     timeout_ms: f64,
-) -> Result<(OrderedJson, f64), String> {
+) -> Result<(OrderedJson, f64), InputsError> {
     let mut inputs: Vec<(String, OrderedJson)> = Vec::with_capacity(function.inputs.len());
     let mut duration_ms = 0.0;
     for input in &function.inputs {
         let value = match &input.template {
             Some(template) => {
-                let program = template
-                    .as_ref()
-                    .map_err(|e| format!("Error: Could not resolve input '{}': {e}", input.key))?;
+                let failed = |error: &String, duration_ms: f64| InputsError {
+                    message: format!("Error: Could not resolve input '{}': {error}", input.key),
+                    duration_ms,
+                };
+                let program = template.as_ref().map_err(|e| failed(e, duration_ms))?;
                 let run = run_program(
                     program,
                     globals(project, record, order_like_js(inputs.clone())),
@@ -737,9 +745,7 @@ pub fn resolve_inputs(
                     |vm, value| hog_to_js(vm, &value, &[]).map_err(|e| format!("{e:?}")),
                 );
                 duration_ms += run.duration_ms;
-                let value = run
-                    .result
-                    .map_err(|e| format!("Error: Could not resolve input '{}': {e}", input.key))?;
+                let value = run.result.map_err(|e| failed(&e, duration_ms))?;
                 js_to_ordered(&value)
             }
             None => input

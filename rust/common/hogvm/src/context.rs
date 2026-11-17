@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use crate::{
     error::VmError,
+    memory::HeapReference,
     program::{ExportedFunction, Module, Program, Token},
     stl::{hog_stl_map, stl_map, NativeFunction},
-    vm::HogVM,
+    vm::{HogVM, MAX_JSON_SERDE_DEPTH},
     HogLiteral, HogValue, Num,
 };
 
@@ -285,7 +286,7 @@ impl ExecutionContext {
         let Some(native_fn) = self.native_fns.get(name) else {
             return Err(VmError::UnknownFunction(name.to_string()));
         };
-        let emplaced = walk_emplacing(vm, native_fn(vm, args)?)?;
+        let emplaced = walk_emplacing(vm, native_fn(vm, args)?, &mut HashSet::new(), 0)?;
         vm.push_stack(emplaced)
     }
 
@@ -346,18 +347,34 @@ impl std::fmt::Display for Symbol {
     }
 }
 
+const MAX_EMPLACE_DEPTH: usize = 2 * MAX_JSON_SERDE_DEPTH;
+
 /// Walk a HogValue and its children recursively to ensure all indexable types (arrays and objects) are heap allocated,
 /// and then return the now-properly-allocated value. This is useful if, for example, you've constructed a HogValue
 /// from a JSON object without mutable access to a VM's heap, and now need to push it into the VM's memory space for the
 /// program to use.
 ///
 /// This is exposed as a utility, but generally ExecutionContext::execute_native_function_call should do what you need.
-fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> {
+fn walk_emplacing(
+    vm: &mut HogVM,
+    value: HogValue,
+    visited: &mut HashSet<HeapReference>,
+    depth: usize,
+) -> Result<HogValue, VmError> {
+    // The walk recurses on the thread's stack, and a stack overflow ends the process.
+    if depth > MAX_EMPLACE_DEPTH {
+        return Err(VmError::OutOfResource(
+            "native result nesting depth".to_string(),
+        ));
+    }
     // Chase the pointer, if this is one, and clone out of it. We hold on to the original pointer
     // so we can swap the walked value back into it after we're done.
     let (literal, existing_location) = match value {
         HogValue::Lit(lit) => (lit, None),
         HogValue::Ref(ptr) => {
+            if !visited.insert(ptr) {
+                return Ok(ptr.into());
+            }
             let val = vm.heap.get(ptr)?.clone();
             (val, Some(ptr))
         }
@@ -383,8 +400,10 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
             let emplaced_arr = if arr.iter().all(is_flat_literal) {
                 rebuild(arr)
             } else {
-                let walked: Result<Vec<HogValue>, _> =
-                    arr.into_iter().map(|i| walk_emplacing(vm, i)).collect();
+                let walked: Result<Vec<HogValue>, _> = arr
+                    .into_iter()
+                    .map(|i| walk_emplacing(vm, i, visited, depth + 1))
+                    .collect();
                 rebuild(walked?)
             };
 
@@ -404,7 +423,7 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
             // Flat children take the `_` arm of the recursive call and come straight back.
             for v in obj.values_mut() {
                 let taken = std::mem::replace(v, HogValue::Lit(HogLiteral::Null));
-                *v = walk_emplacing(vm, taken)?;
+                *v = walk_emplacing(vm, taken, visited, depth + 1)?;
             }
             let emplaced_obj = HogLiteral::Object(obj);
 

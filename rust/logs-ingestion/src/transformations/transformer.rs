@@ -15,7 +15,7 @@ use crate::record::LogRecord;
 
 use super::exec::{
     build_record_globals, execute_log_transformation, globals, project_globals, resolve_inputs,
-    sanitize_log_message, TransformStatus,
+    sanitize_log_message, InputsError, TransformStatus,
 };
 use super::functions::{HogFunction, HogFunctionSource};
 use super::monitoring::{HogFunctionMonitoring, LogEntry};
@@ -154,7 +154,7 @@ impl RecordContext<'_> {
         &mut self,
         function: &HogFunction,
         record: &OrderedJson,
-    ) -> Result<(OrderedJson, f64), String> {
+    ) -> Result<(OrderedJson, f64), InputsError> {
         match self.inputs_cache.get(&function.id) {
             Some(Some(cached)) => return Ok((cached.clone(), 0.0)),
             Some(None) => {}
@@ -246,8 +246,11 @@ impl RecordContext<'_> {
                     inputs
                 }
                 Some(Err(error)) => {
+                    self.add_vm_ms(error.duration_ms);
+                    aggregates_for(&mut self.result.aggregates, &function.id).total_duration_ms +=
+                        error.duration_ms;
                     self.fail(record, function);
-                    self.capture_error_logs(function, Vec::new(), &error);
+                    self.capture_error_logs(function, Vec::new(), &error.message);
                     continue;
                 }
             };

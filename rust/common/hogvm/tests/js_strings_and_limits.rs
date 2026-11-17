@@ -98,3 +98,21 @@ fn printing_shared_references_stops_at_the_heap_limit() {
     let printed = sync_execute(&context(STRINGIFY_TREE, tree), false).unwrap();
     assert!(printed.as_i64().unwrap() > 400_000, "{printed}");
 }
+
+const CYCLE_THROUGH_NATIVE: &str = r#"["_H", 1, 42, 0, 36, 0, 32, "self", 36, 0, 46, 36, 0, 2, "values", 1, 2, "length", 1, 38, 35]"#;
+// `a.self := a` then `values(a)`, and 20,000 nested arrays then `values(a)`.
+const DEEP_THROUGH_NATIVE: &str = r#"["_H", 1, 43, 0, 33, 0, 33, 20000, 36, 1, 15, 40, 15, 36, 0, 43, 1, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -22, 35, 36, 0, 2, "values", 1, 2, "length", 1, 38, 35]"#;
+
+#[test]
+fn a_native_result_that_reaches_a_cycle_or_deep_nesting_does_not_overflow_the_stack() {
+    assert_eq!(
+        sync_execute(&context(CYCLE_THROUGH_NATIVE, json!({})), false).unwrap(),
+        json!(1)
+    );
+    let failure = sync_execute(&context(DEEP_THROUGH_NATIVE, json!({})), false).unwrap_err();
+    assert!(
+        matches!(failure.error, VmError::OutOfResource(_)),
+        "{:?}",
+        failure.error
+    );
+}

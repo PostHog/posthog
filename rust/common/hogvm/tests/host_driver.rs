@@ -125,3 +125,23 @@ fn memory_bytes_counts_stack_strings_and_push_stack_answers_a_call() {
     };
     assert_eq!(finished, json!("answered by the host"));
 }
+
+#[test]
+fn printing_many_references_to_one_global_string_stops_at_the_heap_limit() {
+    let context = ExecutionContext::with_defaults(program(
+        r#"["_H", 1, 32, "t", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 43, 10, 2, "jsonStringify", 1, 2, "length", 1, 38]"#,
+    ))
+    .with_ordered_globals(OrderedJson::Object(vec![(
+        "inputs".into(),
+        OrderedJson::Object(vec![(
+            "t".into(),
+            OrderedJson::String(Arc::from("x".repeat(300 * 1024))),
+        )]),
+    )]));
+    let failure = hogvm::sync_execute(&context, false).unwrap_err();
+    assert!(
+        matches!(failure.error, hogvm::VmError::OutOfResource(_)),
+        "{:?}",
+        failure.error
+    );
+}

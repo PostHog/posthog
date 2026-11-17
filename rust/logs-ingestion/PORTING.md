@@ -289,7 +289,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
   - `replaceAll` and `replaceOne` do not expand `$&` and the other `String.prototype.replace` patterns in the replacement.
   - VM error texts other than a thrown Hog error differ.
   - Converting a value for `print` or a result stops past 100,000 values, 8 MiB or 256 levels of nesting, and fails the invocation. Shared references reach these quickly. A result under the 1 MiB record cap can still exceed the value or nesting limit, and Node applies it. All arguments of one `print` share the limits.
-  - `toString`, `concat` and `jsonStringify` fail when the containers that a value reaches more than once hold more text than the heap has room for. Node fails such a value at its own memory limit, at a different size.
+  - `toString`, `concat` and `jsonStringify` fail when the containers that a value reaches more than once, and the global strings it references, hold more text than the heap has room for. Node fails such a value at its own memory limit, at a different size.
   - `jsonStringify` writes `,` and `:` separators and keeps the decimal point of a float (`{"a": 1, "b": 2.0}`), as the Python VM does. Node writes `{"a":1,"b":2}`.
   - `print` returns null. Node returns `undefined`, so a result field set from `print(...)` is invalid there and cleared here.
   - A global chain that ends in `.length` on a string or an array reads null. Node reads the length.
@@ -300,6 +300,8 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
   - An input with no `value` key is null. Node holds `undefined`, which matters only when a program stringifies `inputs`.
   - A closure in a result converts to the Node closure object. Its upvalue ids count from 1 per conversion, and a native function reference carries Rust's `ip` and `chunk`, so those two can differ from Node's.
   - A panic in one function run fails that invocation (`logs_ingestion_transformations_unexpected_errors_total`) and keeps the record, as Node's catch does for a transformer bug. A panic between function runs also keeps the record and counts the same metric, where an error there in Node fails the message.
+- **The VM time of an input template that fails** counts toward the message and batch budgets. Node does not count it, so there a template that times out on every record runs for the whole message.
+- **A native call whose result is nested more than 512 levels** fails the invocation, because the port walks the result by recursion.
 - **Input order with a non-numeric `order`.** Node's comparator returns NaN for it, and the sort result is not defined. The port sorts such an input last.
 - **The `instance_id` of a function log** is a UUID v7. Node writes a `UUIDT`.
 - **A Fernet token dated more than 60 seconds in the future** does not decrypt, because the `fernet` crate checks the timestamp without a TTL. Node and Django do not read it.

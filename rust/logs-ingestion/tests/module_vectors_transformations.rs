@@ -107,7 +107,9 @@ fn hog_input_templates_match_node() {
                 json_stringify(expected),
                 "{name}"
             ),
-            (Err(error), None) => assert_eq!(error, string(get(&output, "error")), "{name}"),
+            (Err(error), None) => {
+                assert_eq!(error.message, string(get(&output, "error")), "{name}")
+            }
             (actual, _) => panic!("{name}: {:?} against {output:?}", actual.map(|(i, _)| i)),
         }
     }

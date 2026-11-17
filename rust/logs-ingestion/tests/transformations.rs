@@ -365,6 +365,26 @@ async fn rereading_a_large_record_stays_inside_the_memory_limit() {
 }
 
 #[tokio::test]
+async fn a_failed_input_template_spends_the_budgets() {
+    let inputs = format!(r#"{{"slow": {{"value": "", "bytecode": {RUNAWAY}}}}}"#);
+    let (service, _) = service(
+        Arc::new(StaticHogFunctions(vec![function(IDENTITY, &inputs, None)])),
+        5.0,
+    );
+    let budget = Arc::new(TransformationBatchBudget::new(0.0001));
+    let mut records = vec![record("api"), record("api")];
+    service
+        .transform_records(TEAM_ID, &mut records, Some(budget))
+        .await
+        .unwrap();
+    assert!(failed(&records[0]));
+    assert_eq!(
+        attribute(&records[1], "posthog.transformations_skipped").as_deref(),
+        Some("\"budget\"")
+    );
+}
+
+#[tokio::test]
 async fn print_arguments_share_one_size_limit() {
     let staged = StagedRecord::fresh(record_from_js(&js(&format!(
         r#"{{"uuid": "u", "body": "{}"}}"#,

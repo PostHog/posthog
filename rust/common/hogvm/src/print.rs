@@ -11,7 +11,7 @@ use crate::values::HogMap;
 
 use crate::{
     memory::{HeapReference, VmHeap},
-    values::{Callable, HogLiteral, HogValue},
+    values::{Callable, HogLiteral, HogStr, HogValue},
 };
 
 const PRINT_RECURSION_LIMIT: usize = 64;
@@ -84,10 +84,14 @@ struct RepeatMeasure<'a> {
 impl RepeatMeasure<'_> {
     fn count(&mut self, bytes: usize) -> Result<(), crate::VmError> {
         if self.inside_repeats > 0 {
-            self.repeated_bytes = self.repeated_bytes.saturating_add(bytes);
-            self.heap.assert_can_allocate(self.repeated_bytes)?;
+            self.count_always(bytes)?;
         }
         Ok(())
+    }
+
+    fn count_always(&mut self, bytes: usize) -> Result<(), crate::VmError> {
+        self.repeated_bytes = self.repeated_bytes.saturating_add(bytes);
+        self.heap.assert_can_allocate(self.repeated_bytes)
     }
 
     fn walk(&mut self, value: &HogValue, depth: usize) -> Result<(), crate::VmError> {
@@ -117,7 +121,9 @@ impl RepeatMeasure<'_> {
             self.inside_repeats += usize::from(repeated);
         }
         let result = match lit {
-            HogLiteral::String(s) => self.count(s.len()),
+            // The heap charges a shared string as a pointer, so its limit does not bound the text.
+            HogLiteral::String(HogStr::Shared(s)) => self.count_always(s.len()),
+            HogLiteral::String(HogStr::Owned(s)) => self.count(s.len()),
             HogLiteral::Array(items) | HogLiteral::Tuple(items) => {
                 items.iter().try_for_each(|item| self.walk(item, depth + 1))
             }
