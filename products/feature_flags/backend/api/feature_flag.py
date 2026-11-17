@@ -609,11 +609,7 @@ def flag_version_conflict_message(sent_version: int, current_version: int) -> st
 
 
 # Legacy rows can hold a non-array `groups` or `properties`. jsonb_array_elements raises on those values.
-_FILTER_GROUPS = jsonb_array_or_empty("filters->'groups'")
 _GROUP_PROPERTIES = jsonb_array_or_empty("grp->'properties'")
-_FLAG_FILTER_PROPERTIES = (
-    f"jsonb_array_elements({_FILTER_GROUPS}) AS grp CROSS JOIN jsonb_array_elements({_GROUP_PROPERTIES}) AS prop"
-)
 
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
@@ -626,7 +622,8 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
             where=[
                 f"""
                     EXISTS (
-                        SELECT 1 FROM {_FLAG_FILTER_PROPERTIES}
+                        SELECT 1 FROM jsonb_array_elements({jsonb_array_or_empty("filters->'groups'")}) AS grp
+                        CROSS JOIN jsonb_array_elements({_GROUP_PROPERTIES}) AS prop
                         WHERE prop->>'type' = 'flag'
                         AND prop->>'key' = %s
                     )
@@ -712,7 +709,8 @@ def find_dependent_flags_batch(
             where=[
                 f"""
                     EXISTS (
-                        SELECT 1 FROM {_FLAG_FILTER_PROPERTIES}
+                        SELECT 1 FROM jsonb_array_elements({jsonb_array_or_empty("filters->'groups'")}) AS grp
+                        CROSS JOIN jsonb_array_elements({_GROUP_PROPERTIES}) AS prop
                         WHERE prop->>'type' = 'flag'
                         AND ({or_conditions})
                     )
@@ -728,7 +726,7 @@ def find_dependent_flags_batch(
     flag_id_strs = {str(fid) for fid in flag_ids}
 
     for dep_flag in dependent_flags:
-        for located in _iter_flag_filter_properties((dep_flag.filters or {}).get("groups")):
+        for located in _iter_flag_filter_properties(dep_flag.conditions):
             prop = located.prop
             if prop.get("type") == "flag" and prop.get("key") in flag_id_strs:
                 dep_flag_id = int(prop["key"])
