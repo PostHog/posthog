@@ -500,7 +500,7 @@ export function createRunner(
                     driveForMs: durationMs(card.drive.for),
                 })
                 const sampling = { sampler, probes }
-                live.follow({
+                void live.follow({
                     timeline: () => valves.timeline(),
                     samples: () => sampling.sampler.taken(),
                     queue: () => sampling.probes.queue(),

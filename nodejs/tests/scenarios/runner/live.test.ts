@@ -152,6 +152,24 @@ describe('live log', () => {
         ])
     })
 
+    it('stops following when the run leaves it without stopping it', async () => {
+        const log = openLiveLog(runDir, 10)
+        log.write(START)
+
+        const following = log.follow({
+            timeline: () => [],
+            samples: () => [],
+            queue: () => [],
+            writer: () => [],
+            journal: () => [],
+            edgeUrl: UNREACHABLE_EDGE,
+        })
+        log[Symbol.dispose]()
+        await following
+
+        expect(linesOf()).toEqual([START, expect.objectContaining({ type: 'tick' })])
+    })
+
     it('stops following without failing the run when a source throws', async () => {
         const log = openLiveLog(runDir)
         log.write(START)

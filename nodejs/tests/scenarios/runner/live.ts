@@ -47,7 +47,7 @@ export type LiveSources = {
 
 export interface LiveLog extends Disposable {
     write(record: LiveRecord): void
-    follow(sources: LiveSources): void
+    follow(sources: LiveSources): Promise<void>
     stop(): Promise<void>
 }
 
@@ -155,11 +155,15 @@ export function openLiveLog(evidenceDir: string, tickMs = TICK_MS): LiveLog {
                     })
                 }
             })().catch(() => undefined)
+            return following
         },
         async stop() {
             stopped.abort()
             await following
         },
-        [Symbol.dispose]: stopBeat,
+        [Symbol.dispose]() {
+            stopBeat()
+            stopped.abort()
+        },
     }
 }
