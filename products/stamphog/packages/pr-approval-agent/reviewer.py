@@ -372,6 +372,9 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     (e.g. "request review from @PostHog/team-x"); when the prompt lists who is
     most familiar with the modified lines, name them as suggested reviewers.
     When a specific comment blocks approval, reference it by file and commenter.
+    When it is a reviewer bot's finding, also say that if the finding is wrong,
+    the author can reply in the thread with why and resolve it. Never offer that
+    for a security, auth, data-loss or migration finding.
     Examples:
     - "Get a review from a team member on [team] before re-requesting."
     - "Request review from @PostHog/team-x (owns the changed files)."
