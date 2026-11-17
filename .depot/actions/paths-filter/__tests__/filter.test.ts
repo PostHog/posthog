@@ -67,6 +67,23 @@ describe('matching tests', () => {
     expect(new Filter(filtersYaml).match(files).frontend_code).toEqual(files)
   })
 
+  test.each<[string[], boolean]>([
+    [['cli/src/main.rs'], false],
+    [['rust/cymbal/tests/static/native/test_binary.c'], false],
+    [['rust/cymbal/tests/static/apple/test_binary.c'], false],
+    [['services/mcp/src/cli/index.ts'], true],
+    [['cli/src/main.rs', 'services/mcp/src/cli/index.ts'], true],
+    [['.github/workflows/ci-cli.yml'], true],
+    [['pnpm-lock.yaml'], true],
+    [['packages/llm-normalizer/src/index.ts'], true]
+  ])('CLI bundle filter retains non-Rust inputs %j', (paths, runs) => {
+    const workflowYaml = readFileSync(path.join(__dirname, '../../../../.github/workflows/ci-cli.yml'), 'utf8')
+    const workflow = jsyaml.load(workflowYaml) as {jobs: {changes: {steps: {id?: string; with?: {filters?: string}}[]}}}
+    const filtersYaml = workflow.jobs.changes.steps.find(step => step.id === 'filter')?.with?.filters
+
+    expect(new Filter(filtersYaml).match(modified(paths)).api_bundle.length > 0).toBe(runs)
+  })
+
   test.each<[string, string[], number]>([
     ['unrelated rename', ['services/mcp/README.md', 'services/mcp/README-renamed.md'], 3],
     ['rename source', ['services/mcp/renamed-fixture'], 2],
