@@ -98,7 +98,7 @@ from posthog.rate_limit import (
     ProjectSecretApiKeyTeamRateThrottle,
 )
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
-from posthog.utils import is_valid_regex, str_to_bool
+from posthog.utils import is_valid_regex, safe_int, str_to_bool
 from posthog.views import format_bytes
 
 from products.access_control.backend.facade.api import (
@@ -635,13 +635,53 @@ def raise_if_flag_has_dependents(flag: FeatureFlag, action: str = "disable") -> 
     dependent_flags = find_dependent_flags(flag)
     if not dependent_flags:
         return
-    names = ", ".join(f"{f.key} (ID: {f.id})" for f in dependent_flags[:5])
-    if len(dependent_flags) > 5:
-        names += f", and {len(dependent_flags) - 5} more"
     raise exceptions.ValidationError(
-        f"Cannot {action} this feature flag because other flags depend on it: {names}. "
+        f"Cannot {action} this feature flag because other flags depend on it: {_describe_flags(dependent_flags)}. "
         "Please update or disable the dependent flags first."
     )
+
+
+def _describe_flags(flags: list[FeatureFlag]) -> str:
+    names = ", ".join(f"{f.key} (ID: {f.id})" for f in flags[:5])
+    if len(flags) > 5:
+        names += f", and {len(flags) - 5} more"
+    return names
+
+
+DEPENDENCY_RUNTIME_MISMATCH = "dependency_runtime_mismatch"
+
+_RUNTIME_DESCRIPTIONS = {
+    "client": "client-side only",
+    "server": "server-side only",
+    "all": "on both client and server",
+}
+
+
+def _runtime(flag_runtime: str | None) -> str:
+    return flag_runtime or "all"
+
+
+def _describe_runtime(flag_runtime: str | None) -> str:
+    runtime = _runtime(flag_runtime)
+    return _RUNTIME_DESCRIPTIONS.get(runtime, runtime)
+
+
+def _runtime_supports_dependency(dependent_runtime: str | None, dependency_runtime: str | None) -> bool:
+    # The flags service drops a flag outside the request's runtime and evaluates a dependency on it
+    # as false. The dependency must therefore evaluate everywhere the dependent does.
+    dependency = _runtime(dependency_runtime)
+    return dependency == "all" or dependency == _runtime(dependent_runtime)
+
+
+def _flag_dependency_ids(filters: Any) -> set[int]:
+    groups = filters.get("groups") if isinstance(filters, dict) else None
+    ids = set()
+    for located in _iter_flag_filter_properties(groups):
+        if located.prop.get("type") == PropertyFilterType.FLAG:
+            flag_id = safe_int(located.prop.get("key"))
+            if flag_id is not None:
+                ids.add(flag_id)
+    return ids
 
 
 def find_dependent_flags_batch(
@@ -1849,6 +1889,7 @@ class FeatureFlagSerializer(
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
         self._validate_reactivated_references(attrs)
+        self._validate_dependency_runtimes(attrs)
         self._validate_flag_limits()
 
         # Materialize the remote-config 100% rollout default here, before the approval gate runs in
@@ -1881,6 +1922,64 @@ class FeatureFlagSerializer(
         self._validate_tags_requirement(attrs, team, creation_context)
 
         return attrs
+
+    def _validate_dependency_runtimes(self, attrs: dict) -> None:
+        # Only dependencies that this write adds, or that a runtime change affects, are checked.
+        # An edit to a flag that already holds a mismatched dependency therefore still saves.
+        if self._v2_write:
+            return
+        stored_runtime = self.instance.evaluation_runtime if self.instance is not None else None
+        runtime = attrs.get("evaluation_runtime", stored_runtime)
+        runtime_changed = self.instance is not None and _runtime(runtime) != _runtime(stored_runtime)
+
+        if runtime_changed:
+            broken_dependents = [
+                dependent
+                for dependent in find_dependent_flags(self.instance)
+                if not _runtime_supports_dependency(dependent.evaluation_runtime, runtime)
+            ]
+            if broken_dependents:
+                raise serializers.ValidationError(
+                    {
+                        "evaluation_runtime": ErrorDetail(
+                            f"Cannot make this flag evaluate {_describe_runtime(runtime)} because flags that "
+                            f"evaluate elsewhere depend on it: {_describe_flags(broken_dependents)}. Remove the "
+                            f"dependency from those flags, or set this flag to evaluate {_describe_runtime('all')}.",
+                            code=DEPENDENCY_RUNTIME_MISMATCH,
+                        )
+                    }
+                )
+
+        stored_filters = self.instance.filters if self.instance is not None else None
+        stored_dependency_ids = _flag_dependency_ids(stored_filters) if self.instance is not None else set()
+        dependency_ids = _flag_dependency_ids(attrs.get("get_filters", stored_filters))
+        if not runtime_changed:
+            dependency_ids -= stored_dependency_ids
+        if not dependency_ids:
+            return
+
+        dependencies = (
+            FeatureFlag.objects.filter(id__in=dependency_ids, team__project_id=self.context["project_id"])
+            .only("id", "key", "evaluation_runtime")
+            .order_by("key")
+        )
+        for dependency in dependencies:
+            if _runtime_supports_dependency(runtime, dependency.evaluation_runtime):
+                continue
+            dependency_runtime = _describe_runtime(dependency.evaluation_runtime)
+            # A dependency the flag already stores fails only because this write changes the runtime.
+            attr = "evaluation_runtime" if dependency.id in stored_dependency_ids else "filters"
+            raise serializers.ValidationError(
+                {
+                    attr: ErrorDetail(
+                        f"Cannot depend on flag '{dependency.key}' (ID: {dependency.id}) because it evaluates "
+                        f"{dependency_runtime} and this flag evaluates {_describe_runtime(runtime)}. Where "
+                        f"'{dependency.key}' doesn't evaluate, this flag reads it as false. Set '{dependency.key}' "
+                        f"to evaluate {_describe_runtime('all')}, or set this flag to evaluate {dependency_runtime}.",
+                        code=DEPENDENCY_RUNTIME_MISMATCH,
+                    )
+                }
+            )
 
     def _validate_evaluation_contexts_requirement(
         self, attrs: dict, request: Any, team: Team, creation_context: str | None
@@ -2702,8 +2801,6 @@ class FeatureFlagSerializer(
 
     def _validate_flag_reference(self, flag_reference):
         """Validate and convert flag reference to flag key."""
-        from posthog.utils import safe_int
-
         flag_id = safe_int(flag_reference)
         if flag_id is None:
             raise serializers.ValidationError(

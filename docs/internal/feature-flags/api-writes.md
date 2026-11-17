@@ -45,6 +45,16 @@ The row's `FeatureFlag.version` remains an independent concurrency counter.
 Conversion attempts remain blocked by incoming-version rejection and the stored-format write guard.
 A future converter must reject conversion of a target with inbound v1 dependencies before changing its configuration format.
 
+A v1 write also rejects a dependency whose target does not evaluate everywhere the dependent flag does.
+The target's `evaluation_runtime` must be `all`, null, or the dependent's own runtime, because the flags service evaluates a dependency on a flag outside the request's runtime as false.
+The check applies to dependencies the write adds, and to every dependency of the flag when the write changes the flag's runtime.
+A newly added dependency fails at `filters`, and a stored dependency that a runtime change breaks fails at `evaluation_runtime`.
+A dependency the stored flag already has passes unchanged, so an older mismatch does not block unrelated edits.
+Changing a flag's runtime also fails at `evaluation_runtime` when an active flag that depends on it evaluates in a runtime the new value excludes.
+All of these errors use the code `dependency_runtime_mismatch`.
+The runtime check never blocks re-enabling a flag.
+A copy that creates a flag in another project counts every dependency as added, so it fails when a remapped dependency has a runtime the copy cannot depend on.
+
 Do not wrap facade writes in an outer transaction.
 An approval-required write creates a pending change request and then raises; an outer transaction would roll that request back.
 The serializer's existing update transaction locks the flag and increments its row version.
