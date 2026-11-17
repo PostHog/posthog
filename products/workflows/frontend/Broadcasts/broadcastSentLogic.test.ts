@@ -226,13 +226,13 @@ describe('broadcastSentLogic', () => {
             expect(logic.values.notSent).toEqual({ rows: [], counts: { failed: 0, skipped: 0, canceled: 0 } })
         })
 
-        it('appends the next page once, skipping people pushed onto it by new sends', async () => {
-            server.sends = sends('all', 600)
+        it('appends the next page of the same search once, skipping people pushed onto it by new sends', async () => {
+            server.sends = [...sends('all', 600), ...sends('ada', 1)]
             const logic = mountRun()
-            logic.actions.loadSends()
-            await settle()
+            logic.actions.setRecipientSearch('all')
+            await settle(300)
 
-            server.sends.unshift(...sends('new', 2))
+            server.sends.unshift(...sends('all-new', 2))
             logic.actions.loadMoreSends()
             await settle()
             logic.actions.loadMoreSends()
@@ -241,6 +241,24 @@ describe('broadcastSentLogic', () => {
             expect(requests.map((request) => request.params.offset)).toEqual(['0', '500', '602'])
             expect(shown(logic)).toEqual(sends('all', 600).map((send) => send.distinct_id))
             expect(logic.values.hasMoreRecipients).toBe(false)
+        })
+
+        it('drops a next page that lands after a new search', async () => {
+            server.sends = sends('all', 600)
+            const logic = mountRun()
+            logic.actions.loadSends()
+            await settle()
+
+            server.hold = true
+            logic.actions.loadMoreSends()
+            logic.actions.setRecipientSearch('all-1')
+            await settle(300)
+            requests[2].resolve(sends('all-1', 1))
+            await settle()
+            requests[1].resolve(sends('all', 600).slice(500))
+            await settle()
+
+            expect(shown(logic)).toEqual(['all-1-0'])
         })
 
         it('shows the picked send until the list reloads', async () => {
