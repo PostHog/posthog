@@ -1,8 +1,8 @@
 """Imports suppressions, unsubscribe groups and templates from SendGrid, and lists what can't move.
 
 SendGrid is the one provider here with read-only scopes, so the customer can hand over a narrow key. The run still only
-keeps it until it ends. SendGrid documents only stats for its automations, so they stay behind. Contacts don't become
-people. A send to any address reads the blocking rules this import fills, so PostHog doesn't need them.
+keeps it until it ends. SendGrid documents only stats for its automations, so they stay behind. A send to any address
+reads the blocking rules this import fills, so PostHog doesn't need them.
 """
 
 import io
@@ -135,8 +135,8 @@ class SendGridImportProvider(ImportProvider):
     api_key_url = "https://app.sendgrid.com/settings/api_keys"
     not_imported = (
         "SendGrid's API only shares stats for automations, so rebuild them as workflows. Blocks stay behind because "
-        "SendGrid doesn't keep suppressing those addresses either. Contacts don't become people. Webhooks, API keys, "
-        "stats, send history and inactive template versions stay in SendGrid."
+        "SendGrid doesn't keep suppressing those addresses either. Webhooks, API keys, stats, send history and "
+        "inactive template versions stay in SendGrid."
     )
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so this "
