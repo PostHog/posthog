@@ -4191,3 +4191,44 @@ class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
         self.assertEqual(detail["status"], listed["status"])
         self.assertEqual(detail["latest_error"], listed["latest_error"])
         self.assertEqual(listed["status"], "Completed")
+
+    def test_the_detail_route_reads_the_serving_run_once(self):
+        view = self._view("detail_view")
+        self._run(view, DataModelingJob.Status.FAILED, minutes_ago=5, error="new failure")
+
+        with CaptureQueriesContext(connection) as queries:
+            body = self._detail(view)
+
+        self.assertEqual((body["status"], body["latest_error"]), ("Failed", "new failure"))
+        job_table = DataModelingJob._meta.db_table
+        job_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{job_table}" WHERE' in q["sql"]]
+        self.assertEqual(len(job_selects), 1, job_selects)
+
+    def test_the_list_reads_only_the_newest_clickhouse_run_of_each_view(self):
+        recovered = self._view("recovered_view")
+        self._run(recovered, DataModelingJob.Status.FAILED, minutes_ago=60, error="old failure")
+        self._run(recovered, DataModelingJob.Status.COMPLETED, minutes_ago=5)
+        broken = self._view("broken_view")
+        self._run(broken, DataModelingJob.Status.COMPLETED, minutes_ago=60)
+        self._run(broken, DataModelingJob.Status.FAILED, minutes_ago=5, error="new failure")
+        self._run(
+            broken, DataModelingJob.Status.COMPLETED, minutes_ago=1, engine=DataModelingJobEngine.MANAGED_WAREHOUSE
+        )
+        never_ran = self._view("never_ran_view")
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        listed = {row["id"]: (row["status"], row["latest_error"]) for row in response.json()["results"]}
+        self.assertEqual(
+            listed,
+            {
+                str(recovered.id): ("Completed", None),
+                str(broken.id): ("Failed", "new failure"),
+                str(never_ran.id): (None, None),
+            },
+        )
+        job_table = DataModelingJob._meta.db_table
+        job_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{job_table}" WHERE' in q["sql"]]
+        self.assertEqual(job_selects, [])

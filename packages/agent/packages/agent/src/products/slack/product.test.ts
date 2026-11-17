@@ -152,7 +152,7 @@ describe("Slack product", () => {
       "workflow",
       { slack_reply_context: true },
       false,
-      "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
+      "*Created with [PostHog](https://posthog.com?ref=pr)*",
     ],
   ] as const)(
     "publishes only for the Slack app origin (origin: %s)",

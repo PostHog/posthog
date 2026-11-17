@@ -14,8 +14,8 @@ export interface SendFromCodeSnippet {
 }
 
 const INSTALL_FROM_FIRST_VERSION_WITH_CODE_SENDS: Record<SendFromCodeSdk, string | null> = {
-    node: 'npm install posthog-node@^5.62.0',
-    python: 'pip install "posthog>=7.84.0"',
+    node: 'npm install posthog-node@6',
+    python: 'pip install posthog~=8.0',
     curl: null,
 }
 
