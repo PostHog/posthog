@@ -59,6 +59,20 @@ describe('HogFlow Quota Limiting', () => {
                 expected: false,
             },
             {
+                name: 'a webhook alone is not limited by the email quota',
+                trigger: { type: 'event' },
+                actions: [{ type: 'function', config: {} }],
+                limitedResources: ['workflow_emails'],
+                expected: false,
+            },
+            {
+                name: 'a push send alone is limited by the destination quota',
+                trigger: { type: 'event' },
+                actions: [{ type: 'function_push', config: {} }],
+                limitedResources: ['workflow_destinations_dispatched'],
+                expected: true,
+            },
+            {
                 name: 'only transactional emails are not limited',
                 trigger: { type: 'event' },
                 actions: [transactionalEmail, transactionalEmail],
