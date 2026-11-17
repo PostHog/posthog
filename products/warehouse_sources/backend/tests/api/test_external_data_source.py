@@ -99,6 +99,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
     _payload_sync_frequency_interval,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.viewset import ExternalDataSourceViewSet
+from products.warehouse_sources.backend.self_managed_access import MIGRATION_MARKER_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source import BigQuerySource
@@ -122,6 +123,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     CredentialAccountsMixin,
     HostNotAllowedError,
     TemporaryHostResolutionError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import StoredObject
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
+    ObjectStorageSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
@@ -16681,3 +16686,224 @@ class TestSourceSetupErrorCodes(APIBaseTest):
             response = self._post(self.CREATE_URL, {"source_type": "Stripe", "payload": {}})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "billing_limit_reached"
+
+
+def _stored_files(*paths: str) -> list[StoredObject]:
+    return [StoredObject(path=path, size=10, modified_at=timezone.now()) for path in paths]
+
+
+class TestAddTableByPath(APIBaseTest):
+    def _source(self, source_type: str = "AmazonS3", connection_metadata: dict | None = None) -> ExternalDataSource:
+        job_inputs = (
+            {
+                "url_pattern": "https://s3.us-east-1.amazonaws.com/example-bucket/",
+                "access_key_id": "AKIAEXAMPLE",
+                "secret_access_key": "c2VjcmV0",
+                "file_format": "infer",
+                "csv_allow_double_quotes": "true",
+            }
+            if source_type == "AmazonS3"
+            else {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}}
+        )
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type=source_type,
+            created_by=self.user,
+            prefix="bucket",
+            job_inputs=job_inputs,
+            connection_metadata=connection_metadata or {},
+        )
+
+    def _add_table(self, source: ExternalDataSource, store: Any, **body: Any) -> Any:
+        with patch.object(ObjectStorageSource, "open_store", return_value=store):
+            return self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/add_table/",
+                {"name": "orders", "path": "tables/orders/", **body},
+            )
+
+    @parameterized.expand(
+        [
+            ("relative_folder", "tables/orders/"),
+            ("full_url", "s3://example-bucket/tables/orders/"),
+        ]
+    )
+    def test_creates_a_pinned_table_that_is_turned_off(self, _name: str, path: str) -> None:
+        source = self._source()
+        store = MagicMock()
+        store.list_objects.return_value = _stored_files("tables/orders/a.csv", "tables/orders/b.csv")
+
+        with patch(
+            "products.warehouse_sources.sources.amazon_s3.source.lookup_s3_bucket_region",
+            return_value="us-east-1",
+        ):
+            response = self._add_table(source, store, path=path, csv_allow_double_quotes=False)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(pk=response.json()["id"])
+        assert (schema.name, schema.should_sync, schema.sync_type) == (
+            "orders",
+            False,
+            ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        metadata = schema.sync_type_config["schema_metadata"]
+        assert metadata["pinned"] is True
+        assert (metadata["kind"], metadata["scope"], metadata["path"], metadata["csv"]["allow_double_quotes"]) == (
+            "files",
+            "all",
+            "tables/orders",
+            False,
+        )
+        store.list_objects.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("name_starts_with_a_number", {"name": "1orders"}, "name", "must start with a letter"),
+            ("name_with_a_dash", {"name": "my-orders"}, "name", "must start with a letter"),
+            ("unknown_file_format", {"file_format": "avro"}, "file_format", "valid choice"),
+            ("path_in_another_bucket", {"path": "s3://other-bucket/a.csv"}, "path", "in another bucket"),
+            ("path_with_a_parent_folder", {"path": "tables/../a.csv"}, "path", "'..' folders"),
+        ]
+    )
+    def test_refuses_invalid_input_before_reading_the_bucket(
+        self, _name: str, body: dict[str, Any], attr: str, detail: str
+    ) -> None:
+        store = MagicMock()
+
+        with patch(
+            "products.warehouse_sources.sources.amazon_s3.source.lookup_s3_bucket_region",
+            return_value="us-east-1",
+        ):
+            response = self._add_table(self._source(), store, **body)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == attr
+        assert detail in response.json()["detail"]
+        store.list_objects.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("live_table", "orders", False, {}),
+            ("live_table_in_another_case", "Orders", False, {}),
+            ("deleted_table_that_stays_self_managed", "orders", True, {"self_managed_table": {"table_id": "t"}}),
+        ]
+    )
+    def test_refuses_a_name_another_table_holds(
+        self, _name: str, existing_name: str, deleted: bool, metadata: dict[str, Any]
+    ) -> None:
+        source = self._source()
+        ExternalDataSchema.objects.create(
+            name=existing_name,
+            team_id=self.team.pk,
+            source=source,
+            deleted=deleted,
+            sync_type_config={"schema_metadata": metadata},
+        )
+        store = MagicMock()
+
+        response = self._add_table(source, store)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "name"
+        assert response.json()["detail"] == "A table named orders already exists in this source."
+        store.list_objects.assert_not_called()
+
+    def test_a_deleted_table_does_not_hold_its_name(self) -> None:
+        source = self._source()
+        ExternalDataSchema.objects.create(name="orders", team_id=self.team.pk, source=source, deleted=True)
+        store = MagicMock()
+        store.list_objects.return_value = _stored_files("tables/orders/a.csv")
+
+        response = self._add_table(source, store)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    @parameterized.expand(
+        [
+            ("access_denied", PermissionError("Access Denied"), "The storage provider denied access", False),
+            ("unexpected_error", RuntimeError("boom"), "PostHog couldn't read this path.", True),
+        ]
+    )
+    def test_a_storage_failure_is_an_error_on_the_path(
+        self, _name: str, raised: Exception, detail: str, captured: bool
+    ) -> None:
+        source = self._source()
+        store = MagicMock()
+        store.list_objects.side_effect = raised
+
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception"
+        ) as capture:
+            response = self._add_table(source, store)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "path"
+        assert response.json()["detail"].startswith(detail)
+        assert capture.called is captured
+        assert not ExternalDataSchema.objects.filter(source=source).exists()
+
+    def test_a_location_without_files_is_an_error_on_the_path(self) -> None:
+        store = MagicMock()
+        store.list_objects.return_value = []
+
+        response = self._add_table(self._source(), store)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "path"
+        assert "is empty or doesn't exist" in response.json()["detail"]
+
+    def test_a_source_that_is_not_object_storage_can_not_add_a_table(self) -> None:
+        response = self._add_table(self._source("Stripe"), MagicMock())
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["detail"] == "Only object storage sources can add a table by path."
+
+    @parameterized.expand(
+        [
+            ("migrated_bucket_source", {MIGRATION_MARKER_KEY: {"group_key": "s3/us-east-1/example-bucket"}}, 400),
+            ("source_a_user_created", {}, 200),
+        ]
+    )
+    def test_refresh_schemas_refuses_a_source_rooted_at_a_whole_bucket(
+        self, _name: str, connection_metadata: dict[str, Any], expected_status: int
+    ) -> None:
+        source = self._source(connection_metadata=connection_metadata)
+
+        with patch.object(ObjectStorageSource, "get_schemas", return_value=[]) as get_schemas:
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+            )
+
+        assert response.status_code == expected_status, response.content
+        assert get_schemas.called is (expected_status == 200)
+        if expected_status == 400:
+            assert "Add each table by its path instead" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            ("object_storage_source", "AmazonS3", {}, True, True, "example-bucket/"),
+            ("migrated_bucket_source", "AmazonS3", {MIGRATION_MARKER_KEY: {}}, True, False, "example-bucket/"),
+            ("api_source", "Stripe", {}, False, True, None),
+        ]
+    )
+    def test_source_says_how_it_gets_new_tables(
+        self,
+        _name: str,
+        source_type: str,
+        connection_metadata: dict[str, Any],
+        supports_adding_tables: bool,
+        supports_table_discovery: bool,
+        table_root: str | None,
+    ) -> None:
+        source = self._source(source_type, connection_metadata)
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/{source.pk}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert (body["supports_adding_tables"], body["supports_table_discovery"], body["table_root"]) == (
+            supports_adding_tables,
+            supports_table_discovery,
+            table_root,
+        )

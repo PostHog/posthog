@@ -22193,6 +22193,57 @@
             "validators": []
         }
     },
+    "external-data-sources-add-table": {
+        "name": "external-data-sources-add-table",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/external_data_sources/{id}/add_table/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "name",
+                    "key": "name"
+                },
+                {
+                    "param": "path",
+                    "key": "path"
+                },
+                {
+                    "param": "file_format",
+                    "key": "file_format"
+                },
+                {
+                    "param": "csv_allow_double_quotes",
+                    "key": "csv_allow_double_quotes"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {
+                "id": ["source_id", "sourceId"]
+            },
+            "casts": {},
+            "validators": []
+        }
+    },
     "external-data-sources-bulk-update-schemas": {
         "name": "external-data-sources-bulk-update-schemas",
         "kind": "http",
