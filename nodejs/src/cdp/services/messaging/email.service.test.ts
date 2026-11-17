@@ -4023,7 +4023,7 @@ describe('EmailService', () => {
                 }
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1 },
-                    html: `<a href="${STALE_HREF}">b</a>`,
+                    html: `<a href="${STALE_HREF}">a</a><a href="${CLEAN_HREF}">b</a>`,
                 })
 
                 const result = await taggingService.executeSendEmail(invocation).finally(() => teamConfigDb.close())
@@ -4032,6 +4032,7 @@ describe('EmailService', () => {
                 expect(ses.sent).toHaveLength(1)
                 expect([...ses.sent[0].html!.matchAll(/href="([^"]*)"/g)].map(([, sent]) => sent)).toEqual([
                     STRIPPED_HREF,
+                    CLEAN_HREF,
                 ])
             })
 
