@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { notebookExportLogic } from './notebookExportLogic'
 
-const NotebookImageExportControls = lazy(() =>
+const NotebookImageExportControls = lazyWithRetry(() =>
     import('./NotebookImageExportControls').then(({ NotebookImageExportControls }) => ({
         default: NotebookImageExportControls,
     }))
