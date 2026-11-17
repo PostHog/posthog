@@ -54,10 +54,9 @@ export interface CymbalRequest {
 }
 
 /**
- * Cymbal API response format.
+ * A processed event: the value of an `ok` result from Cymbal.
  *
  * Cymbal returns the same AnyEvent structure with modified properties.
- * Returns null for suppressed events (e.g., issue marked as suppressed).
  */
 export interface CymbalResponse {
     uuid: string
