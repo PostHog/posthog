@@ -44,13 +44,25 @@ from products.alerts_platform.backend.logic.platform_reads import rule_metadata
 logger = structlog.get_logger(__name__)
 
 
-def routing_is_enabled(team: Team) -> bool:
-    """Fail closed, so a flag-eval blip sends to the alert's own destinations only."""
+def _routing_flag(team: Team) -> bool | None:
+    """None when the flag could not be evaluated."""
     try:
-        return bool(team_flag_enabled(ROUTING_FLAG, team))
+        return team_flag_enabled(ROUTING_FLAG, team)
     except Exception:
-        logger.warning("alerts_platform_routing_flag_check_failed_defaulting_off", team_id=team.id, exc_info=True)
-        return False
+        logger.warning("alerts_platform_routing_flag_check_failed", team_id=team.id, exc_info=True)
+        return None
+
+
+def _routing_is_enabled(team: Team, request: AlertDeliveryRequest) -> bool:
+    """Fail closed for messages, so a flag-eval blip sends to the alert's own destinations only.
+
+    A routed incident receiver that missed a resolve would keep its incident open until someone closed
+    it by hand, so a delivery with incident actions raises instead and the activity retries it.
+    """
+    enabled = _routing_flag(team)
+    if enabled is None and request.incident_actions and has_incident_receiver(request.team_id):
+        raise DeliveryError("The alert routing flag could not be evaluated.")
+    return bool(enabled)
 
 
 def _opens_incidents(receiver: RoutedReceiver) -> bool:
@@ -64,7 +76,7 @@ def _routing_team(request: AlertDeliveryRequest) -> Team | None:
     if not request.sends_messages and not has_incident_receiver(request.team_id):
         return None
     team = Team.objects.filter(id=request.team_id).first()
-    if team is None or not routing_is_enabled(team):
+    if team is None or not _routing_is_enabled(team, request):
         return None
     if delivery_holds.blocks_delivery(request.team_id, request.configuration_id, request.evaluation_key):
         return None

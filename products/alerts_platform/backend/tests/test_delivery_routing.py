@@ -123,6 +123,7 @@ class TestDeliverRoutes(APIBaseTest):
             ("routing_on", True, ["C-infra", "C-all"]),
             ("routing_off", False, []),
             ("flag_check_fails", RuntimeError("flags down"), []),
+            ("flag_lookup_swallowed", None, []),
         ]
     )
     def test_sends_to_the_receivers_whose_routes_match_the_labels(
@@ -242,6 +243,21 @@ class TestDeliverRoutes(APIBaseTest):
 
         assert [target for target, _ in RecordingTransport.sends] == expected_targets
         assert [message.incident_action for _, message in RecordingTransport.sends] == expected_actions
+
+    @parameterized.expand([("flag_check_fails", RuntimeError("flags down")), ("flag_lookup_swallowed", None)])
+    def test_a_routed_resolve_is_retried_when_the_flag_cannot_be_read(self, _name: str, flag: Any) -> None:
+        self._route("P-infra", [{"label": "team", "op": "=", "value": "infra"}], 3, PAGERDUTY)
+
+        with pytest.raises(DeliveryError) as raised:
+            self._deliver(
+                flag,
+                transitions=(_transition(AlertEventKind.RESOLVED, "search"),),
+                sends_messages=False,
+                incident_actions={"search": IncidentAction.RESOLVE},
+            )
+
+        assert not isinstance(raised.value, RefusedEverywhere)
+        assert RecordingTransport.sends == []
 
     @parameterized.expand([("every_receiver_refused", True), ("a_receiver_timed_out_too", False)])
     def test_receivers_that_all_refused_are_not_retried(self, _name: str, permanent: bool) -> None:
