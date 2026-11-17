@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 // PROTOTYPE (ticket #385), throwaway. The floating bar is not part of any design being evaluated.
 import { useEffect } from 'react'
 
@@ -6,16 +7,26 @@ import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { DEMO_PERSON_UUID, JOURNEY_CASES, JOURNEY_VARIANTS, useEmailJourneyPrototype } from './useEmailJourneyPrototype'
+import {
+    DEMO_PERSON_UUID,
+    JOURNEY_CASES,
+    JOURNEY_VARIANTS,
+    journeyUrl,
+    useEmailJourneyPrototype,
+} from './useEmailJourneyPrototype'
 
 export function JourneyPrototypeSwitcher(): JSX.Element | null {
     const prototype = useEmailJourneyPrototype()
-    const { variant, journeyCase, set } = prototype
+    const { variant, surface, journeyCase, set } = prototype
     const index = JOURNEY_VARIANTS.findIndex((v) => v.key === variant)
 
     const cycle = (step: number): void => {
         const next = JOURNEY_VARIANTS[(index + step + JOURNEY_VARIANTS.length) % JOURNEY_VARIANTS.length]
-        set({ variant: next.key, link: null })
+        if (next.surface === surface && !window.location.pathname.includes('/persons/')) {
+            set({ variant: next.key, link: null })
+        } else {
+            router.actions.push(journeyUrl(next.key))
+        }
     }
 
     useEffect(() => {
@@ -34,7 +45,7 @@ export function JourneyPrototypeSwitcher(): JSX.Element | null {
         return () => window.removeEventListener('keydown', onKey)
     })
 
-    if (!variant) {
+    if (!variant || !surface) {
         return null
     }
     const current = JOURNEY_VARIANTS[index]
@@ -52,6 +63,7 @@ export function JourneyPrototypeSwitcher(): JSX.Element | null {
                         <IconChevronLeft className="text-lg" />
                     </button>
                     <span className="font-semibold text-sm whitespace-nowrap">
+                        {current.surface === 'email' ? 'Email page' : 'Send detail'} ·{' '}
                         {current.key === 'today' ? 'Today' : current.key} ({current.name})
                     </span>
                     <button type="button" className="text-white p-1 cursor-pointer" onClick={() => cycle(1)}>
@@ -64,14 +76,15 @@ export function JourneyPrototypeSwitcher(): JSX.Element | null {
                         size="xsmall"
                         value={journeyCase}
                         onChange={(value) => set({ case: value === 'full' ? null : value, link: null })}
-                        options={JOURNEY_CASES.map((c) => ({ value: c.key, label: c.label }))}
+                        options={JOURNEY_CASES[surface].map((c) => ({ value: c.key, label: c.label }))}
                     />
                     <span className="text-secondary">|</span>
                     <span className="font-semibold">Entry</span>
-                    <Link to={`${prototype.withParams(urls.personByUUID(DEMO_PERSON_UUID))}#activeTab=emails`}>
+                    <Link to={journeyUrl('D')}>Email page</Link>
+                    <Link to={journeyUrl('A')}>Send detail</Link>
+                    <Link to={`${journeyUrl('A', null, urls.personByUUID(DEMO_PERSON_UUID))}#activeTab=emails`}>
                         Person's Emails tab
                     </Link>
-                    <Link to={prototype.withParams(urls.transactionalEmailLogEntry('prototype'))}>Send detail</Link>
                 </div>
             </div>
         </>

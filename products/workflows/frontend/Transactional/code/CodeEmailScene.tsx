@@ -13,6 +13,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { EmailJourneyPrototype } from '../log/emailJourneyPrototype/EmailJourneyPrototype'
+import { useEmailJourneyPrototype } from '../log/emailJourneyPrototype/useEmailJourneyPrototype'
 import { CodeBadge } from './CodeBadge'
 import { CodeEmailLogicProps, codeEmailLogic } from './codeEmailLogic'
 import { CodeEmailTabs } from './CodeEmailTabs'
@@ -32,6 +34,11 @@ export function CodeEmailScene(): JSX.Element {
     const { codeEmail, loadState, saving, editDisabledReason } = useValues(codeEmailLogic)
     const { loadCodeEmail, updateCodeEmail, setSourceFormOpen, copyAgentPrompt } = useActions(codeEmailLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(ACTION_BREAKPOINTS, { initialSize: 'wide' })
+    // PROTOTYPE (ticket #385): ?variant= renders invented data in a PROTOTYPE=1 build.
+    const prototype = useEmailJourneyPrototype()
+    if (prototype.variant) {
+        return <EmailJourneyPrototype />
+    }
 
     if (loadState === 'not-found') {
         return (

@@ -17,7 +17,7 @@ import { TransactionalEmailDetails } from '../TransactionalEmailDetails'
 import { JourneyEmailPreview } from './JourneyEmailPreview'
 import { JourneyData } from './journeyFixtures'
 
-function asDetail(data: JourneyData): TransactionalEmailLogDetailApi {
+export function asDetail(data: JourneyData): TransactionalEmailLogDetailApi {
     const timeline: TransactionalEmailLogEventApi[] = [
         { kind: 'queued', at: data.queuedAt, reason: null },
         { kind: 'sent', at: data.sentAt, reason: null },

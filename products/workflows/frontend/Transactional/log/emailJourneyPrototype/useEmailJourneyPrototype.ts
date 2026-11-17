@@ -1,23 +1,30 @@
-// PROTOTYPE (ticket #385), throwaway: one email-to-product journey, each click opens the session it started.
-// Round 1: three structures for the send detail page on the existing /transactional/log/:id route, plus today's
-// page for comparison, switchable via ?variant=. ?case= simulates the empty states. All data is invented.
+// PROTOTYPE (ticket #385), throwaway: what one transactional email leads to in the product.
+// Round 2: the email's own page gains an Impact tab across all its sends (variants D, E, F), and the send detail page
+// keeps variant A from round 1 with today's delivery header. Switch with ?variant=, simulate cases with ?case=.
+// All data is invented.
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { urls } from 'scenes/urls'
+
 export const PROTOTYPE_ENABLED = process.env.PROTOTYPE === '1'
 
-export type JourneyVariant = 'today' | 'A' | 'B' | 'C'
-export const JOURNEY_VARIANTS: { key: JourneyVariant; name: string }[] = [
-    { key: 'today', name: 'no change, for comparison' },
-    { key: 'A', name: 'Click timeline · low use: Watch · agent contract: activity' },
-    { key: 'B', name: 'What they did after this email · low use: Watch, View person · agent contract: activity' },
-    { key: 'C', name: 'The email, annotated · low use: Watch, delivery progress · agent contract: activity' },
+export type JourneySurface = 'email' | 'send'
+export type JourneyVariant = 'D' | 'E' | 'F' | 'today' | 'A'
+
+export const JOURNEY_VARIANTS: { key: JourneyVariant; surface: JourneySurface; name: string }[] = [
+    { key: 'D', surface: 'email', name: 'Impact funnel' },
+    { key: 'E', surface: 'email', name: 'Findings first' },
+    { key: 'F', surface: 'email', name: 'The email as a heatmap' },
+    { key: 'today', surface: 'send', name: "today's send detail, for comparison" },
+    { key: 'A', surface: 'send', name: 'Click timeline · low use: Watch · agent contract: activity' },
 ]
 
 /** A demo person in the preview's demo project, to open the Emails tab entry point. */
 export const DEMO_PERSON_UUID = '01a1c547-38c8-002b-21e7-9d46b0e4c201'
 
-export type JourneyCase =
+export type EmailCase = 'full' | 'no-scanner' | 'scanning' | 'no-goal' | 'no-landing' | 'no-recording' | 'not-tracked'
+export type SendCase =
     | 'full'
     | 'other-person'
     | 'no-person'
@@ -26,23 +33,50 @@ export type JourneyCase =
     | 'no-clicks'
     | 'not-tracked'
     | 'events-off'
+export type JourneyCase = EmailCase | SendCase
 
-export const JOURNEY_CASES: { key: JourneyCase; label: string }[] = [
-    { key: 'full', label: 'Clicks with sessions' },
-    { key: 'other-person', label: 'A click lands as someone else' },
-    { key: 'no-person', label: 'Send named no distinct_id' },
-    { key: 'no-recording', label: 'Session replay off' },
-    { key: 'no-landing', label: 'Clicks, no landing found' },
-    { key: 'no-clicks', label: 'Opened, no clicks yet' },
-    { key: 'not-tracked', label: 'Clicks not tracked' },
-    { key: 'events-off', label: 'Engagement events off' },
-]
+export const JOURNEY_CASES: Record<JourneySurface, { key: JourneyCase; label: string }[]> = {
+    email: [
+        { key: 'full', label: 'Scanner on, findings in' },
+        { key: 'no-scanner', label: 'No scanner yet' },
+        { key: 'scanning', label: 'Scanner just started' },
+        { key: 'no-goal', label: 'No conversion event picked' },
+        { key: 'no-landing', label: 'Link tag not on yet' },
+        { key: 'no-recording', label: 'Session replay off' },
+        { key: 'not-tracked', label: 'Clicks not tracked' },
+    ],
+    send: [
+        { key: 'full', label: 'Clicks with sessions' },
+        { key: 'other-person', label: 'A click lands as someone else' },
+        { key: 'no-person', label: 'Send named no distinct_id' },
+        { key: 'no-recording', label: 'Session replay off' },
+        { key: 'no-landing', label: 'Clicks, no landing found' },
+        { key: 'no-clicks', label: 'Opened, no clicks yet' },
+        { key: 'not-tracked', label: 'Clicks not tracked' },
+        { key: 'events-off', label: 'Engagement events off' },
+    ],
+}
+
+/** The page each surface lives on. The scenes' own loaders ask for this ID and get a 404, which the prototype ignores. */
+export function surfacePath(surface: JourneySurface): string {
+    return surface === 'email' ? urls.transactionalCodeEmail('prototype') : urls.transactionalEmailLogEntry('prototype')
+}
 
 export interface JourneyPrototypeState {
     variant: JourneyVariant | null
+    surface: JourneySurface | null
     journeyCase: JourneyCase
-    /** The link a variant focuses on, such as the selected link in C. */
+    /** The link a variant focuses on, such as the selected link in F. */
     link: string | null
+}
+
+export function journeyUrl(variant: JourneyVariant, journeyCase?: JourneyCase | null, path?: string): string {
+    const surface = JOURNEY_VARIANTS.find((v) => v.key === variant)!.surface
+    const params = new URLSearchParams({ variant })
+    if (journeyCase && journeyCase !== 'full') {
+        params.set('case', journeyCase)
+    }
+    return `${path ?? surfacePath(surface)}?${params.toString()}`
 }
 
 export function useEmailJourneyPrototype(): JourneyPrototypeState & {
@@ -52,13 +86,17 @@ export function useEmailJourneyPrototype(): JourneyPrototypeState & {
     const { searchParams, location, hashParams } = useValues(router)
     const { replace } = useActions(router)
     const variantParam = PROTOTYPE_ENABLED ? searchParams.variant : undefined
-    const variant = JOURNEY_VARIANTS.some((v) => v.key === variantParam) ? (variantParam as JourneyVariant) : null
-    const journeyCase = JOURNEY_CASES.some((c) => c.key === searchParams.case)
-        ? (searchParams.case as JourneyCase)
-        : 'full'
+    const found = JOURNEY_VARIANTS.find((v) => v.key === variantParam)
+    const variant = found?.key ?? null
+    const surface = found?.surface ?? null
+    const journeyCase =
+        surface && JOURNEY_CASES[surface].some((c) => c.key === searchParams.case)
+            ? (searchParams.case as JourneyCase)
+            : 'full'
 
     return {
         variant,
+        surface,
         journeyCase,
         link: searchParams.link ?? null,
         set: (changes) => {
@@ -72,15 +110,6 @@ export function useEmailJourneyPrototype(): JourneyPrototypeState & {
             }
             replace(location.pathname, next, hashParams)
         },
-        withParams: (url) => {
-            if (!variant) {
-                return url
-            }
-            const params = new URLSearchParams({ variant })
-            if (journeyCase !== 'full') {
-                params.set('case', journeyCase)
-            }
-            return `${url}?${params.toString()}`
-        },
+        withParams: (url) => (variant ? journeyUrl(variant, journeyCase, url) : url),
     }
 }

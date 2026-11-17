@@ -1,6 +1,6 @@
 // PROTOTYPE (ticket #385), throwaway. One landing session: where it landed, how long, what it led to, and Watch.
 import { IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -37,9 +37,13 @@ export function JourneySessionSummary({
                 <div className="flex flex-wrap items-center gap-1">
                     <span className="text-xs text-secondary">Led to</span>
                     {outcomes.map((event) => (
-                        <LemonTag key={event.at} type="success">
-                            {event.label}
-                        </LemonTag>
+                        <Link
+                            key={event.at}
+                            to={urls.event(`proto-${session.id}-${event.label}`, event.at, event.label)}
+                            data-attr="prototype-journey-outcome-event"
+                        >
+                            <LemonTag type="success">{event.label}</LemonTag>
+                        </Link>
                     ))}
                 </div>
             )}
