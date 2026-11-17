@@ -42,6 +42,23 @@ check_amd64_downloads() {
     cd - >/dev/null
 }
 
+check_rds_ca() {
+    curl -fsSL "$RDS_CA_URL" -o "$work/rds-ca.pem"
+    echo "${RDS_CA_SHA256}  $work/rds-ca.pem" | sha256sum --check --strict
+}
+
+make_cluster_certificate() {
+    local dir=$work/tls
+    mkdir -p "$dir"
+    openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj '/CN=scenario dry-run CA' \
+        -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign \
+        -keyout "$dir/ca.key" -out "$dir/ca.pem" 2>/dev/null
+    openssl req -newkey rsa:2048 -nodes -subj /CN=cluster -keyout "$dir/server.key" -out "$dir/server.csr" 2>/dev/null
+    openssl x509 -req -in "$dir/server.csr" -CA "$dir/ca.pem" -CAkey "$dir/ca.key" -CAcreateserial -days 2 \
+        -extfile <(printf 'subjectAltName=DNS:cluster\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n') \
+        -out "$dir/server.crt" 2>/dev/null
+}
+
 sha256_of() { curl -fsSL "$1" | sha256sum | cut -d' ' -f1; }
 
 arm64_bootstrap() {
@@ -66,8 +83,15 @@ trap cleanup EXIT
 mkdir -p "$work/stand-ins" "$work/bucket/runs/$run_id/input"
 cp "$input"/* "$work/bucket/runs/$run_id/input/"
 git -C "$repo" archive --format tar HEAD >"$work/checkout.tar"
+echo "=== checking the pinned RDS CA bundle"
+check_rds_ca
+echo "RDS CA bundle matches its pin"
+make_cluster_certificate
 case $(docker info --format '{{.Architecture}}') in
-    x86_64) platform=linux/amd64 ;;
+    x86_64)
+        platform=linux/amd64
+        cp "$bootstrap" "$work/host-bootstrap.sh"
+        ;;
     aarch64)
         platform=linux/arm64
         echo "=== checking the pinned amd64 downloads"
@@ -77,6 +101,9 @@ case $(docker info --format '{{.Architecture}}') in
         ;;
     *) echo "No dry run on $(docker info --format '{{.Architecture}}')" >&2; exit 1 ;;
 esac
+sed -i -e "s#^RDS_CA_URL=.*#RDS_CA_URL=file:///dry-run/tls/ca.pem#" \
+    -e "s#^RDS_CA_SHA256=.*#RDS_CA_SHA256=$(sha256sum "$work/tls/ca.pem" | cut -d' ' -f1)#" \
+    "$work/host-bootstrap.sh"
 
 cat >"$work/stand-ins/aws" <<'EOF'
 #!/usr/bin/env bash
@@ -161,10 +188,8 @@ step "image setup: git, which the host image ships and a container image does no
 apt-get update -q >/dev/null && apt-get install -y -q git >/dev/null
 install -m 0755 /dry-run/stand-ins/aws /dry-run/stand-ins/docker /dry-run/stand-ins/poweroff /usr/local/sbin/
 mkdir -p /opt/posthog && tar -xf /dry-run/checkout.tar -C /opt/posthog
-if [ -f /dry-run/host-bootstrap.sh ]; then
-    echo "running the arm64 build of each pinned download"
-    cp /dry-run/host-bootstrap.sh /opt/posthog/nodejs/tests/scenarios/cloud/host-bootstrap.sh
-fi
+echo "running the bootstrap with the dry run's CA and, on arm64, the arm64 build of each pinned download"
+cp /dry-run/host-bootstrap.sh /opt/posthog/nodejs/tests/scenarios/cloud/host-bootstrap.sh
 cd /opt/posthog
 export AWS_REGION=us-east-1 SCENARIO_RUN_ID="$RUN_ID" SCENARIO_EVIDENCE_BUCKET=dry-run
 step "host-bootstrap.sh"
@@ -174,6 +199,17 @@ bash nodejs/tests/scenarios/cloud/host-prepare.sh
 code=$?
 cat /opt/scenario/prepare.log
 [ "$code" = 0 ] || { echo "host-prepare.sh exited $code"; exit 1; }
+step "verify-full refuses a name the cluster certificate lacks"
+wrong="postgres://posthog:$(jq -rn --arg p "$DRY_RUN_DB_PASSWORD" '$p | @uri')@not-in-certificate:5432/cyclotron_node"
+tls="sslmode=verify-full&sslrootcert=/opt/scenario/rds-ca.pem"
+if sqlx migrate info -D "$wrong?$tls" --source rust/cyclotron-node-migrations/ >/dry-run/wrong-name-sqlx.log 2>&1; then
+    echo "sqlx connected to a name the certificate lacks"; exit 1
+fi
+grep -i cert /dry-run/wrong-name-sqlx.log || { cat /dry-run/wrong-name-sqlx.log; echo "sqlx failed for another reason"; exit 1; }
+if (cd nodejs && node -e 'new (require("pg").Client)({ connectionString: process.argv[1] }).connect().then(() => process.exit(0), (e) => { console.log(e.message); process.exit(1) })' "$wrong?uselibpqcompat=true&$tls") >/dry-run/wrong-name-node.log 2>&1; then
+    echo "Node connected to a name the certificate lacks"; exit 1
+fi
+grep -i cert /dry-run/wrong-name-node.log || { cat /dry-run/wrong-name-node.log; echo "Node failed for another reason"; exit 1; }
 step "host-run-card.sh, stopped after $CARD_SECONDS s"
 rm -rf "/dry-run/bucket/runs/$RUN_ID/evidence" "/dry-run/bucket/runs/$RUN_ID/host/done"
 timeout --signal TERM --kill-after 60 "$CARD_SECONDS" bash nodejs/tests/scenarios/cloud/host-run-card.sh
@@ -197,10 +233,10 @@ EOF
 
 password='dry:Run#1?&%x'
 docker network create "$name" >/dev/null
-docker run -d --name "$name-db" --network "$name" --network-alias cluster \
+docker run -d --name "$name-db" --network "$name" --network-alias cluster --network-alias not-in-certificate \
     -e POSTGRES_USER=posthog -e POSTGRES_PASSWORD="$password" -e POSTGRES_DB=cyclotron_node \
-    "postgres:${engine:-16}" \
-    -c ssl=on -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key \
+    -v "$work/tls:/tls:ro" --entrypoint bash "postgres:${engine:-16}" -c \
+    'install -o postgres -m 0600 /tls/server.crt /tls/server.key /var/lib/postgresql/ && exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/var/lib/postgresql/server.crt -c ssl_key_file=/var/lib/postgresql/server.key' \
     >/dev/null
 docker run --name "$name-host" --platform "$platform" --network "$name" --privileged -v "$name-docker:/var/lib/docker" \
     -e RUN_ID="$run_id" -e CARD_SECONDS="$card_seconds" -e DRY_RUN_DB_PASSWORD="$password" \

@@ -12,12 +12,15 @@ SQLX_CLI_VERSION=0.8.0
 UV_VERSION=0.13.4
 GO_VERSION=1.26.10
 GO_SHA256=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
+RDS_CA_URL=https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+RDS_CA_SHA256=90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b
 
 export HOME="${HOME:-/root}"
 export DEBIAN_FRONTEND=noninteractive
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
 prefix="s3://${SCENARIO_EVIDENCE_BUCKET}/runs/${SCENARIO_RUN_ID}"
-input=${SCENARIO_HOST_ROOT:-/opt/scenario}/input
+root=${SCENARIO_HOST_ROOT:-/opt/scenario}
+input=$root/input
 log=${SCENARIO_BOOTSTRAP_LOG:-/var/log/scenario-bootstrap.log}
 exec > >(tee -a "$log") 2>&1
 
@@ -94,6 +97,12 @@ install_workspace() {
     (cd "$repo" && PATH="$HOME/.cargo/bin:$PATH" bin/turbo --filter=@posthog/nodejs prepare)
 }
 
+install_rds_ca() {
+    curl -fsSL "$RDS_CA_URL" -o /tmp/rds-ca.pem
+    echo "${RDS_CA_SHA256}  /tmp/rds-ca.pem" | sha256sum --check --strict
+    install -m 0644 /tmp/rds-ca.pem "$root/rds-ca.pem"
+}
+
 start_poolers() {
     pnpm --dir "$repo/nodejs" exec tsx tests/scenarios/cloud/host-pooler.ts "$input/cloud-profile.yaml"
 }
@@ -116,6 +125,7 @@ install_node_and_pnpm
 install_sqlx_cli
 install_uv_and_python
 install_phrocs
+install_rds_ca
 install_workspace
 start_poolers
 check_ready
