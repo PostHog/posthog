@@ -6,7 +6,6 @@ use logs_ingestion::transformations::HogFunctionSource;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
-// Any database works, because the table is a temporary one that shadows `public.posthog_hogfunction`.
 const DATABASE_URL: &str = "postgres://posthog:posthog@localhost:5432/postgres";
 const KEY: &str = "00beef0000beef0000beef0000beef00";
 /// `new EncryptedFields(KEY).encrypt('{"apiKey":{"value":"test-key","order":0}}')` from fernet-nodejs.

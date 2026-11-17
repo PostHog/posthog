@@ -27,7 +27,6 @@ pub struct EncryptedFields {
 }
 
 impl EncryptedFields {
-    /// Node's `new Fernet(key)` throws on a key that is not 32 bytes, which stops the server.
     pub fn new(salt_keys: &str) -> anyhow::Result<Self> {
         let mut fernets = Vec::new();
         for key in salt_keys.split(',').filter(|k| !k.is_empty()) {

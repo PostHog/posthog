@@ -124,9 +124,17 @@ const CYCLIC_AST_THROUGH_ARRAY: &str = r#"["_H", 1, 32, "__hx_ast", 32, "Not", 3
 // A `JoinExpr` node with `j.next_join := j`, printed with `toString`.
 const CYCLIC_JOIN: &str = r#"["_H", 1, 32, "__hx_ast", 32, "JoinExpr", 32, "table", 32, "__hx_ast", 32, "Field", 32, "chain", 32, "t", 43, 1, 42, 2, 32, "next_join", 31, 42, 3, 36, 0, 32, "next_join", 36, 0, 46, 36, 0, 2, "toString", 1, 38, 35]"#;
 
+// A `Field` node wrapped 24 times as `{'__hx_ast': 'Field', 'chain': [n]}`, printed with `toString`.
+const NESTED_FIELD: &str = r#"["_H", 1, 32, "__hx_ast", 32, "Field", 32, "chain", 32, "x", 43, 1, 42, 2, 33, 0, 33, 24, 36, 1, 15, 40, 23, 32, "__hx_ast", 32, "Field", 32, "chain", 36, 0, 43, 1, 42, 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -30, 35, 36, 0, 2, "toString", 1, 2, "length", 1, 38, 35]"#;
+
 #[test]
-fn printing_a_sql_ast_that_holds_itself_ends() {
-    for bytecode in [CYCLIC_AST, CYCLIC_AST_THROUGH_ARRAY, CYCLIC_JOIN] {
+fn printing_a_sql_ast_that_holds_itself_or_escapes_itself_again_ends() {
+    for bytecode in [
+        CYCLIC_AST,
+        CYCLIC_AST_THROUGH_ARRAY,
+        CYCLIC_JOIN,
+        NESTED_FIELD,
+    ] {
         let failure = sync_execute(&context(bytecode, json!({})), false).unwrap_err();
         assert!(
             matches!(failure.error, VmError::OutOfResource(_)),

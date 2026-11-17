@@ -430,7 +430,10 @@ impl<'a> HogQLPrinter<'a> {
         self.depth += 1;
         let result = self.dispatch(obj);
         self.depth -= 1;
-        result
+        let text = result?;
+        // A node can write a child's text twice or escape it again, so the text can double at each level.
+        self.heap.assert_can_allocate(text.len())?;
+        Ok(text)
     }
 
     // Visit any child: a nested AST object dispatches; a null renders empty; anything else goes
@@ -776,12 +779,17 @@ impl<'a> HogQLPrinter<'a> {
         Ok(match value.deref(self.heap)? {
             HogLiteral::Number(n) if !n.is_float() => n.to_integer().to_string(),
             HogLiteral::String(s) => escape_identifier(s),
-            other => escape_identifier(&print_hog_value(
-                self.heap,
-                &HogLiteral::clone(other).into(),
-                &mut Vec::new(),
-                self.outer_depth + self.depth,
-            )?),
+            other => {
+                let printed = print_hog_value(
+                    self.heap,
+                    &HogLiteral::clone(other).into(),
+                    &mut Vec::new(),
+                    self.outer_depth + self.depth,
+                )?;
+                self.heap
+                    .assert_can_allocate(printed.len().saturating_mul(2))?;
+                escape_identifier(&printed)
+            }
         })
     }
 }
