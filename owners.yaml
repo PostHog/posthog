@@ -144,12 +144,10 @@ rules:
     # closed, so the paths are sensitive and the reviewer assigner requests devex for every
     # change. Busy files that most PRs touch (lib/api.ts, pyproject.toml, setup receivers and
     # frozen dataclass baselines) stay out, so that the review requests stay rare. hoglint's
-    # exceptions, root config, preset and pin are guards like the rest.
+    # exceptions, root config and preset are guards like the rest.
     - match:
           - '/.github/scripts/check-no-new-ee-files.py'
-          - '/.github/scripts/hoglint_map.py'
           - '/.github/scripts/migration-deletion-allowlist.txt'
-          - '/.github/scripts/test_hoglint_map.py'
           - '/.semgrep/rules/devex/'
           - '/.semgrep/rules/security/prefer-codegen-api.*'
           - '/docs/internal/django-startup-time.md'

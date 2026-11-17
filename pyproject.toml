@@ -252,7 +252,7 @@ dev = [
     "faker==17.6.0",
     "fakeredis[lua]==2.34.1",
     "flameprof~=0.4",
-    # .github/scripts/hoglint_map.py pins the same version; test_hoglint_map.py holds them equal.
+    # turbo-discover.js runs `hoglint watched` at the version uv.lock locks for this pin.
     "hoglint==0.2.1",
     "hypothesis~=6.151.14",
     "pyinstrument~=5.1",

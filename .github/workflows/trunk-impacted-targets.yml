@@ -67,11 +67,11 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ github.token }}
 
-            # The target script runs .github/scripts/hoglint_map.py under `uv run
-            # --no-project` for `hoglint watched --map`: a changed product's importers,
-            # whether it is isolated and its watched files. The script pins hoglint, so
-            # no Python project sync is needed. A missing uv widens those products to
-            # every backend lane rather than failing the job.
+            # The target script runs `hoglint watched --map` with `uv tool run`, at the
+            # hoglint and Django versions uv.lock pins: a changed product's importers,
+            # whether it is isolated and its watched files. No Python project sync is
+            # needed. A missing uv widens those products to every backend lane rather
+            # than failing the job.
             - uses: ./.github/actions/setup-uv
               with:
                   enable-cache: false

@@ -817,11 +817,11 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install turbo
               uses: ./.depot/actions/setup-turbo
-            # turbo-discover.js runs .github/scripts/hoglint_map.py under `uv run
-            # --no-project` for `hoglint watched --map`: which products are isolated, their
-            # watched files and the dependent cascade. The script pins hoglint, so no
-            # Python project sync is needed. A missing uv makes no product isolated and
-            # widens the cascade to every product rather than failing the job.
+            # turbo-discover.js runs `hoglint watched --map` with `uv tool run`, at the
+            # hoglint and Django versions uv.lock pins: which products are isolated, their
+            # watched files and the dependent cascade. No Python project sync is needed. A
+            # missing uv makes no product isolated and widens the cascade to every product
+            # rather than failing the job.
             - uses: ./.depot/actions/setup-uv
               with:
                   enable-cache: false

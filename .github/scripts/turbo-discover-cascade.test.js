@@ -1,7 +1,7 @@
 // Run with: node --test .github/scripts/turbo-discover-cascade.test.js
 //
 // Unit tests for the dependent-cascade logic in turbo-discover.js:
-// productGraphFromImportMap, importDependents, loadImportGraph, loadWatchedSets, and the lib
+// productGraphFromImportMap, importDependents, loadImportGraph, loadWatchedSets, hoglintRunArgs, and the lib
 // package import scan (libImportName, productsImportingModule,
 // coreFilesImportingModule, getAffectedLibPackages). Uses a synthetic graph and
 // a temp-dir tree throughout — never asserts against the real hoglint map or the
@@ -20,6 +20,7 @@ const {
     importDependents,
     loadImportGraph,
     loadWatchedSets,
+    hoglintRunArgs,
     getAffectedLibPackages,
     libImportName,
     productsImportingModule,
@@ -106,6 +107,50 @@ test('fail closed: a run that cannot start yields no graph and no isolated produ
     const watched = loadWatchedSets('/nonexistent/repo-root')
     assert.equal(watched.status, 'unavailable')
     assert.equal(watched.isolated.size, 0)
+})
+
+// hoglint's Django pack reads Django's source to find the repo's models. Without Django the answer
+// is incomplete, and every products-only PR widens.
+const lockEntry = (name, version) => `[[package]]\nname = "${name}"\nversion = "${version}"\nsource = { registry = "https://pypi.org/simple" }\n`
+
+function repoWithLock(lockText) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'turbo-discover-lock-'))
+    if (lockText !== null) {
+        fs.writeFileSync(path.join(root, 'uv.lock'), `version = 1\n\n${lockText}`)
+    }
+    return root
+}
+
+test('hoglint runs at the versions of hoglint and Django that uv.lock pins', () => {
+    const root = repoWithLock(
+        [lockEntry('django-stubs', '6.1.2'), lockEntry('django', '6.1.3'), lockEntry('hoglint', '0.2.0')].join('\n')
+    )
+    assert.deepEqual(hoglintRunArgs(root, ['watched']), [
+        'tool',
+        'run',
+        '--from',
+        'hoglint==0.2.0',
+        '--with',
+        'django==6.1.3',
+        'hoglint',
+        'watched',
+    ])
+})
+
+test('without one hoglint and one Django version in uv.lock there is no run, and nothing is isolated', () => {
+    const cases = [
+        [lockEntry('django-stubs', '6.1.2'), lockEntry('hoglint', '0.2.0')].join('\n'),
+        [lockEntry('django', '6.1.3'), lockEntry('django', '6.0.0'), lockEntry('hoglint', '0.2.0')].join('\n'),
+        lockEntry('django', '6.1.3'),
+        null,
+    ]
+    for (const lockText of cases) {
+        const root = repoWithLock(lockText)
+        assert.equal(hoglintRunArgs(root, ['watched']), null, String(lockText))
+        const watched = loadWatchedSets(root)
+        assert.equal(watched.status, 'unavailable', String(lockText))
+        assert.equal(watched.isolated.size, 0, String(lockText))
+    }
 })
 
 // --- Lib packages as cascade sources ---

@@ -353,10 +353,9 @@ function dropProducts(products, allProducts, names, label) {
 // facade, presentation and migrations, and the package __init__.py files
 // above them. hoglint derives the set from the tree; nobody keeps a list.
 //
-// hoglint_map.py pins hoglint in its PEP 723 block and runs under `uv run
-// --no-project`, so the callers need uv and nothing from the Python project.
-// One `hoglint watched --map` run writes both answers.
-const HOGLINT_SCRIPT = path.join(__dirname, 'hoglint_map.py')
+// The callers run hoglint with `uv tool run` at the version uv.lock pins, so they
+// need uv and nothing from the Python project. One `hoglint watched --map` run
+// writes both answers.
 const PRODUCTS_DIR = 'products/'
 
 // Turbo package names are dashed; product directories are underscored. Every
@@ -561,21 +560,54 @@ function readImportGraph(file) {
     }
 }
 
+// The version of a package that uv.lock pins, read from its `[[package]]` entry, or null when the
+// lock has no single entry for it.
+function lockedVersion(lockText, name) {
+    const versions = lockText
+        .split(/^\[\[package\]\]$/m)
+        .filter((entry) => new RegExp(`^name = "${name}"$`, 'm').test(entry))
+        .map((entry) => /^version = "([^"]+)"$/m.exec(entry)?.[1])
+    return versions.length === 1 && versions[0] ? versions[0] : null
+}
+
+// The `uv` arguments that run hoglint with `hoglintArgs`, or null when uv.lock does not pin one
+// hoglint and one Django. hoglint runs at the version the dev group locks, the one CI's `hoglint
+// compare` runs. Its Django pack reads Django's source to find the repo's models, and it reads
+// third-party source only from its interpreter's site-packages: `uv tool run` installs both into
+// one environment, where `uv run --with` would put Django beside it, out of sight. Both versions
+// come from uv.lock, so a bump of either needs no edit here.
+function hoglintRunArgs(repoRoot, hoglintArgs) {
+    let lock
+    try {
+        lock = fs.readFileSync(path.join(repoRoot, 'uv.lock'), 'utf-8')
+    } catch (e) {
+        console.error(`::warning::Could not read uv.lock (${e.message})`)
+        return null
+    }
+    const hoglint = lockedVersion(lock, 'hoglint')
+    const django = lockedVersion(lock, 'django')
+    if (hoglint === null || django === null) {
+        console.error(`::warning::uv.lock pins no single version of ${hoglint === null ? 'hoglint' : 'django'}`)
+        return null
+    }
+    return ['tool', 'run', '--from', `hoglint==${hoglint}`, '--with', `django==${django}`, 'hoglint', ...hoglintArgs]
+}
+
 // Runs `hoglint watched --map` in repoRoot and returns { graph, watched }: the product graph or
-// null, and parseWatchedAnswer's result. When uv is missing, the run fails or it times out, the
-// graph is null and no product is isolated. Callers must treat a null graph as "unknown
-// dependents" and widen the matrix — never as "no dependents", which would silently under-test
-// exactly the contract changes this cascade guards.
+// null, and parseWatchedAnswer's result. When uv.lock pins no hoglint or Django, uv is missing, the run fails
+// or it times out, the graph is null and no product is isolated. Callers must treat a null graph as
+// "unknown dependents" and widen the matrix — never as "no dependents", which would silently
+// under-test exactly the contract changes this cascade guards.
 function runHoglint(repoRoot) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hoglint-'))
     const watchedFile = path.join(dir, 'watched.json')
     const mapFile = path.join(dir, 'map.json')
     try {
-        execFileSync('uv', ['run', '--no-project', HOGLINT_SCRIPT, 'watched', '--out', watchedFile, '--map', mapFile], {
-            ...TURBO_EXEC_OPTS,
-            cwd: repoRoot,
-            timeout: HOGLINT_TIMEOUT_MS,
-        })
+        const args = hoglintRunArgs(repoRoot, ['watched', '--out', watchedFile, '--map', mapFile])
+        if (args === null) {
+            throw new Error('no hoglint and Django versions to run with')
+        }
+        execFileSync('uv', args, { ...TURBO_EXEC_OPTS, cwd: repoRoot, timeout: HOGLINT_TIMEOUT_MS })
         return { graph: readImportGraph(mapFile), watched: parseWatchedAnswer(fs.readFileSync(watchedFile, 'utf-8')) }
     } catch (e) {
         console.error(
@@ -662,7 +694,7 @@ function importDependentProducts(products, allProductSet) {
 
 // The files that make hoglint's policy or engine. A diff that changes one would be
 // judged by watched sets that its own change computed.
-const WATCHED_POLICY_FILES = ['hoglint.toml', 'pyproject.toml', '.github/scripts/hoglint_map.py']
+const WATCHED_POLICY_FILES = ['hoglint.toml', 'pyproject.toml', 'uv.lock']
 const WATCHED_POLICY_DIRS = ['tools/hoglint/']
 
 function watchedPolicyChanges(changedFiles) {
@@ -1769,6 +1801,7 @@ module.exports = {
     narrowedJsonTargetsShards,
     DJANGO_SEGMENTS,
     parseWatchedAnswer,
+    hoglintRunArgs,
     loadWatchedSets,
     watchedPolicyChanges,
     productsWithWatchedChanges,

@@ -36,9 +36,6 @@ on:
             - tools/deploy-requirements/**
             - rust/bin/write-deploy-requirements
             - manage.py
-            # test_hoglint_map.py holds hoglint_map.py's pin to the dev group's
-            # hoglint pin, and a hoglint bump is what moves it.
-            - pyproject.toml
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
