@@ -7,7 +7,6 @@
     </head>
     <body>
         {% block content %}
-            <div id="toasts" class="fixed top-4 right-4" role="status"></div>
             <div class="min-h-screen bg-gray-50">
                 <div class="max-w-2xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
                     <div class="bg-white shadow-xl rounded-xl p-8 mb-12">
@@ -62,6 +61,7 @@
                     </div>
                 </div>
             </div>
+            <div id="toasts" class="fixed top-4 right-4" role="status"></div>
             <script nonce="{{ request.csp_nonce }}">
             document.addEventListener('DOMContentLoaded', function () {
                 const toggles = document.querySelectorAll('.toggle-checkbox')

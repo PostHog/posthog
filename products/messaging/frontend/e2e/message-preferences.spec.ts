@@ -213,16 +213,21 @@ test.describe('Message preferences page', () => {
                 })
             })
 
-            await test.step('a failed read-back keeps the saved choice and asks for a reload', async () => {
-                await recipientPage.route(isPageRead, (route) => route.fulfill({ status: 500, body: 'Server error' }), {
-                    times: 1,
-                })
+            await test.step('a read-back without the preferences form keeps the saved choice and asks for a reload', async () => {
+                await recipientPage.route(
+                    isPageRead,
+                    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<p>Another page</p>' }),
+                    { times: 1 }
+                )
                 await expect(successToast).toHaveCount(0)
                 await productNews.click()
-                await expect(successToast).toBeVisible()
-                await expect(
-                    recipientPage.getByText("Couldn't confirm your preferences.", { exact: false })
-                ).toBeVisible()
+                const messages = recipientPage.getByRole('status')
+                const saved = messages.getByText('Preferences updated successfully')
+                const unconfirmed = messages.getByText("Couldn't confirm your preferences.", { exact: false })
+                await expect(saved).toBeVisible()
+                await expect(unconfirmed).toBeVisible()
+                const [savedBox, unconfirmedBox] = await Promise.all([saved.boundingBox(), unconfirmed.boundingBox()])
+                expect(unconfirmedBox!.y).toBeGreaterThanOrEqual(savedBox!.y + savedBox!.height)
                 await expect(status(productNewsId)).toHaveText('Not subscribed')
                 await expect(productNews).not.toBeChecked()
                 expect(await storedPreferences('product_news')).toEqual({
