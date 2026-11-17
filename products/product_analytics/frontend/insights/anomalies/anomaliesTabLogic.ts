@@ -211,6 +211,8 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
                         if (error instanceof Error && isBreakpoint(error)) {
                             throw error
                         }
+                        // A newer search replaced this one, so its failure must not hide the newer results.
+                        breakpoint()
                         // Handled here rather than as a loader failure, so the app shows no generic error toast
                         // and does not report the expected 404 as an exception.
                         actions.setLoadError(errorKind(error))

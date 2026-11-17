@@ -3,7 +3,7 @@ import { CompareLabelType } from '~/types'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 import type { AnomalyBucketApi, AnomalyInsightSeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { buildAnomalyScorePoints, contiguousRuns } from './anomalyScorePoints'
+import { buildAnomalyScorePoints, contiguousRuns, scoreHistoryRange } from './anomalyScorePoints'
 
 function makeResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {
     return {
@@ -93,5 +93,15 @@ describe('anomalyScorePoints', () => {
             [7, 7],
             [9, 9],
         ])
+    })
+
+    it.each([
+        ['a short chart as it is', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z'],
+        ['a chart longer than a year from its newest year', '2024-07-01T00:00:00Z', '2025-11-17T00:00:00.000Z'],
+    ])('asks for the score history of %s', (_name, dateFrom, expectedFrom) => {
+        expect(scoreHistoryRange(dateFrom, '2026-11-17T00:00:00Z')).toEqual({
+            date_from: expectedFrom,
+            date_to: '2026-11-17T00:00:00Z',
+        })
     })
 })

@@ -6,6 +6,8 @@ import { projectLogic } from 'scenes/projectLogic'
 import { signalsAnomaliesInsightRetrieve } from 'products/signals/frontend/generated/api'
 import type { AnomalyInsightSeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoreHistoryRange } from './anomalyScorePoints'
+
 export interface InsightAnomalyScoresLogicProps {
     insightId: number
     /** The range of the chart. Without it, the API default applies. */
@@ -78,8 +80,7 @@ export const insightAnomalyScoresLogic = kea<insightAnomalyScoresLogicType>([
                         const response = await signalsAnomaliesInsightRetrieve(String(values.currentProjectId), {
                             insight_id: props.insightId,
                             include_buckets: true,
-                            ...(props.dateFrom && { date_from: props.dateFrom }),
-                            ...(props.dateTo && { date_to: props.dateTo }),
+                            ...scoreHistoryRange(props.dateFrom, props.dateTo),
                         })
                         return response.series
                     } catch {

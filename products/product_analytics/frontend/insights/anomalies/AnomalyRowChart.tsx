@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { HighlightedRange, type Series, TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
+import { HighlightedRange, type Series, TimeSeriesLineChart } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
+import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'

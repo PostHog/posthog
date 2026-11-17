@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import { CompareLabelType } from '~/types'
 
 import type { AnomalyPoint } from 'products/alerts/frontend/types'
@@ -67,4 +69,19 @@ export function contiguousRuns(indices: number[]): [number, number][] {
         }
     }
     return runs
+}
+
+// The anomaly history endpoint rejects a range longer than a year, and a monthly chart can show more.
+const MAX_HISTORY_DAYS = 365
+
+/** The chart range as the history request takes it. A longer chart keeps its newest year, where the flags are. */
+export function scoreHistoryRange(
+    dateFrom?: string | null,
+    dateTo?: string | null
+): { date_from?: string; date_to?: string } {
+    if (!dateFrom || !dateTo) {
+        return { ...(dateFrom && { date_from: dateFrom }), ...(dateTo && { date_to: dateTo }) }
+    }
+    const earliest = dayjs(dateTo).subtract(MAX_HISTORY_DAYS, 'day')
+    return { date_from: dayjs(dateFrom).isBefore(earliest) ? earliest.toISOString() : dateFrom, date_to: dateTo }
 }
