@@ -29,11 +29,23 @@ SCOPE_ARRAY_COLUMNS = [
 ]
 
 # (table, column, extra filter) for columns that store scopes as one space-separated string.
-# The access token filter matches the condition of `oauthaccesstoken_scopes_gin`, so each batch
-# finds its rows through that index instead of scanning the table. Tokens without an application
-# are minted inside PostHog and never carry these scopes.
+# The access token filter matches the condition of `oauthaccesstoken_scopes_gin`, so the scan
+# finds its rows through that index. Tokens without an application are minted inside PostHog and
+# never carry these scopes. Only tokens still in use are updated: unexpired ones, and expired ones
+# whose unrevoked refresh token copies their scope on refresh. The rest, most of the table, can
+# never authenticate again.
+LIVE_ACCESS_TOKEN = """
+    AND application_id IS NOT NULL
+    AND (
+        expires > now()
+        OR EXISTS (
+            SELECT 1 FROM posthog_oauthrefreshtoken refresh
+            WHERE refresh.access_token_id = posthog_oauthaccesstoken.id AND refresh.revoked IS NULL
+        )
+    )
+"""
 SCOPE_TEXT_COLUMNS = [
-    ("posthog_oauthaccesstoken", "scope", "AND application_id IS NOT NULL"),
+    ("posthog_oauthaccesstoken", "scope", LIVE_ACCESS_TOKEN),
     ("posthog_oauthgrant", "scope", ""),
     ("posthog_oauthdevicegrant", "scope", ""),
     ("posthog_oauthdevicegrant", "required_scope", ""),
@@ -53,24 +65,29 @@ def _update_in_batches(cursor, table: str, set_clause: str, where_clause: str) -
     # Each batch commits on its own (the migration is not atomic), so no row lock outlives one batch.
     # The UPDATE repeats the condition: PostgreSQL checks it again on the locked row, so a row that a
     # concurrent write changed while this batch waited for its lock (a revoked scope) is skipped.
-    # The loop walks an id cursor and stops on a short SELECT, not a short UPDATE: a skipped row must
-    # not end the loop, and rows already done are never scanned again.
+    # Each pass collects every matching id in one scan and updates them in batches. Later passes pick
+    # up only rows inserted after the previous scan.
+    # The planner underestimates GIN matches by orders of magnitude, so it ANDs the full GIN bitmap
+    # into every batch. Bitmap scans are off for the UPDATEs, so they find rows through the primary key.
     last_id = None
     while True:
         cursor_filter = "" if last_id is None else "AND id > %s"
         cursor.execute(
-            f"SELECT id FROM {table} WHERE {where_clause} {cursor_filter} ORDER BY id LIMIT %s",
-            [BATCH_SIZE] if last_id is None else [last_id, BATCH_SIZE],
+            f"SELECT id FROM {table} WHERE {where_clause} {cursor_filter} ORDER BY id",
+            None if last_id is None else [last_id],
         )
         ids = [row[0] for row in cursor.fetchall()]
         if not ids:
             return
-        cursor.execute(
-            f"UPDATE {table} SET {set_clause} WHERE id = ANY(%s) AND {where_clause}",
-            [ids],
-        )
-        if len(ids) < BATCH_SIZE:
-            return
+        cursor.execute("SET enable_bitmapscan = off")
+        try:
+            for start in range(0, len(ids), BATCH_SIZE):
+                cursor.execute(
+                    f"UPDATE {table} SET {set_clause} WHERE id = ANY(%s) AND {where_clause}",
+                    [ids[start : start + BATCH_SIZE]],
+                )
+        finally:
+            cursor.execute("RESET enable_bitmapscan")
         last_id = ids[-1]
 
 
