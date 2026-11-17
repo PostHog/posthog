@@ -48,7 +48,12 @@ class TestCreateHogFunctionInputsTool:
             + json.dumps(SLACK_INPUTS_SCHEMA)
             + "</inputs_schema><input_values>"
             + json.dumps(
-                {"blocks": NEW_SLACK_BLOCKS, "signing_secret": "model-secret-value", "not_in_schema": "dropped"}
+                {
+                    "blocks": NEW_SLACK_BLOCKS,
+                    "signing_secret": "model-secret-value",
+                    "slack_workspace": 7,
+                    "not_in_schema": "dropped",
+                }
             )
             + "</input_values>",
         )
@@ -59,12 +64,17 @@ class TestCreateHogFunctionInputsTool:
         assert artifact == {"inputs_schema": SLACK_INPUTS_SCHEMA, "inputs": {"blocks": NEW_SLACK_BLOCKS}}
 
     def test_returns_schema_list_when_editor_sends_no_input_values(self):
-        _, _, artifact = _run_inputs_tool(
+        _, content, artifact = _run_inputs_tool(
             {"current_inputs_schema": SLACK_INPUTS_SCHEMA, "hog_code": ""},
-            "<inputs_schema>" + json.dumps(SLACK_INPUTS_SCHEMA) + "</inputs_schema>",
+            "<inputs_schema>"
+            + json.dumps(SLACK_INPUTS_SCHEMA)
+            + "</inputs_schema><input_values>"
+            + json.dumps({"blocks": NEW_SLACK_BLOCKS})
+            + "</input_values>",
         )
 
         assert artifact == SLACK_INPUTS_SCHEMA
+        assert "New text" not in content
 
 
 class TestParseOutput:

@@ -484,6 +484,16 @@ export interface hogFunctionConfigurationLogicActions {
     clearHogCodeDiff: () => {
         value: true
     }
+    acceptInputsDiff: () => {
+        value: true
+    }
+    changeInput: (
+        key: string,
+        input: CyclotronJobInputType
+    ) => {
+        input: CyclotronJobInputType
+        key: string
+    }
     clearInputsDiff: () => {
         value: true
     }
@@ -952,6 +962,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setOldInputs: (oldInputs: CyclotronJobInputSchemaType[]) => ({ oldInputs }),
         setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => ({ newInputs }),
         setNewInputValues: (newInputValues: Record<string, CyclotronJobInputType>) => ({ newInputValues }),
+        changeInput: (key: string, input: CyclotronJobInputType) => ({ key, input }),
+        acceptInputsDiff: true,
         clearInputsDiff: true,
         reportAIHogFunctionInputsPrompted: true,
         reportAIHogFunctionInputsAccepted: true,
@@ -2069,6 +2081,25 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
         reportAIHogFunctionInputsPrompted: () => {
             posthog.capture('ai_hog_function_inputs_prompted', { type: values.type })
+        },
+        changeInput: ({ key, input }) => {
+            // A suggested value stays pending until accept. Fields such as the JSON editor also report
+            // a change when they render a new value, so writing it to the form here would apply it early.
+            if (values.newInputValues && key in values.newInputValues) {
+                actions.setNewInputValues({ ...values.newInputValues, [key]: input })
+                return
+            }
+            actions.setConfigurationValue(`inputs.${key}`, input)
+        },
+        acceptInputsDiff: () => {
+            if (values.newInputs) {
+                actions.setConfigurationValue('inputs_schema', values.newInputs)
+            }
+            for (const [key, input] of Object.entries(values.newInputValues ?? {})) {
+                actions.setConfigurationValue(`inputs.${key}`, input)
+            }
+            actions.reportAIHogFunctionInputsAccepted()
+            actions.clearInputsDiff()
         },
         reportAIHogFunctionInputsAccepted: () => {
             posthog.capture('ai_hog_function_inputs_accepted', { type: values.type })

@@ -41,6 +41,35 @@ export function truncateHogFunctionContext(value: string, max: number = HOG_FUNC
  * just typed sits in form state in cleartext and must never reach the LLM. An entry counts as secret
  * when the schema marks its key secret or the entry itself carries `secret: true`.
  */
+export type HogFunctionInputsToolOutput = {
+    inputs_schema: CyclotronJobInputSchemaType[]
+    inputs: Record<string, unknown>
+}
+
+export type HogFunctionInputsSuggestion = {
+    inputsSchema: CyclotronJobInputSchemaType[]
+    inputValues: Record<string, CyclotronJobInputType>
+}
+
+/**
+ * Reads the answer of the PostHog AI inputs tool. A backend deployed before the tool could change values
+ * returns the bare schema list, so both shapes stay valid while a deploy rolls out.
+ */
+export function hogFunctionInputsSuggestion(
+    toolOutput: HogFunctionInputsToolOutput | CyclotronJobInputSchemaType[],
+    currentInputs: Record<string, CyclotronJobInputType>
+): HogFunctionInputsSuggestion {
+    if (Array.isArray(toolOutput)) {
+        return { inputsSchema: toolOutput, inputValues: {} }
+    }
+    return {
+        inputsSchema: toolOutput.inputs_schema,
+        inputValues: Object.fromEntries(
+            Object.entries(toolOutput.inputs).map(([key, value]) => [key, { ...currentInputs[key], value }])
+        ),
+    }
+}
+
 export function redactSecretHogFunctionInputs(
     inputs: Record<string, CyclotronJobInputType>,
     inputsSchema: CyclotronJobInputSchemaType[]

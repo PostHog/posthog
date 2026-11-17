@@ -233,27 +233,34 @@ class HogFunctionInputsOutput(BaseModel):
     input_values: dict = Field(default_factory=dict, description="Changed input values, keyed by input key")
 
 
-def _secret_input_keys(*inputs_schemas: list) -> set[str]:
+# An integration input holds the ID of a connected account, and its integration_field inputs depend on
+# that account. A changed ID would leave those fields pointing at the old account, so the model never edits them.
+INTEGRATION_INPUT_TYPES = {"integration", "integration_field"}
+
+
+def _locked_input_keys(*inputs_schemas: list) -> set[str]:
     return {
         schema["key"]
         for inputs_schema in inputs_schemas
         for schema in inputs_schema
-        if isinstance(schema, dict) and schema.get("secret") and "key" in schema
+        if isinstance(schema, dict)
+        and "key" in schema
+        and (schema.get("secret") or schema.get("type") in INTEGRATION_INPUT_TYPES)
     }
 
 
 def _input_values_for_prompt(current_inputs: dict, inputs_schema: list) -> dict:
-    secret_keys = _secret_input_keys(inputs_schema)
+    locked_keys = _locked_input_keys(inputs_schema)
     return {
         key: entry.get("value")
         for key, entry in current_inputs.items()
-        if key not in secret_keys and isinstance(entry, dict) and not entry.get("secret")
+        if key not in locked_keys and isinstance(entry, dict) and not entry.get("secret")
     }
 
 
 def _changed_input_values(proposed_values: dict, current_inputs_schema: list, new_inputs_schema: list) -> dict:
     known_keys = {schema.get("key") for schema in new_inputs_schema if isinstance(schema, dict)}
-    allowed_keys = known_keys - _secret_input_keys(current_inputs_schema, new_inputs_schema)
+    allowed_keys = known_keys - _locked_input_keys(current_inputs_schema, new_inputs_schema)
     return {key: value for key, value in proposed_values.items() if key in allowed_keys}
 
 
@@ -297,16 +304,19 @@ class CreateHogFunctionInputsTool(MaxTool):
             assert final_error is not None
             raise final_error
 
-        changed_values = _changed_input_values(
-            parsed_result.input_values, current_inputs_schema, parsed_result.inputs_schema
+        # A browser tab that loaded the editor before this tool could change values sends no
+        # current_inputs. Its callback reads the artifact as the bare schema list and cannot apply values.
+        editor_applies_values = "current_inputs" in self.context
+        changed_values = (
+            _changed_input_values(parsed_result.input_values, current_inputs_schema, parsed_result.inputs_schema)
+            if editor_applies_values
+            else {}
         )
         content = f"```json\n{json.dumps(parsed_result.inputs_schema, indent=2)}\n```"
         if changed_values:
             content += f"\n\nChanged values:\n```json\n{json.dumps(changed_values, indent=2)}\n```"
 
-        if "current_inputs" not in self.context:
-            # A browser tab that loaded the editor before this tool could change values sends no
-            # current_inputs, and its callback reads the artifact as the bare schema list.
+        if not editor_applies_values:
             return content, parsed_result.inputs_schema
         return content, {"inputs_schema": parsed_result.inputs_schema, "inputs": changed_values}
 

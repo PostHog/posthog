@@ -9,17 +9,17 @@ import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import MaxTool from 'scenes/max/MaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { AvailableFeature, CyclotronJobInputSchemaType, CyclotronJobInputType } from '~/types'
+import { AvailableFeature, CyclotronJobInputSchemaType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
-import { redactSecretHogFunctionInputs, truncateHogFunctionContext } from '../../hog-function-utils'
+import {
+    HogFunctionInputsToolOutput,
+    hogFunctionInputsSuggestion,
+    redactSecretHogFunctionInputs,
+    truncateHogFunctionContext,
+} from '../../hog-function-utils'
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
-
-type HogFunctionInputsToolOutput = {
-    inputs_schema: CyclotronJobInputSchemaType[]
-    inputs: Record<string, unknown>
-}
 
 export function HogFunctionInputs(): JSX.Element {
     const {
@@ -38,12 +38,13 @@ export function HogFunctionInputs(): JSX.Element {
 
     const {
         setConfigurationValue,
+        changeInput,
+        acceptInputsDiff,
         setOldInputs,
         setNewInputs,
         setNewInputValues,
         clearInputsDiff,
         reportAIHogFunctionInputsPrompted,
-        reportAIHogFunctionInputsAccepted,
         reportAIHogFunctionInputsRejected,
         reportAIHogFunctionInputsPromptOpen,
     } = useActions(hogFunctionConfigurationLogic)
@@ -95,12 +96,7 @@ export function HogFunctionInputs(): JSX.Element {
                         }
                         setConfigurationValue('inputs_schema', schema)
                     }}
-                    onInputChange={(key, input) => {
-                        if (oldInputs && newInputs) {
-                            clearInputsDiff()
-                        }
-                        setConfigurationValue(`inputs.${key}`, input)
-                    }}
+                    onInputChange={changeInput}
                     showSource={showSource}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
@@ -125,16 +121,7 @@ export function HogFunctionInputs(): JSX.Element {
                             <LemonButton
                                 type="tertiary"
                                 icon={<IconCheck color="var(--success)" />}
-                                onClick={() => {
-                                    if (newInputs) {
-                                        setConfigurationValue('inputs_schema', newInputs)
-                                    }
-                                    for (const [key, input] of Object.entries(newInputValues ?? {})) {
-                                        setConfigurationValue(`inputs.${key}`, input)
-                                    }
-                                    reportAIHogFunctionInputsAccepted()
-                                    clearInputsDiff()
-                                }}
+                                onClick={acceptInputsDiff}
                                 tooltipPlacement="top"
                                 size="small"
                             >
@@ -181,22 +168,15 @@ export function HogFunctionInputs(): JSX.Element {
                 icon: iconForType('data_warehouse'),
             }}
             callback={(toolOutput: HogFunctionInputsToolOutput | CyclotronJobInputSchemaType[]) => {
-                // A backend deployed before input values existed returns the bare schema list
-                const { inputs_schema, inputs } = Array.isArray(toolOutput)
-                    ? { inputs_schema: toolOutput, inputs: {} }
-                    : toolOutput
+                const { inputsSchema, inputValues } = hogFunctionInputsSuggestion(
+                    toolOutput,
+                    configuration.inputs ?? {}
+                )
                 // Store the old inputs before changing
                 setOldInputs(configuration.inputs_schema ?? [])
                 // Store the new inputs from Max Tool
-                setNewInputs(inputs_schema)
-                setNewInputValues(
-                    Object.fromEntries(
-                        Object.entries(inputs).map(([key, value]): [string, CyclotronJobInputType] => [
-                            key,
-                            { ...configuration.inputs?.[key], value },
-                        ])
-                    )
-                )
+                setNewInputs(inputsSchema)
+                setNewInputValues(inputValues)
                 // Report that AI was prompted
                 reportAIHogFunctionInputsPrompted()
                 // Don't immediately update the form - let user accept/reject
