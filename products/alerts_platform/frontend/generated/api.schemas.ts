@@ -668,6 +668,103 @@ export interface PaginatedPlatformAlertConfigurationListApi {
 /**
  * Product whose data the alert evaluates. It cannot change after the create.
  */
+export type ErrorTrackingPlatformAlertConfigurationCreateApiSourceKind =
+    (typeof ErrorTrackingPlatformAlertConfigurationCreateApiSourceKind)[keyof typeof ErrorTrackingPlatformAlertConfigurationCreateApiSourceKind]
+
+export const ErrorTrackingPlatformAlertConfigurationCreateApiSourceKind = {
+    ErrorTracking: 'error_tracking',
+} as const
+
+export type ErrorTrackingPlatformAlertFiltersApiPropertiesItem = { [key: string]: unknown }
+
+/**
+ * Which issues and exceptions the alert announces, in the shape error tracking's destinations use.
+ */
+export interface ErrorTrackingPlatformAlertFiltersApi {
+    /** Property filters on the exception event and the issue. Every filter must match. */
+    properties?: ErrorTrackingPlatformAlertFiltersApiPropertiesItem[]
+}
+
+export type ErrorTrackingPlatformAlertTriggerApi =
+    (typeof ErrorTrackingPlatformAlertTriggerApi)[keyof typeof ErrorTrackingPlatformAlertTriggerApi]
+
+export const ErrorTrackingPlatformAlertTriggerApi = {
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueAssigned: 'issue_assigned',
+} as const
+
+export interface ErrorTrackingPlatformAlertConditionApi {
+    /**
+     * The issue changes the alert announces. Each matching change is announced once.
+     * @minItems 1
+     */
+    triggers: ErrorTrackingPlatformAlertTriggerApi[]
+}
+
+export interface ErrorTrackingPlatformAlertConfigApi {
+    /** The issues and exceptions the alert announces. */
+    filters?: ErrorTrackingPlatformAlertFiltersApi
+    /** The issue changes the alert announces. */
+    condition: ErrorTrackingPlatformAlertConditionApi
+}
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type ErrorTrackingPlatformAlertConfigurationCreateApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type ErrorTrackingPlatformAlertConfigurationCreateApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings of a new alert. Every one but source_config has a default, which is stored.
+ */
+export interface ErrorTrackingPlatformAlertConfigurationCreateApi {
+    /** Product whose data the alert evaluates. It cannot change after the create. */
+    source_kind: ErrorTrackingPlatformAlertConfigurationCreateApiSourceKind
+    /**
+     * Human-readable name of the alert. Defaults to 'Untitled alert'.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. Defaults to true. */
+    enabled?: boolean
+    /** Settings for a error_tracking alert. The bound the alert is evaluated against is under condition. */
+    source_config: ErrorTrackingPlatformAlertConfigApi
+    /** How the alert splits its results into instances. Defaults to mode single. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
+     * @minimum 1
+     * @maximum 60
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+     * @minimum 1
+     * @maximum 60
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert. Defaults to 0.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: ErrorTrackingPlatformAlertConfigurationCreateApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: ErrorTrackingPlatformAlertConfigurationCreateApiAnnotations
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change after the create.
+ */
 export type LogsPlatformAlertConfigurationCreateApiSourceKind =
     (typeof LogsPlatformAlertConfigurationCreateApiSourceKind)[keyof typeof LogsPlatformAlertConfigurationCreateApiSourceKind]
 
@@ -1553,11 +1650,75 @@ export interface WarehouseSourcePlatformAlertConfigurationCreateApi {
 }
 
 export type PlatformAlertConfigurationCreateApi =
+    | ErrorTrackingPlatformAlertConfigurationCreateApi
     | LogsPlatformAlertConfigurationCreateApi
     | MetricsPlatformAlertConfigurationCreateApi
     | TracesPlatformAlertConfigurationCreateApi
     | WarehouseDestinationPlatformAlertConfigurationCreateApi
     | WarehouseSourcePlatformAlertConfigurationCreateApi
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type ErrorTrackingPlatformAlertConfigurationEditApiSourceKind =
+    (typeof ErrorTrackingPlatformAlertConfigurationEditApiSourceKind)[keyof typeof ErrorTrackingPlatformAlertConfigurationEditApiSourceKind]
+
+export const ErrorTrackingPlatformAlertConfigurationEditApiSourceKind = {
+    ErrorTracking: 'error_tracking',
+} as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type ErrorTrackingPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type ErrorTrackingPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface ErrorTrackingPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: ErrorTrackingPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled: boolean
+    /** Settings for a error_tracking alert. The bound the alert is evaluated against is under condition. */
+    source_config: ErrorTrackingPlatformAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+     * @minimum 1
+     * @maximum 60
+     */
+    evaluation_periods: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 60
+     */
+    datapoints_to_alarm: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: ErrorTrackingPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: ErrorTrackingPlatformAlertConfigurationEditApiAnnotations
+}
 
 /**
  * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -2024,12 +2185,76 @@ export interface WarehouseSourcePlatformAlertConfigurationEditApi {
 }
 
 export type PlatformAlertConfigurationEditApi =
+    | ErrorTrackingPlatformAlertConfigurationEditApi
     | InsightPlatformAlertConfigurationEditApi
     | LogsPlatformAlertConfigurationEditApi
     | MetricsPlatformAlertConfigurationEditApi
     | TracesPlatformAlertConfigurationEditApi
     | WarehouseDestinationPlatformAlertConfigurationEditApi
     | WarehouseSourcePlatformAlertConfigurationEditApi
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type PatchedErrorTrackingPlatformAlertConfigurationEditApiSourceKind =
+    (typeof PatchedErrorTrackingPlatformAlertConfigurationEditApiSourceKind)[keyof typeof PatchedErrorTrackingPlatformAlertConfigurationEditApiSourceKind]
+
+export const PatchedErrorTrackingPlatformAlertConfigurationEditApiSourceKind = {
+    ErrorTracking: 'error_tracking',
+} as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type PatchedErrorTrackingPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type PatchedErrorTrackingPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface PatchedErrorTrackingPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: PatchedErrorTrackingPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled?: boolean
+    /** Settings for a error_tracking alert. The bound the alert is evaluated against is under condition. */
+    source_config?: ErrorTrackingPlatformAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
+     * @minimum 1
+     * @maximum 60
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 60
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: PatchedErrorTrackingPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: PatchedErrorTrackingPlatformAlertConfigurationEditApiAnnotations
+}
 
 /**
  * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -2415,6 +2640,7 @@ export interface PatchedWarehouseSourcePlatformAlertConfigurationEditApi {
 }
 
 export type PatchedPlatformAlertConfigurationEditApi =
+    | PatchedErrorTrackingPlatformAlertConfigurationEditApi
     | PatchedInsightPlatformAlertConfigurationEditApi
     | PatchedLogsPlatformAlertConfigurationEditApi
     | PatchedMetricsPlatformAlertConfigurationEditApi
