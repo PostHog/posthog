@@ -173,7 +173,7 @@ def migrate_taggers(team: Team, *, acting_user: User) -> list[TaggerMigrationSte
         with transaction.atomic():
             # The row lock makes two concurrent runs create one evaluation, not two.
             still_pending = Tagger.objects.select_for_update().filter(
-                pk=step.tagger_id, enabled=True, deleted=False, migrated_to_evaluation_id__isnull=True
+                team=team, pk=step.tagger_id, enabled=True, deleted=False, migrated_to_evaluation_id__isnull=True
             )
             if not still_pending.exists():
                 continue
