@@ -5682,7 +5682,7 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
             # Stripe is a managed-schema source (no column selection); row filters are SQL-only.
             (ExternalDataSourceType.STRIPE, False, False, False, False),
             (ExternalDataSourceType.POSTGRES, True, True, True, False),
-            (ExternalDataSourceType.AMAZONS3, False, False, False, True),
+            (ExternalDataSourceType.AMAZONS3, True, False, False, True),
         ]
     )
     def test_retrieve_includes_source_summary(

@@ -390,7 +390,7 @@ _EMPTY_PROFILE: _Profile = (None, None, None, None)
 
 
 def _profiles(
-    scopes: Mapping[str, tuple[SourceRule, ...]],
+    scopes: Mapping[_Scope, tuple[SourceRule, ...]] | Mapping[str, tuple[SourceRule, ...]],
     subject: Literal["member", "role"],
     order: tuple[str, ...] = _SCOPES,
 ) -> list[_Profile]:
