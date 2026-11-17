@@ -840,9 +840,9 @@ class TestLoginRadar(APIBaseTest):
 
     RADAR_ATTEMPT_URL = "https://api.workos.com/radar/attempts/radar_att_01ABC"
 
-    def _password_login(self, email: str, password: str) -> Any:
+    def _password_login(self, password: str | None) -> Any:
         with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"), self.captureOnCommitCallbacks(execute=True):
-            return self.client.post("/api/login", {"email": email, "password": password})
+            return self.client.post("/api/login", {"email": self.user.email, "password": password})
 
     def _totp_login(self, device: Any) -> Any:
         with self.captureOnCommitCallbacks(execute=True):
@@ -859,7 +859,7 @@ class TestLoginRadar(APIBaseTest):
     ):
         mock_put.return_value.status_code = 200
 
-        self._password_login(self.CONFIG_EMAIL, self.CONFIG_PASSWORD if correct_password else "not-the-password")
+        self._password_login(self.CONFIG_PASSWORD if correct_password else "not-the-password")
 
         assert mock_put.call_count == expected_reports
         if expected_reports:
@@ -881,7 +881,7 @@ class TestLoginRadar(APIBaseTest):
         other = User.objects.create_and_join(self.organization, "other@posthog.com", "a-password-for-other")
         self.client.force_login(other)
 
-        first = self._password_login(self.CONFIG_EMAIL, self.CONFIG_PASSWORD)
+        first = self._password_login(self.CONFIG_PASSWORD)
         if device:
             assert first.json()["code"] == "2fa_required"
             mock_put.assert_not_called()
@@ -900,7 +900,7 @@ class TestLoginRadar(APIBaseTest):
         self, _mock_call_api, mock_put
     ):
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
-        assert self._password_login(self.CONFIG_EMAIL, self.CONFIG_PASSWORD).json()["code"] == "2fa_required"
+        assert self._password_login(self.CONFIG_PASSWORD).json()["code"] == "2fa_required"
 
         with self.captureOnCommitCallbacks(execute=True):
             self.client.force_login(self.user, backend="posthog.auth.WebauthnBackend")

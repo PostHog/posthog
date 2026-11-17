@@ -417,6 +417,7 @@ class TestEvaluateAuthAttempt(SimpleTestCase):
             user_id="user_123",
         )
 
+        assert verdict is not None
         assert verdict.verdict == RadarVerdict.ALLOW
         mock_call_api.assert_called_once()
         mock_log_event.assert_called_once()
@@ -451,6 +452,7 @@ class TestEvaluateAuthAttempt(SimpleTestCase):
             auth_method=RadarAuthMethod.PASSWORD,
         )
 
+        assert result is not None
         assert result.verdict == verdict_value
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_blocked"] is False
@@ -676,6 +678,7 @@ class TestEvaluateAuthAttempt(SimpleTestCase):
             auth_method=RadarAuthMethod.PASSWORD,
         )
 
+        assert verdict is not None
         assert verdict.verdict == RadarVerdict.BLOCK
         mock_is_bypass.assert_called_once_with("bypassed@example.com")
         log_kwargs = mock_log_event.call_args[1]
@@ -863,6 +866,7 @@ class TestChallengeFlow(TestCase):
             auth_method=RadarAuthMethod.PASSWORD,
         )
 
+        assert result is not None
         assert result.verdict == RadarVerdict.CHALLENGE
         log_kwargs = mock_log_event.call_args[1]
         assert log_kwargs["was_bypassed"] is True
