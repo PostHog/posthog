@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
+from posthog.models.scoping import team_scope
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
@@ -161,9 +162,22 @@ def _parse_cursor(cursor: str) -> tuple[datetime, UUID]:
 
 
 def list_catalog_page(
-    team_id: int, flags: FlagVisibilityLookup, *, search: str, limit: int, cursor: str
+    team_id: int,
+    flags: FlagVisibilityLookup,
+    *,
+    search: str,
+    limit: int,
+    cursor: str,
+    owner_ids: list[int] | None = None,
+    oldest_first: bool = False,
 ) -> tuple[list[contracts.CatalogReleaseDTO], str | None]:
-    releases = logic.list_catalog_releases(team_id, search, _parse_cursor(cursor) if cursor else None)
+    releases = logic.list_catalog_releases(
+        team_id,
+        search,
+        _parse_cursor(cursor) if cursor else None,
+        owner_ids=owner_ids,
+        oldest_first=oldest_first,
+    )
     results: list[contracts.CatalogReleaseDTO] = []
     position = 0
     while True:
@@ -180,7 +194,18 @@ def list_catalog_page(
                 return results, f"{last.created_at.isoformat()}|{last.id}"
             results.append(
                 contracts.CatalogReleaseDTO(
-                    id=obj.id, name=RESTRICTED_NAME if restricted else obj.name, created_at=obj.created_at
+                    id=obj.id,
+                    name=RESTRICTED_NAME if restricted else obj.name,
+                    created_at=obj.created_at,
+                    owner=contracts.CatalogOwnerDTO(
+                        id=obj.owner.id,
+                        uuid=obj.owner.uuid,
+                        first_name=obj.owner.first_name,
+                        last_name=obj.owner.last_name,
+                        email=obj.owner.email,
+                    )
+                    if obj.owner
+                    else None,
                 )
             )
         if len(batch) < size:
@@ -249,6 +274,7 @@ def releases_enabled(
     distinct_id: str,
     email: str | None,
     raise_on_error: bool = False,
+    only_evaluate_locally: bool = False,
 ) -> bool:
     return feature_flags.is_releases_enabled(
         team_id=team_id,
@@ -257,6 +283,22 @@ def releases_enabled(
         distinct_id=distinct_id,
         email=email,
         raise_on_error=raise_on_error,
+        only_evaluate_locally=only_evaluate_locally,
+    )
+
+
+def get_summary(team_id: int, release_id: UUID) -> contracts.ReleaseSummary:
+    root_id = imports.root_team_id(team_id)
+    with team_scope(root_id):
+        release = logic.get_release(root_id, release_id)
+    return contracts.ReleaseSummary(
+        id=release.id,
+        name=release.name,
+        description=release.description,
+        auto_named=release.auto_named,
+        owner_first_name=release.owner.first_name if release.owner else None,
+        feature_flag_ids=list(release.feature_flag_ids),
+        updated_at=release.updated_at,
     )
 
 

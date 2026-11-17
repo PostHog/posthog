@@ -281,10 +281,20 @@ export function formatSubscriptionSchedule(
 }
 
 export function getSubscriptionAdvancedSettings(
-    subscription: Pick<SubscriptionType, 'summary_enabled' | 'summary_prompt_guide' | 'send_test_now'>
+    subscription: Pick<
+        SubscriptionType,
+        'summary_enabled' | 'summary_prompt_guide' | 'send_test_now' | 'delivery_config' | 'resource_type'
+    >
 ): string[] {
     const settings: string[] = []
 
+    const size = subscription.delivery_config?.image_size
+    if (
+        subscription.resource_type !== SubscriptionResourceTypes.AiPrompt &&
+        (size?.width != null || size?.height != null)
+    ) {
+        settings.push(`Images: ${size?.width ?? 'Auto'} × ${size?.height ?? 'Auto'} px`)
+    }
     if (subscription.summary_enabled) {
         settings.push('Automatic AI summary')
     }
@@ -327,7 +337,11 @@ export function coerceDeliveryConfigForScope(
     subscription: SubscriptionType,
     integrations: IntegrationType[] | null | undefined
 ): SubscriptionType['delivery_config'] {
-    const deliveryConfig = dropAiDisplayConfigForNonAi(subscription)
+    let deliveryConfig = dropAiDisplayConfigForNonAi(subscription)
+    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt && deliveryConfig?.image_size) {
+        deliveryConfig = { ...deliveryConfig }
+        delete deliveryConfig.image_size
+    }
     if (!deliveryConfig?.post_all_insights_in_main_message) {
         return deliveryConfig
     }

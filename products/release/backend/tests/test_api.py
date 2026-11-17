@@ -438,10 +438,19 @@ class TestReleaseAPI(APIBaseTest):
         assert first["has_more"] is True
         assert [flag["id"] for flag in second["results"]] == [older]
         assert second["has_more"] is False
+        assert first["results"][0]["created_by"]["id"] == self.user.id
+
+        oldest = self.client.get(self._url("catalog_flags/?search=checkout&order=created_at")).json()
+        assert [flag["id"] for flag in oldest["results"]] == [older, newer]
+
+        other = self._create_user("someone@example.com")
+        assert self.client.get(self._url(f"catalog_flags/?created_by={other.id}")).json()["results"] == []
+        assert self.client.get(self._url("catalog_flags/?created_by=nope")).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_catalog_releases_lists_newest_first_with_search_and_paging(self) -> None:
+        other = self._create_user("someone@example.com")
         for name in ("Checkout older", "Billing", "Checkout newer"):
-            Release.objects.unscoped().create(team=self.team, name=name)
+            Release.objects.unscoped().create(team=self.team, name=name, owner=other if name == "Billing" else None)
 
         first = self.client.get(self._url("catalog_releases/?search=checkout&limit=1")).json()
         second = self.client.get(
@@ -452,6 +461,15 @@ class TestReleaseAPI(APIBaseTest):
         assert [release["name"] for release in second["results"]] == ["Checkout older"]
         assert second["next_cursor"] is None
         assert self.client.get(self._url("catalog_releases/?cursor=bad")).status_code == status.HTTP_400_BAD_REQUEST
+
+        oldest = self.client.get(self._url("catalog_releases/?order=created_at&limit=1")).json()
+        after = self.client.get(
+            self._url("catalog_releases/"), {"order": "created_at", "limit": "1", "cursor": oldest["next_cursor"]}
+        ).json()
+        assert [release["name"] for release in oldest["results"] + after["results"]] == ["Checkout older", "Billing"]
+
+        owned = self.client.get(self._url(f"catalog_releases/?owner={other.id}")).json()["results"]
+        assert [(release["name"], release["owner"]["id"]) for release in owned] == [("Billing", other.id)]
 
     def test_catalog_flags_hides_flags_the_caller_cannot_see(self) -> None:
         visible = self._flag("checkout-visible")

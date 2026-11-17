@@ -21,7 +21,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeople'
+import { TodayPeopleRecent } from '~/layout/today/todayPeople'
+import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -165,7 +166,7 @@ export interface personsLogicValues {
     sidePanelContext: SidePanelSceneContext
     splitMergeModalShown: boolean
     surveyResponsesQuery: DataTableNode | null
-    todayPeopleRecent: TodayPeopleRecent | null
+    todayRecent: TodayPeopleRecent | null
     urlId: any
 }
 
@@ -328,7 +329,7 @@ export interface personsLogicMeta {
             },
             featureFlags: FeatureFlagsSet
         ) => Breadcrumb[]
-        todayPeopleRecent: (person: PersonType | null) => TodayPeopleRecent | null
+        todayRecent: (person: PersonType | null) => TodayPeopleRecent | null
         sidePanelContext: (person: PersonType | null) => SidePanelSceneContext
         exporterProps: (listFilters: PersonListParams, arg: any) => TriggerExportProps[]
         urlId: (arg: any) => any
@@ -649,7 +650,7 @@ export const personsLogic = kea<personsLogicType>([
             },
         ],
 
-        [TODAY_PEOPLE_RECENT_KEY]: [
+        [TODAY_RECENT_KEY]: [
             (s) => [s.person],
             (person: PersonType | null): TodayPeopleRecent | null =>
                 person?.id != null
