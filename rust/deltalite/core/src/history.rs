@@ -593,7 +593,6 @@ struct SourcePlan {
     /// Source rows dropped because an earlier source row of the key has their
     /// `dedupe_column` value.
     rows_redelivered: usize,
-    /// The source-size guard's estimate for this source.
     footprint_bytes: usize,
 }
 
@@ -1596,7 +1595,6 @@ struct Probed {
     next_after: HashMap<(u32, u32), usize>,
     /// Files that kept their footer for the rewrite.
     footers: usize,
-    /// Estimated resident bytes of `existing`.
     bytes: usize,
 }
 
@@ -1658,8 +1656,6 @@ async fn probe_files(
             partition: partition.to_string(),
             groups,
         });
-        // The versions read count against the source guard, since they stay until the
-        // decision. Splitting the source by key bucket lowers both.
         if let Some(max) = resolve_max_source_bytes(opts.max_source_bytes) {
             let total = plan.footprint_bytes.saturating_add(probed.bytes);
             if total > max {
