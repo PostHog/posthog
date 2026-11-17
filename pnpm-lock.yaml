@@ -6284,6 +6284,9 @@ importers:
       pino-pretty:
         specifier: ^13.2.0
         version: 13.2.0
+      testcontainers:
+        specifier: ^12.2.1
+        version: 12.2.1(supports-color@10.2.2)
       tsx:
         specifier: ^4.23.15
         version: 4.23.15

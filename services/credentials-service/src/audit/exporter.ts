@@ -16,9 +16,8 @@ export const AUDIT_EVENT = '$credentials_access'
 /** Distinct id of every event. The user id is a property, so no person profile is created. */
 export const AUDIT_DISTINCT_ID = 'credentials-service'
 
-// Arbitrary constants, unique within this database.
+// Arbitrary constant, unique within this database.
 export const EXPORT_LOCK_KEY = 7_201_001
-export const RETENTION_LOCK_KEY = 7_201_002
 
 interface AuditRow {
     id: string

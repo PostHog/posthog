@@ -2,7 +2,7 @@
 // boots a real server with and without a database.
 
 import { serve } from '@hono/node-server'
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import { SignJWT } from 'jose'
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -25,14 +25,22 @@ import { runMigrations } from '@/db/migrate'
 import type { Config, DatabaseConfig, KmsConfig } from '@/lib/config'
 import { CredentialsServer } from '@/server'
 
+import { createAuditExtensions, startPostgresWithPartman } from './postgres'
+
 const MIGRATIONS = [
     '1794323815130_initial-schema',
     '1794323815131_runtime-role-grants',
     '1794323815132_idempotency-deployment',
     '1794400000000_integrations-changes-index',
     '1794400000001_audit-exported-at',
+    '1794400000002_audit-partman',
 ]
 const TABLES = ['audit_log', 'audit_log_default', 'auth_jti', 'idempotency_keys', 'integration_secrets', 'integrations']
+// pg_cron runs in this one database of the cluster, so every test that migrates with a runtime
+// role, the way a deployed environment does, shares it.
+const DEPLOYED_DATABASE = 'deployed'
+const RUNTIME_ROLE = 'credentials_runtime_test'
+const RUNTIME_PASSWORD = 'not-a-real-password'
 const TEAM: IntegrationOwner = { type: 'team', id: 1 }
 const OTHER_TEAM: IntegrationOwner = { type: 'team', id: 2 }
 
@@ -50,6 +58,40 @@ async function createDatabase(name: string): Promise<string> {
     return databaseUrl(name)
 }
 
+let deployed: Promise<{ url: string; runtimeUrl: string }> | undefined
+
+/**
+ * Migrated with the runtime role. Rows written before the pg_partman migration, today and 10 days
+ * ago, sit in the default partition until that migration runs.
+ */
+function deployedDatabase(): Promise<{ url: string; runtimeUrl: string }> {
+    deployed ??= (async () => {
+        const url = await createDatabase(DEPLOYED_DATABASE)
+        await createAuditExtensions(url)
+        await runMigrations({
+            databaseUrl: url,
+            direction: 'up',
+            runtimeRole: RUNTIME_ROLE,
+            count: MIGRATIONS.length - 1,
+        })
+        const db = new Pool({ connectionString: url })
+        try {
+            await db.query(
+                `INSERT INTO audit_log (deployment, operation, outcome, occurred_at)
+                 VALUES ('d', 'before-partman', 'ok', now()), ('d', 'before-partman', 'ok', now() - interval '10 days')`
+            )
+        } finally {
+            await db.end()
+        }
+        await runMigrations({ databaseUrl: url, direction: 'up', runtimeRole: RUNTIME_ROLE })
+        const runtimeUrl = new URL(url)
+        runtimeUrl.username = RUNTIME_ROLE
+        runtimeUrl.password = RUNTIME_PASSWORD
+        return { url, runtimeUrl: runtimeUrl.toString() }
+    })()
+    return deployed
+}
+
 async function tables(url: string): Promise<string[]> {
     const client = new Pool({ connectionString: url })
     try {
@@ -65,9 +107,10 @@ async function tables(url: string): Promise<string[]> {
 }
 
 beforeAll(async () => {
-    container = await new PostgreSqlContainer('postgres:17-alpine').start()
+    container = await startPostgresWithPartman(DEPLOYED_DATABASE)
     pool = new Pool({ connectionString: container.getConnectionUri() })
-}, 120_000)
+    await pool.query(`CREATE ROLE ${RUNTIME_ROLE} LOGIN PASSWORD '${RUNTIME_PASSWORD}'`)
+}, 300_000)
 
 afterAll(async () => {
     await pool?.end()
@@ -90,20 +133,20 @@ describe('migrations', () => {
         expect(await runMigrations({ databaseUrl: url, direction: 'up' })).toEqual(MIGRATIONS)
         expect(await tables(url)).toEqual(TABLES)
     })
+
+    it('refuses to set up audit retention without pg_partman and pg_cron when a runtime role is set', async () => {
+        const url = await createDatabase('no_audit_extensions')
+        await expect(runMigrations({ databaseUrl: url, direction: 'up', runtimeRole: RUNTIME_ROLE })).rejects.toThrow(
+            'missing: {pg_cron,pg_partman}'
+        )
+    })
 })
 
 describe('runtime role grants', () => {
-    const ROLE = 'credentials_runtime_test'
     let runtime: Pool
 
     beforeAll(async () => {
-        await pool.query(`CREATE ROLE ${ROLE} LOGIN PASSWORD 'not-a-real-password'`)
-        const url = await createDatabase('runtime_role_grants')
-        await runMigrations({ databaseUrl: url, direction: 'up', runtimeRole: ROLE })
-        const runtimeUrl = new URL(url)
-        runtimeUrl.username = ROLE
-        runtimeUrl.password = 'not-a-real-password'
-        runtime = new Pool({ connectionString: runtimeUrl.toString() })
+        runtime = new Pool({ connectionString: (await deployedDatabase()).runtimeUrl })
     })
 
     afterAll(async () => {
@@ -120,8 +163,13 @@ describe('runtime role grants', () => {
         await runtime.query(`DELETE FROM integrations`)
     })
 
+    // Postgres checks DML through audit_log against audit_log only, so the daily partitions need no grant.
     it('lets the runtime role append to and read the audit log', async () => {
-        await runtime.query(`INSERT INTO audit_log (deployment, operation, outcome) VALUES ('d', 'read', 'ok')`)
+        const inserted = await runtime.query<{ partition: string }>(
+            `INSERT INTO audit_log (deployment, operation, outcome) VALUES ('d', 'read', 'ok')
+             RETURNING tableoid::regclass::text AS partition`
+        )
+        expect(inserted.rows[0]?.partition).toMatch(/^audit_log_p\d{8}$/)
         const result = await runtime.query(`SELECT count(*)::int AS n FROM audit_log`)
         expect(result.rows[0].n).toBeGreaterThan(0)
     })
@@ -177,6 +225,64 @@ describe('postgres replay store', () => {
         await store.deleteExpired()
         const rows = await db.query<{ jti: string }>(`SELECT jti FROM auth_jti WHERE jti IN ('jti-old', 'jti-live')`)
         expect(rows.rows.map((row) => row.jti)).toEqual(['jti-live'])
+    })
+})
+
+describe('audit_log partitions', () => {
+    let db: Pool
+
+    beforeAll(async () => {
+        db = new Pool({ connectionString: (await deployedDatabase()).url })
+    })
+
+    afterAll(async () => {
+        await db?.end()
+    })
+
+    it('moves rows written before pg_partman out of the default partition', async () => {
+        const result = await db.query<{ partition: string }>(
+            `SELECT tableoid::regclass::text AS partition FROM audit_log WHERE operation = 'before-partman'`
+        )
+        expect(result.rows).toHaveLength(2)
+        for (const row of result.rows) {
+            expect(row.partition).toMatch(/^audit_log_p\d{8}$/)
+        }
+    })
+
+    it('drops daily partitions past 30 days on the hourly job, and keeps newer ones', async () => {
+        const job = await db.query(
+            `SELECT schedule, command, username FROM cron.job WHERE jobname = 'credentials-service-audit-partman'`
+        )
+        expect(job.rows).toEqual([
+            {
+                schedule: '17 * * * *',
+                command: 'CALL partman.run_maintenance_proc()',
+                username: container.getUsername(),
+            },
+        ])
+
+        await db.query(
+            `SELECT partman.create_partition_time('public.audit_log', ARRAY[now() - interval '31 days', now() - interval '29 days'])`
+        )
+        const inserted = await db.query<{ operation: string; partition: string }>(
+            `INSERT INTO audit_log (deployment, operation, outcome, occurred_at)
+             VALUES ('d', 'expired', 'ok', now() - interval '31 days'), ('d', 'kept', 'ok', now() - interval '29 days')
+             RETURNING operation, tableoid::regclass::text AS partition`
+        )
+        const partitionOf = (operation: string): string =>
+            inserted.rows.find((row) => row.operation === operation)!.partition
+
+        await db.query(`SELECT partman.run_maintenance('public.audit_log')`)
+
+        const left = await db.query<{ operation: string }>(
+            `SELECT operation FROM audit_log WHERE operation IN ('expired', 'kept')`
+        )
+        expect(left.rows).toEqual([{ operation: 'kept' }])
+        const tables = await db.query<{ expired: string | null; kept: string | null }>(
+            'SELECT to_regclass($1)::text AS expired, to_regclass($2)::text AS kept',
+            [partitionOf('expired'), partitionOf('kept')]
+        )
+        expect(tables.rows[0]).toEqual({ expired: null, kept: partitionOf('kept') })
     })
 })
 
@@ -455,20 +561,13 @@ describe('server readiness with a database', () => {
         expect(await resolveStatus(port)).toBe(200)
     })
 
+    // The audit log has daily partitions here, as in a deployed environment.
     describe('runtime role check', () => {
-        const RUNTIME_ROLE = 'credentials_guard_runtime'
-        const PASSWORD = 'not-a-real-password'
         let migratedUrl: string
         let runtimeUrl: string
 
         beforeAll(async () => {
-            await pool.query(`CREATE ROLE ${RUNTIME_ROLE} LOGIN PASSWORD '${PASSWORD}'`)
-            migratedUrl = await createDatabase('runtime_role_check')
-            await runMigrations({ databaseUrl: migratedUrl, direction: 'up', runtimeRole: RUNTIME_ROLE })
-            const url = new URL(migratedUrl)
-            url.username = RUNTIME_ROLE
-            url.password = PASSWORD
-            runtimeUrl = url.toString()
+            ;({ url: migratedUrl, runtimeUrl } = await deployedDatabase())
         })
 
         const ownerUser = (): string => new URL(migratedUrl).username
@@ -537,10 +636,10 @@ describe('server readiness with a database', () => {
             ],
         ])('refuses a runtime role with %s', async (_label, grant) => {
             const role = `credentials_guard_${Math.random().toString(36).slice(2, 10)}`
-            await pool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${PASSWORD}'`)
+            await pool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${RUNTIME_PASSWORD}'`)
             const url = new URL(migratedUrl)
             url.username = role
-            url.password = PASSWORD
+            url.password = RUNTIME_PASSWORD
             const db = new Pool({ connectionString: migratedUrl })
             try {
                 await db.query(`GRANT SELECT, INSERT ON audit_log TO ${role}`)
@@ -556,10 +655,10 @@ describe('server readiness with a database', () => {
 
         it('refuses a runtime role that owns the schema of the audit log', async () => {
             const role = `credentials_guard_${Math.random().toString(36).slice(2, 10)}`
-            await pool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${PASSWORD}'`)
+            await pool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${RUNTIME_PASSWORD}'`)
             const url = new URL(migratedUrl)
             url.username = role
-            url.password = PASSWORD
+            url.password = RUNTIME_PASSWORD
             const db = new Pool({ connectionString: migratedUrl })
             const schema = await db.query<{ nspname: string; owner: string }>(
                 `SELECT n.nspname, pg_get_userbyid(n.nspowner) AS owner

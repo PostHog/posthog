@@ -354,12 +354,12 @@ In single-role local development it falls back to `CREDENTIALS_SERVICE_DATABASE_
 
 The service uses two Postgres roles:
 
-- The **migrate role** owns the tables. Only the migration Job and the maintenance commands use it (`CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`).
+- The **migrate role** owns the tables. Only the migration Job connects as it (`CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`). The pg_partman job in pg_cron also runs as it (see "Audit partitions").
 - The **runtime role** is the one the service connects as (`CREDENTIALS_SERVICE_DATABASE_URL`). It does not own any table.
 
 The runtime role gets `SELECT, INSERT, UPDATE, DELETE` on `integrations`, `integration_secrets`, `idempotency_keys` and `auth_jti`.
 On `audit_log` it gets only `SELECT, INSERT`: it cannot `UPDATE`, `DELETE` or `TRUNCATE` audit rows, so a compromised pod cannot erase its own trail.
-Audit retention runs under the migrate or a maintenance role, outside the service process.
+Audit retention runs in the database as the migrate role, outside the service process.
 
 In `prod-us`, `prod-eu` and any environment whose name contains `prod` (any case), the service checks the runtime role at startup.
 It refuses to start the integration features when the runtime role owns `audit_log` or one of its partitions, can `UPDATE` (also per column), `DELETE` or `TRUNCATE` any of them, or has the same user as `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`.
@@ -375,10 +375,34 @@ An advisory lock makes two Jobs that start together run one after the other.
 
 ### Audit partitions
 
-`audit_log` is partitioned by range on `occurred_at`, with one default partition, `audit_log_default`.
-Infra runs pg_partman for the daily partitions: `create_parent('public.audit_log', 'occurred_at', '1 day', p_premake => 7, p_default_table => false)`, because the migration already made the default partition.
-Set pg_partman up before the service writes audit rows.
-Rows that land in the default partition stop pg_partman from making a partition for that day, until they are moved with `partition_data_proc`.
+`audit_log` is partitioned by range on `occurred_at`, with daily partitions and one default partition, `audit_log_default`.
+pg_partman makes the daily partitions and drops them for retention. pg_cron runs its maintenance every hour.
+The migration `1794400000002_audit-partman.sql` sets this up as the migrate role:
+
+- `partman.create_parent('public.audit_log', 'occurred_at', '1 day', p_premake => 7, p_default_table => false)`. The initial migration already made the default partition.
+- In `partman.part_config`: `retention = '30 days'`, `retention_keep_table = false` and `infinite_time_partitions = true`.
+- The pg_cron job `credentials-service-audit-partman` runs `CALL partman.run_maintenance_proc()` at minute 17 of each hour.
+
+A pg_cron job runs as the role that scheduled it.
+Thus the migrate role makes, owns and drops every partition, and no scheduled job outside the database holds its credential.
+The runtime role gets no grant on a partition. For DML through `audit_log`, Postgres checks the privileges on `audit_log` only.
+The startup role check still checks every partition.
+
+Before this migration runs, infra must do these steps on the database, as the master user:
+
+- Set `shared_preload_libraries` to include `pg_cron`, and set `cron.database_name` to this database.
+- Create extension `pg_partman` in schema `partman`, and create extension `pg_cron`.
+- Give the migrate role `USAGE` and `CREATE` on schema `partman`, `SELECT, INSERT, UPDATE, DELETE` on the tables in schema `partman`, and `EXECUTE` on its functions and procedures. `create_parent` makes a template table in schema `partman` and writes `part_config`.
+- Give the migrate role `USAGE` on schema `cron` and `EXECUTE` on its functions.
+
+When an extension is missing and `CREDENTIALS_SERVICE_RUNTIME_ROLE` is set, the migration fails and names the missing extension.
+When the variable is unset (single-role local development), the migration skips the setup with a notice. Rows then stay in the default partition, and no retention runs.
+
+A row in the default partition stops pg_partman from attaching a partition for that day.
+The migration moves the rows of the default partition out before `create_parent`, and moves them back after it.
+It then runs `partman.partition_data_time` until the default partition is empty, because `partition_data_proc` cannot run in a transaction.
+All audit writes wait while the migration runs (lock timeout 10 seconds), so run it while the default partition is small.
+The down migration puts every row back in the default partition and removes the pg_partman configuration and the pg_cron job.
 
 ### Audit export and retention
 
@@ -394,19 +418,10 @@ The request uses plain `fetch`, so it goes direct unless Node itself is set to u
 
 The runtime role has `UPDATE (exported_at)` on `audit_log` and no other update right. The exporter marks rows by primary key `(id, occurred_at)`, with the values it read in its select.
 
-**Retention** does not run in the service, because the runtime role cannot delete audit rows.
-It runs as a separate command under the migrate (maintenance) role, from the same image, as a Kubernetes CronJob:
-
-```bash
-node credentials-service-maintenance.mjs audit-retention
-pnpm --filter @posthog/credentials-service maintenance audit-retention   # from source
-```
-
-It reads `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL` (it does not fall back to the runtime URL) and `CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS` (default 30, maximum 60).
-It deletes only rows that the export already marked with `exported_at`, so an export that is off or behind keeps its rows.
-Set `CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED=true` to delete old rows without an export. The stdout audit lines in Loki are then the only copy.
-It deletes older rows in batches under an advisory lock, and logs `maintenance:complete`.
-Run it hourly. When infra runs pg_partman retention on `audit_log`, drop the CronJob.
+**Retention** drops each daily partition when it is older than 30 days (see "Audit partitions"). The service does not delete audit rows.
+A dropped partition can contain rows that the export did not send. This is an accepted risk.
+The stdout audit lines in Loki are then the only copy of those rows.
+The export lag alert (`credentials_service_audit_export_lag_seconds`) shows an export that is off or behind, long before the 30 days end.
 
 **Alerts.** Alert on service metrics and on the stdout audit lines (`integrations:audited`) in Loki.
 Never alert on `$credentials_access` events: anyone with the project key can forge them, so the events are for analysis only.
