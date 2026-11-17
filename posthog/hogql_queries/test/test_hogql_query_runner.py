@@ -39,7 +39,7 @@ from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALL
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.hogql_queries.hogql_query_runner import API_SQL_WINDOW_CACHE_AGE_FLAG, HogQLQueryRunner
 from posthog.hogql_queries.paginators import OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, ExecutionMode
@@ -646,6 +646,26 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 app_runner.get_cache_key(),
                 app_runner.single_flight_variant(),
             )
+
+    @parameterized.expand(
+        [
+            ("personal_api_key", AccessMethod.PERSONAL_API_KEY, True),
+            ("project_secret_api_key", AccessMethod.PROJECT_SECRET_API_KEY, True),
+            ("oauth", AccessMethod.OAUTH, False),
+        ]
+    )
+    def test_api_key_cap_applies_without_query_service(self, _name, access_method, capped):
+        # The insights endpoint refreshes saved SQL insights with is_query_service=False.
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 1"))
+        with (
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_LEGACY_TEAM_LIST",
+                {self.team.pk + 1},
+            ),
+            tags_context(access_method=access_method),
+        ):
+            variant = runner.single_flight_variant()
+        assert variant.endswith(":max_execution_time=10") is capped
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_non_query_service_allows_offset(self, _mock_flag):
