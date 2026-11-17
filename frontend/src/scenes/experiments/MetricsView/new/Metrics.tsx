@@ -10,6 +10,7 @@ import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
+import { QuillAddMetricButton } from '~/scenes/experiments/Metrics/QuillAddMetricButton'
 import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
 import { Experiment } from '~/types'
 
@@ -19,6 +20,7 @@ import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/Experiment
 
 import { HowToReadTooltip } from './HowToReadTooltip'
 import { MetricsTable } from './MetricsTable'
+import { QuillMetricsEmptyState } from './QuillMetricsEmptyState'
 import { ResultDetails } from './ResultDetails'
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element | null {
@@ -37,6 +39,8 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
     useMountedLogic(experimentExposuresWindowLogic({ experiment }))
     const { hasMinimumExposureForResults } = useValues(experimentLogic)
     const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quill = todayRailNav && resultsRedesign
     const {
         primaryMetricsResults,
         primaryMetricsResultsErrors,
@@ -87,9 +91,19 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                     <div className="ml-auto">
                         {metrics.length > 0 && (
                             <div className="mb-2 mt-4 justify-end flex items-center gap-2">
-                                <AddMetricButton
-                                    metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
-                                />
+                                {quill ? (
+                                    <QuillAddMetricButton
+                                        metricContext={
+                                            isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary
+                                        }
+                                    />
+                                ) : (
+                                    <AddMetricButton
+                                        metricContext={
+                                            isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary
+                                        }
+                                    />
+                                )}
                             </div>
                         )}
                     </div>
@@ -121,6 +135,10 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                 ) : (
                     <MetricsTable metrics={metrics} results={results} errors={errors} isSecondary={!!isSecondary} />
                 )
+            ) : quill ? (
+                <div className="mt-2">
+                    <QuillMetricsEmptyState isSecondary={!!isSecondary} />
+                </div>
             ) : (
                 <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">

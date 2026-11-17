@@ -25,6 +25,7 @@ import { SharedMetricModal } from 'products/experiments/frontend/modals/SharedMe
 import { sharedMetricModalLogic } from 'products/experiments/frontend/modals/SharedMetricModal/sharedMetricModalLogic'
 
 import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
+import { QuillEmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/QuillEmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from '../experimentSceneLogic'
@@ -56,6 +57,7 @@ const MetricsTab = (): JSX.Element => {
     const { experiment, hasMetrics, isExperimentLaunched, healthFindings, browserNoMetricsWarning } =
         useValues(experimentLogic)
     const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // With health findings, the health tab shows the "No metrics defined" and bias warnings.
     const showsHealthTab = healthFindings !== null
@@ -106,14 +108,25 @@ const MetricsTab = (): JSX.Element => {
                             </div>
                         </LemonBanner>
                     )}
-                    <EmptyMetricsPanel
-                        isLaunched={isExperimentLaunched}
-                        onAddMetric={(metricType) =>
-                            reportNoMetricActedOn(
-                                metricType === 'primary' ? 'add_primary_metric' : 'add_secondary_metric'
-                            )
-                        }
-                    />
+                    {todayRailNav && resultsRedesign ? (
+                        <QuillEmptyMetricsPanel
+                            isLaunched={isExperimentLaunched}
+                            onAddMetric={(metricType) =>
+                                reportNoMetricActedOn(
+                                    metricType === 'primary' ? 'add_primary_metric' : 'add_secondary_metric'
+                                )
+                            }
+                        />
+                    ) : (
+                        <EmptyMetricsPanel
+                            isLaunched={isExperimentLaunched}
+                            onAddMetric={(metricType) =>
+                                reportNoMetricActedOn(
+                                    metricType === 'primary' ? 'add_primary_metric' : 'add_secondary_metric'
+                                )
+                            }
+                        />
+                    )}
                 </div>
             ) : (
                 <>
