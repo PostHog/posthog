@@ -74,8 +74,8 @@ from products.alerts.backend.models.alert import (
 from products.alerts.backend.platform_insight_alert import interval_of, native_insight_alert_view
 from products.alerts_platform.backend.facade.api import (
     assign_native_creator,
+    count_configurations,
     enabled_native_configurations,
-    held_configuration_ids,
     list_configurations,
     native_configuration_team_id,
     native_source_config_values,
@@ -210,22 +210,24 @@ def enabled_alerts_created_by(*, team_ids: Collection[int], user_id: int) -> lis
                 created_at=configuration.created_at,
             )
             for configuration in held
-            if (configuration.team_id, configuration.source_config.get("insight_id")) in live
+            if configuration.source_config.get("insight_id") in live.get(configuration.team_id, ())
         ),
     ]
 
 
-def _live_insights(configurations: Iterable[EnabledNativeConfiguration]) -> set[tuple[int, int]]:
-    """`(team_id, insight_id)` of the insights these alerts watch that are not deleted."""
+def _live_insights(configurations: Iterable[EnabledNativeConfiguration]) -> dict[int, set[int]]:
+    """The ids of the insights these alerts watch that are not deleted, by team."""
     by_team: dict[int, set[int]] = {}
     for configuration in configurations:
         if isinstance(insight_id := configuration.source_config.get("insight_id"), int):
             by_team.setdefault(configuration.team_id, set()).add(insight_id)
     return {
-        (team_id, insight.id)
+        team_id: {
+            insight.id
+            for insight in insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
+            if not insight.deleted
+        }
         for team_id, insight_ids in by_team.items()
-        for insight in insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
-        if not insight.deleted
     }
 
 
@@ -241,9 +243,11 @@ def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInvent
         source_kinds=[SourceKind.INSIGHT.value],
         limit=recent_limit,
         offset=0,
-        configuration_ids=held_configuration_ids(team_id=team_id, source_kind=SourceKind.INSIGHT),
+        held_only=True,
     )
-    enabled_held = enabled_native_configurations(team_ids=[team_id], source_kind=SourceKind.INSIGHT, owned_copies=True)
+    enabled_held = count_configurations(
+        team_id=team_id, source_kind=SourceKind.INSIGHT, held_only=True, enabled_only=True
+    )
     runtime = runtime_by_public_id(
         team_id=team_id, public_ids=[view.destination_alert_id for view in held.configurations]
     )
@@ -284,7 +288,7 @@ def alert_inventory(*, team_id: int, recent_limit: int) -> contracts.AlertInvent
     recent = sorted([*row_summaries, *held_summaries], key=lambda summary: summary.created_at, reverse=True)
     return contracts.AlertInventory(
         total_count=rows.count() + held.total,
-        enabled_count=rows.filter(enabled=True).count() + len(enabled_held),
+        enabled_count=rows.filter(enabled=True).count() + enabled_held,
         recent=tuple(recent[:recent_limit]),
     )
 

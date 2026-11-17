@@ -221,10 +221,12 @@ def list_configurations(
     legacy_configuration_id: UUID | None = None,
     configuration_ids: Collection[UUID] | None = None,
     created_by_uuid: UUID | None = None,
+    held_only: bool = False,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations a caller may read, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
-    With `created_by_uuid`, only the ones that user created."""
+    With `created_by_uuid`, only the ones that user created. With `held_only`, only the ones whose
+    settings the platform holds: those with no source row, and the copies it owns."""
     return platform_reads.list_configurations(
         team_id=team_id,
         source_kinds=source_kinds,
@@ -233,6 +235,7 @@ def list_configurations(
         legacy_configuration_id=legacy_configuration_id,
         configuration_ids=configuration_ids,
         created_by_uuid=created_by_uuid,
+        held_only=held_only,
     )
 
 
@@ -403,9 +406,11 @@ def count_configurations(
     check_interval_minutes: int | None = None,
     exclude_id: UUID | None = None,
     source_config_contains: Mapping[str, Any] | None = None,
+    held_only: bool = False,
 ) -> int:
     """How many alerts of a kind a team has on the platform. For a source's admission. With
-    `exclude_id`, the alert an edit is checked for is left out.
+    `exclude_id`, the alert an edit is checked for is left out. With `held_only`, only the ones whose
+    settings the platform holds: those with no source row, and the copies it owns.
 
     A source that keeps rows counts them and adds `native_only`. A copy stands for a row the source
     already counts, and a copy left by a delete from before copies went with their row counts nothing.
@@ -418,6 +423,7 @@ def count_configurations(
         check_interval_minutes=check_interval_minutes,
         exclude_id=exclude_id,
         source_config_contains=source_config_contains,
+        held_only=held_only,
     )
 
 
