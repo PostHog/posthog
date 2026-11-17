@@ -651,9 +651,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         context = HogQLContext(team_id=self.team.pk, database=database)
         serialized = database.serialize(context, include_hidden_posthog_tables=True)
 
-        for hidden_table in ("cohort_membership", "posthog.error_tracking_recent_issue_state"):
-            assert hidden_table not in serialized
-            assert database.has_table(hidden_table)
+        assert "posthog.error_tracking_recent_issue_state" not in serialized
+        assert database.has_table("posthog.error_tracking_recent_issue_state")
 
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -4589,7 +4588,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "session_replay_events",
             "cohort_people",
             "static_cohort_people",
-            "cohort_membership",
             "precalculated_events",
             "precalculated_person_properties",
             "log_entries",
