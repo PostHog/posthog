@@ -34,7 +34,7 @@ from products.alerts_platform.backend.logic.alert_destinations import INCIDENT_D
 from products.alerts_platform.backend.logic.alert_routes import (
     RoutedReceiver,
     has_enabled_routes,
-    has_incident_receiver,
+    has_incident_route,
     routed_receivers_for_label_sets,
     routing_labels,
     stored_group_labels,
@@ -60,7 +60,7 @@ def _routing_is_enabled(team: Team, request: AlertDeliveryRequest) -> bool:
     it by hand, so a delivery with incident actions raises instead and the activity retries it.
     """
     enabled = _routing_flag(team)
-    if enabled is None and request.incident_actions and has_incident_receiver(request.team_id):
+    if enabled is None and request.incident_actions and has_incident_route(request.team_id):
         raise DeliveryError("The alert routing flag could not be evaluated.")
     return bool(enabled)
 
@@ -73,7 +73,7 @@ def _routing_team(request: AlertDeliveryRequest) -> Team | None:
     if not request.owned_by_platform:
         return None
     # A delivery that exists only for its incident actions has nothing for a chat receiver.
-    if not request.sends_messages and not has_incident_receiver(request.team_id):
+    if not request.sends_messages and not has_incident_route(request.team_id):
         return None
     team = Team.objects.filter(id=request.team_id).first()
     if team is None or not _routing_is_enabled(team, request):

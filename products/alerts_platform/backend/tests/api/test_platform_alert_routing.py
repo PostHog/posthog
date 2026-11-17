@@ -115,13 +115,13 @@ class TestPlatformAlertRouting(APIBaseTest):
             ("matching_route", True, "apm", True),
             # A group routes on its own labels, which the source does not know yet, so any route to an
             # incident receiver keeps the actions; routing then decides who gets them.
-            ("route_matches_another_team", True, "web", True),
+            ("alert_labels_do_not_match_the_route", True, "web", True),
             ("routing_off_for_the_team", False, "apm", False),
             # A dropped resolve would leave the incident open for good, so a failed lookup keeps the actions.
             ("flag_lookup_fails", RuntimeError("flags down"), "apm", True),
         ]
     )
-    def test_a_pagerduty_receiver_makes_the_alerts_its_routes_match_open_and_close_incidents(
+    def test_any_route_to_a_pagerduty_receiver_keeps_incident_actions_for_every_alert_in_the_team(
         self, _name: str, routing_on: bool | Exception, alert_team: str, expected: bool
     ) -> None:
         def feature_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:

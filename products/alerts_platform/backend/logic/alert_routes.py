@@ -44,10 +44,14 @@ def has_enabled_routes(team_id: int) -> bool:
     return AlertRoute.objects.for_team(team_id).filter(enabled=True, receiver__enabled=True).exists()
 
 
-def has_incident_receiver(team_id: int) -> bool:
-    """Whether the team has an enabled incident manager receiver. Most teams have none, and this answers
-    that without a flag evaluation or a decrypt."""
-    return AlertReceiver.objects.for_team(team_id).filter(type__in=INCIDENT_DESTINATION_TYPES, enabled=True).exists()
+def has_incident_route(team_id: int) -> bool:
+    """Whether an enabled route of the team reaches an enabled incident manager receiver. Most teams have
+    none, and this answers that without a flag evaluation or a decrypt."""
+    return (
+        AlertRoute.objects.for_team(team_id)
+        .filter(enabled=True, receiver__enabled=True, receiver__type__in=INCIDENT_DESTINATION_TYPES)
+        .exists()
+    )
 
 
 def routes_reach_incident_receiver(*, team_id: int) -> bool:
@@ -58,11 +62,7 @@ def routes_reach_incident_receiver(*, team_id: int) -> bool:
     enabled route to an enabled incident receiver counts. Keeping a trigger or resolve costs at most a
     delivery that routing declines, while one dropped here is gone for good.
     """
-    if (
-        not AlertRoute.objects.for_team(team_id)
-        .filter(enabled=True, receiver__enabled=True, receiver__type__in=INCIDENT_DESTINATION_TYPES)
-        .exists()
-    ):
+    if not has_incident_route(team_id):
         return False
     team = Team.objects.filter(id=team_id).first()
     return team is not None and _routing_may_be_enabled(team)

@@ -244,19 +244,35 @@ class TestDeliverRoutes(APIBaseTest):
         assert [target for target, _ in RecordingTransport.sends] == expected_targets
         assert [message.incident_action for _, message in RecordingTransport.sends] == expected_actions
 
-    @parameterized.expand([("flag_check_fails", RuntimeError("flags down")), ("flag_lookup_swallowed", None)])
-    def test_a_routed_resolve_is_retried_when_the_flag_cannot_be_read(self, _name: str, flag: Any) -> None:
+    @parameterized.expand(
+        [
+            ("flag_check_fails", RuntimeError("flags down"), True),
+            ("flag_lookup_swallowed", None, True),
+            # Routing has nothing to send, so a flag blip must not fail the delivery.
+            ("pagerduty_receiver_without_a_route", None, False),
+        ]
+    )
+    def test_a_routed_resolve_is_retried_when_the_flag_cannot_be_read(
+        self, _name: str, flag: Any, routed: bool
+    ) -> None:
         self._route("P-infra", [{"label": "team", "op": "=", "value": "infra"}], 3, PAGERDUTY)
+        if not routed:
+            AlertRoute.objects.for_team(self.team.id).filter(receiver__type=DestinationType.PAGERDUTY).delete()
 
-        with pytest.raises(DeliveryError) as raised:
-            self._deliver(
+        def deliver() -> int:
+            return self._deliver(
                 flag,
                 transitions=(_transition(AlertEventKind.RESOLVED, "search"),),
-                sends_messages=False,
+                sends_messages=not routed,
                 incident_actions={"search": IncidentAction.RESOLVE},
             )
 
-        assert not isinstance(raised.value, RefusedEverywhere)
+        if routed:
+            with pytest.raises(DeliveryError) as raised:
+                deliver()
+            assert not isinstance(raised.value, RefusedEverywhere)
+        else:
+            assert deliver() == 0
         assert RecordingTransport.sends == []
 
     @parameterized.expand([("every_receiver_refused", True), ("a_receiver_timed_out_too", False)])
