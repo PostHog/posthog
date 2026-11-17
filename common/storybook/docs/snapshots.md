@@ -92,7 +92,7 @@ You don't need to add waits for any of this. Knowing the order helps when a stor
 5. For each theme, it sets `body[theme]` and the color scheme, then:
    - runs the loader wait again;
    - makes lazy images eager, waits until every image has loaded and decoded, and hides GIFs;
-   - if the story has iframes, waits up to 8 seconds for pending loads (including changes to `src` or `srcdoc`), then allows 1 second for their content to paint;
+   - if the story has iframes, waits up to 8 seconds for pending loads, then allows 1 second for their content to paint;
    - scrolls the window and the scroll containers back to the top;
    - waits until the body size stops changing, for up to 3 seconds;
    - waits for scene readiness, or 1 more second for stories that explicitly disable it;
@@ -103,6 +103,8 @@ You don't need to add waits for any of this. Knowing the order helps when a stor
 Chromium runs with `--disable-partial-raster`. Without it, Chromium paints a partly changed tile again in place, and the anti-aliased edges in that tile can differ by a color level from run to run.
 
 An iframe that loads `/embedded/` or `/shared/` gets a fixed placeholder page, so a shared dashboard or embed never loads the real app inside the story.
+A change to `srcdoc`, or to `src` when the frame has no `srcdoc`, starts a new iframe wait.
+A fragment-only URL change can reach the timeout because the browser keeps the current document.
 
 ### Errors you may see
 

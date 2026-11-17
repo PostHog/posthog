@@ -116,7 +116,10 @@ export default {
                     const frame = event.target
                     if (frame instanceof HTMLIFrameElement) {
                         invalidateLoads(navigationObserver.takeRecords())
-                        navigationObserver.observe(frame, { attributes: true, attributeFilter: ['src', 'srcdoc'] })
+                        navigationObserver.observe(frame, {
+                            attributes: true,
+                            attributeFilter: frame.hasAttribute('srcdoc') ? ['srcdoc'] : ['src', 'srcdoc'],
+                        })
                         loadedFrames.set(frame, frame.contentWindow)
                     }
                 },
