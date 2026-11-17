@@ -393,6 +393,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
      */
     deliveredToRecipient?: boolean
     emailSendResult?: { status: 'accepted' | 'skipped' | 'failed'; reason?: string }
+    parked?: boolean
     // The run was canceled rather than succeeding or failing. Only meaningful with
     // finished=true and no error: the job row and the lifecycle row both flip to
     // 'canceled'.
@@ -458,6 +459,8 @@ export type CyclotronJobInvocationHogFunctionContext = {
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
     scheduledAt?: string
+    // Copied from the workflow state, like `send`, so the email step can measure the send's wait from its acceptance.
+    acceptedAt?: string
     renderedWorkflowVersion?: number
     // Set when the inputs come from the stored function config, so the job queue can drop them and the
     // executor can build them again. The job queue sets `inputsOmitted` when it drops them.
@@ -489,6 +492,9 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     // wait step calls it before its first evaluation, where a stale person parks the run for good.
     // It returns the values rather than mutating, so it stays correct on a cloned invocation.
     refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
+    loadPersonProperties?: (
+        keys: string[]
+    ) => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
 export type MessageOptOutRecord = {

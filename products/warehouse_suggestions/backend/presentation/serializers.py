@@ -122,7 +122,14 @@ class MaterializePayloadSerializer(DataclassSerializer):
             "subject_name": {"help_text": "Name of the view to materialize."},
             "refresh_interval_seconds": {"help_text": "Proposed refresh interval, in seconds."},
             "saves_seconds_per_month": {"help_text": "Query time materializing saves in a month, in seconds."},
-            "saves_bytes_per_month": {"help_text": "Bytes materializing saves from scanning in a month."},
+            "saves_bytes_per_month": {
+                "help_text": "Bytes materializing saves from scanning in a month. Negative when its refreshes "
+                "scan more than its reads would."
+            },
+            "measurement_capped": {
+                "help_text": "True when measuring the view's cost hit the time limit. The cost and every saving "
+                "are then lower bounds."
+            },
             "freshness_today_seconds": {
                 "help_text": "How old the view's data can be today, in seconds. Null when its sources are live."
             },
@@ -388,6 +395,12 @@ class WarehouseSuggestionDecisionQuerySerializer(serializers.Serializer):
         choices=WarehouseSuggestionSurface.choices,
         required=False,
         help_text="Page the decision was made on. Only recorded on the analytics event.",
+    )
+    bulk = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the decision was part of one action on several selected suggestions. Only recorded on the "
+        "analytics event.",
     )
 
 

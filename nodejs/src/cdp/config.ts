@@ -50,6 +50,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_RATE_LIMITER_REFILL_RATE: number
     CDP_RATE_LIMITER_TTL: number
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
+    // 'true' requires the MMDB, 'false' disables it, empty uses the default of the CDP mode.
+    CDP_MMDB_ENABLED: string
     DISABLE_OPENTELEMETRY_TRACING: boolean
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
@@ -77,6 +79,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: boolean
+    CDP_CYCLOTRON_RELEASE_WRITE_RETRY: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
     WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
@@ -156,6 +159,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_IDEMPOTENCY_VALKEY_PORT: number
     CDP_IDEMPOTENCY_VALKEY_PASSWORD: string
     CDP_IDEMPOTENCY_VALKEY_TLS: boolean
+    CDP_IDEMPOTENCY_VALKEY_ENABLED: boolean
 
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
@@ -207,6 +211,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: string
     CDP_INTAKE_DLQ_TOPIC: string
     CDP_INTAKE_PRODUCER: CdpProducerName
+    // Teams whose routes produce accepted runs to the intake topics: a list of team ids, or `*`. Shadow still inserts
+    // each run itself and only measures the produce. Async answers on the broker's ack. Async wins over shadow.
+    CDP_INTAKE_KAFKA_SHADOW_TEAMS: string
+    CDP_INTAKE_KAFKA_ASYNC_TEAMS: string
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -376,6 +384,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_RATE_LIMITER_REFILL_RATE: 100,
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24,
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
+        CDP_MMDB_ENABLED: '',
         DISABLE_OPENTELEMETRY_TRACING: false,
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
@@ -401,6 +410,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: false,
+        CDP_CYCLOTRON_RELEASE_WRITE_RETRY: false,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
         WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
         SES_SANDBOX_CONFIGURATION_SET: '',
@@ -454,6 +464,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_IDEMPOTENCY_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
         CDP_IDEMPOTENCY_VALKEY_PASSWORD: '',
         CDP_IDEMPOTENCY_VALKEY_TLS: false,
+        CDP_IDEMPOTENCY_VALKEY_ENABLED: true,
 
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
@@ -507,6 +518,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
         CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
         CDP_INTAKE_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
+        CDP_INTAKE_KAFKA_SHADOW_TEAMS: '',
+        CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',

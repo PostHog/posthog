@@ -52,7 +52,9 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
+from posthog.scopes.ceilings import MIN_SCOPES_BEFORE_TRUNCATION
+from posthog.scopes.exposure import ALL_SCOPES
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE, OAUTH_SCOPES_SUPPORTED
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
 
@@ -441,6 +443,32 @@ class TestOAuthAPI(APIBaseTest):
             {"scoped_teams": [self.team.id], "scoped_organizations": []} if expected_already_granted else None,
         )
         self.assertEqual(set(token["scope"].split()), expected_token_scopes)
+
+    @time_machine.travel("2026-03-01 12:00:00", tick=False)
+    def test_mcp_reauthorize_counts_as_already_granted_only_the_scopes_granted_for_the_preselected_projects(self):
+        self.confidential_application.supports_step_up = True
+        self.confidential_application.save()
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        for token, scope, team, created in [
+            ("pha_other_project_grant", "openid feature_flag:write", other_team, timezone.now() - timedelta(hours=2)),
+            ("pha_newest_grant", "openid insight:write", self.team, timezone.now() - timedelta(hours=1)),
+        ]:
+            access_token = OAuthAccessToken.objects.create(
+                application=self.confidential_application,
+                user=self.user,
+                token=token,
+                expires=timezone.now() + timedelta(hours=1),
+                scope=scope,
+                scoped_teams=[team.id],
+            )
+            OAuthAccessToken.objects.filter(pk=access_token.pk).update(created=created)
+
+        consent = self.client.get(f"{self.base_authorization_url}&scope={quote('comment:write')}{MCP_RESOURCE_PARAM}")
+
+        resolution = consent.context["posthog_app_context"]["oauth_scope_resolution"]
+        self.assertEqual(resolution["scopes"], ["comment:write", "feature_flag:write", "insight:write", "openid"])
+        self.assertEqual(resolution["already_granted_scopes"], ["insight:write", "openid"])
+        self.assertEqual(resolution["earlier_access"], {"scoped_teams": [self.team.id], "scoped_organizations": []})
 
     @patch("posthog.api.oauth.views.render_template")
     def test_authorize_omits_mcp_consent_for_untrusted_resource(self, mock_render):
@@ -6107,8 +6135,16 @@ class TestOpenIDProviderMetadata(SimpleTestCase):
 
         shared = set(oidc) & set(authorization_server)
         self.assertIn("scopes_supported", shared)
-        for field in shared:
+        for field in shared - {"scopes_supported"}:
             self.assertEqual(oidc[field], authorization_server[field], f"{field} differs between the two documents")
+        self.assertEqual(
+            [
+                scope
+                for scope in cast(list[str], authorization_server["scopes_supported"])
+                if scope != EMA_ISSUER_MANAGE_SCOPE
+            ],
+            oidc["scopes_supported"],
+        )
 
 
 class TestOpenIDProviderMetadataEndpoint(APIBaseTest):
@@ -6143,7 +6179,7 @@ class TestOAuthClientManifest(APIBaseTest):
         response = self.client.get("/auth.md")
         body = response.content.decode()
 
-        for scope in get_oauth_scopes_supported():
+        for scope in OAUTH_SCOPES_SUPPORTED:
             with self.subTest(scope=scope):
                 self.assertIn(f"`{scope}`", body)
                 # A scope with no description falls back to its own name, so an

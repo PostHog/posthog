@@ -81,7 +81,8 @@ from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credential
 from posthog.utils import get_crontab, get_instance_region
 
 from products.account_audits.backend.facade.tasks import reconcile_account_audits
-from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
+from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task, score_aeo_sentiment_backlog_task
+from products.ai_gateway.backend.facade.tasks import sweep_ineligible_dev_token_owners
 from products.ai_observability.backend.facade.tasks import expire_datasets, expire_offline_evaluation_payloads
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
@@ -173,6 +174,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
+    check_ses_sender_health,
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
     recheck_pending_email_senders,
@@ -302,6 +304,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
     add_periodic_task_with_expiry(
         sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
+    )
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/15"),
+        sweep_ineligible_dev_token_owners.s(),
+        name="ai-gateway-revoke-ineligible-dev-tokens",
     )
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
@@ -1125,6 +1133,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
+        crontab(minute="23"),
+        check_ses_sender_health.s(),
+        name="workflows ses sender health check",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
         crontab(minute="*"),
         sync_sandbox_sender_tenant_state.s(),
         name="workflows sandbox sender tenant state",
@@ -1438,4 +1453,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         # Under the dispatch interval, so a backed-up queue drops the stale dispatch
         # instead of the next one finding it still queued.
         expires_seconds=50 * 60,
+    )
+    # A pass still scoring absorbs the next dispatch, so passes never overlap.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        score_aeo_sentiment_backlog_task.s(),
+        name="AEO sentiment backlog",
+        expires_seconds=9 * 60,
     )

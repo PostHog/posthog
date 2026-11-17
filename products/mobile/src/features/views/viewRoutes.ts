@@ -60,9 +60,8 @@ export function liveHref(open: ViewOpenParams = {}): Href {
     return { pathname: '/views/live', params: openParams(open) }
 }
 
-/** Live's Visitors by country screen, with `country` (an ISO 3166-1 alpha-2 code) selected. */
-export function liveCountriesHref(country: string | null = null): Href {
-    return { pathname: '/views/live-countries', params: country ? { country } : {} }
+export function liveCountriesHref(): Href {
+    return { pathname: '/views/live-countries' }
 }
 
 export function webAnalyticsListHref(tile: WebTileId, breakdown: WebBreakdown): Href {

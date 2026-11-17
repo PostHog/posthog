@@ -5019,6 +5019,7 @@ export namespace Schemas {
         valueColumn: string | null;
         xAxisColumn: string | null;
         xAxisLabel: string | null;
+        xAxisSortOrder: HeatmapSortOrder | null;
         yAxisColumn: string | null;
         yAxisLabel: string | null;
     }>;
@@ -5940,6 +5941,7 @@ export namespace Schemas {
      * * `static` - Static
      * * `person_properties` - Person properties
      * * `daily` - Daily
+     * * `off` - Off
      * * `building` - Building
      * * `rebuilding` - Rebuilding
      * * `ready` - Ready
@@ -5949,6 +5951,7 @@ export namespace Schemas {
         | "static"
         | "person_properties"
         | "daily"
+        | "off"
         | "building"
         | "rebuilding"
         | "ready"
@@ -5989,11 +5992,12 @@ export namespace Schemas {
         | "too_large_to_build";
     export type CohortRealtimeReadiness = {
         /**
-         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
          *
          * * `static` - Static
          * * `person_properties` - Person properties
          * * `daily` - Daily
+         * * `off` - Off
          * * `building` - Building
          * * `rebuilding` - Rebuilding
          * * `ready` - Ready
@@ -6009,14 +6013,14 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
          *
          * * `history_over_limit` - History over limit
          * * `too_large_to_build` - Too large to build
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**
-         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
          */
         history_limit_days: number | null;
     };
@@ -6057,6 +6061,7 @@ export namespace Schemas {
          * Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on.
          */
         realtime: CohortRealtimeReadiness | null;
+        realtime_enabled?: boolean | undefined;
         experiment_set: Array<number>;
         /**
          * How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
@@ -7510,6 +7515,7 @@ export namespace Schemas {
         | "aws-redshift"
         | "s3-compatible"
         | "snowflake"
+        | "motherduck"
         | "youtube-analytics"
         | "twitter-ads";
     export type ErrorTrackingExternalReferenceIntegration = {
@@ -10707,6 +10713,8 @@ export namespace Schemas {
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
      * * `before` - What a change of the feature flag changed, as it was before the change, in words
      * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+     * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -10765,6 +10773,8 @@ export namespace Schemas {
         | "changed_setting"
         | "before"
         | "after"
+        | "before_filters"
+        | "after_filters"
         | "flag_service_call_percentage"
         | "event"
         | "event_received"
@@ -10834,6 +10844,8 @@ export namespace Schemas {
          * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
          * * `before` - What a change of the feature flag changed, as it was before the change, in words
          * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+         * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
          * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
          * * `event` - The name of an event that the check looked up
          * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -10901,6 +10913,8 @@ export namespace Schemas {
          * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
          * * `before` - What a change of the feature flag changed, as it was before the change, in words
          * * `after` - What a change of the feature flag changed, as it was after the change, in words
+         * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+         * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
          * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
          * * `event` - The name of an event that the check looked up
          * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -10996,9 +11010,21 @@ export namespace Schemas {
          */
         rule: ExperimentHealthCheckRule | null;
         /**
-         * What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list.
+         * What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. A release condition change also gives the conditions as the flag stores them, in before_filters and after_filters. Empty when the check reads no such list.
          */
-        rows: Array<Record<string, string | number | boolean | null>>;
+        rows: Array<
+            Record<
+                string,
+                | string
+                | number
+                | boolean
+                | {
+                      groups: Array<Record<string, unknown>>;
+                      aggregation_group_type_index: number | null;
+                  }
+                | null
+            >
+        >;
     };
     export type ExperimentHealthReleaseCondition = {
         /**
@@ -12039,6 +12065,7 @@ export namespace Schemas {
             id: string;
             source_type: string;
             access_method: string;
+            direct_query_enabled: boolean;
             supports_column_selection: boolean;
             supports_row_filters: boolean;
             requires_exact_column_metadata: boolean;
@@ -16402,6 +16429,7 @@ export namespace Schemas {
         cohort_type: CohortTypeEnum | BlankEnum | NullEnum;
         condition_type: CohortConditionTypeFlags | null;
         realtime: CohortRealtimeReadiness | null;
+        realtime_enabled: boolean;
         experiment_set: Array<number>;
         search_match_type: SearchMatchTypeEnum | NullEnum;
         _create_in_folder: string;
@@ -17214,6 +17242,28 @@ export namespace Schemas {
      * * `1` - Monday
      */
     export type WeekStartDayEnum = 0 | 1;
+    /**
+     * * `off` - Off
+     * * `serving` - Serving
+     */
+    export type RealtimeCohortsAccessEnum = "off" | "serving";
+    export type TeamRealtimeCohorts = {
+        /**
+         * `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+         *
+         * * `off` - Off
+         * * `serving` - Serving
+         */
+        access: RealtimeCohortsAccessEnum;
+        /**
+         * How many cohorts in this project have realtime on. Null when `access` is `off`.
+         */
+        cohorts_used: number | null;
+        /**
+         * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+         */
+        max_cohorts: number | null;
+    };
     export type TeamRevenueAnalyticsConfig = Partial<{
         base_currency: BaseCurrencyEnum;
         events: unknown;
@@ -17718,9 +17768,17 @@ export namespace Schemas {
         user_access_level: string | null;
         managed_viewsets: Record<string, boolean>;
         /**
+         * Realtime cohorts as the request's user sees them in this project.
+         */
+        realtime_cohorts: TeamRealtimeCohorts & unknown;
+        /**
          * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
+        /**
+         * Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table.
+         */
+        flag_calls_only_in_flag_evaluations: boolean;
         /**
          * Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted.
          */

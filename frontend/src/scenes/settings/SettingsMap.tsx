@@ -56,6 +56,7 @@ import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm 
 
 import { DevModeSetting } from 'products/ai_gateway/frontend/components/DevModeSetting'
 import { DevModeTeamUsage } from 'products/ai_gateway/frontend/components/DevModeTeamUsage'
+import { ConnectAgentSetting } from 'products/business_knowledge/frontend/scenes/settings/ConnectAgentSetting'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
@@ -84,9 +85,8 @@ import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMe
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
 import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
+import { ProjectEventsTableSetting } from 'products/product_analytics/frontend/settings/ProjectEventsTableSetting'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
-import { AiVisibilityBrandsSetting } from 'products/web_analytics/frontend/contentAutopilot/AiVisibilityBrandsSetting'
-import { AiVisibilityEnginesSetting } from 'products/web_analytics/frontend/contentAutopilot/AiVisibilityEnginesSetting'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsDailyLimitsSettings'
@@ -1444,6 +1444,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
             },
             {
+                id: 'project-events-table',
+                title: 'New events table',
+                component: <ProjectEventsTableSetting />,
+                flag: 'NEW_EVENTS_TABLE_SELF_SERVE',
+                keywords: ['events', 'table', 'storage', 'migration'],
+            },
+            {
                 id: 'human-friendly-comparison-periods',
                 title: 'Human friendly comparison periods',
                 description:
@@ -1741,6 +1748,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <GithubReposSetting />,
                 keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
             },
+            {
+                id: 'business-knowledge-connect-agent',
+                title: 'Connect your agent',
+                description:
+                    'Let your own AI agent search this business knowledge through the PostHog MCP server. The agent signs in with a project secret API key, so it works without a user.',
+                component: <ConnectAgentSetting />,
+                flag: 'BUSINESS_KNOWLEDGE_MCP',
+                keywords: ['business', 'knowledge', 'agent', 'mcp', 'api key', 'secret', 'search'],
+            },
         ],
     },
     {
@@ -1900,26 +1916,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.webVitals,
                 component: <WebVitalsAutocaptureSettings />,
                 keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance', 'core web vitals'],
-            },
-            {
-                id: 'ai-visibility-brands',
-                title: 'AI visibility brands',
-                description:
-                    'Label the companies behind the sites AI answers cite. The competitors you confirm are the ones AI visibility ranks you against.',
-                component: <AiVisibilityBrandsSetting />,
-                // The brands API answers only with the AEO flag on, so the setting needs it as well as the page flag.
-                flag: ['AEO_CITATION_TRACKING', 'WEB_ANALYTICS_CONTENT_AUTOPILOT'],
-                keywords: ['competitors', 'brands', 'aeo', 'ai visibility', 'rankings'],
-            },
-            {
-                id: 'ai-visibility-engines',
-                title: 'AI visibility engines',
-                description:
-                    'Choose which AI engines answer your tracked prompts, and how often. Each engine gets its own column in AI visibility.',
-                component: <AiVisibilityEnginesSetting />,
-                // The engines API answers only with the AEO flag on, so the setting needs it as well as the page flag.
-                flag: ['AEO_CITATION_TRACKING', 'WEB_ANALYTICS_CONTENT_AUTOPILOT'],
-                keywords: ['engines', 'models', 'no search', 'aeo', 'ai visibility', 'chatgpt', 'claude'],
             },
         ],
     },

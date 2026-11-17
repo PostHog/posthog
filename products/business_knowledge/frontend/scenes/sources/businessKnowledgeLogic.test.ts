@@ -62,6 +62,8 @@ const MOCK_SOURCE: KnowledgeSourceApi = {
     file_size_bytes: null,
     always_include: false,
     library_ids: [],
+    cited_run_count: 0,
+    last_cited_at: null,
 }
 
 const mockedApi = api as jest.Mocked<typeof api>

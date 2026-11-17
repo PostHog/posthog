@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from typing import cast
 from uuid import UUID
 
@@ -77,6 +78,20 @@ class ErrorTrackingIssueTagDefinitionSerializer(serializers.Serializer):
 class ErrorTrackingIssueTagReadSerializer(ErrorTrackingIssueTagDefinitionSerializer):
     source = serializers.CharField(  # type: ignore[assignment]  # shadows DRF Field.source
         help_text="The tagger that applied the tag: `jev` for AI, `manual` for a person."
+    )
+
+
+class ErrorTrackingIssueTagCorrectionSerializer(ErrorTrackingIssueTagReadSerializer):
+    applied = serializers.BooleanField(help_text="Whether the tag is applied to the issue after the change.")
+
+
+class ErrorTrackingIssueTagWriteSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        max_length=64,
+        help_text="Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.",
+    )
+    applied = serializers.BooleanField(
+        help_text="True applies the tag. False removes it and stops automatic taggers from applying it again."
     )
 
 
@@ -345,6 +360,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         "merge",
         "split",
         "assign",
+        "tag",
         "cohort",
         "bulk",
     ]
@@ -529,6 +545,48 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 request, "assign", {"issue_id": str(pk), "assignee_type": assignee["type"] if assignee else None}
             )
         return Response({"success": True})
+
+    @validated_request(
+        request_serializer=ErrorTrackingIssueTagWriteSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueTagCorrectionSerializer)},
+    )
+    @action(methods=["PATCH"], detail=True)
+    def tag(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
+        try:
+            issue_id = UUID(str(pk))
+        except ValueError:
+            raise NotFound("Issue not found")
+        key = request.validated_data["key"]
+        applied = request.validated_data["applied"]
+        try:
+            correction = issues_facade.correct_issue_tag(
+                self.team.id,
+                issue_id,
+                key,
+                applied,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
+        except issues_facade.IssueTagsDisabledError:
+            raise NotFound("Issue tags are off for this project.")
+        except issues_facade.UnknownIssueTagError:
+            raise ValidationError({"key": "This project has no enabled tag with this key."})
+        except IssueNotFoundError:
+            raise NotFound("Issue not found")
+        if correction.changed:
+            self._report_issue_change(
+                request,
+                "tag",
+                {
+                    "issue_id": str(issue_id),
+                    "tag_key": key,
+                    "previous_tag_source": correction.previous_source,
+                    "previous_tag_probability": correction.previous_probability,
+                    "previous_tag_applied": correction.previous_applied,
+                    "tag_applied": applied,
+                },
+            )
+        return Response(ErrorTrackingIssueTagCorrectionSerializer({**asdict(correction.tag), "applied": applied}).data)
 
     @extend_schema(
         request=ErrorTrackingIssueCohortRequestSerializer,

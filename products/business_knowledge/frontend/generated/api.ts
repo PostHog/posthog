@@ -19,6 +19,7 @@ import type {
     BusinessKnowledgeSourcesDocumentsListParams,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesTextRetrieve200,
+    BusinessKnowledgeSourcesUsageRetrieveParams,
     CreateTextSourceApi,
     GapActionApi,
     GapTopicActionApi,
@@ -26,10 +27,13 @@ import type {
     KnowledgeAvailabilityApi,
     KnowledgeDocumentWindowApi,
     KnowledgeGapSuggestionApi,
+    KnowledgeKeyApi,
+    KnowledgeKeyCreateApi,
     KnowledgeLibraryApi,
     KnowledgeLibraryCreateApi,
     KnowledgeSearchResultApi,
     KnowledgeSourceApi,
+    KnowledgeUsageApi,
     PaginatedKnowledgeGapSuggestionListApi,
     PaginatedKnowledgeSourceDocumentListApi,
     PaginatedKnowledgeSourceListApi,
@@ -264,6 +268,45 @@ export const businessKnowledgeGapSuggestionsDismissTopicCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(gapTopicActionApi),
+    })
+}
+
+export const getBusinessKnowledgeKeysListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/keys/`
+}
+
+/**
+ * Project secret API keys in this project with the business_knowledge:read scope, newest first, and the library each one is limited to.
+ * @summary List the keys that read business knowledge
+ */
+export const businessKnowledgeKeysList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeKeyApi[]> => {
+    return apiMutator<KnowledgeKeyApi[]>(getBusinessKnowledgeKeysListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeKeysCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/keys/`
+}
+
+/**
+ * Creates a project secret API key with the business_knowledge:read scope, limited to one library. The response is the only place the key value appears. Delete or roll the key through the project secret API keys endpoint.
+ * @summary Create a key that reads one business knowledge library
+ */
+export const businessKnowledgeKeysCreate = async (
+    projectId: string,
+    knowledgeKeyCreateApi: KnowledgeKeyCreateApi,
+    options?: RequestInit
+): Promise<KnowledgeKeyApi> => {
+    return apiMutator<KnowledgeKeyApi>(getBusinessKnowledgeKeysCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(knowledgeKeyCreateApi),
     })
 }
 
@@ -898,6 +941,39 @@ export const businessKnowledgeSourcesAvailabilityRetrieve = async (
     options?: RequestInit
 ): Promise<KnowledgeAvailabilityApi> => {
     return apiMutator<KnowledgeAvailabilityApi>(getBusinessKnowledgeSourcesAvailabilityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeSourcesUsageRetrieveUrl = (
+    projectId: string,
+    params?: BusinessKnowledgeSourcesUsageRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/sources/usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/sources/usage/`
+}
+
+/**
+ * How much support agent runs cited the project's knowledge sources over a period.
+ */
+export const businessKnowledgeSourcesUsageRetrieve = async (
+    projectId: string,
+    params?: BusinessKnowledgeSourcesUsageRetrieveParams,
+    options?: RequestInit
+): Promise<KnowledgeUsageApi> => {
+    return apiMutator<KnowledgeUsageApi>(getBusinessKnowledgeSourcesUsageRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
