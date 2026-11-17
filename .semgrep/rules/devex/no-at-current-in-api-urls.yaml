@@ -50,7 +50,7 @@ rules:
           - pattern: '"$S"'
           - metavariable-regex:
                 metavariable: $S
-                regex: '^(.*/)?@current(/.*)?$'
+                regex: '^(.*/)?@current([/?#].*)?$'
           - pattern-not-regex: 'personal_api_keys/@current'
       metadata:
           category: best-practice

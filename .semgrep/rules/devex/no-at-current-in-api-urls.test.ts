@@ -17,6 +17,10 @@ await membersDestroy(currentOrganization?.id ?? '@current', userUuid)
 // ruleid: no-at-current-in-api-urls
 const iconUrl = `/api/projects/@current/mcp_servers/icon/?domain=${domain}`
 
+// A query string or fragment also ends the path segment.
+// ruleid: no-at-current-in-api-urls
+const g = await fetch('/api/organizations/@current?expand=members')
+
 // ok: no-at-current-in-api-urls
 const d = await api.get(`api/projects/${currentProjectId}/actions/${actionId}/references`)
 
