@@ -264,7 +264,15 @@ export interface commandKSearchLogicActions {
         query: string
         results: Partial<
             Record<
-                'accounts' | 'events' | 'groups' | 'persons' | 'properties' | 'results' | 'tickets' | 'workflows',
+                | 'accounts'
+                | 'endpoints'
+                | 'events'
+                | 'groups'
+                | 'persons'
+                | 'properties'
+                | 'results'
+                | 'tickets'
+                | 'workflows',
                 RemotePage
             >
         >
@@ -350,7 +358,15 @@ export interface commandKSearchLogicMeta {
         currentQuery: (
             remoteQueries: Partial<
                 Record<
-                    'accounts' | 'events' | 'groups' | 'persons' | 'properties' | 'results' | 'tickets' | 'workflows',
+                    | 'accounts'
+                    | 'endpoints'
+                    | 'events'
+                    | 'groups'
+                    | 'persons'
+                    | 'properties'
+                    | 'results'
+                    | 'tickets'
+                    | 'workflows',
                     string
                 >
             >,
