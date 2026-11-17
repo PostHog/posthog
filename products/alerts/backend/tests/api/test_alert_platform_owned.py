@@ -25,6 +25,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, AlertState
+from posthog.tasks.alerts.utils import evaluated_by_insight_stack_q
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -1340,6 +1341,10 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         if team_owner == "platform":
             # The insight stack shadows the new alert only for what is left of the team's week.
             assert created.owner_changed_at == team_cutover_at
+        # A team's first alert has no insight history to shadow.
+        assert AlertConfiguration.objects.filter(
+            evaluated_by_insight_stack_q(timezone.now()), id=created.id
+        ).exists() is (team_owner is not None)
 
     @parameterized.expand(
         [

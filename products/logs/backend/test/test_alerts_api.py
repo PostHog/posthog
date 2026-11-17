@@ -43,6 +43,7 @@ from products.cdp.backend.templates.hog_function_template import sync_template_t
 from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_creation import MAX_ALERTS_PER_TEAM
+from products.logs.backend.alert_utils import PLATFORM_SHADOW
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import (
     backfill_platform_alert_configurations,
@@ -2881,7 +2882,8 @@ class TestLogsAlertAPI(APIBaseTest):
         assert alert.platform_owned is on_the_platform
         if on_the_platform:
             assert self._copy(alert_id).owner == "platform"
-            assert alert.owner_changed_at == (team_cut_over_at if existing == "platform" else now)
+            # A team's first alert has no logs history to shadow, so its shadow is already over.
+            assert alert.owner_changed_at == (team_cut_over_at if existing == "platform" else now - PLATFORM_SHADOW)
 
     def _copy_view(self, alert_id: str) -> PlatformAlertConfigurationView:
         with team_scope(self.team.id):
