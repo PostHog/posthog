@@ -8,6 +8,27 @@ export const INTAKE_MESSAGE_VERSION = 1
 
 // Leaves room under the topics' 2 MB max.message.bytes for the key, the headers and the record overhead.
 export const INTAKE_MESSAGE_MAX_BYTES = 1.5 * 1024 * 1024
+// The consumer's lifecycle row walks the state recursively, so a message nested past this would throw on every
+// redelivery of its batch and block the partition. No real send or webhook payload nests this deep.
+export const INTAKE_MESSAGE_MAX_DEPTH = 256
+
+// Iterative, so the check itself cannot overflow the stack on the input it guards against.
+const nestsDeeperThan = (value: unknown, maxDepth: number): boolean => {
+    const pending: [unknown, number][] = [[value, 0]]
+    while (pending.length > 0) {
+        const [current, depth] = pending.pop()!
+        if (current === null || typeof current !== 'object') {
+            continue
+        }
+        if (depth >= maxDepth) {
+            return true
+        }
+        for (const child of Object.values(current)) {
+            pending.push([child, depth + 1])
+        }
+    }
+    return false
+}
 
 export const RUN_KINDS = ['transactional-email', 'workflow-webhook'] as const
 export type RunKind = (typeof RUN_KINDS)[number]
@@ -60,6 +81,10 @@ const IntakeMessageSchema = z.looseObject({
     teamId: z.number().int().positive().max(PG_INT_MAX),
     // Present when the caller sent an idempotency key. The key and its scope stay with the route.
     fingerprint: pgText.min(1).optional(),
+    // What a keyed retry replays once the consumer has claimed the run, such as its attachment totals.
+    reply: z.record(z.string(), z.unknown()).optional(),
+    // Set on a shadow copy, whose run the route already inserted.
+    shadow: z.literal(true).optional(),
     job: IntakeJobSchema,
 })
 
@@ -68,6 +93,8 @@ export type IntakeMessage = z.infer<typeof IntakeMessageSchema>
 export type IntakeRun = {
     kind: RunKind
     fingerprint?: string
+    reply?: Record<string, unknown>
+    shadow?: boolean
     job: CyclotronV2JobInit & { id: string }
 }
 
@@ -87,12 +114,14 @@ export type DecodeResult =
     | { status: 'decoded'; message: IntakeMessage }
     | { status: 'dead_letter'; reason: IntakeDeadLetterReason }
 
-export function encodeIntakeMessage({ kind, fingerprint, job }: IntakeRun): EncodeResult {
+export function encodeIntakeMessage({ kind, fingerprint, reply, shadow, job }: IntakeRun): EncodeResult {
     const message: IntakeMessage = {
         v: INTAKE_MESSAGE_VERSION,
         kind,
         teamId: job.teamId,
         ...(fingerprint !== undefined && { fingerprint }),
+        ...(reply !== undefined && { reply }),
+        ...(shadow && { shadow: true as const }),
         job: {
             id: job.id,
             functionId: job.functionId ?? null,
@@ -106,7 +135,7 @@ export function encodeIntakeMessage({ kind, fingerprint, job }: IntakeRun): Enco
             state: job.state ? parseJSON(job.state.toString('utf-8')) : null,
         },
     }
-    if (!IntakeMessageSchema.safeParse(message).success) {
+    if (nestsDeeperThan(message, INTAKE_MESSAGE_MAX_DEPTH) || !IntakeMessageSchema.safeParse(message).success) {
         return { status: 'invalid' }
     }
     const value = Buffer.from(JSON.stringify(message))
@@ -135,10 +164,19 @@ export function decodeIntakeMessage(value: Buffer | null | undefined): DecodeRes
     } catch {
         return { status: 'dead_letter', reason: 'not_json' }
     }
+    if (nestsDeeperThan(json, INTAKE_MESSAGE_MAX_DEPTH)) {
+        return { status: 'dead_letter', reason: 'schema_invalid' }
+    }
     const parsed = IntakeMessageSchema.safeParse(json)
     return parsed.success
         ? { status: 'decoded', message: parsed.data }
         : { status: 'dead_letter', reason: 'schema_invalid' }
+}
+
+// A keyless run claims on its own random run id, so a redelivered message replays it. Its fingerprint is the run id,
+// and the route must claim a keyless run with the same fingerprint, or the consumer reads its claim as a mismatch.
+export function claimFingerprint(runId: string, fingerprint?: string): string {
+    return fingerprint ?? runId.toLowerCase()
 }
 
 export function intakeJobInit({ teamId, job }: IntakeMessage): CyclotronV2JobInit & { id: string } {

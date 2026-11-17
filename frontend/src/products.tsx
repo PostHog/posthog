@@ -131,6 +131,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/bi/:insightShortId': ['BusinessIntelligence', 'businessIntelligenceWorksheet'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
+    '/business-knowledge/usage': ['BusinessKnowledgeUsage', 'businessKnowledgeUsage'],
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
@@ -140,6 +141,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
     '/feature-flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
+    '/support': ['SupportOverview', 'supportOverview'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
@@ -299,7 +301,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/pulse': ['Pulse', 'pulse'],
-    '/releases': ['ReleaseCalendar', 'releases'],
+    '/releases': ['ReleaseAll', 'releases'],
+    '/releases/calendar': ['ReleaseCalendar', 'releaseCalendar'],
     '/releases/list': ['Releases', 'releaseList'],
     '/releases/:id': ['Release', 'release'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
@@ -545,7 +548,6 @@ export const productRedirects: Record<
         combineUrl(urls.aiObservabilityUsers(), searchParams, hashParams).url,
     '/llm-observability/playground': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityPlayground(), searchParams, hashParams).url,
-    '/support': '/support/tickets',
     '/customer_analytics': (_params, searchParams, hashParams) => {
         const defaultTab = posthog.getFeatureFlag(FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP)
             ? '/customer_analytics/accounts'
@@ -824,6 +826,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         iconType: 'business_knowledge',
     },
+    BusinessKnowledgeUsage: { name: 'Business knowledge usage', projectBased: true, iconType: 'business_knowledge' },
     BusinessKnowledgeSettings: {
         name: 'Business knowledge settings',
         projectBased: true,
@@ -853,6 +856,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'data_pipeline',
     },
     CohortsStaffTools: { instanceLevel: true, name: 'Cohorts staff tools' },
+    SupportOverview: { name: 'Support overview', projectBased: true, layout: 'app-container' },
     SupportTickets: {
         name: 'Ticket list',
         description:
@@ -1187,6 +1191,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'One row for each release, with its flags, experiments and early access.',
     },
     Releases: { name: 'Releases', projectBased: true },
+    ReleaseAll: { name: 'View all', projectBased: true },
     Release: { name: 'Release', projectBased: true },
     ReplayVision: {
         name: 'Replay vision',
@@ -1524,6 +1529,7 @@ export const productUrls = {
     },
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+    businessKnowledgeUsage: (): string => '/business-knowledge/usage',
     businessKnowledgePlayground: (chatId?: string): string =>
         chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
@@ -1949,6 +1955,7 @@ export const productUrls = {
     productTour: (id: string): string => `/product_tours/${id}`,
     pulse: (): string => '/pulse',
     releases: (): string => '/releases',
+    releaseCalendar: (): string => '/releases/calendar',
     releaseList: (): string => '/releases/list',
     release: (id: string): string => `/releases/${id}`,
     replay: (
@@ -2601,6 +2608,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: [
             'BusinessKnowledge',
             'BusinessKnowledgePlayground',
+            'BusinessKnowledgeUsage',
             'BusinessKnowledgeSettings',
             'BusinessKnowledgeSource',
         ],
@@ -3385,7 +3393,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',
-        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings', 'MyTickets'],
+        sceneKeys: ['SupportOverview', 'SupportTickets', 'SupportTicketDetail', 'SupportSettings', 'MyTickets'],
     },
     {
         path: 'Surveys',

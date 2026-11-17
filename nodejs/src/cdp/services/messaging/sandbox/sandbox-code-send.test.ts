@@ -37,7 +37,7 @@ import {
 } from '../../../types'
 import { CyclotronJobConflictError } from '../../cyclotron-v2/manager'
 import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
-import { JobQueue } from '../../job-queue/job-queue.interface'
+import { IdempotentJobQueue } from '../../job-queue/job-queue.interface'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
 import { SandboxEmailEvents } from './sandbox-email-events'
@@ -96,7 +96,7 @@ const createFakeCyclotron = () => {
         const job = jobs.get(id)
         return job?.status === 'running' ? job : undefined
     }
-    const queue: JobQueue & {
+    const queue: IdempotentJobQueue & {
         queueInvocations(
             invocations: CyclotronJobInvocation[],
             options?: { overwriteExisting?: boolean }
@@ -752,6 +752,9 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 currentFingerprint: expect.any(String),
             })
         )
+
+        await deliver()
+        expect(deliveryStatuses(sent.body.invocation_id)).toEqual([{ status: 'sent', reason: '' }])
     })
 
     it('replays a keyed own-sender send with cc when the retry names the sandbox sender', async () => {

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='insert_cohort_members_chunk' */\n        INSERT INTO posthog_cohortpeople (person_id, cohort_id, version)\n        SELECT pid, $1::bigint, $3\n        FROM UNNEST($2::bigint[]) AS t(pid)\n        WHERE NOT EXISTS (\n            SELECT 1 FROM posthog_cohortpeople cp\n            WHERE cp.person_id = pid AND cp.cohort_id = $1::bigint\n        )\n        ON CONFLICT DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "45dde280afa9c6eb0c938b7d736c2a567710b77725bb9bb6f2bf237df0e0e087"
+}

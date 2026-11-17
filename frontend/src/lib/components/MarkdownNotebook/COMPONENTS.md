@@ -293,3 +293,54 @@ Add or update tests for:
 - editing props through `updateProps`
 - slash-menu insertion when `insertCommand` is present
 - validation errors when `validateProps` rejects invalid props
+
+## Columns
+
+Use paired tags to make column membership explicit, including paragraphs, lists, and charts in the same column.
+Each boundary tag occupies its own line.
+
+```mdx
+<Columns>
+
+<Column width={2}>
+
+## Acquisition
+
+Notes for the acquisition chart.
+
+<Query query={{ kind: 'SavedInsightNode', shortId: 'example-acquisition' }} />
+
+</Column>
+
+<Column>
+
+## Activation
+
+<Query query={{ kind: 'SavedInsightNode', shortId: 'example-activation' }} />
+
+Notes for the activation chart.
+
+</Column>
+
+</Columns>
+
+This paragraph returns to full width.
+```
+
+Insert **Columns** from the notebook insert menu, then choose two, three, or four columns in the **Configure columns** popover.
+The number of `<Column>` sections defines the count; there is no separate count attribute to keep in sync.
+Adding a column creates an empty text block.
+Reducing the count moves the removed columns' content into the last remaining column, in order.
+**Remove layout** keeps all content in document order.
+
+Each `<Column width={2}>` sets its own relative weight; omitting `width` defaults to one.
+The popover provides width sliders and an **Equal widths** reset. Both the sliders and Markdown accept weights from one to twelve.
+Narrow notebook containers stack the columns without changing the saved layout.
+
+The parser represents boundaries as flat component nodes (`Columns`, `Column`, `ColumnEnd`, `ColumnsEnd`).
+Inner blocks retain their IDs and use the existing editing, execution, and collaboration paths.
+Only the renderer groups the boundaries into a grid.
+The backend scans the same boundaries so sharing filters each inner component separately.
+
+This first implementation supports one level of columns.
+Incomplete or nested layouts fall back to ordinary blocks with boundary messages, preserving their content for repair in Markdown source.
