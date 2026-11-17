@@ -23,6 +23,7 @@ from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.surveys.backend.models import Survey, SurveyMatchType
 from products.surveys.backend.site_snapshot import (
+    FAILED_RENDER_RETRY_AFTER,
     PAINT_DELAY_SECONDS,
     SiteSnapshot,
     SiteStyle,
@@ -375,16 +376,43 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         assert (snapshot.status, snapshot.page_url) == (SnapshotStatus.RENDERING, PRICING)
         assert ExportedAsset.objects.count() == 2
 
+    @parameterized.expand(
+        [
+            ("just_now", timedelta(0), SnapshotStatus.UNAVAILABLE, 1),
+            ("long_enough_ago_to_retry", FAILED_RENDER_RETRY_AFTER + timedelta(minutes=1), SnapshotStatus.RENDERING, 2),
+        ]
+    )
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
-    def test_a_failed_render_is_unavailable(self, _async_connect: AsyncMock) -> None:
+    def test_a_failed_render(
+        self, _name: str, failed_ago: timedelta, status: SnapshotStatus, assets: int, _async_connect: AsyncMock
+    ) -> None:
         survey = self._survey(None)
         get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
-        ExportedAsset.objects.update(exception="Render failed", exception_type="TimeoutError")
+        ExportedAsset.objects.update(
+            exception="Render failed", exception_type="TimeoutError", created_at=timezone.now() - failed_ago
+        )
 
         snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
 
-        assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
-        assert ExportedAsset.objects.count() == 1
+        assert snapshot.status == status
+        assert ExportedAsset.objects.count() == assets
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_a_user_denied_the_newest_recording_does_not_search_again(self, _async_connect: AsyncMock) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        survey = self._survey(None)
+
+        with patch(
+            "products.surveys.backend.site_snapshot.find_snapshot_moment", wraps=find_snapshot_moment
+        ) as moment_search:
+            snapshots = [get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user) for _ in range(3)]
+
+        assert {snapshot.status for snapshot in snapshots} == {SnapshotStatus.UNAVAILABLE}
+        assert moment_search.call_count == 1
 
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
     def test_renders_again_from_another_recording_when_the_cached_one_was_deleted(
