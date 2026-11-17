@@ -440,8 +440,9 @@ CONSTANCE_CONFIG = {
         False,
         "Whether a project in this region joins the realtime cohorts beta when a member opts in. "
         "Turning it off stops new joins within about a minute. Projects already in keep access. "
-        "Turn it on only once ingestion's PERSON_MERGE_EVENTS_TEAM_ALLOWLIST is * (every team) in this region, because "
-        "realtime cohorts miss the person merges of a project that list leaves out.",
+        "Turn it on only once PERSON_MERGE_EVENTS_TEAM_ALLOWLIST is * (every team) for both ingestion and "
+        "personhog-publisher in this region, because realtime cohorts miss the person merges of a project either "
+        "list leaves out.",
         bool,
     ),
 }
