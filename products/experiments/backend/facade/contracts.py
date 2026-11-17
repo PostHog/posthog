@@ -1160,8 +1160,11 @@ class Proportion:
 
 @frozen
 class ProportionTestResult:
-    # The treatment proportion minus the control proportion.
+    # The treatment proportion minus the control proportion, in proportion units: 0.02 means two percentage points
+    # higher. It is absolute and not relative, because a control proportion of 0 has no relative change.
     difference: float
+    # The interval of `difference`. The sequential interval is wide at small counts, so its bounds can be outside
+    # [-1, 1].
     confidence_interval: tuple[float, float]
     p_value: float
     is_significant: bool
