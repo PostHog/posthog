@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -295,4 +295,60 @@ export const MessagingSuppressionsBulkAddSuppressionsCreateBody = () => zod.obje
             })
         )
         .describe('Addresses to suppress, at most 1000 per request.'),
+})
+
+/**
+ * Remove up to 100 addresses from the suppression list so they can receive messages again.
+ * @summary Remove several email addresses from the suppression list
+ */
+export const MessagingSuppressionsBulkRemoveSuppressionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersItemMax = 512
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersMax = 100
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyConfirmComplaintsDefault = false
+
+export const MessagingSuppressionsBulkRemoveSuppressionsCreateBody = () => zod.object({
+    identifiers: zod
+        .array(zod.string().max(messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersItemMax))
+        .min(1)
+        .max(messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersMax)
+        .describe('The email addresses to remove, at most 100 per request.'),
+    confirm_complaints: zod
+        .boolean()
+        .default(messagingSuppressionsBulkRemoveSuppressionsCreateBodyConfirmComplaintsDefault)
+        .describe(
+            'Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400.'
+        ),
+})
+
+/**
+ * List suppressed recipients for the team, most recently updated first.
+ * @summary List suppressed email addresses for the team
+ */
+export const MessagingSuppressionsSuppressionsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingSuppressionsSuppressionsRetrieveQuerySearchMax = 512
+
+export const MessagingSuppressionsSuppressionsRetrieveQueryParams = () => zod.object({
+    page: zod.number().optional(),
+    page_size: zod.number().optional(),
+    search: zod
+        .string()
+        .max(messagingSuppressionsSuppressionsRetrieveQuerySearchMax)
+        .optional()
+        .describe('Case-insensitive substring match on the recipient email address.'),
 })
