@@ -95,7 +95,7 @@ describe('TransactionalEmailsTable', () => {
         )
 
         expect(await screen.findByText(/sent even when your daily sending allowance is used up/)).toBeInTheDocument()
-        expect(screen.getByRole('link', { name: /How sending allowances work/ })).toHaveAttribute(
+        expect(screen.getByText('How sending allowances work').closest('a')).toHaveAttribute(
             'href',
             'https://posthog.com/docs/workflows/sending-reputation#do-transactional-emails-count-against-the-allowance'
         )
