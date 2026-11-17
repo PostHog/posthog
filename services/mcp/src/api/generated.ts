@@ -115926,6 +115926,32 @@ export namespace Schemas {
     }
 
     /**
+     * * `string` - string
+     * * `integer` - integer
+     * * `number` - number
+     * * `boolean` - boolean
+     * * `datetime` - datetime
+     * * `array<string>` - array<string>
+     * * `array<integer>` - array<integer>
+     * * `array<number>` - array<number>
+     * * `array<boolean>` - array<boolean>
+     */
+    export type SignalFilterFieldTypeEnum = typeof SignalFilterFieldTypeEnum[keyof typeof SignalFilterFieldTypeEnum];
+
+
+    export const SignalFilterFieldTypeEnum = {
+      String: 'string',
+      Integer: 'integer',
+      Number: 'number',
+      Boolean: 'boolean',
+      Datetime: 'datetime',
+      ArrayString: 'array<string>',
+      ArrayInteger: 'array<integer>',
+      ArrayNumber: 'array<number>',
+      ArrayBoolean: 'array<boolean>',
+    } as const;
+
+    /**
      * Body for appending an artefact to a report.
      *
      * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
@@ -118112,6 +118138,43 @@ export namespace Schemas {
          * @nullable
          */
       edit_index: number | null;
+    }
+
+    export interface SourceFilterCatalogField {
+      /** Name to use for this field in a filter expression. */
+      name: string;
+      /** Type of the field's value. Compare it with values of the same type.
+       *
+       * * `string` - string
+       * * `integer` - integer
+       * * `number` - number
+       * * `boolean` - boolean
+       * * `datetime` - datetime
+       * * `array<string>` - array<string>
+       * * `array<integer>` - array<integer>
+       * * `array<number>` - array<number>
+       * * `array<boolean>` - array<boolean> */
+      type: SignalFilterFieldTypeEnum;
+      /** What the field holds, and its value when the record has none (null, or an empty array). */
+      description: string;
+    }
+
+    export interface SourceFilterCatalog {
+      /** Source product the filter applies to, for example `linear`. */
+      source_product: string;
+      /** Source type the filter applies to, for example `issue`. */
+      source_type: string;
+      /** Catalog version a filter saved now is pinned to. A saved filter keeps the meaning of its version. */
+      catalog_version: number;
+      /** Fields a filter expression can use. */
+      filter_fields: SourceFilterCatalogField[];
+      /** Example expressions that are valid for this source. */
+      starter_expressions: string[];
+    }
+
+    export interface SourceFilterCatalogList {
+      /** One entry per source whose filter this project can set. A source that is missing does not take a filter. */
+      results: SourceFilterCatalog[];
     }
 
     export interface SourceMappingSuggestion {

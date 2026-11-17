@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 89 enabled ops
+ * PostHog API - MCP 90 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -6011,6 +6011,18 @@ export const SignalsSourceConfigsPartialUpdateBody = () => zod.object({
         .optional()
         .describe(
             'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
+        ),
+})
+
+/**
+ * List the sources whose filter this project can set, each with the fields a filter expression can use and example expressions. A filter is a boolean expression saved in a source config's `config.hogql_filter`. It excludes records before any AI processing. Available before the source is connected or synced.
+ * @summary List source filter catalogs
+ */
+export const SignalsSourceConfigsFilterCatalogsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 

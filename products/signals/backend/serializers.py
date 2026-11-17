@@ -572,6 +572,54 @@ class AlertPatternPreviewResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="True when the project has more enabled alerts than `alerts` lists.")
 
 
+class SignalFilterFieldType(TextChoices):
+    STRING = "string", "string"
+    INTEGER = "integer", "integer"
+    NUMBER = "number", "number"
+    BOOLEAN = "boolean", "boolean"
+    DATETIME = "datetime", "datetime"
+    ARRAY_STRING = "array<string>", "array<string>"
+    ARRAY_INTEGER = "array<integer>", "array<integer>"
+    ARRAY_NUMBER = "array<number>", "array<number>"
+    ARRAY_BOOLEAN = "array<boolean>", "array<boolean>"
+
+
+class SourceFilterCatalogFieldSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name to use for this field in a filter expression.")
+    type = serializers.ChoiceField(
+        choices=SignalFilterFieldType.choices,
+        help_text="Type of the field's value. Compare it with values of the same type.",
+    )
+    description = serializers.CharField(
+        help_text="What the field holds, and its value when the record has none (null, or an empty array)."
+    )
+
+
+class SourceFilterCatalogSerializer(serializers.Serializer):
+    source_product = serializers.CharField(help_text="Source product the filter applies to, for example `linear`.")
+    source_type = serializers.CharField(help_text="Source type the filter applies to, for example `issue`.")
+    catalog_version = serializers.IntegerField(
+        help_text="Catalog version a filter saved now is pinned to. A saved filter keeps the meaning of its version."
+    )
+    filter_fields = serializers.ListField(
+        child=SourceFilterCatalogFieldSerializer(),
+        help_text="Fields a filter expression can use.",
+    )
+    starter_expressions = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Example expressions that are valid for this source.",
+    )
+
+
+class SourceFilterCatalogListSerializer(serializers.Serializer):
+    results = serializers.ListField(
+        child=SourceFilterCatalogSerializer(),
+        help_text=(
+            "One entry per source whose filter this project can set. A source that is missing does not take a filter."
+        ),
+    )
+
+
 # A team overrides the base branch for a handful of its repos; a map larger than this is abuse,
 # not use. Bounding it caps the per-write activity-log row (which stores the full before/after map)
 # and the request body a caller can push through this field.

@@ -27718,6 +27718,38 @@
             "validators": []
         }
     },
+    "inbox-source-filter-catalogs-list": {
+        "name": "inbox-source-filter-catalogs-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/signals/source_configs/filter_catalogs/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "inbox-steering-instructions-get": {
         "name": "inbox-steering-instructions-get",
         "kind": "http",

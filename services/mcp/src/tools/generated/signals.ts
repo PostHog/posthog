@@ -1447,6 +1447,24 @@ const inboxSourceConfigsUpdate = (): ToolBase<
     },
 })
 
+const InboxSourceFilterCatalogsListSchema = () => z.object({})
+
+const inboxSourceFilterCatalogsList = (): ToolBase<
+    ReturnType<typeof InboxSourceFilterCatalogsListSchema>,
+    Schemas.SourceFilterCatalogList
+> => ({
+    name: 'inbox-source-filter-catalogs-list',
+    schema: InboxSourceFilterCatalogsListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxSourceFilterCatalogsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SourceFilterCatalogList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/filter_catalogs/`,
+        })
+        return result
+    },
+})
+
 const InboxSteeringInstructionsGetSchema = () => z.object({})
 
 const inboxSteeringInstructionsGet = (): ToolBase<
@@ -3988,6 +4006,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
+    'inbox-source-filter-catalogs-list': inboxSourceFilterCatalogsList,
     'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
     'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
     'inbox-usage-get': inboxUsageGet,

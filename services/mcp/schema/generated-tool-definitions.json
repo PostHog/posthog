@@ -9200,6 +9200,22 @@
             "readOnlyHint": false
         }
     },
+    "inbox-source-filter-catalogs-list": {
+        "description": "List the inbox sources whose records this project can filter, each with the fields a filter expression can use, their types and meanings, and example expressions. A filter is a boolean expression over these fields, saved in a source config's `config.hogql_filter` with `inbox-source-configs-partial-update` and `config_set`. Records that fail it never reach AI processing. An empty list means no source takes a filter yet.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List inbox source filter catalogs",
+        "title": "List inbox source filter catalogs",
+        "required_scopes": ["inbox:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/source_configs/filter_catalogs/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "signals-source-filters"
+    },
     "inbox-steering-instructions-get": {
         "description": "Read the current project's research, implementation, and scout instructions. Returns only the three instruction fields from the project's Self-driving config singleton, with empty strings for unset roles. Read shared project instructions separately with tasks-config-list. A role's instructions supplement the shared project instructions; scouts also retain their individual briefs.",
         "category": "Signals",
