@@ -506,6 +506,12 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                 for (const controller of Object.values(cache.tileFetches as Record<string, AbortController>)) {
                     controller.abort()
                 }
+                // A tile cancelled before its first answer would otherwise stay loading until the next refresh.
+                for (const tile of values.tiles) {
+                    if (!values.tileResults[tile.id]) {
+                        actions.tileLoaded(tile.id, { insight: null, unavailable: 'failed' })
+                    }
+                }
             },
             enterLayoutEdit: () => {
                 lemonToast.info('Now editing the dashboard. Press E or click Save to persist changes.')
@@ -661,11 +667,16 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
     })),
     afterMount(({ actions, cache }) => {
         cache.tileFetches = {} as Record<string, AbortController>
-        cache.disposables.add(() => {
-            for (const controller of Object.values(cache.tileFetches as Record<string, AbortController>)) {
-                controller.abort()
-            }
-        }, 'tileFetches')
+        // Not paused on a hidden page, because that would abort loads the reader is waiting for.
+        cache.disposables.add(
+            () => () => {
+                for (const controller of Object.values(cache.tileFetches as Record<string, AbortController>)) {
+                    controller.abort()
+                }
+            },
+            'tileFetches',
+            { pauseOnPageHidden: false }
+        )
         actions.loadDashboard()
     }),
 ])

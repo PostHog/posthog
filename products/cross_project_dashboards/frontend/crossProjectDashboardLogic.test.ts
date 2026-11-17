@@ -345,6 +345,30 @@ describe('crossProjectDashboardLogic', () => {
         expect(insightName('tile-1')).toBe('Before')
     })
 
+    it('marks a tile cancelled before its first answer as failed, so it does not load forever', async () => {
+        deferTileFetches()
+        logic = crossProjectDashboardLogic({ id: DASHBOARD_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDashboardSuccess'])
+        logic.actions.refreshTiles()
+
+        logic.actions.cancelRefresh()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.tileResults['tile-1']?.unavailable).toBe('failed')
+    })
+
+    it('aborts tile loads still running when the dashboard unmounts', async () => {
+        await mountWith({})
+        deferTileFetches()
+        logic.actions.refreshTiles()
+        const signal = mockedTileFetch.mock.lastCall[3].signal
+
+        logic.unmount()
+
+        expect(signal.aborted).toBe(true)
+    })
+
     it('drops an answer for filters that changed while it loaded', async () => {
         await mountWith({})
         const releaseFirst = deferTileFetches()

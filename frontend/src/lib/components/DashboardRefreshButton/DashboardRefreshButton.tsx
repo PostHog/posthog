@@ -59,7 +59,8 @@ export function DashboardRefreshButton({
 }: DashboardRefreshButtonProps): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const cancellable = loading && !!onCancel
-    const onClick = cancellable ? onCancel : onRefresh
+    // Called without the click event, so a handler's optional first argument stays unset.
+    const onClick = (): void => (cancellable ? onCancel?.() : onRefresh())
     const icon = cancellable ? <IconX /> : upToDateReason ? <IconCheck /> : <IconRefresh />
     const label = cancellable ? 'Cancel' : 'Refresh'
     const withShortcut = (button: JSX.Element): JSX.Element => (
