@@ -81,6 +81,12 @@ class NewsBreakResumeConfig:
     account_id: Optional[str] = None
     page: Optional[int] = None
     window_start: Optional[str] = None
+    # Report tables: the accounts this job has read in full, so a retried attempt can mark them backfilled.
+    completed_account_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        # The JSON round trip gives a list.
+        object.__setattr__(self, "completed_account_ids", tuple(self.completed_account_ids))
 
 
 @frozen
@@ -88,6 +94,9 @@ class NewsBreakReportCursor:
     cursor_kind: ClassVar[str] = "newsbreak_report_backfill"
     # An account that is not in the list reads its full history, also on an incremental run.
     backfilled_account_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "backfilled_account_ids", tuple(self.backfilled_account_ids))
 
 
 def parse_org_ids(value: Optional[str]) -> list[str]:
@@ -308,9 +317,8 @@ def _report_rows(
     start_index, resume = _resume_position(accounts, resume)
     stored = cursor_manager.load() if cursor_manager is not None else None
     backfilled = set(stored.backfilled_account_ids) if stored is not None else set()
-    # An earlier attempt of this job read the accounts before the resume point to today, from their
-    # creation date when they were not backfilled yet.
-    backfilled.update(account["id"] for account in accounts[:start_index])
+    completed = list(resume.completed_account_ids) if resume is not None else []
+    backfilled.update(completed)
     for index in range(start_index, len(accounts)):
         account_id = accounts[index]["id"]
         start = _account_start(accounts[index], tz, today)
@@ -342,9 +350,19 @@ def _report_rows(
             rows = _list_of(data, "rows")
             next_start = end + timedelta(days=1)
             if next_start <= today:
-                manager.save_state(NewsBreakResumeConfig(account_id=account_id, window_start=next_start.isoformat()))
+                manager.save_state(
+                    NewsBreakResumeConfig(
+                        account_id=account_id,
+                        window_start=next_start.isoformat(),
+                        completed_account_ids=tuple(completed),
+                    )
+                )
             elif index + 1 < len(accounts):
-                manager.save_state(NewsBreakResumeConfig(account_id=accounts[index + 1]["id"]))
+                manager.save_state(
+                    NewsBreakResumeConfig(
+                        account_id=accounts[index + 1]["id"], completed_account_ids=(*completed, account_id)
+                    )
+                )
             if rows:
                 # The request asks for the AD_ACCOUNT dimension, so the id is in the row. The default keeps
                 # the primary key whole if a row comes back without it.
@@ -353,6 +371,7 @@ def _report_rows(
                 manager.safe_point()
             start = next_start
 
+        completed.append(account_id)
         backfilled.add(account_id)
         if cursor_manager is not None:
             cursor_manager.stage(NewsBreakReportCursor(backfilled_account_ids=tuple(sorted(backfilled))))

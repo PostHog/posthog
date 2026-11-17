@@ -356,18 +356,20 @@ class TestReports:
             ([2], "2024-03-15"),
         ]
         assert result.saved_states == [
-            NewsBreakResumeConfig(account_id="2"),
-            NewsBreakResumeConfig(account_id="2", window_start="2024-03-08"),
-            NewsBreakResumeConfig(account_id="2", window_start="2024-03-15"),
+            NewsBreakResumeConfig(account_id="2", completed_account_ids=("1",)),
+            NewsBreakResumeConfig(account_id="2", window_start="2024-03-08", completed_account_ids=("1",)),
+            NewsBreakResumeConfig(account_id="2", window_start="2024-03-15", completed_account_ids=("1",)),
         ]
         assert result.committed_states == result.saved_states
 
     def test_resumed_run_counts_accounts_read_by_an_earlier_attempt_as_backfilled(self) -> None:
         cursor_manager = _cursor()
+        # Account 0 became visible after the earlier attempt and sorts before the resume point, so this
+        # run skips it and must not count it as backfilled.
         result = _driver().run(
             "ad_account_daily_report",
-            route({ACCOUNTS: [_accounts("1", "2")], REPORT: [_report([])]}),
-            resume_state=NewsBreakResumeConfig(account_id="2", window_start="2024-03-15"),
+            route({ACCOUNTS: [_accounts("0", "1", "2")], REPORT: [_report([])]}),
+            resume_state=NewsBreakResumeConfig(account_id="2", window_start="2024-03-15", completed_account_ids=("1",)),
             source_cursor=cursor_manager,
         )
 
