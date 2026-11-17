@@ -651,11 +651,45 @@ jobs:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
             JEST_JUNIT_SUITE_NAME: '{filepath}'
+            SPARSE_CHECKOUT: ${{ github.head_ref == 'pauldambra/storybook-checkout-crossover' && matrix.browser == 'chromium' && matrix.shard_count == 40 && ((matrix.shard <= 20) == (github.run_attempt == '1')) }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Full source checkout
+              if: env.SPARSE_CHECKOUT != 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+            - name: Sparse source checkout
+              if: env.SPARSE_CHECKOUT == 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+                  sparse-checkout-cone-mode: false
+                  sparse-checkout: |
+                      package.json
+                      pnpm-lock.yaml
+                      pnpm-workspace.yaml
+                      .npmrc
+                      .nvmrc
+                      tsconfig.json
+                      babel.config.*
+                      .babelrc
+                      *.stories.*
+                      owners.yaml
+                      CODEOWNERS
+                      /common/storybook/
+                      /frontend/plugins/
+                      /frontend/snapshots.yml
+                      /patches/
+                      /.github/actions/trunk-quarantine-gate/
+                      /.github/scripts/trunk-codeowners.sh
+                      /packages/owners-yaml/
+                      /bin/fix-rdkafka-paths
+                      /.husky/
+                      /.git-blame-ignore-revs
+                      product.yaml
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
