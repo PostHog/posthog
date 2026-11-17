@@ -280,7 +280,8 @@ const story = (team: string | null, response: PaginatedCodeReviewApprovalRouting
         mswDecorator({
             get: {
                 '/api/projects/:team_id/code_review/approvals/reviewer_routing/owners/': owners,
-                [`/api/projects/:team_id/code_review/approvals/reviewer_routing/${storybookSplit.id}/`]: storybookSplitDetail,
+                [`/api/projects/:team_id/code_review/approvals/reviewer_routing/${storybookSplit.id}/`]:
+                    storybookSplitDetail,
                 '/api/projects/:team_id/code_review/approvals/reviewer_routing/': response,
             },
         }),

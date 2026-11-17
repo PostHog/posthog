@@ -5,7 +5,11 @@ import {
 } from '../../generated/api.schemas'
 import { AREA_FILTER_OUTCOMES, AreaGroup, areaGroup, groupAreaRows, isMergedWithoutTeam } from './areaDisplay'
 
-const run = (size: number | null, decision: Partial<CodeReviewApprovalRoutingRunOwnerApi>, id = 'run'): CodeReviewApprovalRoutingRunApi =>
+const run = (
+    size: number | null,
+    decision: Partial<CodeReviewApprovalRoutingRunOwnerApi>,
+    id = 'run'
+): CodeReviewApprovalRoutingRunApi =>
     ({
         id,
         pull_request: { additions: size, deletions: size === null ? null : 0 },

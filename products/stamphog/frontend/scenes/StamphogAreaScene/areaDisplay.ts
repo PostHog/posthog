@@ -63,7 +63,10 @@ export interface AreaRow {
     decision: CodeReviewApprovalRoutingRunOwnerApi
 }
 
-export function ownerDecision(run: CodeReviewApprovalRoutingRunApi, owner: string): CodeReviewApprovalRoutingRunOwnerApi | null {
+export function ownerDecision(
+    run: CodeReviewApprovalRoutingRunApi,
+    owner: string
+): CodeReviewApprovalRoutingRunOwnerApi | null {
     return run.owners.find((entry) => entry.owner === owner) ?? null
 }
 
