@@ -548,9 +548,11 @@ def restore_source_destination(
     kept.type = restored.data["type"]
     kept.config = dict(restored.data)
     kept.event_kinds = [kind.value for kind in restored.event_kinds]
+    # nosemgrep: platform-alert-state-direct-mutation (a destination row's own switch, not an alert's lifecycle)
     kept.enabled = restored.enabled
     kept.legacy_hog_function_ids = []
     kept.keeps_legacy_webhook_body = False
+    # nosemgrep: platform-alert-state-direct-mutation (a destination row's own switch, not an alert's lifecycle)
     kept.consecutive_failures = 0
     kept.disabled_reason = None
     kept.save()
