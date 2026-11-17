@@ -12,11 +12,13 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, ExperimentStatsMethod } from '~/types'
 
+import { SummarizeExperimentButton } from 'products/experiments/frontend/components/SummarizeExperimentButton'
 import { DEFAULT_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { CupedModal } from 'products/experiments/frontend/modals/CupedModal/CupedModal'
 import { StatsMethodModal } from 'products/experiments/frontend/modals/StatsMethodModal/StatsMethodModal'
 
-import { experimentLogic } from '../experimentLogic'
+import { experimentLogic, getSectionMetricUuids } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getBaselineVariantKey } from '../utils'
 import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
@@ -102,6 +104,7 @@ export function Hypothesis(): JSX.Element {
     const cupedFromTeamDefault = getCupedSelection(experiment.stats_config?.cuped) === 'default'
 
     const tags = experiment.tags ?? []
+    const showResults = isLaunched(experiment) && getSectionMetricUuids(experiment, false).length > 0
 
     return (
         <div className="h-full border border-primary rounded bg-[var(--color-bg-table)] px-3 py-2.5 flex flex-col gap-3">
@@ -129,76 +132,93 @@ export function Hypothesis(): JSX.Element {
                 </div>
             </div>
 
-            <div className="mt-auto border-t border-primary pt-3">
-                <span className="metric-cell-header font-bold">Settings</span>
-                <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 m-0 mt-2 text-[13px]">
-                    <SettingRow label="Statistics" onEdit={openStatsEngineModal} editLabel="Edit statistics settings">
-                        <span>
-                            {isBayesian ? 'Bayesian' : 'Frequentist'} · {confidenceDisplay}
-                            {!isBayesian && sequentialEnabled && ' · Sequential testing'}
-                        </span>
-                    </SettingRow>
-                    <SettingRow
-                        label="CUPED"
-                        info="Uses pre-experiment data to detect significant effects faster. Supported for mean and funnel metrics."
-                        onEdit={openCupedModal}
-                        editLabel="Edit CUPED settings"
-                    >
-                        <LemonTag type={cupedEnabled ? 'success' : 'default'}>
-                            {cupedEnabled ? 'Enabled' : 'Disabled'}
-                        </LemonTag>
-                        {cupedEnabled && <span>{cupedLookbackDays}-day lookback</span>}
-                        {cupedFromTeamDefault && (
-                            <Link
-                                className="text-xs"
-                                to={urls.settings('environment-experiments', 'environment-experiment-cuped-enabled')}
-                            >
-                                Project default
-                            </Link>
-                        )}
-                    </SettingRow>
-                    <SettingRow label="Baseline variant" info="The variant all others are compared against.">
-                        <LemonSelect
-                            size="xsmall"
-                            value={getBaselineVariantKey(experiment)}
-                            loading={experimentUpdateLoading}
-                            options={variants.map((v) => ({ value: v.key, label: v.key }))}
-                            onChange={(value) => {
-                                updateExperimentSettings({
-                                    stats_config: { ...experiment.stats_config, baseline_variant_key: value },
-                                })
-                            }}
-                        />
-                    </SettingRow>
-                    <SettingRow
-                        label="Completed windows"
-                        info="Exclude participants whose conversion or retention window hasn't elapsed yet. The project default is set in environment settings."
-                    >
-                        <LemonCheckbox
-                            label="Required"
-                            labelClassName="font-normal"
-                            checked={experiment.only_count_matured_users ?? false}
-                            disabled={experimentUpdateLoading}
-                            onChange={(checked) => {
-                                updateExperimentSettings({ only_count_matured_users: checked })
-                            }}
-                        />
-                    </SettingRow>
-                    <SettingRow label="Tags">
-                        {canEditExperiment ? (
-                            <ObjectTags
-                                tags={tags}
-                                onChange={(newTags) => updateExperiment({ tags: newTags })}
-                                saving={experimentUpdateLoading}
-                                data-attr="experiment-tags"
+            <div className="mt-auto flex flex-col gap-3">
+                {showResults && (
+                    <div className="border-t border-primary pt-3">
+                        <span className="metric-cell-header font-bold">Results</span>
+                        <div className="mt-2">
+                            <SummarizeExperimentButton />
+                        </div>
+                    </div>
+                )}
+                <div className="border-t border-primary pt-3">
+                    <span className="metric-cell-header font-bold">Settings</span>
+                    <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 m-0 mt-2 text-[13px]">
+                        <SettingRow
+                            label="Statistics"
+                            onEdit={openStatsEngineModal}
+                            editLabel="Edit statistics settings"
+                        >
+                            <span>
+                                {isBayesian ? 'Bayesian' : 'Frequentist'} · {confidenceDisplay}
+                                {!isBayesian && sequentialEnabled && ' · Sequential testing'}
+                            </span>
+                        </SettingRow>
+                        <SettingRow
+                            label="CUPED"
+                            info="Uses pre-experiment data to detect significant effects faster. Supported for mean and funnel metrics."
+                            onEdit={openCupedModal}
+                            editLabel="Edit CUPED settings"
+                        >
+                            <LemonTag type={cupedEnabled ? 'success' : 'default'}>
+                                {cupedEnabled ? 'Enabled' : 'Disabled'}
+                            </LemonTag>
+                            {cupedEnabled && <span>{cupedLookbackDays}-day lookback</span>}
+                            {cupedFromTeamDefault && (
+                                <Link
+                                    className="text-xs"
+                                    to={urls.settings(
+                                        'environment-experiments',
+                                        'environment-experiment-cuped-enabled'
+                                    )}
+                                >
+                                    Project default
+                                </Link>
+                            )}
+                        </SettingRow>
+                        <SettingRow label="Baseline variant" info="The variant all others are compared against.">
+                            <LemonSelect
+                                size="xsmall"
+                                value={getBaselineVariantKey(experiment)}
+                                loading={experimentUpdateLoading}
+                                options={variants.map((v) => ({ value: v.key, label: v.key }))}
+                                onChange={(value) => {
+                                    updateExperimentSettings({
+                                        stats_config: { ...experiment.stats_config, baseline_variant_key: value },
+                                    })
+                                }}
                             />
-                        ) : tags.length > 0 ? (
-                            <ObjectTags tags={tags} staticOnly data-attr="experiment-tags" />
-                        ) : (
-                            <span className="text-secondary">None</span>
-                        )}
-                    </SettingRow>
-                </dl>
+                        </SettingRow>
+                        <SettingRow
+                            label="Completed windows"
+                            info="Exclude participants whose conversion or retention window hasn't elapsed yet. The project default is set in environment settings."
+                        >
+                            <LemonCheckbox
+                                label="Required"
+                                labelClassName="font-normal"
+                                checked={experiment.only_count_matured_users ?? false}
+                                disabled={experimentUpdateLoading}
+                                onChange={(checked) => {
+                                    updateExperimentSettings({ only_count_matured_users: checked })
+                                }}
+                            />
+                        </SettingRow>
+                        <SettingRow label="Tags">
+                            {canEditExperiment ? (
+                                <ObjectTags
+                                    tags={tags}
+                                    onChange={(newTags) => updateExperiment({ tags: newTags })}
+                                    saving={experimentUpdateLoading}
+                                    data-attr="experiment-tags"
+                                />
+                            ) : tags.length > 0 ? (
+                                <ObjectTags tags={tags} staticOnly data-attr="experiment-tags" />
+                            ) : (
+                                <span className="text-secondary">None</span>
+                            )}
+                        </SettingRow>
+                    </dl>
+                </div>
             </div>
 
             <StatsMethodModal />

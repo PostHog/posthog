@@ -12,7 +12,6 @@ import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
 import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
 import { Experiment } from '~/types'
 
-import { SummarizeExperimentButton } from 'products/experiments/frontend/components/SummarizeExperimentButton'
 import { experimentExposuresWindowLogic } from 'products/experiments/frontend/exposures/experimentExposuresWindowLogic'
 import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
@@ -74,7 +73,6 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                                 <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
-                        {!isSecondary && hasMinimumExposureForResults && <SummarizeExperimentButton />}
                         {hasSomeResults && !isSecondary && <HowToReadTooltip />}
                     </div>
                 </div>

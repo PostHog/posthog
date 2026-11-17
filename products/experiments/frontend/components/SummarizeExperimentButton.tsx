@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { addProductIntent } from 'lib/utils/product-intents'
 import { experimentLogic, getSectionMetricUuids } from 'scenes/experiments/experimentLogic'
@@ -12,7 +12,9 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'products/experiments/frontend/constants'
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { getTotalExposures } from 'products/experiments/frontend/health/exposureHealth'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 /**
@@ -80,32 +82,33 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
     return maxToolResult
 }
 
-/**
- * Icon-only spark affordance that opens PostHog AI to summarize experiment results.
- * Styled after the MaxTool corner button.
- */
 export function SummarizeExperimentButton(): JSX.Element | null {
     const { openMax } = useExperimentSummaryMaxTool()
-    const { experiment } = useValues(experimentLogic)
+    const { experiment, hasMinimumExposureForResults, exposures } = useValues(experimentLogic)
     const { reportExperimentAiSummaryRequested } = useActions(experimentLogic)
     if (!openMax) {
         return null
     }
 
+    const totalExposures = getTotalExposures(exposures)
+
     return (
-        <Tooltip title="Summarize results with PostHog AI" placement="top-end" delayMs={0}>
-            <button
-                type="button"
-                aria-label="Summarize results with PostHog AI"
-                data-attr="experiment-summarize-results"
-                className="size-6 shrink-0 cursor-pointer rounded-md border border-dashed border-ai bg-ai/08 backdrop-blur-[2px] transition duration-50 hover:scale-110 dark:bg-ai/20"
-                onClick={() => {
-                    reportExperimentAiSummaryRequested(experiment)
-                    openMax()
-                }}
-            >
-                <IconSparkles className="relative size-full p-1 text-ai dark:text-white" />
-            </button>
-        </Tooltip>
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconSparkles className="text-ai" />}
+            data-attr="experiment-summarize-results"
+            disabledReason={
+                hasMinimumExposureForResults
+                    ? undefined
+                    : `Summaries need at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures. This experiment has ${totalExposures}.`
+            }
+            onClick={() => {
+                reportExperimentAiSummaryRequested(experiment)
+                openMax()
+            }}
+        >
+            Summarize with PostHog AI
+        </LemonButton>
     )
 }
