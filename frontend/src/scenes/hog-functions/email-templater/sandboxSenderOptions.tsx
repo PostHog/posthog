@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { Tooltip, type LemonSelectSection } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip, type LemonSelectSection } from '@posthog/lemon-ui'
 
 import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
@@ -59,7 +59,14 @@ export function sandboxSenderHint(sandbox: SandboxSenderChoice | null): JSX.Elem
         <span className="flex gap-1 items-center min-w-0">
             <span className="truncate">{`Sends as ${sandbox.fromLine}.`}</span>
             <Tooltip title={SANDBOX_RECIPIENTS_NOTE}>
-                <IconInfo className="shrink-0 text-secondary" />
+                <LemonButton
+                    size="xsmall"
+                    noPadding
+                    icon={<IconInfo className="text-secondary" />}
+                    aria-label="About sandbox email recipients"
+                    data-attr="workflow-email-sandbox-recipients-help"
+                    className="shrink-0"
+                />
             </Tooltip>
         </span>
     )
