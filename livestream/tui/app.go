@@ -539,7 +539,7 @@ func (a *App) View() string {
 		}
 		inputStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.AdaptiveColor{Light: "#1D4AFF", Dark: "#1D4AFF"}).
+			BorderForeground(lipgloss.AdaptiveColor{Light: "#1D4AFF", Dark: "#8FA8FF"}).
 			Padding(0, 1)
 
 		overlay = inputStyle.Width(a.width - 4).Render(label + a.filterInput.View())

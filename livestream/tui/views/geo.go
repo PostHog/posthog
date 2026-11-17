@@ -145,19 +145,19 @@ func (v *GeoView) View() string {
 	sorted := v.aggregated()
 
 	separatorStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#CCCCCC", Dark: "#444444"})
+		Foreground(lipgloss.AdaptiveColor{Light: "#CCCCCC", Dark: "#6E6E6E"})
 	countStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.AdaptiveColor{Light: "#555555", Dark: "#999999"})
 	emptyStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
+		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#A0A0A0"})
 
 	barStyle := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), true, false, false, false).
-		BorderForeground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#444444"}).
+		BorderForeground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#6E6E6E"}).
 		Width(v.width)
 
 	labelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
+		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#A0A0A0"})
 
 	label := labelStyle.Render("Events by country/min: ")
 	labelWidth := lipgloss.Width(label)

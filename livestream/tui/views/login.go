@@ -47,11 +47,11 @@ func (v *LoginView) View() string {
 		Foreground(lipgloss.AdaptiveColor{Light: "#F54E00", Dark: "#F54E00"})
 
 	urlStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#1D4AFF", Dark: "#1D4AFF"}).
+		Foreground(lipgloss.AdaptiveColor{Light: "#1D4AFF", Dark: "#8FA8FF"}).
 		Underline(true)
 
 	mutedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
+		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#A0A0A0"})
 
 	content := fmt.Sprintf(
 		"\n\n%s\n\n%s Open your browser to authorize...\n\n%s\n\n%s\n",

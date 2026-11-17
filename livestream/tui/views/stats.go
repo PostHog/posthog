@@ -32,14 +32,14 @@ func (v *StatsView) SetEventRate(count int) {
 
 func (v *StatsView) View() string {
 	labelStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
+		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#A0A0A0"})
 	valueStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.AdaptiveColor{Light: "#1D1F27", Dark: "#EDEDEC"})
 
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"}).
+		BorderForeground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#A0A0A0"}).
 		Padding(0, 1).
 		Width(v.width)
 

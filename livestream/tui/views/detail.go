@@ -75,7 +75,7 @@ func (v *DetailView) buildLines() {
 	}
 
 	keyStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#1D4AFF", Dark: "#1D4AFF"}).
+		Foreground(lipgloss.AdaptiveColor{Light: "#1D4AFF", Dark: "#8FA8FF"}).
 		Bold(true)
 	valStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.AdaptiveColor{Light: "#1D1F27", Dark: "#EDEDEC"})
@@ -162,7 +162,7 @@ func (v *DetailView) View() string {
 	}
 
 	hintStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"})
+		Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#A0A0A0"})
 
 	visible := v.lines[start:end]
 	title := titleStyle.Render("Event Detail") + "  " + hintStyle.Render("(esc to go back, j/k to scroll)")
