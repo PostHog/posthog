@@ -53,7 +53,7 @@ async fn delete_cohort_members_by_person_ids_chunk(
 ) -> StorageResult<i64> {
     let mut conn = PostgresStorage::acquire_timed(pool, "bulk_primary").await?;
     let result = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='delete_cohort_members_by_person_ids_chunk' */
         DELETE FROM posthog_cohortpeople
         WHERE cohort_id = $1::bigint AND person_id = ANY($2::bigint[])
         "#,
