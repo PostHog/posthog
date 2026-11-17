@@ -303,7 +303,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **The VM time of an input template that fails** counts toward the message and batch budgets. Node does not count it, so there a template that times out on every record runs for the whole message.
 - **A native call whose arguments reach more text than the heap has room for** fails the invocation. The count takes a global string once per reference, so 64 references to a 900 KiB body are over the limit. Node bounds the same program through the cost of each reference.
 - **A secret with an apostrophe in a thrown error message** is redacted. The message prints with `\'`, which Node's `redactSensitiveValues` does not match, so Node stores the secret there.
-- **A native call whose result is nested more than 512 levels** fails the invocation, because the port walks the result by recursion. So does `toString` of a HogQL AST value that is nested more than 64 levels, that reaches itself, or whose printed text passes the heap limit.
+- **A native call whose result is nested more than 512 levels** fails the invocation, because the port walks the result by recursion. So does `toString` of a HogQL AST value that is nested more than 64 levels, that reaches itself, or whose nodes together print more text than the heap has room for.
 - **Input order with a non-numeric `order`.** Node's comparator returns NaN for it, and the sort result is not defined. The port sorts such an input last.
 - **The `instance_id` of a function log** is a UUID v7. Node writes a `UUIDT`.
 - **A Fernet token dated more than 60 seconds in the future** does not decrypt, because the `fernet` crate checks the timestamp without a TTL. Node and Django do not read it.

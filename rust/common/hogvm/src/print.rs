@@ -5,6 +5,7 @@
 //! (which is `toString` semantics) on purpose — the two are subtly different and the
 //! parity loop is what reconciles them.
 
+use std::cell::Cell;
 use std::collections::HashSet;
 
 use crate::values::HogMap;
@@ -175,6 +176,17 @@ pub fn print_hog_value(
     marked: &mut Vec<HeapReference>,
     depth: usize,
 ) -> Result<String, crate::VmError> {
+    print_value(heap, value, marked, depth, &Cell::new(heap.room()))
+}
+
+/// `sql_room` is the text the HogQL printers of one print may still write, so children that each fit cannot pass the limit together.
+fn print_value(
+    heap: &VmHeap,
+    value: &HogValue,
+    marked: &mut Vec<HeapReference>,
+    depth: usize,
+    sql_room: &Cell<usize>,
+) -> Result<String, crate::VmError> {
     if depth > PRINT_RECURSION_LIMIT {
         return Ok("null".to_string());
     }
@@ -194,7 +206,7 @@ pub fn print_hog_value(
         marked.push(ptr);
     }
 
-    let result = format_literal(heap, lit, marked, depth);
+    let result = format_literal(heap, lit, marked, depth, sql_room);
 
     if container_ptr.is_some() {
         marked.pop();
@@ -208,6 +220,7 @@ fn format_literal(
     lit: &HogLiteral,
     marked: &mut Vec<HeapReference>,
     depth: usize,
+    sql_room: &Cell<usize>,
 ) -> Result<String, crate::VmError> {
     match lit {
         HogLiteral::Null => Ok("null".to_string()),
@@ -221,14 +234,14 @@ fn format_literal(
         HogLiteral::Array(arr) => {
             let mut parts = Vec::with_capacity(arr.len());
             for elem in arr {
-                parts.push(print_hog_value(heap, elem, marked, depth + 1)?);
+                parts.push(print_value(heap, elem, marked, depth + 1, sql_room)?);
             }
             Ok(format!("[{}]", parts.join(", ")))
         }
         HogLiteral::Tuple(arr) => {
             let mut parts = Vec::with_capacity(arr.len());
             for elem in arr {
-                parts.push(print_hog_value(heap, elem, marked, depth + 1)?);
+                parts.push(print_value(heap, elem, marked, depth + 1, sql_room)?);
             }
             // The reference disambiguates 0/1-element tuples as `tuple(...)`; 2+ print as `(a, b)`.
             if arr.len() < 2 {
@@ -243,14 +256,14 @@ fn format_literal(
                 return Ok(temporal);
             }
             // Hog errors are duck-typed too; the reference prints them as `Type('message'[, payload])`.
-            if let Some(err) = format_error(heap, obj, marked, depth)? {
+            if let Some(err) = format_error(heap, obj, marked, depth, sql_room)? {
                 return Ok(err);
             }
             // HogQL AST nodes (`{__hx_ast: …}`) render back to SQL, wrapped as `sql(…)`.
             if obj.contains_key("__hx_ast") {
                 return Ok(format!(
                     "sql({})",
-                    HogQLPrinter::new(heap, depth).print_node(obj)?
+                    HogQLPrinter::new(heap, depth, sql_room).print_node(obj)?
                 ));
             }
             let mut parts = Vec::with_capacity(obj.len());
@@ -258,7 +271,7 @@ fn format_literal(
                 parts.push(format!(
                     "{}: {}",
                     escape_string(key),
-                    print_hog_value(heap, val, marked, depth + 1)?
+                    print_value(heap, val, marked, depth + 1, sql_room)?
                 ));
             }
             Ok(format!("{{{}}}", parts.join(", ")))
@@ -312,6 +325,7 @@ fn format_error(
     obj: &HogMap,
     marked: &mut Vec<HeapReference>,
     depth: usize,
+    sql_room: &Cell<usize>,
 ) -> Result<Option<String>, crate::VmError> {
     if !marker(heap, obj.get("__hogError__"))? {
         return Ok(None);
@@ -320,7 +334,7 @@ fn format_error(
     let message = string(heap, obj.get("message"))?.unwrap_or_default();
     let payload = match obj.get("payload") {
         Some(p) if !matches!(p.deref(heap)?, HogLiteral::Null) => {
-            format!(", {}", print_hog_value(heap, p, marked, depth + 1)?)
+            format!(", {}", print_value(heap, p, marked, depth + 1, sql_room)?)
         }
         _ => String::new(),
     };
@@ -410,14 +424,16 @@ struct HogQLPrinter<'a> {
     // Mirrors the reference's `stack.length`: a query that isn't the outermost node is parenthesised.
     depth: usize,
     outer_depth: usize,
+    sql_room: &'a Cell<usize>,
 }
 
 impl<'a> HogQLPrinter<'a> {
-    fn new(heap: &'a VmHeap, outer_depth: usize) -> Self {
+    fn new(heap: &'a VmHeap, outer_depth: usize, sql_room: &'a Cell<usize>) -> Self {
         HogQLPrinter {
             heap,
             depth: 0,
             outer_depth,
+            sql_room,
         }
     }
 
@@ -432,7 +448,11 @@ impl<'a> HogQLPrinter<'a> {
         self.depth -= 1;
         let text = result?;
         // A node can write a child's text twice or escape it again, so the text can double at each level.
-        self.heap.assert_can_allocate(text.len())?;
+        let room = self.sql_room.get();
+        if text.len() > room {
+            return Err(crate::VmError::OutOfResource("Heap Memory".to_string()));
+        }
+        self.sql_room.set(room - text.len());
         Ok(text)
     }
 
@@ -442,11 +462,12 @@ impl<'a> HogQLPrinter<'a> {
         match node.deref(self.heap)? {
             HogLiteral::Null => Ok(String::new()),
             HogLiteral::Object(obj) if obj.contains_key("__hx_ast") => self.print_node(obj),
-            _ => print_hog_value(
+            _ => print_value(
                 self.heap,
                 node,
                 &mut Vec::new(),
                 self.outer_depth + self.depth,
+                self.sql_room,
             ),
         }
     }
@@ -780,11 +801,12 @@ impl<'a> HogQLPrinter<'a> {
             HogLiteral::Number(n) if !n.is_float() => n.to_integer().to_string(),
             HogLiteral::String(s) => escape_identifier(s),
             other => {
-                let printed = print_hog_value(
+                let printed = print_value(
                     self.heap,
                     &HogLiteral::clone(other).into(),
                     &mut Vec::new(),
                     self.outer_depth + self.depth,
+                    self.sql_room,
                 )?;
                 self.heap
                     .assert_can_allocate(printed.len().saturating_mul(2))?;

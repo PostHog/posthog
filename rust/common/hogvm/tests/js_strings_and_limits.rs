@@ -127,6 +127,9 @@ const CYCLIC_JOIN: &str = r#"["_H", 1, 32, "__hx_ast", 32, "JoinExpr", 32, "tabl
 // A `Field` node wrapped 24 times as `{'__hx_ast': 'Field', 'chain': [n]}`, printed with `toString`.
 const NESTED_FIELD: &str = r#"["_H", 1, 32, "__hx_ast", 32, "Field", 32, "chain", 32, "x", 43, 1, 42, 2, 33, 0, 33, 24, 36, 1, 15, 40, 23, 32, "__hx_ast", 32, "Field", 32, "chain", 36, 0, 43, 1, 42, 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -30, 35, 36, 0, 2, "toString", 1, 2, "length", 1, 38, 35]"#;
 
+// An array of 16 `Field` nodes, each wrapped 20 times, printed with `toString`.
+const WIDE_ARRAY: &str = r#"["_H", 1, 43, 0, 33, 0, 33, 16, 36, 1, 15, 40, 64, 32, "__hx_ast", 32, "Field", 32, "chain", 32, "x", 43, 1, 42, 2, 33, 0, 33, 20, 36, 3, 15, 40, 23, 32, "__hx_ast", 32, "Field", 32, "chain", 36, 2, 43, 1, 42, 2, 37, 2, 33, 1, 36, 3, 6, 37, 3, 39, -30, 35, 36, 0, 36, 2, 2, "arrayPushBack", 2, 37, 0, 35, 33, 1, 36, 1, 6, 37, 1, 39, -71, 35, 36, 0, 2, "toString", 1, 2, "length", 1, 38, 35]"#;
+
 #[test]
 fn printing_a_sql_ast_that_holds_itself_or_escapes_itself_again_ends() {
     for bytecode in [
@@ -134,6 +137,7 @@ fn printing_a_sql_ast_that_holds_itself_or_escapes_itself_again_ends() {
         CYCLIC_AST_THROUGH_ARRAY,
         CYCLIC_JOIN,
         NESTED_FIELD,
+        WIDE_ARRAY,
     ] {
         let failure = sync_execute(&context(bytecode, json!({})), false).unwrap_err();
         assert!(

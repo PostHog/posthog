@@ -46,6 +46,10 @@ impl VmHeap {
         self.peak_bytes = self.peak_bytes.max(bytes);
     }
 
+    pub(crate) fn room(&self) -> usize {
+        self.max_bytes.saturating_sub(self.current_bytes)
+    }
+
     pub(crate) fn assert_can_allocate(&self, new_bytes: usize) -> Result<(), VmError> {
         if self.current_bytes.saturating_add(new_bytes) > self.max_bytes {
             Err(VmError::OutOfResource("Heap Memory".to_string()))
