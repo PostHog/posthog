@@ -59,7 +59,6 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
-# How long after a click, or a send nobody clicked, the conversion event still counts.
 IMPACT_WINDOW_DAYS = 7
 
 # A message's rows sit together in the table's sort key, so grouping can finish each message as it reads on.
@@ -647,7 +646,6 @@ class _FollowedSend:
     distinct_id: str
     recipient: str
     clicked: bool
-    # When the conversion week starts: the first click, or the send when nobody clicked.
     since: datetime
 
 
@@ -680,7 +678,6 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
         for asset in assets
         if asset.function_id == workflow_id and asset.distinct_id
     }
-    # The same person can be reached under several distinct ids, so a send and a conversion meet on the person.
     persons = _persons_for_distinct_ids(team, user, list(set(distinct_ids.values()))) if distinct_ids else {}
     return [
         _FollowedSend(
@@ -704,7 +701,6 @@ def _converted_sends(
     if not sends:
         return set()
     window = timedelta(days=IMPACT_WINDOW_DAYS)
-    # A click can come days after the period ends, so the events to scan follow the sends, not the period.
     start = min(send.since for send in sends)
     end = max(send.since for send in sends) + window + timedelta(seconds=1)
     response = execute_hogql_query(
@@ -766,8 +762,6 @@ def _persons_for_distinct_ids(team: Team, user: User | None, distinct_ids: list[
     return dict(response.results or [])
 
 
-# Each event of `{event}` by the people behind `{distinct_ids}`, keyed by person, or by distinct ID for a recipient
-# with no person profile.
 _RECIPIENT_EVENTS = """
     SELECT
         if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
