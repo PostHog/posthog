@@ -5176,7 +5176,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         subscription.refresh_from_db()
         if denied_user:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-            assert "governed_view" in response.json()["detail"]
+            assert "the new owner doesn't have access to `governed_view`" in response.json()["detail"]
             assert subscription.created_by == self.user
             assert subscription.enabled is enabled
             assert not ActivityLog.objects.filter(

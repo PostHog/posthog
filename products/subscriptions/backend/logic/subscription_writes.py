@@ -167,11 +167,13 @@ class _SubscriptionWrite:
         partial: bool,
         is_create_request: bool,
         analytics_props: AnalyticsProps,
+        actor: User | None = None,
     ) -> None:
         self.team = team
         self.team_id = team.id
         self.organization = organization
         self.user = user
+        self.actor = actor or user
         self.viewer = viewer
         self.instance = instance
         self.partial = partial
@@ -580,8 +582,9 @@ class _SubscriptionWrite:
         )
         if denied_resources:
             denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+            subject = "you don't" if self.user.pk == self.actor.pk else "the new owner doesn't"
             raise SubscriptionRequestInvalidError(
-                f"Can't save this subscription: you don't have access to {denied_names}."
+                f"Can't save this subscription: {subject} have access to {denied_names}."
             )
 
     def _is_becoming_active_summary(self, attrs: dict) -> bool:
@@ -1105,6 +1108,7 @@ def take_subscription_ownership(
         team=team,
         organization=organization,
         user=owner,
+        actor=actor,
         viewer=owner_access,
         instance=instance,
         partial=True,
