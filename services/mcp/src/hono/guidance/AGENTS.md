@@ -40,9 +40,21 @@ Decide the home before you write a rule, a description, or a response field.
   It skips later pages and, by default, projects with no events.
   `lib/empty-tool-result.ts` decides what counts as no rows.
 
-## Before you add a rule
+## Adding a rule
 
-- Measure the case from `$mcp_tool_call` events first: how often it happens, and what agents do next.
-  When agents take the result as the answer and move on, the result is expected and needs no rule.
-- Give the rule a test row in `tests/hono/guidance-<product>.test.ts` for each call shape, including the shapes that must get no notice.
-- Judge a shipped rule by `shown` against `flag_off`, on an outcome the notice can change.
+This process is young. Change this section when the practice changes.
+
+1. **Measure the case first**, from `$mcp_tool_call` events: how often it happens, and what agents do next.
+   When agents take the result as the answer and move on, the result is expected and needs no rule.
+2. **Decide the home of each fact** with the table above.
+   Often the result is a description change or a response field, and no rule.
+3. **Put the rule in the file of its product**, `rules/<product>.ts`, and name it `<product>-<case>`, such as `replay-empty-to-range`.
+   A new product gets a new file, registered in `rules/index.ts`.
+   Write the rules out, and share a helper only when it is obvious.
+4. **Pick the flag.**
+   A rule for an empty result uses `emptyResultRule`, which sets the shared flag `mcp-guidance-empty-states`.
+   Any other rule gets its own flag, so that it can roll out and be measured alone.
+5. **Add a project-state lookup to `product-state.ts`** when the rule needs one, such as whether the project has sent any logs.
+6. **Test each call shape** with a row in `tests/hono/guidance-<product>.test.ts`, including the shapes that must get no notice.
+7. **Add the rule to the "MCP guidance rules" dashboard** in PostHog's own project, in a section for the product: calls stamped per day, calls by rule, one outcome that the notice can change, and one guardrail.
+   Each tile compares `shown` with `flag_off`.
