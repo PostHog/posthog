@@ -319,7 +319,7 @@ def _hold_backs(
     # A secret input is not in `inputs` or in a snapshot, so it is read where it is stored.
     if template_id == WebhookDestination.template_id and input_value(function.encrypted_inputs or {}, "signing_secret"):
         found.append(DestinationHoldBack.WEBHOOK_SIGNING)
-    # Native delivery reads ordinary headers only, so a secret header such as a token never reaches the receiver.
+    # A secret header such as a token stays on the HogFunction path, the only path that has delivered one.
     if template_id == WebhookDestination.template_id and input_value(function.encrypted_inputs or {}, "secret_headers"):
         found.append(DestinationHoldBack.WEBHOOK_HEADERS)
     # A secret address, such as a PagerDuty routing key, is stored in `encrypted_inputs`.
