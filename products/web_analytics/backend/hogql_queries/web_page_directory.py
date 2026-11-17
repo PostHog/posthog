@@ -2,9 +2,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
+import structlog
+
 from posthog.schema import (
     CachedWebPageDirectoryQueryResponse,
     EventPropertyFilter,
+    HogQLQueryModifiers,
     WebPageDirectoryMetric,
     WebPageDirectoryQuery,
     WebPageDirectoryQueryResponse,
@@ -31,6 +34,19 @@ from products.web_analytics.backend.hogql_queries.agent_analytics_definitions im
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_bots import BOT_ANALYTICS_EVENTS
+from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DimensionalReadFailure,
+    classify_dimensional_read_failure,
+    dimensional_precompute_stale,
+    dimensional_precomputed_at,
+    ready_dimensional_job_ids,
+)
+from products.web_analytics.backend.hogql_queries.web_page_directory_dimensional import (
+    DimensionalPageDirectoryQueryBuilder,
+    dimensional_tables_for,
+)
+
+logger = structlog.get_logger(__name__)
 
 DEFAULT_LIMIT = 25
 MAX_PAGE_KEYS = 100
@@ -93,6 +109,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
             limit=self.query.limit or DEFAULT_LIMIT,
             offset=self.query.offset or 0,
         )
+        self.dimensional_builder: Optional[DimensionalPageDirectoryQueryBuilder] = None
 
     @property
     def sort_by(self) -> WebPageDirectorySortBy:
@@ -207,7 +224,29 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
         assert isinstance(query, ast.SelectQuery)
         return query
 
+    def _dimensional_builder_for(
+        self, metric: Optional[WebPageDirectoryMetric]
+    ) -> Optional[DimensionalPageDirectoryQueryBuilder]:
+        builder = self.dimensional_builder
+        return builder if builder is not None and metric is not None and builder.serves(metric) else None
+
+    def _execution(
+        self, name: str, metric: Optional[WebPageDirectoryMetric]
+    ) -> tuple[str, Optional[HogQLQueryModifiers]]:
+        if self._dimensional_builder_for(metric) is None:
+            return f"web_page_directory_{name}", self.modifiers
+        modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+        modifiers.convertToProjectTimezone = False
+        return f"web_page_directory_dimensional_{name}", modifiers
+
     def _metric_select(
+        self, metric: WebPageDirectoryMetric, grouped: bool, page_keys: Optional[list[str]]
+    ) -> Optional[ast.SelectQuery]:
+        if builder := self._dimensional_builder_for(metric):
+            return builder.metric_select(metric, grouped, page_keys)
+        return self._live_metric_select(metric, grouped, page_keys)
+
+    def _live_metric_select(
         self, metric: WebPageDirectoryMetric, grouped: bool, page_keys: Optional[list[str]]
     ) -> Optional[ast.SelectQuery]:
         current = self._current_period_expression("timestamp")
@@ -371,7 +410,15 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
     def _page_keys(self) -> list[str]:
         return list(dict.fromkeys(self.query.pageKeys or []))[:MAX_PAGE_KEYS]
 
-    def _run(self, query_type: str, query: ast.SelectQuery, timings: HogQLTimings, context: HogQLContext) -> list[Any]:
+    def _run(
+        self,
+        name: str,
+        metric: Optional[WebPageDirectoryMetric],
+        query: ast.SelectQuery,
+        timings: HogQLTimings,
+        context: HogQLContext,
+    ) -> list[Any]:
+        query_type, modifiers = self._execution(name, metric)
         response = execute_hogql_query(
             query_type=query_type,
             query=query,
@@ -379,18 +426,21 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
             user=self.user,
             context=context,
             timings=timings,
-            modifiers=self.modifiers,
+            modifiers=modifiers,
             limit_context=self.limit_context,
         )
         return list(response.results or [])
 
-    def _run_concurrently(self, queries: dict[str, ast.SelectQuery]) -> dict[str, list[Any]]:
+    def _run_concurrently(
+        self, queries: dict[str, tuple[Optional[WebPageDirectoryMetric], ast.SelectQuery]]
+    ) -> dict[str, list[Any]]:
+        subquery_timings = [self.timings.clone_for_subquery(index) for index in range(len(queries))]
         jobs = [
-            (query_type, query, self.timings.clone_for_subquery(index), self.build_hogql_context())
-            for index, (query_type, query) in enumerate(queries.items())
+            (name, metric, query, timings, self.build_hogql_context())
+            for (name, (metric, query)), timings in zip(queries.items(), subquery_timings)
         ]
         results = map_in_caller_context(lambda job: self._run(*job), jobs, thread_name_prefix="web_page_directory")
-        for _, _, timings, _ in jobs:
+        for timings in subquery_timings:
             self.timings.timings.update(timings.timings)
         return dict(zip(queries, results))
 
@@ -420,7 +470,31 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
             target["aiCrawlers"] = int(values.extra or 0) if values else 0
             target["aiCrawlerNames"] = list(values.names) if values else []
 
+    def _ready_dimensional_builder(self) -> Optional[DimensionalPageDirectoryQueryBuilder]:
+        metrics = set(self.requested_metrics)
+        if self.query.pageKeys is None or self.query.includeSiteTotals:
+            metrics.add(SORT_METRIC[self.sort_by])
+        tables = dimensional_tables_for(self, metrics)
+        if not tables:
+            return None
+        job_ids = ready_dimensional_job_ids(self, tables=tables)
+        if job_ids is None:
+            return None
+        return DimensionalPageDirectoryQueryBuilder(self, job_ids)
+
     def _calculate(self) -> WebPageDirectoryQueryResponse:
+        self.dimensional_builder = self._ready_dimensional_builder()
+        if self.dimensional_builder is not None:
+            try:
+                return self._calculate_metrics()
+            except Exception as error:
+                if classify_dimensional_read_failure(error) is not DimensionalReadFailure.FALL_BACK:
+                    raise
+                logger.exception("web_page_directory_dimensional_read_failed", team_id=self.team.pk)
+                self.dimensional_builder = None
+        return self._calculate_metrics()
+
+    def _calculate_metrics(self) -> WebPageDirectoryQueryResponse:
         sort_metric = SORT_METRIC[self.sort_by]
         pagination: dict[str, Any] = {}
         by_metric: dict[WebPageDirectoryMetric, dict[str, MetricValues]] = {}
@@ -428,14 +502,15 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
         if self.query.pageKeys is not None:
             page_keys = self._page_keys()
         else:
+            query_type, modifiers = self._execution("query", sort_metric)
             self.paginator.execute_hogql_query(
-                query_type="web_page_directory_query",
+                query_type=query_type,
                 query=self._driver_query(),
                 team=self.team,
                 user=self.user,
                 context=self.build_hogql_context(),
                 timings=self.timings,
-                modifiers=self.modifiers,
+                modifiers=modifiers,
             )
             rows = self.paginator.results or []
             page_keys = [row[0] for row in rows]
@@ -446,22 +521,20 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
         site_metrics = (
             list(dict.fromkeys([*self.requested_metrics, sort_metric])) if self.query.includeSiteTotals else []
         )
-        queries: dict[str, ast.SelectQuery] = {}
+        queries: dict[str, tuple[Optional[WebPageDirectoryMetric], ast.SelectQuery]] = {}
         for metric in page_metrics:
             if query := self._metric_select(metric, grouped=True, page_keys=page_keys):
                 query.limit = ast.Constant(value=len(page_keys))
-                queries[f"web_page_directory_{metric.value}"] = query
+                queries[metric.value] = (metric, query)
         for metric in site_metrics:
             if query := self._metric_select(metric, grouped=False, page_keys=None):
-                queries[f"web_page_directory_site_{metric.value}"] = query
+                queries[f"site_{metric.value}"] = (metric, query)
         if self.query.includeSiteTotals:
-            queries["web_page_directory_server_logs"] = self._server_log_query()
+            queries["server_logs"] = (None, self._server_log_query())
         query_results = self._run_concurrently(queries)
 
         for metric in page_metrics:
-            by_metric[metric] = {
-                row[0]: _metric_values(row[1:]) for row in query_results.get(f"web_page_directory_{metric.value}", [])
-            }
+            by_metric[metric] = {row[0]: _metric_values(row[1:]) for row in query_results.get(metric.value, [])}
 
         results: list[WebPageDirectoryRow] = []
         for page_key in page_keys:
@@ -470,18 +543,21 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
                 self._apply(row, metric, values_by_page.get(page_key))
             results.append(WebPageDirectoryRow(**row))
 
+        job_ids = self.dimensional_builder.job_ids if self.dimensional_builder else None
         site_totals: Optional[WebPageDirectorySiteTotals] = None
         if self.query.includeSiteTotals:
-            server_logs = query_results["web_page_directory_server_logs"]
+            server_logs = query_results["server_logs"]
             totals: dict[str, Any] = {"serverLogs": int(server_logs[0][0]) if server_logs else 0}
             for metric in site_metrics:
-                site_rows = query_results.get(f"web_page_directory_site_{metric.value}")
+                site_rows = query_results.get(f"site_{metric.value}")
                 self._apply(totals, metric, _metric_values(site_rows[0]) if site_rows else None)
             site_totals = WebPageDirectorySiteTotals(**totals)
 
         return WebPageDirectoryQueryResponse(
             results=results,
             siteTotals=site_totals,
+            preComputeStale=dimensional_precompute_stale(job_ids),
+            preComputedAt=dimensional_precomputed_at(job_ids),
             timings=self.timings.to_list(),
             modifiers=self.modifiers,
             **pagination,

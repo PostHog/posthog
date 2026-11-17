@@ -10,8 +10,10 @@ import {
     NodeKind,
     WebAnalyticsConversionGoal,
     WebAnalyticsPropertyFilters,
+    WebAnalyticsQueryModifiers,
     WebPageDirectoryMetric,
     WebPageDirectoryQuery,
+    WebPageDirectorySortBy,
     WebPageDirectoryValue,
 } from '~/queries/schema/schema-general'
 import { PathCleaningFilter } from '~/types'
@@ -25,6 +27,7 @@ export interface PageDirectoryFilters {
     filterTestAccounts: boolean
     isPathCleaningEnabled: boolean
     webAnalyticsFilters: WebAnalyticsPropertyFilters
+    webQueryModifiers: WebAnalyticsQueryModifiers
 }
 
 export const buildPageDirectoryBaseQuery = ({
@@ -34,6 +37,7 @@ export const buildPageDirectoryBaseQuery = ({
     filterTestAccounts,
     isPathCleaningEnabled,
     webAnalyticsFilters,
+    webQueryModifiers,
 }: PageDirectoryFilters): WebPageDirectoryQuery => ({
     kind: NodeKind.WebPageDirectoryQuery,
     dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
@@ -45,13 +49,13 @@ export const buildPageDirectoryBaseQuery = ({
     properties: webAnalyticsFilters,
     excludeStaticAssets: true,
     tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+    ...(Object.keys(webQueryModifiers).length > 0 ? { webQueryModifiers } : {}),
 })
 
 export const SITE_SUMMARY_METRICS: WebPageDirectoryMetric[] = [
     WebPageDirectoryMetric.Visitors,
     WebPageDirectoryMetric.GoogleSearch,
     WebPageDirectoryMetric.AiReferrals,
-    WebPageDirectoryMetric.AiCrawls,
 ]
 
 export const buildSiteTotalsQuery = (baseQuery: WebPageDirectoryQuery): WebPageDirectoryQuery => ({
@@ -59,6 +63,15 @@ export const buildSiteTotalsQuery = (baseQuery: WebPageDirectoryQuery): WebPageD
     conversionGoal: null,
     pageKeys: [],
     metrics: SITE_SUMMARY_METRICS,
+    includeSiteTotals: true,
+})
+
+export const buildSiteCrawlTotalsQuery = (baseQuery: WebPageDirectoryQuery): WebPageDirectoryQuery => ({
+    ...baseQuery,
+    conversionGoal: null,
+    pageKeys: [],
+    metrics: [WebPageDirectoryMetric.AiCrawls],
+    sortBy: WebPageDirectorySortBy.AiCrawls,
     includeSiteTotals: true,
 })
 

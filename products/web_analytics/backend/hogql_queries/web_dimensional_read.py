@@ -11,6 +11,7 @@ from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Union
+from uuid import UUID
 
 from django.utils import timezone
 
@@ -44,6 +45,9 @@ from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated im
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
     from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+    from products.web_analytics.backend.hogql_queries.web_page_directory import WebPageDirectoryQueryRunner
+
+    DimensionalReadRunner = Union[WebStatsTableQueryRunner, WebOverviewQueryRunner, WebPageDirectoryQueryRunner]
 
 logger = structlog.get_logger(__name__)
 
@@ -66,7 +70,7 @@ _INEXACT_PROPERTY_KEYS = frozenset(
 
 
 def ready_dimensional_job_ids(
-    runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"],
+    runner: "DimensionalReadRunner",
     tables: Collection[str],
 ) -> DimensionalJobIds | None:
     """The job ids to read when the query opted in and `tables` cover its whole range,
@@ -147,7 +151,7 @@ def dimensional_precomputed_at(job_ids: DimensionalJobIds | None) -> str | None:
     return job_ids.computed_at.astimezone(UTC).isoformat()
 
 
-def _query_modifiers_flag_enabled(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
+def _query_modifiers_flag_enabled(runner: "DimensionalReadRunner") -> bool:
     team = runner.team
     user = runner.user
     return feature_enabled_or_false(
@@ -164,7 +168,7 @@ def _query_modifiers_flag_enabled(runner: Union["WebStatsTableQueryRunner", "Web
     )
 
 
-def _has_inexact_property_filter(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
+def _has_inexact_property_filter(runner: "DimensionalReadRunner") -> bool:
     for prop in runner.query.properties:
         key = getattr(prop, "key", None)
         if key in _INEXACT_PROPERTY_KEYS:
@@ -189,9 +193,7 @@ def _is_utc_hour_boundary(moment: datetime) -> bool:
     return moment.astimezone(UTC).replace(minute=0, second=0, microsecond=0) == moment
 
 
-def _crosses_events_retention_floor(
-    runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"], start: datetime
-) -> bool:
+def _crosses_events_retention_floor(runner: "DimensionalReadRunner", start: datetime) -> bool:
     # READY jobs outlive the retention window. The live path floors events at
     # `timestamp > now() - retention`, so a range that starts at or before that floor
     # would show older traffic here than live does.
@@ -201,7 +203,7 @@ def _crosses_events_retention_floor(
     return start <= timezone.now() - relativedelta(months=retention_months)
 
 
-class _DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
+class DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
     job_ids: DimensionalJobIds
 
     @property
@@ -217,9 +219,12 @@ class _DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
         # are part of the job identity, so the column always matches the rules of the jobs being read.
         return ast.Field(chain=["channel_type"])
 
+    def _job_ids_for(self, table_name: str) -> list[UUID] | None:
+        return self.job_ids.stats if table_name == WEB_STATS_DIMENSIONAL_READ_TABLE else self.job_ids.bounces
+
     def _get_filters(self, table_name: str, exclude_pathname: bool = False) -> ast.And:
         filters = super()._get_filters(table_name, exclude_pathname=exclude_pathname)
-        job_ids = self.job_ids.stats if table_name == WEB_STATS_DIMENSIONAL_READ_TABLE else self.job_ids.bounces
+        job_ids = self._job_ids_for(table_name)
         if job_ids is None:
             raise ValueError(f"No dimensional job ids were looked up for {table_name}")
         job_id_filter = ast.CompareOperation(
@@ -230,13 +235,13 @@ class _DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
         return ast.And(exprs=[*filters.exprs, job_id_filter])
 
 
-class DimensionalStatsTableQueryBuilder(_DimensionalTablesMixin, StatsTablePreAggregatedQueryBuilder):
+class DimensionalStatsTableQueryBuilder(DimensionalTablesMixin, StatsTablePreAggregatedQueryBuilder):
     def __init__(self, runner: "WebStatsTableQueryRunner", job_ids: DimensionalJobIds) -> None:
         super().__init__(runner)
         self.job_ids = job_ids
 
 
-class DimensionalWebOverviewQueryBuilder(_DimensionalTablesMixin, WebOverviewPreAggregatedQueryBuilder):
+class DimensionalWebOverviewQueryBuilder(DimensionalTablesMixin, WebOverviewPreAggregatedQueryBuilder):
     def __init__(self, runner: "WebOverviewQueryRunner", job_ids: DimensionalJobIds) -> None:
         super().__init__(runner)
         self.job_ids = job_ids

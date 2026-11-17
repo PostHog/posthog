@@ -65,7 +65,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         # The bounces table holds one row per session and has no pathname column, so it cannot
         # select the sessions that viewed a page. The Page breakdown joins on the path instead.
-        if self._joins_breakdown_bounce_rate() and any(
+        if self._reads_breakdown_from_bounces_table() and any(
             getattr(prop, "key", None) == "$pathname" for prop in self.runner.query.properties
         ):
             return False
@@ -76,6 +76,9 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             return False
 
         return self.runner._effective_breakdown() in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS
+
+    def _reads_breakdown_from_bounces_table(self) -> bool:
+        return self._joins_breakdown_bounce_rate() or self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE
 
     def _joins_breakdown_bounce_rate(self) -> bool:
         return bool(self.runner.query.includeBounceRate) and self.runner.query.breakdownBy not in (

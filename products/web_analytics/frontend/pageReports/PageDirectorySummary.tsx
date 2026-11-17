@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode } from 'react'
 
-import { LemonBanner, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -34,7 +35,7 @@ function SummaryCell({
 }: {
     label: string
     value: string
-    detail: string | null
+    detail: ReactNode
     change?: WebPageDirectoryValue
     loading: boolean
 }): JSX.Element {
@@ -64,8 +65,15 @@ function SummaryCell({
 }
 
 export function PageDirectorySummary(): JSX.Element {
-    const { siteTotals, siteTotalsError, hasServerLogs } = useValues(pageDirectoryLogic)
-    const { loadSiteTotals } = useActions(pageDirectoryLogic)
+    const {
+        siteTotals,
+        siteTotalsError,
+        siteCrawlTotals,
+        siteCrawlTotalsError,
+        siteCrawlTotalsLoading,
+        hasServerLogs,
+    } = useValues(pageDirectoryLogic)
+    const { loadSiteTotals, loadSiteCrawlTotals } = useActions(pageDirectoryLogic)
     const loading = !siteTotals
 
     if (siteTotalsError) {
@@ -114,14 +122,24 @@ export function PageDirectorySummary(): JSX.Element {
             />
             <SummaryCell
                 label="AI crawls"
-                value={hasServerLogs === false ? '-' : humanFriendlyLargeNumber(siteTotals?.aiCrawls?.current ?? 0)}
-                detail={
-                    hasServerLogs === false
-                        ? 'Forward server logs to measure'
-                        : `by ${pluralize(siteTotals?.aiCrawlers ?? 0, 'AI crawler')}`
+                value={
+                    siteCrawlTotalsError || hasServerLogs === false
+                        ? '-'
+                        : humanFriendlyLargeNumber(siteCrawlTotals?.aiCrawls?.current ?? 0)
                 }
-                change={hasServerLogs === false ? undefined : siteTotals?.aiCrawls}
-                loading={loading}
+                detail={
+                    siteCrawlTotalsError ? (
+                        <Link onClick={() => loadSiteCrawlTotals(true)} data-attr="page-reports-directory-crawls-retry">
+                            Couldn't load. Try again
+                        </Link>
+                    ) : hasServerLogs === false ? (
+                        'Forward server logs to measure'
+                    ) : (
+                        `by ${pluralize(siteCrawlTotals?.aiCrawlers ?? 0, 'AI crawler')}`
+                    )
+                }
+                change={siteCrawlTotalsError || hasServerLogs === false ? undefined : siteCrawlTotals?.aiCrawls}
+                loading={!siteCrawlTotalsError && (!siteCrawlTotals || siteCrawlTotalsLoading)}
             />
         </div>
     )

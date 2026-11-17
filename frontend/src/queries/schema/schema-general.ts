@@ -4764,6 +4764,8 @@ export interface WebPageDirectoryQueryResponse extends AnalyticsQueryResponseBas
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    preComputeStale?: boolean
+    preComputedAt?: string
 }
 export type CachedWebPageDirectoryQueryResponse = CachedQueryResponse<WebPageDirectoryQueryResponse>
 

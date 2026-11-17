@@ -19775,6 +19775,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -49425,6 +49431,12 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeStale": {
+                            "type": "boolean"
+                        },
+                        "preComputedAt": {
+                            "type": "string"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -65799,6 +65811,12 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",

@@ -1,6 +1,8 @@
 from posthog.hogql import ast
 from posthog.hogql.visitor import CloningVisitor
 
+EMPTY_WHEN_UNSET_COLUMNS = frozenset({"host", "pathname", "entry_pathname", "end_pathname"})
+
 
 class PreAggregatedPropertyTransformer(CloningVisitor):
     """Transforms field chains to reference pre-aggregated table columns."""
@@ -26,6 +28,20 @@ class PreAggregatedPropertyTransformer(CloningVisitor):
             return ast.Field(chain=[self.table_name, self.supported_props_filters[prop_key]])
 
         return super().visit_field(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.CompareOperation:
+        transformed = super().visit_compare_operation(node)
+        if (
+            transformed.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq)
+            and isinstance(transformed.right, ast.Constant)
+            and transformed.right.value is None
+            and isinstance(transformed.left, ast.Field)
+            and len(transformed.left.chain) == 2
+            and transformed.left.chain[0] == self.table_name
+            and transformed.left.chain[1] in EMPTY_WHEN_UNSET_COLUMNS
+        ):
+            return ast.CompareOperation(op=transformed.op, left=transformed.left, right=ast.Constant(value=""))
+        return transformed
 
 
 class ChannelTypeReplacer(CloningVisitor):
