@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEllipsis, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -12,8 +12,9 @@ import { cloudImagesLogic } from './cloudImagesLogic'
 import { cloudImageStatus } from './cloudImageStatus'
 
 export function CloudImagesSettings(): JSX.Element {
-    const { images, imagesLoading, imagesFailed, unavailable } = useValues(cloudImagesLogic)
-    const { loadImages, startNewImage, deleteImage } = useActions(cloudImagesLogic)
+    const { images, imagesLoading, imagesFailed, unavailable, buildingImageIds, buildDisabledReason } =
+        useValues(cloudImagesLogic)
+    const { loadImages, startNewImage, deleteImage, buildImage } = useActions(cloudImagesLogic)
 
     if (unavailable) {
         return (
@@ -70,7 +71,14 @@ export function CloudImagesSettings(): JSX.Element {
                             key: 'status',
                             render: (_, image) => {
                                 const { label, type } = cloudImageStatus(image.status)
-                                return (
+                                return image.error &&
+                                    (image.status === 'scan_failed' || image.status === 'build_failed') ? (
+                                    <Tooltip title={<div className="whitespace-pre-wrap">{image.error}</div>}>
+                                        <LemonTag size="small" type={type} icon={<IconInfo />} tabIndex={0}>
+                                            {label}
+                                        </LemonTag>
+                                    </Tooltip>
+                                ) : (
                                     <LemonTag size="small" type={type}>
                                         {label}
                                     </LemonTag>
@@ -84,6 +92,23 @@ export function CloudImagesSettings(): JSX.Element {
                                 <LemonTag size="small" type={image.private ? 'muted' : 'warning'}>
                                     {image.private ? 'Only you' : 'Everyone in this project'}
                                 </LemonTag>
+                            ),
+                        },
+                        {
+                            key: 'build',
+                            width: 0,
+                            render: (_, image) => (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => buildImage(image)}
+                                    loading={buildingImageIds.includes(image.id)}
+                                    disabledReason={buildDisabledReason(image)}
+                                    data-attr="cloud-image-build"
+                                    className="whitespace-nowrap"
+                                >
+                                    Save & build
+                                </LemonButton>
                             ),
                         },
                         {

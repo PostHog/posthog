@@ -1022,18 +1022,21 @@ Internal-only service-to-service endpoint authenticated via `X-Internal-Api-Secr
 
 Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `APIScopePermission` with scope object **`task`**.
 
-| Method | Path                           | Description               |
-| ------ | ------------------------------ | ------------------------- |
-| GET    | `signals/source_configs/`      | List configs for the team |
-| POST   | `signals/source_configs/`      | Create a new config       |
-| GET    | `signals/source_configs/{id}/` | Retrieve a config         |
-| PATCH  | `signals/source_configs/{id}/` | Update a config           |
-| DELETE | `signals/source_configs/{id}/` | Delete a config           |
+| Method | Path                                      | Description                                                    |
+| ------ | ----------------------------------------- | -------------------------------------------------------------- |
+| GET    | `signals/source_configs/`                 | List configs for the team                                      |
+| POST   | `signals/source_configs/`                 | Create a new config                                            |
+| GET    | `signals/source_configs/{id}/`            | Retrieve a config                                              |
+| PATCH  | `signals/source_configs/{id}/`            | Update a config                                                |
+| DELETE | `signals/source_configs/{id}/`            | Delete a config                                                |
+| GET    | `signals/source_configs/filter_catalogs/` | Filter fields and starters for each source the team can filter |
 
 Important side effects:
 
 - Creating an enabled `error_tracking / issue_created` config starts the error-tracking backfill workflow
 - Enabling data-import-backed sources can trigger external data syncs
+
+Source filters (`config.hogql_filter`) share one rollout gate, `source_filters.writable_sources`: a source appears in `filter_catalogs` and accepts a saved filter only when its catalog is eligible and its rollout state lets the organization in.
 
 #### `SignalTeamConfigViewSet`
 

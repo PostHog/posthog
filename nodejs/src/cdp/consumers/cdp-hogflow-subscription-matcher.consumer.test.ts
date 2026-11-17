@@ -269,6 +269,19 @@ const rawEvent = (overrides: Record<string, any>): any => ({
     ),
 })
 
+const withTeamIdHeader = (message: any, teamId: number): any => ({
+    ...message,
+    headers: [{ team_id: Buffer.from(String(teamId)) }],
+})
+
+const parseErrorCount = async (error?: string): Promise<number> =>
+    (await counterParseError.get()).values
+        .filter((v) => error === undefined || v.labels.error === error)
+        .reduce((sum, v) => sum + v.value, 0)
+
+const skipCount = async (reason: string): Promise<number> =>
+    (await counterHogflowMatcherEventSkipped.get()).values.find((v) => v.labels.reason === reason)?.value ?? 0
+
 const rawPerson = (overrides: Record<string, any>): any => ({
     value: Buffer.from(
         JSON.stringify({
@@ -1210,24 +1223,34 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
         })
 
-        it('keeps events with a distinct_id but no person_id, drops events with neither', async () => {
-            // A job can be parked by distinct_id alone (the lookup has a (team_id, distinct_id)
-            // branch), so an event carrying only a distinct_id must still flow into matching.
-            const result = await (matcher as any)._parseKafkaBatch([
-                rawEvent({ person_id: '', distinct_id: 'only-distinct' }),
-                rawEvent({ person_id: '', distinct_id: '' }),
-                rawEvent({ person_id: 'person-uuid-1', distinct_id: 'user-1' }),
-            ])
+        const teamIdSources = [
+            { source: 'the body', withSource: (message: any): any => message },
+            { source: 'the team id header', withSource: (message: any): any => withTeamIdHeader(message, 1) },
+        ]
 
-            const distinctIds = result.map((g: HogFunctionInvocationGlobals) => g.event.distinct_id).sort()
-            expect(distinctIds).toEqual(['only-distinct', 'user-1'])
+        it.each(teamIdSources)(
+            'keeps events with a distinct_id but no person_id, drops events with neither (team id from $source)',
+            async ({ withSource }) => {
+                // A job can be parked by distinct_id alone (the lookup has a (team_id, distinct_id)
+                // branch), so an event carrying only a distinct_id must still flow into matching.
+                const result = await (matcher as any)._parseKafkaBatch(
+                    [
+                        rawEvent({ person_id: '', distinct_id: 'only-distinct' }),
+                        rawEvent({ person_id: '', distinct_id: '' }),
+                        rawEvent({ person_id: 'person-uuid-1', distinct_id: 'user-1' }),
+                    ].map(withSource)
+                )
 
-            // The distinct-only event has no resolved person, which downstream indexing handles.
-            const distinctOnly = result.find(
-                (g: HogFunctionInvocationGlobals) => g.event.distinct_id === 'only-distinct'
-            )!
-            expect(distinctOnly.person).toBeUndefined()
-        })
+                const distinctIds = result.map((g: HogFunctionInvocationGlobals) => g.event.distinct_id).sort()
+                expect(distinctIds).toEqual(['only-distinct', 'user-1'])
+
+                // The distinct-only event has no resolved person, which downstream indexing handles.
+                const distinctOnly = result.find(
+                    (g: HogFunctionInvocationGlobals) => g.event.distinct_id === 'only-distinct'
+                )!
+                expect(distinctOnly.person).toBeUndefined()
+            }
+        )
 
         it('skips events whose team has no actionable flow before paying for getTeam + conversion', async () => {
             // Team 2 has no wait_until_condition step and no event conversion goal, so its events
@@ -1245,13 +1268,37 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(getTeam).toHaveBeenCalledWith(1)
         })
 
-        it('drops a captured $cohort_membership_changed event, so a client cannot fake a cohort join', async () => {
-            const result = await (matcher as any)._parseKafkaBatch([
-                rawEvent({ event: '$cohort_membership_changed' }),
-                rawEvent({}),
-            ])
+        it.each(teamIdSources)(
+            'drops a captured $cohort_membership_changed event, so a client cannot fake a cohort join (team id from $source)',
+            async ({ withSource }) => {
+                const result = await (matcher as any)._parseKafkaBatch(
+                    [rawEvent({ event: '$cohort_membership_changed' }), rawEvent({})].map(withSource)
+                )
 
-            expect(result.map((g: HogFunctionInvocationGlobals) => g.event.event)).toEqual(['wuc_subscribed'])
+                expect(result.map((g: HogFunctionInvocationGlobals) => g.event.event)).toEqual(['wuc_subscribed'])
+            }
+        )
+
+        it('leaves the body unread when the team id header names a team with no actionable flow', async () => {
+            const parseErrorsBefore = await parseErrorCount()
+            const noActionableFlowBefore = await skipCount('no_actionable_flow')
+            const unreadable = withTeamIdHeader({ value: Buffer.from('{') }, 2)
+
+            const result = await (matcher as any)._parseKafkaBatch([unreadable, rawEvent({})])
+
+            expect(result.map((g: HogFunctionInvocationGlobals) => g.project.id)).toEqual([1])
+            expect(await parseErrorCount()).toBe(parseErrorsBefore)
+            expect(await skipCount('no_actionable_flow')).toBe(noActionableFlowBefore + 1)
+        })
+
+        it('skips an event whose body names a different team than its header', async () => {
+            const mismatchesBefore = await parseErrorCount('team_id_header_mismatch')
+            const mismatched = withTeamIdHeader(rawEvent({ team_id: 2 }), 1)
+
+            const result = await (matcher as any)._parseKafkaBatch([mismatched])
+
+            expect(result).toEqual([])
+            expect(await parseErrorCount('team_id_header_mismatch')).toBe(mismatchesBefore + 1)
         })
     })
 

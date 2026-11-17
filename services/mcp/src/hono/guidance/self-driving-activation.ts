@@ -83,9 +83,10 @@ function activationText(projectUrl: string, githubOptional: boolean): string {
 async function lookupActivationGuidance(
     redis: RedisLike,
     state: ResolvedState,
-    productState: GuidanceProductState
+    productState: GuidanceProductState,
+    firstSessionCall: boolean
 ): Promise<GuidanceNotice | undefined> {
-    const suppliedHandle = state.carriedContextSessionKey
+    const suppliedHandle = firstSessionCall ? undefined : state.carriedContextSessionKey
     const countingKey = sessionKey(state, suppliedHandle ?? '')
     const ttl = suppliedHandle ? SESSION_TTL_SECONDS : CALLER_TTL_SECONDS
     const alreadyShown = await redis.get(countingKey)
@@ -131,12 +132,17 @@ async function lookupActivationGuidance(
         if (!productState.hasBudgetLeft()) {
             return undefined
         }
-        // Keep the caller-scoped reservation when the client starts echoing its newly minted conversation handle.
-        const mintedHandle = state.requestContext.mcpConversationId
-        if (!suppliedHandle && mintedHandle) {
-            const mirrorKey = sessionKey(state, mintedHandle)
+        // Keep the caller-scoped reservation when the client goes on using this session or its minted handle.
+        const handleToMirror = firstSessionCall
+            ? state.carriedContextSessionKey
+            : state.requestContext.mcpConversationId
+        if (!suppliedHandle && handleToMirror) {
+            const mirrorKey = sessionKey(state, handleToMirror)
             if ((await redis.set(mirrorKey, '1', 'EX', SESSION_TTL_SECONDS, 'NX')) === 'OK') {
                 ownedKeys.push(mirrorKey)
+            } else if (firstSessionCall) {
+                // A concurrent later call on this session already holds its reservation.
+                return undefined
             }
         }
         if (!productState.hasBudgetLeft()) {
@@ -166,12 +172,13 @@ export async function selfDrivingActivationGuidance(
     redis: RedisLike,
     state: ResolvedState,
     call: GuidanceCall,
-    productState: GuidanceProductState
+    productState: GuidanceProductState,
+    firstSessionCall: boolean
 ): Promise<GuidanceNotice | undefined> {
     if (!isEligibleCall(state, call)) {
         return undefined
     }
     return productState.withinBudget('self_driving_activation', () =>
-        lookupActivationGuidance(redis, state, productState)
+        lookupActivationGuidance(redis, state, productState, firstSessionCall)
     )
 }

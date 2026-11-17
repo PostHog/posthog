@@ -8,6 +8,7 @@ class EvalSuggestionKind(models.TextChoices):
     NEW_HOG = "new_hog", "New Hog eval"
     NEW_LLM_JUDGE = "new_llm_judge", "New LLM judge"
     FIX_EVAL = "fix_eval", "Fix an evaluation"
+    FIX_PROMPT = "fix_prompt", "Fix a prompt"
 
 
 class EvalSuggestionStatus(models.TextChoices):
