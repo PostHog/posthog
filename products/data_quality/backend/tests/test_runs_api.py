@@ -14,6 +14,7 @@ from rest_framework.throttling import SimpleRateThrottle
 from posthog.hogql.database.database import Database
 
 from posthog.constants import AvailableFeature
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import OrganizationMembership, PersonalAPIKey, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -565,6 +566,36 @@ class TestDataQualityRunAPI(APIBaseTest):
             self.client.force_login(teammate)
             assert self._run().status_code == status.HTTP_200_OK
             assert self._run().status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_a_run_over_several_limits_waits_for_the_longest(self, _enabled) -> None:
+        with (
+            patch.object(DataQualityRunBurstRateThrottle, "rate", "1/minute"),
+            patch.object(DataQualityRunSustainedRateThrottle, "rate", "1/hour"),
+        ):
+            assert self._run().status_code == status.HTTP_200_OK
+            response = self._run()
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert int(response["Retry-After"]) > 60
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_a_caller_keeps_one_run_limit_across_tokens(self, _enabled) -> None:
+        first_token, second_token = (
+            encode_jwt({"id": self.user.id}, timedelta(minutes=minutes), PosthogJwtAudience.IMPERSONATED_USER)
+            for minutes in (15, 16)
+        )
+        self.client.logout()
+
+        with (
+            patch.object(DataQualityRunBurstRateThrottle, "rate", "1/minute"),
+            patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())),
+        ):
+            first = self.client.post(self.url, {}, format="json", HTTP_AUTHORIZATION=f"Bearer {first_token}")
+            second = self.client.post(self.url, {}, format="json", HTTP_AUTHORIZATION=f"Bearer {second_token}")
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     @parameterized.expand([("every_check_is_denied",), ("named_ids_match_nothing_runnable",)])
     def test_a_run_with_nothing_to_run_starts_no_workflow(self, case: str) -> None:

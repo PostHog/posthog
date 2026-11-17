@@ -25,7 +25,6 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
-from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -38,6 +37,8 @@ from posthog.rate_limit import (
     DataQualityRunProjectRateThrottle,
     DataQualityRunSustainedRateThrottle,
     HogQLQueryThrottle,
+    PersonalApiKeyRateThrottle,
+    exhausted_throttle_wait,
 )
 
 from ..facade import api
@@ -330,7 +331,7 @@ class ScheduleUnavailableAPIError(APIException):
 class _ProjectQualityViewSet(_QualityGatedViewSet):
     scope_object = "query"
     SUITE_START_ACTIONS: frozenset[str] = frozenset()
-    RUN_LIMIT_THROTTLES: tuple[type[BaseThrottle], ...] = (
+    RUN_LIMIT_THROTTLES: tuple[type[PersonalApiKeyRateThrottle], ...] = (
         DataQualityRunBurstRateThrottle,
         DataQualityRunSustainedRateThrottle,
         DataQualityRunProjectRateThrottle,
@@ -350,7 +351,13 @@ class _ProjectQualityViewSet(_QualityGatedViewSet):
         for throttle_class in self.RUN_LIMIT_THROTTLES:
             throttle = throttle_class()
             if not throttle.allow_request(request, self):
-                raise Throttled(wait=throttle.wait())
+                raise Throttled(wait=self._longest_run_limit_wait(request))
+
+    def _longest_run_limit_wait(self, request: Request) -> float | None:
+        waits = (
+            exhausted_throttle_wait(throttle_class(), request, self) for throttle_class in self.RUN_LIMIT_THROTTLES
+        )
+        return max((wait for wait in waits if wait is not None), default=None)
 
     def _report(self, event: _CheckEvent, properties: dict[str, Any]) -> None:
         report_user_action(

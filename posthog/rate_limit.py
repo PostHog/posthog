@@ -714,10 +714,21 @@ class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
         if request.user.is_authenticated:
-            ident = hashed_personal_api_key_for_throttling(request) or request.user.pk
+            ident = getattr(request.successful_authenticator, "personal_api_key_hash", None) or request.user.pk
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+def exhausted_throttle_wait(throttle: PersonalApiKeyRateThrottle, request: "Request", view: "APIView") -> float | None:
+    if throttle.num_requests is None or throttle.duration is None:
+        return None
+    throttle.key = throttle.get_cache_key(request, view)
+    throttle.now = throttle.timer()
+    throttle.history = [hit for hit in throttle.cache.get(throttle.key, []) if hit > throttle.now - throttle.duration]
+    if len(throttle.history) < throttle.num_requests:
+        return None
+    return throttle.wait()
 
 
 # The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
