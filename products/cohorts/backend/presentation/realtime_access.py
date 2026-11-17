@@ -14,7 +14,7 @@ from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
 
-from products.cohorts.backend.realtime_join import RealtimeCohortsJoinState, join_state, request_join
+from products.cohorts.backend.facade.realtime_join import RealtimeCohortsJoinState, join_state, request_join
 
 
 class RealtimeCohortsJoinStateSerializer(serializers.Serializer):

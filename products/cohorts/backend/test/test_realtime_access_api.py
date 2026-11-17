@@ -49,7 +49,7 @@ class TestRealtimeCohortsJoinAPI(APIBaseTest):
         )
 
     @parameterized.expand([("project",), ("child_environment",)])
-    @mock.patch("products.cohorts.backend.api.realtime_access.report_user_action")
+    @mock.patch("products.cohorts.backend.presentation.realtime_access.report_user_action")
     def test_a_join_files_one_request_for_the_root_project_and_a_repeat_files_none(
         self, joined_from: str, report_user_action: mock.MagicMock
     ) -> None:
