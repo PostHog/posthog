@@ -491,7 +491,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         context = self.build_hogql_context()
         assert context.database is not None
         if self._adds_persons_join(table):
-            join_persons_to_flag_evaluations(context.database, person_id_field="merged_person_id")
+            join_persons_to_flag_evaluations(context.database, person_id_field=table.person_id)
         return context
 
     def _filter_where_exprs(self, table: EventsListTable) -> list[ast.Expr]:

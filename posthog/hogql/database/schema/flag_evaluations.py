@@ -299,12 +299,6 @@ class FlagEvaluationsTable(EventsRetentionTable):
         },
     }
 
-    def get_asterisk(self):
-        # `follow_persons_on_events_mode` makes `person_id` a FieldTraverser when persons-on-events is disabled. The
-        # base expansion skips traversers. `person_id` keeps its place in `SELECT *` under every mode.
-        asterisk = super().get_asterisk()
-        return {key: self.fields[key] for key in self.fields if key in asterisk or key == "person_id"}
-
     def avoid_asterisk_fields(self) -> list[str]:
         # The stored person is a filtering escape hatch, not a second person column in `SELECT *`. Only the
         # asterisk reads this list, so the column stays in the schema browser and in `information_schema`.

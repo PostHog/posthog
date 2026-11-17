@@ -516,35 +516,43 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, True),
-            ("no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, False),
-            ("disabled", PersonsOnEventsMode.DISABLED, True),
+            ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, "merged"),
+            ("no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, "stored"),
+            # `person_id` reads through the person_distinct_id2 INNER JOIN, so `SELECT *` leaves it out, as on events.
+            # Reading it would drop this row, whose distinct_id has no person.
+            ("disabled", PersonsOnEventsMode.DISABLED, None),
         ]
     )
     def test_asterisk_carries_the_mode_person_and_no_second_person_column(
-        self, _name: str, persons_on_events_mode: PersonsOnEventsMode, reads_merge: bool
+        self, _name: str, persons_on_events_mode: PersonsOnEventsMode, expected_person: str | None
     ):
         # Let the stored column into the expansion and it takes the slot `person_id` held, so the SQL
         # editor's default query shifts every later column and shows two person ids that disagree.
         merged_person_id = uuid.uuid4()
         self._override(merged_person_id, version=1)
-        create_person(team=self.team, uuid=str(merged_person_id), distinct_ids=["probe-distinct-id"])
-        flush_persons_and_events()
-        properties_on_events_columns = self._execute(
-            "*",
-            modifiers=HogQLQueryModifiers(
-                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-            ),
-        ).columns
+        properties_on_events_columns = (
+            self._execute(
+                "*",
+                modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+                ),
+            ).columns
+            or []
+        )
 
         response = self._execute("*", modifiers=HogQLQueryModifiers(personsOnEventsMode=persons_on_events_mode))
         columns = response.columns or []
 
-        assert columns == properties_on_events_columns
         assert "flag_evaluation_person_id" not in columns
+        assert "merged_person_id" not in columns
         assert "flag_evaluation_response" not in columns
-        expected_person_id = merged_person_id if reads_merge else self.person_id
-        assert response.results[0][columns.index("person_id")] == expected_person_id
+        assert len(response.results) == 1
+        if expected_person is None:
+            assert columns == [column for column in properties_on_events_columns if column != "person_id"]
+        else:
+            assert columns == properties_on_events_columns
+            expected_person_id = merged_person_id if expected_person == "merged" else self.person_id
+            assert response.results[0][columns.index("person_id")] == expected_person_id
         # The fields copied from events exist only so that filters resolve. They must not reach the expansion.
         assert not [column for column in columns if column.startswith(("$virt_", "elements_chain", "$session_id"))]
 
@@ -681,7 +689,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         ):
             database = Database.create_for(team=self.team)
             if joins_persons:
-                join_persons_to_flag_evaluations(database)
+                join_persons_to_flag_evaluations(database, person_id_field="merged_person_id")
             response = execute_hogql_query(
                 f"SELECT {', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)} FROM posthog.flag_evaluations AS flag_evaluations "
                 "WHERE uuid = {row_uuid} AND {filter}",
