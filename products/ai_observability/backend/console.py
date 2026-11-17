@@ -5,10 +5,11 @@ from urllib.parse import quote, urlencode
 from django import forms
 from django.conf import settings
 from django.contrib import messages
+from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 
-from posthog.admin.console.panels import Owner, ReasonForm, Tone
+from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import (
     Cell,
@@ -24,17 +25,23 @@ from posthog.admin.console.tools import (
     ToolOperation,
 )
 from posthog.admin.console.usage_reports_tool import ReportDateForm
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.ai_observability.backend.facade.admin import (
     EvalSuggestionReviewVerdict,
     LabelTarget,
+    MigrationAction,
     ReviewCard,
+    TaggerMigrationStep,
     UsageReportRefused,
+    count_taggers,
     dataset_retention_enabled,
     label_card,
     label_target,
     load_review_cards,
+    migrate_taggers,
+    plan_tagger_migration,
     queue_usage_report,
     set_dataset_retention_enabled,
     usage_report_skips_existing_reports,
@@ -324,5 +331,97 @@ class EvalSuggestionReviewTool(ConsoleTool):
                 form_class=LabelSuggestionForm,
                 form_initial=initial,
                 description=f"{card}Saves a staff label on one card. The customer sees nothing.",
+            )
+        ]
+
+
+TAGGER_TYPE_LABELS = {"llm": "LLM tagger", "hog": "Hog tagger"}
+ACTION_LABELS = {
+    MigrationAction.MIGRATE: ("Becomes an evaluation", Tone.SUCCESS),
+    MigrationAction.SWITCH_OFF: ("Switched off", Tone.WARNING),
+    MigrationAction.SKIP: ("Stays as it is", Tone.DESTRUCTIVE),
+}
+
+
+def _step_row(step: TaggerMigrationStep) -> Row:
+    label, tone = ACTION_LABELS[step.action]
+    return Row(
+        cells=(
+            Cell(text=step.tagger_name, detail=TAGGER_TYPE_LABELS.get(step.tagger_type, step.tagger_type)),
+            Cell(text=f"{step.recent_tags:,}"),
+            Cell(text=label, tone=tone, detail=step.reason),
+            Cell(
+                text=", ".join(step.category_keys) or "-", mono=bool(step.category_keys), muted=not step.category_keys
+            ),
+        )
+    )
+
+
+def _steps_table(steps: list[TaggerMigrationStep]) -> Table:
+    return Table(
+        columns=("Tagger", "Tags in 30 days", "What happens", "Category keys"),
+        rows=tuple(_step_row(step) for step in steps),
+        numeric_columns=(1,),
+        empty_text="This team has no switched-on taggers left to migrate.",
+        scrolls=True,
+    )
+
+
+def preview_tagger_migration(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
+    return Page(
+        blocks=(
+            Notice(
+                text="Each tagger that sent tags in the last 30 days becomes an enabled categorical evaluation with "
+                "the same name, filters, sampling and model, and the tagger is switched off. Taggers that sent no "
+                "tags are only switched off. Old tag data stays. Results arrive as evaluation events from now on, so "
+                "insights built on tags stop updating."
+            ),
+            _steps_table(plan_tagger_migration(cast(Team, obj))),
+        )
+    )
+
+
+def run_tagger_migration(request: HttpRequest, obj: Model, form: forms.Form | None) -> Page:
+    steps = migrate_taggers(cast(Team, obj), acting_user=cast(User, request.user))
+    moved = sum(step.action == MigrationAction.MIGRATE for step in steps)
+    switched_off = sum(step.action == MigrationAction.SWITCH_OFF for step in steps)
+    skipped = len(steps) - moved - switched_off
+    messages.success(
+        request, f"Moved {moved} taggers to evaluations, switched off {switched_off}, and left {skipped} as they are."
+    )
+    return Page(blocks=(_steps_table(steps),))
+
+
+@console.register_panel
+class TaggersPanel(Panel):
+    record = "team"
+    key = "ai-observability-taggers"
+    title = "Taggers"
+    owner = AI_OBSERVABILITY
+    operation_keys = frozenset({"migrate-taggers"})
+
+    def facts(self, obj: Model) -> list[Fact]:
+        counts = count_taggers(cast(Team, obj))
+        return [
+            Fact(label="Switched on", value=str(counts.switched_on)),
+            Fact(label="Moved to evaluations", value=str(counts.migrated)),
+        ]
+
+    def operations(self, obj: Model) -> list[Operation]:
+        if count_taggers(cast(Team, obj)).switched_on == 0:
+            return []
+        return [
+            Operation(
+                key="migrate-taggers",
+                label="Migrate taggers to evaluations",
+                handler=run_tagger_migration,
+                preview=preview_tagger_migration,
+                danger=True,
+                form_class=ReasonForm,
+                description="Replaces the team's switched-on taggers with categorical evaluations and switches the "
+                "taggers off. The evaluations run on the team's own provider key.",
+                undo_hint="Switch the new evaluations off in the project's evaluations list. Taggers cannot be "
+                "switched back on.",
+                pending_label="Migrating taggers",
             )
         ]

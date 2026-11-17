@@ -142,6 +142,8 @@ class Tagger(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
+    # The evaluation that replaced this tagger. Not a foreign key, so the link outlives a deleted evaluation.
+    migrated_to_evaluation_id = models.UUIDField(null=True, blank=True)
 
     def __str__(self):
         return self.name

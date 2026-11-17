@@ -42,6 +42,7 @@ export interface llmTaggersLogicValues {
     runStats: TaggerRunStats[]
     runStatsLoading: boolean
     runStatsMap: Record<string, number>
+    someTaggersMigrated: boolean
     tagCounts: TaggerTagCount[]
     tagCountsLoading: boolean
     tagDistributionMap: Record<
@@ -131,6 +132,7 @@ export interface llmTaggersLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         filteredTaggers: (taggers: Tagger[], taggersFilter: string) => Tagger[]
         runStatsMap: (runStats: TaggerRunStats[]) => Record<string, number>
+        someTaggersMigrated: (taggers: Tagger[]) => boolean
         tagDistributionMap: (tagCounts: TaggerTagCount[]) => Record<
             string,
             Array<{
@@ -281,6 +283,11 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
     })),
 
     selectors({
+        someTaggersMigrated: [
+            (s) => [s.taggers],
+            (taggers: Tagger[]): boolean => taggers.some((tagger) => !!tagger.migrated_to_evaluation_id),
+        ],
+
         filteredTaggers: [
             (s) => [s.taggers, s.taggersFilter],
             (taggers: Tagger[], filter: string): Tagger[] => {

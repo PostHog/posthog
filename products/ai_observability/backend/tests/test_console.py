@@ -10,6 +10,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.user import User
+
+from products.ai_observability.backend.facade.admin import MigrationAction, migrate_taggers
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
     EvalSuggestionKind,
@@ -17,6 +20,10 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionRun,
     EvalSuggestionRunStatus,
 )
+from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
+from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+from products.ai_observability.backend.models.taggers import Tagger
 
 
 class TestAIObservabilityConsoleTool(BaseTest):
@@ -131,3 +138,91 @@ class TestEvalSuggestionReviewTool(BaseTest):
         assert re.search(r'<option value="bad"\s+selected>', content)
         assert "Examples are summaries" in content
         assert "Checks the check:a rule." in content and "Measured the check:a rule." in content
+
+
+class TestTaggersPanel(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+        self.customer = User.objects.create_and_join(self.organization, "customer@example.com", None)
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Customer key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+        )
+        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
+        llm_config = {"prompt": "What does the user want?", "tags": [{"name": "Billing issue"}, {"name": "Other"}]}
+        self.active = Tagger.objects.create(
+            team=self.team,
+            name="User intent",
+            enabled=True,
+            tagger_config={**llm_config, "max_tags": 1},
+            conditions=[{"id": "all", "rollout_percentage": 25, "properties": []}],
+            created_by=self.customer,
+        )
+        self.silent = Tagger.objects.create(team=self.team, name="Sentiment", enabled=True, tagger_config=llm_config)
+        self.untagged_hog = Tagger.objects.create(
+            team=self.team,
+            name="Free-form Hog",
+            enabled=True,
+            tagger_type="hog",
+            tagger_config={"source": "return ['anything']"},
+        )
+        self.hog = Tagger.objects.create(
+            team=self.team,
+            name="Long answers",
+            enabled=True,
+            tagger_type="hog",
+            tagger_config={"source": "return length(output) > 10 ? ['Long'] : []", "tags": [{"name": "Long"}]},
+        )
+        self.url = f"/admin/console/teams/{self.team.pk}/ai-observability-taggers/migrate-taggers/"
+
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.reload_taggers_on_workers")
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.load_recent_tag_counts")
+    def test_migrating_moves_active_taggers_to_evaluations_and_switches_off_silent_ones(
+        self, load_counts: MagicMock, reload_taggers: MagicMock
+    ) -> None:
+        load_counts.return_value = {str(self.active.id): 120, str(self.untagged_hog.id): 40, str(self.hog.id): 7}
+
+        preview = self.client.post(self.url, {"reason": "Taggers are deprecated"})
+        assert preview.status_code == 200
+        assert Evaluation.objects.filter(team=self.team).count() == 0
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]})
+            second_run = migrate_taggers(self.team, acting_user=self.user)
+
+        assert response.status_code == 302
+        evaluation = Evaluation.objects.get(team=self.team, evaluation_type="llm_judge")
+        hog_evaluation = Evaluation.objects.get(team=self.team, evaluation_type="hog")
+        assert hog_evaluation.enabled
+        assert hog_evaluation.output_config["options"] == [{"key": "long", "label": "Long"}]
+        assert hog_evaluation.evaluation_config["bytecode"]
+        assert (evaluation.name, evaluation.enabled, evaluation.output_type, evaluation.created_by) == (
+            "User intent",
+            True,
+            "categorical",
+            self.customer,
+        )
+        assert evaluation.output_config["selection_mode"] == "single"
+        assert evaluation.output_config["allows_na"] is True
+        assert [option["key"] for option in evaluation.output_config["options"]] == ["billing_issue", "other"]
+        assert evaluation.conditions[0]["rollout_percentage"] == 25
+        assert evaluation.model_configuration is not None and evaluation.model_configuration.provider == "openai"
+        states = {
+            tagger.name: (tagger.enabled, tagger.migrated_to_evaluation_id)
+            for tagger in Tagger.objects.filter(team=self.team)
+        }
+        assert states == {
+            "User intent": (False, evaluation.id),
+            "Sentiment": (False, None),
+            "Free-form Hog": (True, None),
+            "Long answers": (False, hog_evaluation.id),
+        }
+        assert sorted(call.kwargs["tagger_ids"][0] for call in reload_taggers.call_args_list) == sorted(
+            [str(self.active.id), str(self.silent.id), str(self.hog.id)]
+        )
+        assert [step.action for step in second_run] == [MigrationAction.SKIP]
