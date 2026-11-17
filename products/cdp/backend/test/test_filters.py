@@ -654,8 +654,8 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             ("or_group_matches_inner_and", "grouped", {"plan": "pro", "country": "US"}, True),
             ("or_group_matches_other_branch", "grouped", {"plan": "enterprise", "country": "DE"}, True),
             ("or_group_misses_every_branch", "grouped", {"plan": "pro", "country": "DE"}, False),
-            ("or_group_and_and_group", "nested", {"plan": "pro", "country": "DE"}, True),
-            ("or_group_and_and_group_misses_one", "nested", {"plan": "free", "country": "US"}, False),
+            ("and_of_and_group_and_or_group", "nested", {"plan": "pro", "country": "DE"}, True),
+            ("and_of_and_group_and_or_group_misses_one", "nested", {"plan": "free", "country": "US"}, False),
             ("empty_group_in_or_is_skipped", "with_empty_group", {"plan": "free", "country": "DE"}, False),
         ]
     )

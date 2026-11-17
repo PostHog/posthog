@@ -129,7 +129,6 @@ from products.cdp.backend.presentation.hog_invocations.results import (
     tag_invocation_results_query,
 )
 from products.cdp.backend.presentation.serializers import (
-    HogFlowConditionFiltersSerializer,
     HogFunctionFiltersSerializer,
     InputsSchemaSerializer,
     InputsSerializer,
@@ -390,6 +389,7 @@ from products.workflows.backend.presentation.views.hog_flow_batch_job import (
 from products.workflows.backend.presentation.views.hog_flow_fields import (
     HOG_FLOW_VARIABLES_MAX_BYTES,
     HogFlowActionTypeField,
+    HogFlowConditionFiltersSerializer,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
 )

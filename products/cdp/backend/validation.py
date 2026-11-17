@@ -38,7 +38,6 @@ from products.cdp.backend.filters import (
     compile_filters_expr,
     filter_action_ids,
     filter_cohort_ids,
-    is_property_group,
     iter_property_leaves,
 )
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -1524,67 +1523,6 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                     collected |= collect_property_cohort_ids(step.properties or [])
         validate_realtime_cohorts(collected, team, require_ready=require_ready)
         return collected
-
-
-@extend_schema_field(
-    {
-        "oneOf": [
-            {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-            {
-                "type": "object",
-                "properties": {
-                    "type": {"type": "string", "enum": ["AND", "OR"]},
-                    "values": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "type": {"type": "string", "enum": ["AND", "OR"]},
-                                "values": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-                            },
-                            "required": ["type", "values"],
-                        },
-                    },
-                },
-                "required": ["type", "values"],
-            },
-        ]
-    }
-)
-class PropertyFiltersOrGroupField(serializers.Field):
-    """A flat list of filters, or the two-level group shape that insights store: an AND/OR group of AND/OR groups
-    of filters. The workflow editor shows exactly this shape, so it can edit every condition the API accepts."""
-
-    def to_internal_value(self, data: Any) -> Any:
-        if isinstance(data, list):
-            if not all(isinstance(prop, dict) for prop in data):
-                raise serializers.ValidationError("Each property filter must be an object.")
-            return data
-        self._validate_group(data)
-        for group in data["values"]:
-            self._validate_group(group)
-            if not all(isinstance(prop, dict) and not is_property_group(prop) for prop in group["values"]):
-                raise serializers.ValidationError("A filter group holds groups of filters, and nothing nests deeper.")
-        return data
-
-    def to_representation(self, value: Any) -> Any:
-        return value
-
-    def _validate_group(self, group: Any) -> None:
-        if not is_property_group(group) or not isinstance(group.get("values"), list):
-            raise serializers.ValidationError("A filter group needs a type of AND or OR and a list of values.")
-
-
-class HogFlowConditionFiltersSerializer(HogFunctionFiltersSerializer):
-    # DRF lets a subclass replace a declared field; mypy reads it as reassigning the base's ListField.
-    properties = PropertyFiltersOrGroupField(  # type: ignore[assignment]
-        required=False,
-        help_text=(
-            "Property filters for a branch condition. Either a list of filters that must all match, or "
-            "{type: 'AND' | 'OR', values: [{type: 'AND' | 'OR', values: [<filter>, ...]}, ...]} to join groups "
-            "of filters."
-        ),
-    )
 
 
 COHORT_NOT_READY_CODE = "cohort_not_ready"

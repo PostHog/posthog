@@ -4,7 +4,6 @@ A facade must not hand out DRF classes, so these cross through presentation inst
 """
 
 from products.cdp.backend.validation import (
-    HogFlowConditionFiltersSerializer as HogFlowConditionFiltersSerializer,
     HogFunctionFiltersSerializer as HogFunctionFiltersSerializer,
     InputsSchemaSerializer as InputsSchemaSerializer,
     InputsSerializer as InputsSerializer,

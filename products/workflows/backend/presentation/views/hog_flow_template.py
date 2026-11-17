@@ -16,10 +16,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
-from products.cdp.backend.presentation.serializers import (
-    HogFlowConditionFiltersSerializer,
-    HogFunctionFiltersSerializer,
-)
+from products.cdp.backend.presentation.serializers import HogFunctionFiltersSerializer
 from products.workflows.backend.facade.contracts import WorkflowTemplate, WorkflowTemplateNotFound
 from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
 from products.workflows.backend.facade.sandbox_email import SANDBOX_EMAIL_ACTION_TYPE
@@ -36,6 +33,7 @@ from products.workflows.backend.facade.templates import (
 from products.workflows.backend.facade.workflows import SUPPORTED_ACTION_TYPES, WORKFLOW_SAFE_INTERNAL_EVENTS
 from products.workflows.backend.presentation.views.hog_flow_fields import (
     HogFlowActionTypeField,
+    HogFlowConditionFiltersSerializer,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
 )
