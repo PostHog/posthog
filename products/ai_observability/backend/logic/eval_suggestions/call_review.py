@@ -118,9 +118,9 @@ Each card is an LLM judge that will grade single calls of its call types:
 A code_check reads two strings: `output`, the text of the call's output without the "assistant:" label the sample shows, and `input`, the call's input as text. It returns true when the call passes and false when it fails. Hog basics:
 - `let x := 1` declares a variable and `x := 2` changes it. `if (a and not b) { ... } else { ... }`, `for (let i, item in items) { ... }`, `return false`.
 - Strings take single quotes. Lists start at index 1. A missing object field reads as null.
-- Functions: length, trim, lower, substring(text, start, count), startsWith, splitByString(separator, text), match(text, pattern), isValidJSON, jsonParse, typeof, keys, has(list, value), toString. `text ilike '%word%'` matches without case.
+- Functions: length, trim, lower, upper, substring(text, start, count), startsWith, endsWith, splitByString(separator, text), match(text, pattern), isValidJSON, jsonParse, typeof, keys, has(list, value), toString, empty, notEmpty. `text ilike '%word%'` matches without case. Use no other function, and no `*` or `%` operator.
 - match takes an RE2 pattern, which has no lookarounds. A string rejects unknown escapes such as \\d, so write [0-9].
-- jsonParse fails on text that is not JSON, so test isValidJSON first. A program that fails on a call's data counts as a wrong answer. One that returns anything but true or false, or multiplies (`*`), is dropped."""
+- jsonParse fails on text that is not JSON, so test isValidJSON first. A program that fails on a call's data counts as a wrong answer. One that returns anything but true or false, or uses anything outside the list above, is dropped."""
 
 
 class _Pick(BaseModel):

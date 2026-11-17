@@ -424,11 +424,46 @@ class CodeCheck:
     errors: int
 
 
-class _Multiplication(TraversingVisitor):
+# The functions the review prompt names, plus the wrapper the saved source calls. In one step the Python Hog VM can
+# build a value far past its memory limit before checking it, through `*`, `%` on a string and some functions, so a
+# generated check runs only when it stays inside this set.
+_CODE_CHECK_FUNCTIONS = frozenset(
+    {
+        "length",
+        "trim",
+        "lower",
+        "upper",
+        "substring",
+        "startsWith",
+        "endsWith",
+        "splitByString",
+        "match",
+        "isValidJSON",
+        "jsonParse",
+        "typeof",
+        "keys",
+        "has",
+        "toString",
+        "empty",
+        "notEmpty",
+        "review_check",
+    }
+)
+
+
+class _OutsideCodeCheckSet(TraversingVisitor):
     found = False
 
+    def visit_call(self, node: ast.Call) -> None:
+        self.found = self.found or node.name not in _CODE_CHECK_FUNCTIONS
+        super().visit_call(node)
+
+    def visit_expr_call(self, node: ast.ExprCall) -> None:
+        self.found = True
+        super().visit_expr_call(node)
+
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> None:
-        self.found = self.found or node.op == ast.ArithmeticOperationOp.Mult
+        self.found = self.found or node.op in (ast.ArithmeticOperationOp.Mult, ast.ArithmeticOperationOp.Mod)
         super().visit_arithmetic_operation(node)
 
 
@@ -460,7 +495,7 @@ def _code_verdict(bytecode: list[Any], row: ReviewCallRow) -> Verdict | None:
 
 def check_code(card: ReviewCard, rendering: Rendering, deadline: float | None) -> CodeCheck | None:
     """The card's code check run on every rendered call of its call types and compared with the review's labels, or
-    None when it does not compile, multiplies, hits an error the runtime would disable it over, or could run past
+    None when it does not compile, steps outside the allowed functions and operators, hits an error the runtime would disable it over, or could run past
     `deadline`, a time.monotonic() value. An error on a call's data counts as the opposite of the label."""
     source = call_review.code_check_source(card.code_check)
     try:
@@ -470,11 +505,9 @@ def check_code(card: ReviewCard, rendering: Rendering, deadline: float | None) -
         bytecode = compile_ai_observability_hog(source, "destination")
     except (ExposedHogQLError, serializers.ValidationError):
         return None
-    # The Python Hog VM builds a product before it checks the memory limit, so a repeated string or a huge integer
-    # could exhaust the worker. A check on a call's text has no use for multiplication.
-    multiplication = _Multiplication()
-    multiplication.visit(program)
-    if multiplication.found:
+    outside = _OutsideCodeCheckSet()
+    outside.visit(program)
+    if outside.found:
         return None
     keys = {call_type.key for call_type in card.call_types}
     verdicts: dict[int, Verdict | None] = {}
