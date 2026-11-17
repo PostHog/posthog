@@ -2177,8 +2177,6 @@ ROUTING_BUSY_RETRY_SECONDS = 60
 # FALLBACK mode routes in full when no verdict arrived for a waiting head after this long, and ALWAYS mode when the
 # attestation checks of a waiting head did not end the wait.
 ROUTING_SAFETY_NET_SECONDS = 30 * 60
-# ALWAYS mode polls the attestation checks of a waiting head at this interval until the safety net routes it. A
-# Celery countdown, like the safety net, because the routing claim and its retries live in Celery tasks.
 ROUTING_ATTESTATION_POLL_SECONDS = 2 * 60
 _ROUTING_ATTESTATION_MAX_POLLS = ROUTING_SAFETY_NET_SECONDS // ROUTING_ATTESTATION_POLL_SECONDS
 

@@ -658,11 +658,7 @@ def attest(context: dict) -> dict:
 
 
 def attestation_proof(context: dict) -> dict:
-    """What the pinned attestations prove about the PR, for the server's reviewer routing.
-
-    The server runs it on the worker in the pre-check tree, from the file list and the check runs it read
-    from GitHub. See ``Pipeline.attestation_proof`` for the answer.
-    """
+    """What the pinned attestations prove about the PR. See ``Pipeline.attestation_proof``."""
     return _pipeline_without_checkout(context).attestation_proof()
 
 

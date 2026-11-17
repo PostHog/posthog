@@ -38,7 +38,6 @@ class PendingCheck:
 
 def _has_reported(client: StamphogGitHubClient, repository: str, head_sha: str, check: PendingCheck) -> bool:
     # The engine's own test for a pending check, so the new review finds every check it waited for.
-    # GitHub filters by name and App, so a poll does not page through every check run of the head.
     check_runs = client.get_check_runs(
         repository, head_sha, check_name=check.name, app_id=check.app_id, priority=Priority.BATCH
     )

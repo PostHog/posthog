@@ -79,14 +79,11 @@ TRIGGER_SAFETY_NET = "safety_net"
 TRIGGER_EXTERNAL_REVIEW = "external_review"
 # A push or a base retarget that no review follows retracted the approval that held the full routing back.
 TRIGGER_APPROVAL_RETRACTED = "approval_retracted"
-# Every check that a fully attested head waited for has reported.
 TRIGGER_ATTESTATION = "attestation"
 SCOPE_FULL = RoutingScope.FULL.value
 SCOPE_PINNED = RoutingScope.PINNED.value
 SCOPE_ATTESTED = RoutingScope.ATTESTED.value
 
-# ALWAYS makes a head wait only when every changed file falls under a pinned policy attestation. The record then
-# names the checks to poll for. FALLBACK makes a head wait for stamphog's verdict and names no checks.
 ATTESTATION_CHECKS = "attestation_checks"
 
 # PR-level marks, carried over every later record of the pull request. FALLBACK routes in full at

@@ -198,7 +198,6 @@ class GitHubRecorder:
         # The files every compare lists, for a caller that pins a PR's file list to two commits.
         self.compare_files: list[dict] = []
         self.check_runs: dict[tuple[str, str], list[dict]] = {}
-        # path -> the blob sha the default branch holds, for an attestation's publisher pins. Unscripted paths are absent.
         self.default_branch_blob_shas: dict[str, str] = {}
         self.shed_batch = False
         # Repositories with no commits at all. GitHub answers their head lookup with a null

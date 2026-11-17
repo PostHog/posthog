@@ -104,9 +104,7 @@ class GateAttestation:
 
 @frozen
 class AttestationProof:
-    # The check of each pinned attestation that matches a changed path. Empty unless they match every changed path.
     checks: tuple[PendingCheck, ...]
-    # True only when the verified proofs of those attestations name every changed path.
     proven: bool
 
 

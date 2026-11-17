@@ -32,7 +32,6 @@ def _listed_files(client: StamphogGitHubClient, repository: str, pr: Mapping[str
     """The files GitHub lists for the live pull request, or None when the list leaves a file out."""
     files = client.get_pr_files(repository, int(pr.get("number") or 0))
     if files_truncated(pr, len(files)):
-        # A file that GitHub did not list can be one that no proof names.
         return None
     return files
 

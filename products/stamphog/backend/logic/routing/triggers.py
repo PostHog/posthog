@@ -499,7 +499,6 @@ def _attested_verdict_step(
     """Route the live head of an attested pull request in full when a verdict leaves it without a reviewer."""
     if state.record is None or not _is_attested_done(state.record):
         return None
-    # A WAIT that stamphog reviews again leaves the decision to the next verdict.
     if outcome == ReviewVerdict.APPROVED or _reviews_again(outcome, silent=silent):
         return None
     pr = _live_head(client, state.repo_config, state.pr_number)
@@ -561,7 +560,6 @@ def _attestation_safety_net_step(client: StamphogGitHubClient, state: _State) ->
 
 def _safety_net_step(client: StamphogGitHubClient, state: _State, *, review_path: ReviewPath) -> _Step | None:
     if state.repo_config.routing_mode == RoutingMode.ALWAYS:
-        # ALWAYS routes once per opened or ready head, so only a head that waits for its attestation checks is left.
         return _attestation_safety_net_step(client, state)
     record = state.record
     if record is not None and record.get(FULL_ROUTED_HEAD):
@@ -623,11 +621,9 @@ def _attestation_poll_step(
     record = state.record
     checks = waiting_attestation_checks(record)
     if not checks or record is None or record.get("head_sha") != head_sha:
-        # Another trigger already decided this head, or a newer wait polls for its own head.
         return None
     pr = _live_head(client, state.repo_config, state.pr_number)
     if pr is None:
-        # A pull request that is marked ready again waits anew with a new poll.
         return None
     live_head_sha = _head_sha(pr)
     if live_head_sha != head_sha:
@@ -639,8 +635,6 @@ def _attestation_poll_step(
         return None
     if not attestation_proven(client, repository, pr):
         return _attestation_step(pr, head_sha)
-    # Requesting only the pinned owners, often nobody, must not leave the pull request without a reviewer, for
-    # example when stamphog refused it.
     if _keeps_a_reviewer(pr, state, review_path=review_path):
         return _attestation_step(pr, head_sha, scope=SCOPE_ATTESTED)
     if _approval_can_still_come(pr, state, review_path=review_path):
