@@ -198,8 +198,7 @@ class EmailSendingPanel(Panel):
                     "tier": state.tier if state is not None else 0,
                     "pinned": state is not None and state.tier_pinned,
                 },
-                # Support links a ticket here with the reason drafted, for example ?tier=2&pinned=0&reason=Ticket+123.
-                query_fields=frozenset({"reason"}),
+                query_fields=frozenset({"pinned", "reason"}),
             ),
             Operation(
                 key="recompute-tier",

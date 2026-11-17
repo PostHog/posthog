@@ -466,20 +466,17 @@ def operation_result(request: HttpRequest, result_id: str) -> HttpResponse:
 
 
 def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
-    # A link preselects a choice or ticks a checkbox, so an old URL that names one of several documents opens the
-    # form on it. Text fields stay empty unless the operation names them in query_fields: a reason taken from a URL
-    # would reach the audit log without staff writing it.
-    if operation.form_class is None:
-        return None
+    # Only the GET that renders the form reads the link. A POST keeps the operation's own initial, because
+    # changed_data compares the submitted data with initial, and handlers and the change log read changed_data.
+    if operation.form_class is None or request.method != "GET":
+        return operation.form_initial
     from_query: dict[str, object] = {}
     for name, field in operation.form_class.base_fields.items():
-        if name not in request.GET:
+        if name not in request.GET or not (isinstance(field, forms.ChoiceField) or name in operation.query_fields):
             continue
-        if isinstance(field, forms.BooleanField):
-            # A checkbox renders ticked for any non-empty value, so ?pinned=0 has to become False first.
-            from_query[name] = field.to_python(request.GET[name])
-        elif isinstance(field, forms.ChoiceField) or name in operation.query_fields:
-            from_query[name] = request.GET[name]
+        value = request.GET[name]
+        # A checkbox renders ticked for any non-empty value, so "0" and "false" must become False here.
+        from_query[name] = field.to_python(value) if isinstance(field, forms.BooleanField) else value
     if not from_query:
         return operation.form_initial
     return {**(operation.form_initial or {}), **from_query}

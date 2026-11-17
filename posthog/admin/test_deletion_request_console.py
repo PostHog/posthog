@@ -57,10 +57,12 @@ class TestDeletionRequestConsole(BaseTest):
         url = f"/admin/console/deletion-requests/{obj.pk}/"
         return f"{url}{panel}/{operation}/" if operation else url
 
-    def _edit(self, obj: DataDeletionRequest, data: dict[str, str]):
+    def _edit(self, obj: DataDeletionRequest, data: dict[str, str], query: str = ""):
         # The form carries the revision it was opened at; tests open it at the request's current one.
         obj.refresh_from_db()
-        return self.client.post(self._url(obj, "criteria", "edit"), {"revision": obj.updated_at.isoformat(), **data})
+        return self.client.post(
+            self._url(obj, "criteria", "edit") + query, {"revision": obj.updated_at.isoformat(), **data}
+        )
 
     def _preview_approval(self, obj: DataDeletionRequest, mode: ExecutionMode):
         revision = obj.criteria_updated_at.isoformat() if obj.criteria_updated_at else ""
@@ -472,18 +474,34 @@ class TestDeletionRequestConsole(BaseTest):
         assert response.status_code == 302
         assert response["Location"] == f"{CREATE_URL}?team_id=42&events=%24pageview"
 
-    def test_editing_the_criteria_of_a_pending_request_moves_it_back_to_draft(self) -> None:
+    @parameterized.expand(
+        [
+            ("events", "", {"events": "$autocapture"}, ["$autocapture"], "events"),
+            (
+                "type_the_link_preselected",
+                "?request_type=property_removal",
+                {"request_type": RequestType.PROPERTY_REMOVAL.value, "properties": "$ip"},
+                ["$pageview"],
+                "Type",
+            ),
+        ]
+    )
+    def test_editing_the_criteria_of_a_pending_request_moves_it_back_to_draft(
+        self, _name: str, query: str, edit: dict[str, str], expected_events: list[str], logged_field: str
+    ) -> None:
         obj = self._request(status=RequestStatus.PENDING, count=10, stats_calculated_at=timezone.now())
 
-        page = self.client.get(self._url(obj, "criteria", "edit"))
+        page = self.client.get(self._url(obj, "criteria", "edit") + query)
         response = self._edit(
             obj,
             {
                 "request_type": RequestType.EVENT_REMOVAL.value,
                 "start_time": "2026-10-30 12:00",
                 "end_time": "2026-11-06 11:59",
-                "events": "$autocapture",
+                "events": "$pageview",
+                **edit,
             },
+            query,
         )
 
         assert "$pageview" in BeautifulSoup(page.content, "html.parser").select_one("textarea[name=events]").get_text()
@@ -491,12 +509,20 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert (obj.status, obj.events, obj.count, obj.stats_calculated_at, obj.criteria_updated_by) == (
             RequestStatus.DRAFT,
-            ["$autocapture"],
+            expected_events,
             None,
             None,
             self.user,
         )
-        assert LogEntry.objects.filter(object_id=str(obj.pk), change_message__contains='"events"').exists()
+        assert LogEntry.objects.filter(object_id=str(obj.pk), change_message__contains=f'"{logged_field}"').exists()
+
+    def test_a_link_cannot_tick_a_checkbox_the_operation_does_not_let_it_fill(self) -> None:
+        obj = self._request()
+
+        page = self.client.get(self._url(obj, "criteria", "edit") + "?delete_all_events=1")
+
+        checkbox = BeautifulSoup(page.content, "html.parser").select_one("input[name=delete_all_events]")
+        assert checkbox is not None and not checkbox.has_attr("checked")
 
     def test_editing_only_the_notes_keeps_a_pending_request_and_its_stats(self) -> None:
         obj = self._request(status=RequestStatus.PENDING, count=10)

@@ -152,9 +152,8 @@ class Operation:
     form_class: type[forms.Form] | None = None
     # Starting values for the form, usually the record's current state, so an unchanged submit changes nothing.
     form_initial: dict[str, object] | None = None
-    # Text fields a link may fill, such as a reason a support ticket drafts. A link always fills choices and
-    # checkboxes, but other fields only when named here, because a reason from a URL reaches the audit log unless
-    # staff change it. Name a field only when staff read the form before they submit it.
+    # Fields besides choices that a link may fill. A value from a URL can reach the audit log without staff writing
+    # it, so name a field only when staff read the form before they submit it.
     query_fields: frozenset[str] = frozenset()
     description: str = ""
     undo_hint: str = ""
