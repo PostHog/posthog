@@ -239,8 +239,8 @@ export const FEATURE_FLAGS = {
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
     SIGNALS_REPORT_METRICS: 'signals-report-metrics', // owner: #team-self-driving, gates the live impact metrics on inbox report rows and the report detail, and the snapshot refresh calls they make
     SIGNALS_REPORT_MONITORING: 'signals-report-monitoring', // owner: #team-self-driving
-    SIGNALS_REPORT_NOTES: 'signals-report-notes', // owner: #team-self-driving, gates the notes list and composer at the end of an inbox report, and the quoted notes in its activity
     SIGNALS_REPORT_NOTE_MENTIONS: 'signals-report-note-mentions', // owner: #team-self-driving, gates @mentions of people and roles in report notes and the notifications they send
+    SIGNALS_REPORT_NOTES: 'signals-report-notes', // owner: #team-self-driving, gates the notes list and composer at the end of an inbox report, and the quoted notes in its activity
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
@@ -261,12 +261,13 @@ export const FEATURE_FLAGS = {
     AI_OBSERVABILITY_OFFLINE_EVALUATIONS: 'ai-observability-offline-evaluations', // owner: #team-ai-observability
     AI_OBSERVABILITY_TRACES_USERS_REDESIGN: 'ai-observability-traces-users-redesign', // owner: #team-ai-observability, gates the metric chart and simpler tables on the Traces and Users tabs
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
-    ALERTS_DESTINATION_CUSTOMIZATION: 'alerts-destination-customization', // owner: #team-logs, gates the custom message tag and edit notice on logs alert destinations
+    ALERTS_DESTINATION_CUSTOMIZATION: 'alerts-destination-customization', // owner: #team-logs, gates the custom message tag, the edit notice, and Customize and Reset on logs and insight alert destinations
     ALERTS_FORECAST_DETECTOR: 'alerts-forecast-detector', // owner: #team-analytics-platform, gates the forecast anomaly detector for insight alerts
     ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
     ALERTS_LLM_DETECTOR: 'alerts-llm-detector', // owner: #team-analytics-platform, gates the AI anomaly detector for insight alerts
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     ANOMALY_ALERT_GUIDANCE_EXPERIMENT: 'anomaly-alert-guidance',
+    APM_MOBILE_TRIAGE: 'apm-mobile-triage', // owner: #team-apm
     APPLICATION_OBSERVABILITY: 'unified-apm-product', // owner: #team-apm — gates the Application observability scene, nav entry, and services API; the backend reads the same key
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
     APPROVALS_SCOPE_BY_FLAG_OWNER: 'approvals-scope-by-flag-owner', // owner: @yasen-posthog #team-platform-features, scopes approval policies by the product that owns the flag
@@ -454,6 +455,8 @@ export const FEATURE_FLAGS = {
     METRICS_QUERY_LANGUAGES: 'metrics-query-languages', // owner: #team-apm — lets a metrics insight switch between the builder, PromQL and SQL
     METRICS_SUGGESTED_DASHBOARDS: 'metrics-suggested-dashboards', // owner: #team-apm — suggests bank dashboards that fit the ingested metrics, and runs the AI analysis and generation for the team
     ML_INFERENCE_DECISIONS: 'ml-inference-decisions', // owner: #team-ai-research, gates the decisions playground; the API checks the same flag server side
+    MONITOR_AREA: 'monitor-area', // owner: #team-platform-ux, the Monitor rail entry under today-rail-nav, which takes error tracking, logs, metrics, tracing, uptime and AI observability out of the Products pane
+    NEW_EVENTS_TABLE_SELF_SERVE: 'new-events-table-self-serve', // owner: @aspicer #team-query-performance, the backend evaluates the same key per project in `new_events_schema.py`
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     NOTEBOOK_SANDBOX_FREE_COMPUTE: 'notebook-sandbox-free-compute', // owner: #team-data-tools, shows the notebook sandbox rate crossed out at $0.00 / h
@@ -523,8 +526,6 @@ export const FEATURE_FLAGS = {
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
     REPLAY_LAYOUT_SWITCHER: 'replay-layout-switcher', // owner: #team-replay
     REPLAY_NEGATIVE_EVENT_FILTERS: 'replay-negative-event-filters', // owner: @arnohillen #team-replay
-    REPLAY_PLAYLIST_SURFACING_SCORE: 'replay-playlist-surfacing-score', // owner: #team-replay
-    REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT: 'replay-recommended-recordings-filter-experiment', // owner: @arnohillen #team-replay multivariate=control,test
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REPLAY_VISION_SCANNER_DASHBOARD: 'replay-vision-scanner-dashboard', // owner: #team-replay, one-click dashboard offer on the scanner overview and its MCP tool
@@ -597,11 +598,11 @@ export const FEATURE_FLAGS = {
     VISION_SCANNER_WIZARD_RECORDINGS_FIRST: 'vision-scanner-wizard-recordings-first', // owner: #team-replay multivariate=control,test, new scanner wizard and goal overview ask which recordings to watch before the prompt; gate on === 'test'
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_COLUMN_SENSITIVITY: 'warehouse-column-sensitivity', // owner: #team-warehouse-sources, flags and suggests masking personal or secret columns
+    WAREHOUSE_DESTINATION_MOTHERDUCK: 'warehouse-destination-motherduck', // owner: #team-warehouse-sources
     WAREHOUSE_HISTORY_ACCESS_RULES: 'warehouse-history-access-rules', // owner: #team-warehouse-sources, offers to give a table's history table the same access rules
     WAREHOUSE_INCREMENTAL_FIELD_MODEL: 'warehouse-incremental-field-model', // owner: #team-warehouse-sources, gates the decision model picking incremental fields
     WAREHOUSE_MIGRATION_IMPORT: 'warehouse-migration-import', // owner: #team-warehouse-sources — gates importing a Fivetran setup
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
-    WAREHOUSE_DESTINATION_MOTHERDUCK: 'warehouse-destination-motherduck', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WAREHOUSE_SUGGESTIONS: 'warehouse-suggestions', // owner: #team-data-modeling
     WEB_ANALYTICS_ACHIEVEMENTS: 'web-analytics-achievements', // owner: @jordanm-posthog #team-web-analytics
@@ -644,6 +645,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
     WORKFLOWS_CODE_EMAIL_SOURCE_DETECTION: 'workflows-code-email-source-detection', // owner: @silthus #team-workflows, links code emails to their source file on GitHub and offers a picker
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
+    WORKFLOWS_CONDITION_FILTER_GROUPS: 'workflows-condition-filter-groups', // owner: @meikelmosby #team-workflows, AND/OR filter groups in conditional branch conditions
     WORKFLOWS_DESTINATION_SUGGESTION: 'workflows-destination-suggestion', // owner: #team-workflows, offers workflows instead of a new email tool destination
     WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS: 'workflows-email-delivery-webhooks', // owner: @silthus #team-workflows, delivery webhooks for transactional email
     WORKFLOWS_EMAIL_FROM_CODE: 'workflows-email-from-code', // owner: #team-workflows, lets code send emails it rendered itself under a template key
@@ -654,6 +656,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_KEEP_LOCAL_EDITS: 'workflows-keep-local-edits', // owner: @silthus #team-workflows, keeps unsaved edits when the workflow changes elsewhere
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
+    WORKFLOWS_RESEND_IMPORT: 'workflows-resend-import', // owner: @dmarchuk #team-workflows, import Resend data and automations
     WORKFLOWS_SENDING_TIER_REQUESTS: 'workflows-sending-tier-requests', // owner: @luke-belton #team-workflows, lets customers request a higher email sending tier
     WORKFLOWS_SUPABASE_AUTH_EMAILS: 'workflows-supabase-auth-emails', // owner: @luke-belton #team-workflows, send Supabase auth emails through transactional templates
     WORKFLOWS_SURVEY_STEP: 'workflows-survey-step', // owner: @dmarchuk #team-workflows

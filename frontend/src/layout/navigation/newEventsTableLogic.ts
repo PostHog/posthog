@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { NEW_EVENTS_SCHEMA, getCookie } from 'lib/api'
+import { NEW_EVENTS_SCHEMA, getCookie, getPageNewEventsTable } from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
@@ -39,7 +39,6 @@ export interface newEventsTableLogicActions {
 export interface newEventsTableLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         newEventsTableAvailable: (user: UserType | null) => boolean
-        pageNewEventsTable: (searchParams: Record<string, any>) => boolean | null
         newEventsTableEnabled: (pageNewEventsTable: boolean | null, browserNewEventsTable: boolean) => boolean
         newEventsTableActive: (newEventsTableAvailable: boolean, newEventsTableEnabled: boolean) => boolean
     }
@@ -69,6 +68,12 @@ export const newEventsTableLogic = kea<newEventsTableLogicType>([
                 setNewEventsTable: (_, { enabled }) => enabled,
             },
         ],
+        pageNewEventsTable: [
+            getPageNewEventsTable(),
+            {
+                setNewEventsTable: () => null,
+            },
+        ],
         // Switching the table again shows the bar again, so a dismissal never hides a switch the user just made.
         newEventsTableBarDismissed: [
             false,
@@ -85,13 +90,6 @@ export const newEventsTableLogic = kea<newEventsTableLogicType>([
         newEventsTableAvailable: [
             (s) => [s.user],
             (user: UserType | null): boolean => !!user && (user.is_staff || user.is_impersonated),
-        ],
-        pageNewEventsTable: [
-            () => [router.selectors.searchParams],
-            (searchParams: Record<string, any>): boolean | null => {
-                const requested = String(searchParams[NEW_EVENTS_SCHEMA])
-                return requested === '1' ? true : requested === '0' ? false : null
-            },
         ],
         newEventsTableEnabled: [
             (s) => [s.pageNewEventsTable, s.browserNewEventsTable],

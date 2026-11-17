@@ -76,6 +76,7 @@ from .activities.get_task_processing_context import (
     get_task_processing_context,
 )
 from .activities.materialize_context_layer import MaterializeContextLayerInput, materialize_context_layer_in_sandbox
+from .activities.persist_agent_memory import MemoryEventIdentity, PersistAgentMemoryInput, persist_agent_memory
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
     REPOSITORY_CLONE_RETRY_DELAYS_SECONDS,
@@ -213,6 +214,7 @@ class ResumedSandboxState:
     last_agent_heartbeat_at: Optional[str] = None
     sandbox_ttl_expires_at: Optional[str] = None
     sandbox_ttl_snapshot_taken: bool = False
+    sandbox_ttl_snapshot_saved: bool = False
     sandbox_rotation_idle: bool = False
     first_command_dispatched_recorded: bool = False
     first_agent_activity_recorded: bool = False
@@ -223,6 +225,10 @@ class ResumedSandboxState:
     startup_worker_started_at: str | None = None
     startup_context_loaded_at: str | None = None
     sandbox_backend: str | None = None
+    # The first execution's memory eligibility. A continuation reloads the context while a teammate
+    # may be steering the run, which would switch persistence off for the creator's later turns.
+    agent_memory_persist_enabled: bool | None = None
+    agent_memory_last_actor_user_id: int | None = None
 
 
 @frozen
@@ -306,6 +312,7 @@ class TaskEvent(StrEnum):
     SANDBOX_GONE = "sandbox_gone"
     QUOTA_RECHECK = "quota_recheck"
     SANDBOX_TTL_APPROACHING = "sandbox_ttl_approaching"
+    SANDBOX_TTL_REACHED = "sandbox_ttl_reached"
 
 
 class CIFollowUpDecision(StrEnum):
@@ -354,12 +361,25 @@ _SLACK_SETUP_PROGRESS_STEPS = frozenset({"sandbox", "clone", "checkout", "wizard
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
 _PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT = "tasks-rotation-activity-before-boot"
+_PATCH_ID_END_RUN_AT_SANDBOX_LIMIT = "tasks-end-run-at-sandbox-limit"
 
 
 def _check_rotation_activity_before_boot() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT)
+
+
+_PATCH_ID_PERSIST_AGENT_MEMORY = "persist-agent-memory-2026-11"
+# Time left before sandbox expiry for the deadline snapshot, which a slow memory persist must not eat.
+_ROTATION_SNAPSHOT_RESERVE = timedelta(minutes=5)
+_PERSIST_AGENT_MEMORY_ATTEMPT_TIMEOUT = timedelta(minutes=3)
+
+
+def _check_persist_agent_memory_patch() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_PERSIST_AGENT_MEMORY)
 
 
 _PENDING_PROGRESS_FLUSH_SECONDS = 15.0
@@ -440,6 +460,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._ci_resume_snapshot_created: bool = False
         self._sandbox_ttl_expires_at: Optional[datetime] = None
         self._sandbox_ttl_snapshot_taken: bool = False
+        self._sandbox_ttl_snapshot_saved: bool = False
         # Decided once at workflow start; gates the placeholder skip + relay spawn.
         self._is_agent_design_enabled: bool = False
         self._dev_stack_preview_enabled: bool = False
@@ -464,6 +485,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._slack_setup_chain: asyncio.Task[None] | None = None
         self._pending_progress_activities: dict[asyncio.Task[None], str] = {}
         self._agent_boot_interaction_telemetry_enabled = False
+        self._agent_memory_persist_enabled = False
+        self._agent_memory_persist_task: asyncio.Task[None] | None = None
+        self._agent_memory_persisted_turns = 0
+        self._agent_memory_sandbox_id: str | None = None
+        self._agent_memory_persist_closed = False
+        self._agent_memory_last_actor_user_id: int | None = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -568,6 +595,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return
+        another_member = (
+            followup.actor_user_id is not None and followup.actor_user_id != self.context.task_created_by_id
+        )
+        persist_was_enabled = self._agent_memory_persist_enabled
+        if another_member and persist_was_enabled:
+            # Files written during another member's turn stay in the sandbox, so it never persists again.
+            # A persist still running must finish before the message reaches the agent, or it could
+            # read files from that turn.
+            self._agent_memory_persist_enabled = False
+            await self._drain_agent_memory_persist_task()
         outcome = await self._send_followup_to_sandbox(
             message=followup.message,
             artifact_ids=followup.artifact_ids,
@@ -576,6 +613,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             context=followup.context,
             steer=followup.steer,
         )
+        # The persist activity refuses to save the creator's memory once someone else steers the run.
+        # A declined steer drives no turn, so it leaves the actor alone until its fallback delivery.
+        # An actorless follow-up (a Slack member with no PostHog user) keeps the last known actor, so
+        # it cannot re-enable persistence as the creator.
+        steer_declined = followup.steer and outcome == STEER_DECLINED_OUTCOME
+        if steer_declined:
+            self._agent_memory_persist_enabled = persist_was_enabled
+        elif followup.actor_user_id is not None:
+            self._agent_memory_last_actor_user_id = followup.actor_user_id
         if followup.steer and outcome == STEER_DECLINED_OUTCOME:
             self._insert_followup_in_arrival_order(
                 PendingFollowup(
@@ -749,6 +795,28 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.sleep(remaining.total_seconds())
         return TaskEvent.SANDBOX_TTL_APPROACHING
 
+    def _sandbox_limit_scheduled(self) -> bool:
+        return (
+            self._sandbox_ttl_expires_at is not None
+            and self._sandbox_ttl_snapshot_taken
+            and workflow.patched(_PATCH_ID_END_RUN_AT_SANDBOX_LIMIT)
+        )
+
+    def _can_end_before_sandbox_limit(self) -> bool:
+        return (
+            self._sandbox_ttl_snapshot_saved
+            and self._sandbox_rotation_block_reason() is None
+            and self._pending_followup is None
+            and not self._pending_followups
+        )
+
+    async def _wait_for_sandbox_limit(self) -> TaskEvent:
+        assert self._sandbox_ttl_expires_at is not None
+        remaining = self._sandbox_ttl_expires_at - workflow.now()
+        if remaining.total_seconds() > 0 and not self._can_end_before_sandbox_limit():
+            await workflow.sleep(remaining.total_seconds())
+        return TaskEvent.SANDBOX_TTL_REACHED
+
     async def _wait_for_quota_recheck(self):
         if self._self_driving_quota_next_check_at is None:
             self._self_driving_quota_next_check_at = workflow.now() + SELF_DRIVING_QUOTA_RECHECK_INTERVAL
@@ -829,6 +897,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             possible_events.append(asyncio.create_task(self._wait_for_max_run_duration(max_run_duration)))
         if self._sandbox_deadline_snapshot_scheduled():
             possible_events.append(asyncio.create_task(self._wait_for_sandbox_deadline()))
+        if self._sandbox_limit_scheduled():
+            possible_events.append(asyncio.create_task(self._wait_for_sandbox_limit()))
         if ci_follow_up_scheduled:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
         if not warm_idle and self._self_driving_quota_recheck_scheduled():
@@ -1179,6 +1249,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     success=False,
                     error="Run environment is 'local' (desktop-driven); refusing to execute it as a cloud workflow",
                 )
+            # The patch check comes first so a pre-patch history records no marker and no persist.
+            self._agent_memory_persist_enabled = _check_persist_agent_memory_patch() and self._agent_memory_eligible(
+                input.resumed_sandbox
+            )
             if input.resumed_sandbox is None:
                 self._dev_stack_preview_enabled = self.context.dev_stack_preview_enabled
                 sandbox_id, sandbox_url, sandbox_connect_token = await self._provision_and_start_agent(input, run_id)
@@ -1248,6 +1322,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         permission_response_task,
                         preview_task,
                         agent_shadow_task,
+                        self._agent_memory_persist_task,
                     ):
                         if task is not None:
                             await self._cancel_relay(task)
@@ -1255,6 +1330,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     await self._flush_pending_progress_activities()
                     workflow.continue_as_new(self._build_resumed_input(input, sandbox_id))
                 event = await self._wait_for_event()
+                self._schedule_agent_memory_persist(sandbox_id)
                 match event:
                     case TaskEvent.TIMEOUT_REACHED:
                         timeout_event = event
@@ -1356,6 +1432,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                     allow_pruning=False,
                                 )
                             )
+                            self._sandbox_ttl_snapshot_saved = saved
                             if not routing_restored:
                                 detail = (
                                     "This run can't take more messages: moving it to a fresh sandbox failed "
@@ -1422,6 +1499,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                 self._completion_error = "Stopped automatically: the organization reached its self-driving pull request limit."
                                 self._task_completed = True
                     case TaskEvent.SANDBOX_GONE:
+                        await self._mark_sandbox_gone()
+                    case TaskEvent.SANDBOX_TTL_REACHED:
+                        workflow.logger.info(
+                            "sandbox_limit_reached_without_rotation",
+                            extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+                        )
                         await self._mark_sandbox_gone()
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._has_dispatchable_followup():
@@ -1635,6 +1718,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
                     cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
                     if cleanup_sandbox_id:
+                        if self._agent_memory_persist_enabled:
+                            await self._persist_agent_memory_at_teardown(cleanup_sandbox_id)
                         if (
                             self._context
                             and self._context.mode == "interactive"
@@ -1655,6 +1740,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         self._sandbox_id_for_cleanup = None
                     elif not run_stream_completed and (self._context is None or self._context.environment == "cloud"):
                         await self._complete_run_stream(run_id)
+                    if self._agent_memory_persist_task is not None:
+                        await self._cancel_relay(self._agent_memory_persist_task)
 
                     if sandbox_cleaned and self._slack_thread_context and self._context:
                         await self._post_slack_update(sandbox_cleaned=True)
@@ -1911,6 +1998,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     self._sandbox_ttl_expires_at.isoformat() if self._sandbox_ttl_expires_at else None
                 ),
                 sandbox_ttl_snapshot_taken=self._sandbox_ttl_snapshot_taken,
+                sandbox_ttl_snapshot_saved=self._sandbox_ttl_snapshot_saved,
                 sandbox_rotation_idle=self._sandbox_rotation_idle,
                 first_command_dispatched_recorded=self._first_command_dispatched_recorded,
                 first_agent_activity_recorded=self._first_agent_activity_recorded,
@@ -1925,6 +2013,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     self._startup_context_loaded_at.isoformat() if self._startup_context_loaded_at else None
                 ),
                 sandbox_backend=self.context.sandbox_backend,
+                agent_memory_persist_enabled=self._agent_memory_persist_enabled,
+                agent_memory_last_actor_user_id=self._agent_memory_last_actor_user_id,
             ),
         )
 
@@ -1938,6 +2028,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return self._chain_started_at or workflow.info().start_time
 
     def _restore_resumed_state(self, resumed: ResumedSandboxState) -> None:
+        self._agent_memory_last_actor_user_id = resumed.agent_memory_last_actor_user_id
         self._sandbox_rotation_idle = resumed.sandbox_rotation_idle
         self._chain_started_at = datetime.fromisoformat(resumed.chain_started_at) if resumed.chain_started_at else None
         self._is_agent_design_enabled = resumed.is_agent_design_enabled
@@ -1963,6 +2054,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             datetime.fromisoformat(resumed.sandbox_ttl_expires_at) if resumed.sandbox_ttl_expires_at else None
         )
         self._sandbox_ttl_snapshot_taken = resumed.sandbox_ttl_snapshot_taken
+        self._sandbox_ttl_snapshot_saved = resumed.sandbox_ttl_snapshot_saved
         self._first_command_dispatched_recorded = resumed.first_command_dispatched_recorded
         self._first_agent_activity_recorded = resumed.first_agent_activity_recorded
         self._boot_path = resumed.boot_path
@@ -3031,6 +3123,27 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         """
         self._resume_snapshot_invalidated = False
         activity_count = self._sandbox_activity_count
+        # A replacement built from a snapshot without a baseline (its restore failed) restores from
+        # storage, so storage must hold the snapshot's memory first. Taken after the activity count,
+        # so agent activity during the persist abandons the rotation.
+        if self._agent_memory_persist_enabled:
+            budget_deadline = (
+                self._sandbox_ttl_expires_at - _ROTATION_SNAPSHOT_RESERVE if self._sandbox_ttl_expires_at else None
+            )
+            drained = await self._drain_agent_memory_persist_task(timeout=self._time_left(budget_deadline))
+            budget = self._time_left(budget_deadline)
+            if not drained or (budget is not None and budget <= timedelta(0)):
+                workflow.logger.warning(
+                    "agent_memory_rotation_persist_skipped",
+                    extra={"run_id": self.context.run_id, "sandbox_id": old_sandbox_id, "drained": drained},
+                )
+            elif not await self._persist_agent_memory(old_sandbox_id, reason="ttl_rotation", budget=budget):
+                # Without that save, such a replacement would restore older stored files over newer ones.
+                return SandboxRotation(
+                    relay_task=relay_task,
+                    credential_refresh_task=credential_refresh_task,
+                    reason="memory_persist_failed",
+                )
         snapshot = await self._create_resume_snapshot_output(old_sandbox_id, reason="ttl_rotation", allow_pruning=False)
         if snapshot is None or not snapshot.external_id:
             return SandboxRotation(
@@ -3340,6 +3453,118 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await relay_task
         except (asyncio.CancelledError, Exception):
             pass
+
+    @staticmethod
+    def _time_left(deadline: datetime | None) -> timedelta | None:
+        return None if deadline is None else deadline - workflow.now()
+
+    async def _persist_agent_memory(self, sandbox_id: str, *, reason: str, budget: timedelta | None = None) -> bool:
+        """True only when the activity ran and saved the sandbox's memory.
+
+        `budget` bounds the whole activity, queue time and retries included.
+        """
+        user_id = self.context.task_created_by_id
+        if user_id is None:
+            return False
+        try:
+            result = await workflow.execute_activity(
+                persist_agent_memory,
+                PersistAgentMemoryInput(
+                    sandbox_id=sandbox_id,
+                    run_id=self.context.run_id,
+                    team_id=self.context.team_id,
+                    user_id=user_id,
+                    reason=reason,
+                    actor_user_id=self._agent_memory_last_actor_user_id,
+                    identity=MemoryEventIdentity(
+                        distinct_id=self.context.distinct_id,
+                        organization_id=self.context.organization_id,
+                        team_uuid=self.context.team_uuid,
+                    ),
+                ),
+                start_to_close_timeout=(
+                    _PERSIST_AGENT_MEMORY_ATTEMPT_TIMEOUT
+                    if budget is None
+                    else min(_PERSIST_AGENT_MEMORY_ATTEMPT_TIMEOUT, budget)
+                ),
+                schedule_to_close_timeout=budget,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception as e:
+            workflow.logger.warning(
+                "agent_memory_persist_failed_non_fatal",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id, "reason": reason, "error": str(e)},
+            )
+            return False
+        if result.error or result.outcome != "persisted":
+            workflow.logger.warning(
+                "agent_memory_persist_skipped",
+                extra={
+                    "run_id": self.context.run_id,
+                    "sandbox_id": sandbox_id,
+                    "reason": reason,
+                    "outcome": result.outcome,
+                    "error": result.error,
+                },
+            )
+            return False
+        return True
+
+    def _agent_memory_eligible(self, resumed: ResumedSandboxState | None) -> bool:
+        if resumed is not None and resumed.agent_memory_persist_enabled is not None:
+            return resumed.agent_memory_persist_enabled
+        return (
+            self.context.persist_agent_memory_enabled
+            and self.context.mode == "interactive"
+            and self.context.task_created_by_id is not None
+        )
+
+    def _schedule_agent_memory_persist(self, sandbox_id: str | None) -> None:
+        if not self._agent_memory_persist_enabled or sandbox_id is None or self._agent_memory_persist_closed:
+            return
+        self._agent_memory_sandbox_id = sandbox_id
+        if self._turn_completion_signal_count <= self._agent_memory_persisted_turns:
+            return
+        if self._agent_memory_persist_task is not None and not self._agent_memory_persist_task.done():
+            # The running loop re-reads the turn count after each persist, so turns that end while it
+            # is in flight coalesce into one trailing persist.
+            return
+        self._agent_memory_persist_task = asyncio.create_task(self._persist_agent_memory_after_turns())
+
+    async def _persist_agent_memory_after_turns(self) -> None:
+        while (
+            self._agent_memory_persist_enabled
+            and not self._agent_memory_persist_closed
+            and self._agent_memory_sandbox_id is not None
+            and self._turn_completion_signal_count > self._agent_memory_persisted_turns
+        ):
+            persisted_through = self._turn_completion_signal_count
+            await self._persist_agent_memory(self._agent_memory_sandbox_id, reason="turn_completed")
+            self._agent_memory_persisted_turns = persisted_through
+
+    async def _drain_agent_memory_persist_task(self, timeout: timedelta | None = None) -> bool:
+        """Wait for an in-flight per-turn persist. False when it is still running after `timeout`."""
+        task = self._agent_memory_persist_task
+        if task is None or task.done():
+            return True
+        # A per-turn persist that finished after the next one would write older file contents over newer ones.
+        if timeout is not None:
+            if timeout <= timedelta(0):
+                return False
+            try:
+                await workflow.wait_condition(task.done, timeout=timeout)
+            except TimeoutError:
+                return False
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+        return True
+
+    async def _persist_agent_memory_at_teardown(self, sandbox_id: str) -> None:
+        self._agent_memory_persist_closed = True
+        await self._drain_agent_memory_persist_task()
+        await self._persist_agent_memory(sandbox_id, reason="teardown")
 
     async def _create_resume_snapshot(self, sandbox_id: str, *, reason: str, allow_pruning: bool) -> bool:
         result = await self._create_resume_snapshot_output(sandbox_id, reason=reason, allow_pruning=allow_pruning)

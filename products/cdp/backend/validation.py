@@ -38,6 +38,7 @@ from products.cdp.backend.filters import (
     compile_filters_expr,
     filter_action_ids,
     filter_cohort_ids,
+    iter_property_leaves,
 )
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -1317,13 +1318,13 @@ def _contains_behavioral_property(filters: dict) -> bool:
     history, which realtime function filters (bytecode per-event, or JS transpiled into the browser)
     can never evaluate."""
     entities = (filters.get("events") or []) + (filters.get("actions") or []) + (filters.get("data_warehouse") or [])
-    property_lists = [filters.get("properties") or []] + [
+    property_trees = [filters.get("properties") or []] + [
         entity.get("properties") or [] for entity in entities if isinstance(entity, dict)
     ]
     return any(
         isinstance(prop, dict) and prop.get("type") == "behavioral"
-        for property_list in property_lists
-        for prop in property_list
+        for property_tree in property_trees
+        for prop in iter_property_leaves(property_tree)
     )
 
 
