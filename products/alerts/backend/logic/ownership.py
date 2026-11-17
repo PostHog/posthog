@@ -144,15 +144,18 @@ def _validate_owner(alert: AlertConfiguration, actor: User, owner: User) -> None
 
 
 def _validate_query_access(alert: AlertConfiguration, actor: User, owner: User) -> None:
-    if not alert.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-        return
     with upgrade_insight(alert.insight):
         query = alert.insight.query
     if query is None:
         return
     try:
         with transaction.atomic():
-            denied = denied_query_resources(owner, alert.team, [query])
+            denied = denied_query_resources(
+                owner,
+                alert.team,
+                [query],
+                check_table_access=alert.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL),
+            )
     except DatabaseError as error:
         capture_exception(error)
         raise AlertWriteRefused(

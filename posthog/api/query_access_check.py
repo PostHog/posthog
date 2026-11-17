@@ -19,10 +19,13 @@ from posthog.models import Team, User
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 
-def denied_query_resources(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:
+def denied_query_resources(
+    user: User, team: Team, queries: list[dict[str, Any]], *, check_table_access: bool = True
+) -> list[str]:
     """Tables (and runner-level resources) the user can't access among everything the given
     queries read. Each query is compiled (resolved, not executed) as the user, the same resolution
-    the read path uses. Non-access compile errors don't gate. Empty list = the user can run them all."""
+    the read path uses. Non-access compile errors don't gate. Set check_table_access=False
+    to check runner access without compiling tables when table ACLs are unavailable."""
     if not queries:
         return []
 
@@ -39,6 +42,8 @@ def denied_query_resources(user: User, team: Team, queries: list[dict[str, Any]]
                 continue
             # Resource-level check first for product runners (logs, metrics, customer analytics, ...)
             runner.validate_query_runner_access(user)
+            if not check_table_access:
+                continue
             modifiers = create_default_modifiers_for_user(user, team, runner.modifiers)
             context_key = modifiers.model_dump_json()
             context = contexts.get(context_key)
