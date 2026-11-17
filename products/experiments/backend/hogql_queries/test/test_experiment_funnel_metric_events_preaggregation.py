@@ -15,6 +15,8 @@ from posthog.schema import (
     IntervalType,
 )
 
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.preaggregation.experiment_metric_events_sql import SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -153,11 +155,13 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
 
         # Two users per variant bought before the experiment start (the binary covariate), and
         # every other user converts after exposure. Only a build that also covers the lookback
-        # window can serve the covariate from the precomputed table.
+        # window can serve the covariate from the precomputed table. Every user also saw the flag
+        # before launch, which must neither anchor a funnel nor be stored.
         for variant in ("control", "test"):
             for i in range(4):
                 distinct_id = f"{variant}_{i}"
                 _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+                self._create_exposure_event(distinct_id, feature_flag, variant, datetime(2024, 1, 8, 12, 0, tzinfo=UTC))
                 if i < 2:
                     _create_event(
                         team=self.team,
@@ -184,6 +188,14 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
         precomputed_result = cast(ExperimentQueryResponse, precomputed_runner.calculate())
         assert precomputed_runner._metric_events_precomputed is True
         assert precomputed_runner.metric_events_path == "precomputed"
+        # The four pre-start purchases are stored for the covariate; the pre-start exposures are not,
+        # or they would only inflate the rows the read joins and sorts.
+        stored_pre_start_rows, stored_pre_start_exposures = sync_execute(
+            f"SELECT count(), countIf(steps[1] = 1) FROM {SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE()}"
+            " WHERE team_id = %(team_id)s AND timestamp < %(start)s",
+            {"team_id": self.team.pk, "start": "2024-01-10 00:00:00"},
+        )[0]
+        assert (stored_pre_start_rows, stored_pre_start_exposures) == (4, 0)
 
         assert direct_result.baseline is not None and direct_result.variant_results is not None
         assert precomputed_result.baseline is not None and precomputed_result.variant_results is not None

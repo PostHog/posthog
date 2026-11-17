@@ -199,7 +199,7 @@ The exposure precomputation does NOT need this extension — exposures only occu
 
 ## CUPED lookback
 
-A CUPED metric needs each user's metric events from the `lookback_days` before their first exposure. The build starts `lookback_days` before the experiment start, and the precomputed read starts there too, so the covariate comes from the stored rows. For funnels, the read keeps the experiment start on `step_0`, so an exposure stored from before the start never anchors a funnel. The rolled-back start is part of the job hash: a metric builds separate jobs with CUPED on and off, and a metric that never had CUPED keeps its jobs.
+A CUPED metric needs each user's metric events from the `lookback_days` before their first exposure. The build starts `lookback_days` before the experiment start, and the precomputed read starts there too, so the covariate comes from the stored rows. For funnels, only the step scan rolls back: the build's exposure branch keeps the experiment start, and the read keeps it on `step_0`, so a pre-start exposure is neither stored on its own nor anchors a funnel. The rolled-back start is part of the job hash: a metric builds separate jobs with CUPED on and off, and a metric that never had CUPED keeps its jobs.
 
 ## Key differences from exposure precomputation
 

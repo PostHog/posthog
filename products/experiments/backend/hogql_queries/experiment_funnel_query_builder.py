@@ -513,6 +513,12 @@ class FunnelQueryBuilder:
             AND {test_accounts_filter}
             AND {variant_property} IN {variants}
         """
+        # CUPED rolls the step scan back by lookback_days, but an exposure before the experiment never
+        # anchors a funnel, so the exposure branch keeps the experiment start. Only a CUPED build gets
+        # the extra placeholder: its rolled-back start already gives it a job hash of its own, and the
+        # template of every other funnel build stays byte for byte.
+        if self._b.cuped_config.enabled:
+            exposure_filter_sql = exposure_filter_sql.replace("{experiment_date_from}", "{exposure_date_from}")
         # The stored step_0 flag must be date-independent: {experiment_date_to} resolves to the
         # build horizon at INSERT time, and jobs are reused by reads with an earlier end date
         # (recalculation as_of, timeseries backfill). A baked date bound would mark exposures
@@ -560,10 +566,9 @@ class FunnelQueryBuilder:
             "test_accounts_filter": self._b._exposure_query_builder().build_test_accounts_filter(),
             "variant_property": self._b._build_variant_property(),
             "variants": ast.Constant(value=list(self._b.variants)),
-            # With CUPED the build starts lookback_days earlier, so the stored rows also cover the
+            # With CUPED the step scan starts lookback_days earlier, so the stored rows also cover the
             # pre-exposure covariate window. The rolled-back date is part of the job hash, so a CUPED
-            # metric builds its own jobs. Exposures before the start are stored too, but the read
-            # re-applies the experiment start to step_0, so they never anchor a funnel.
+            # metric builds its own jobs.
             "experiment_date_from": self._b._extend_date_from_for_funnel_cuped(
                 self._b.date_range_query.date_from_as_hogql()
             ),
@@ -571,6 +576,8 @@ class FunnelQueryBuilder:
             "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
             "funnel_steps_filter": funnel_steps_to_filter(self._b.team, self._b.metric.series),
         }
+        if self._b.cuped_config.enabled:
+            placeholders["exposure_date_from"] = self._b.date_range_query.date_from_as_hogql()
 
         return query_string, placeholders
 

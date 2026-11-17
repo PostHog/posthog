@@ -173,11 +173,11 @@
                   _toUInt8(if(equals(event, '$pageview'), 1, 0)),
                   _toUInt8(if(equals(event, 'purchase'), 1, 0))] AS steps
   FROM events
-  WHERE and(greaterOrEquals(timestamp, '__TIME_WINDOW_MIN__'), less(timestamp, '__TIME_WINDOW_MAX__'), or(and(greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(14))), lessOrEquals(timestamp, '__EXPERIMENT_DATE_TO__'), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(14))), lessOrEquals(timestamp, plus('__EXPERIMENT_DATE_TO__', toIntervalSecond(604800))), or(equals(event, '$pageview'), equals(event, 'purchase')))))
+  WHERE and(greaterOrEquals(timestamp, '__TIME_WINDOW_MIN__'), less(timestamp, '__TIME_WINDOW_MAX__'), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, '__EXPERIMENT_DATE_TO__'), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), and(greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2024-01-01 00:00:00')), toIntervalDay(14))), lessOrEquals(timestamp, plus('__EXPERIMENT_DATE_TO__', toIntervalSecond(604800))), or(equals(event, '$pageview'), equals(event, 'purchase')))))
   '''
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_cuped_precompute_write.1
-  '48227f0b54d335b8cdc8e62848a4317bc107636e7ef74117a33d97ab54e91099'
+  'ab8d34bdb5aea0b55d710a16b70ef0eb82e5bea1d5c15a672695ee8c866625a2'
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_cuped_precomputed
   '''
