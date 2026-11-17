@@ -2,12 +2,14 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { LemonCollapse, Spinner } from '@posthog/lemon-ui'
+import { IconCheck } from '@posthog/icons'
+import { LemonCollapse, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputType, CyclotronJobInvocationGlobals, HogFunctionMappingType } from '~/types'
 
@@ -16,7 +18,7 @@ import { hogFlowEditorTestLogic } from '../../panel/testing/hogFlowEditorTestLog
 import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowReferenceInput'
-import { EmailEngagementEventsNotice } from './EmailEngagementEventsNotice'
+import { EnableEngagementEventsBanner } from './EnableEngagementEventsBanner'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
 
@@ -218,6 +220,7 @@ export function HogFlowFunctionConfiguration({
     const template = hogFunctionTemplatesById[templateId]
     const isEmailStep = templateId === 'template-email'
     const isPushStep = templateId === 'template-native-push'
+    const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
         if (template) {
@@ -329,7 +332,22 @@ export function HogFlowFunctionConfiguration({
                     ]}
                 />
             )}
-            {isEmailStep ? <EmailEngagementEventsNotice /> : null}
+            {isEmailStep ? (
+                engagementEventsEnabled ? (
+                    <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-alt">
+                        <IconCheck className="text-success text-base" />
+                        <span>Email engagement is being captured as PostHog events.</span>
+                        <Link
+                            to={urls.settings('environment-workflows', 'workflows-engagement-events')}
+                            target="_blank"
+                        >
+                            Manage in settings
+                        </Link>
+                    </div>
+                ) : (
+                    <EnableEngagementEventsBanner />
+                )
+            ) : null}
             <HogFlowFunctionMappings
                 useMapping={!isPushStep && (Array.isArray(mappings) || (template?.mapping_templates?.length ?? 0) > 0)}
                 inputs={inputs}

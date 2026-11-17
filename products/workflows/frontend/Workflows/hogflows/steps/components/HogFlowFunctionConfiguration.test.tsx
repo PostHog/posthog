@@ -4,6 +4,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import posthog from 'posthog-js'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 
@@ -241,18 +242,25 @@ describe('HogFlowFunctionConfiguration', () => {
         const engagementButton = (): HTMLElement =>
             screen.getByText('Enable engagement events').closest('button') as HTMLElement
 
-        async function renderEmailStep(level: OrganizationMembershipLevel): Promise<void> {
+        async function renderEmailStep(level: OrganizationMembershipLevel, engagementEventsOn = false): Promise<void> {
             initKeaTests(true, {
                 ...MOCK_DEFAULT_TEAM,
                 effective_membership_level: level,
-                workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, capture_workflows_engagement_events: false },
+                workflows_config: {
+                    ...MOCK_DEFAULT_TEAM.workflows_config,
+                    capture_workflows_engagement_events: engagementEventsOn,
+                },
             })
             render(
                 <BindLogic logic={workflowLogic} props={logicProps}>
                     <HogFlowFunctionConfiguration templateId="template-email" inputs={{}} setInputs={() => {}} />
                 </BindLogic>
             )
-            await screen.findByText('Enable engagement events')
+            await screen.findByText(
+                engagementEventsOn
+                    ? 'Email engagement is being captured as PostHog events.'
+                    : 'Enable engagement events'
+            )
         }
 
         it('disables the button for a project member and says who can turn it on', async () => {
@@ -267,6 +275,15 @@ describe('HogFlowFunctionConfiguration', () => {
             await renderEmailStep(OrganizationMembershipLevel.Admin)
 
             expect(engagementButton()).toHaveAttribute('aria-disabled', 'false')
+        })
+
+        it('records no restricted area visit for a member once engagement events are on', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
+
+            await renderEmailStep(OrganizationMembershipLevel.Member, true)
+
+            expect(capture).not.toHaveBeenCalledWith('restricted_area_accessed', expect.anything())
+            capture.mockRestore()
         })
     })
 })

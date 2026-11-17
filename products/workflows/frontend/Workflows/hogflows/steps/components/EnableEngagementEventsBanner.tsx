@@ -1,32 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-export function EmailEngagementEventsNotice(): JSX.Element {
+export function EnableEngagementEventsBanner(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-
-    if (currentTeam?.workflows_config?.capture_workflows_engagement_events) {
-        return (
-            <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-alt">
-                <IconCheck className="text-success text-base" />
-                <span>Email engagement is being captured as PostHog events.</span>
-                <Link to={urls.settings('environment-workflows', 'workflows-engagement-events')} target="_blank">
-                    Manage in settings
-                </Link>
-            </div>
-        )
-    }
 
     const disabledReason =
         restrictedReason && isAuthenticatedTeam(currentTeam)
