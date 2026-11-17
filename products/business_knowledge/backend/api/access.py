@@ -2,6 +2,7 @@ from typing import Any
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
@@ -30,7 +31,7 @@ class KnowledgeAccessViewSet(TeamAndOrgViewSetMixin, ViewSet):
     scope_object = "business_knowledge"
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     # Every action listed here must apply the key's library limit from `key_libraries`.
-    psak_allowed_actions = ["list"]
+    psak_allowed_actions = ["access"]
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
@@ -51,7 +52,8 @@ class KnowledgeAccessViewSet(TeamAndOrgViewSetMixin, ViewSet):
         ),
         operation_id="business_knowledge_access_retrieve",
     )
-    def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+    @action(detail=False, methods=["GET"], url_path="access", required_scopes=["business_knowledge:read"])
+    def access(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         library_id = key_library_id(request)
         return Response(
             KnowledgeAccessSerializer(

@@ -81,8 +81,8 @@ export const getBusinessKnowledgeAccessRetrieveUrl = (projectId: string) => {
 export const businessKnowledgeAccessRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<KnowledgeAccessApi[]> => {
-    return apiMutator<KnowledgeAccessApi[]>(getBusinessKnowledgeAccessRetrieveUrl(projectId), {
+): Promise<KnowledgeAccessApi> => {
+    return apiMutator<KnowledgeAccessApi>(getBusinessKnowledgeAccessRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
