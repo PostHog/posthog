@@ -19,7 +19,12 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
-from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
+from posthog.hogql.direct_connection import (
+    INVALID_CONNECTION_ID_ERROR,
+    get_direct_connection_source,
+    raw_query_uses_organization_grant,
+    require_browser_session_for_organization_grant,
+)
 from posthog.hogql.direct_sql import get_adapter_for_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
@@ -79,6 +84,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._direct_connection_validated = False
         self._direct_engine: str | None = None
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
+        self._raw_query_on_organization_grant = False
         self._trino_canary = False
         super().__init__(*args, **kwargs)
 
@@ -160,6 +166,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             validate_managed_trino_query(self.query, self.team, user if user is not None else self.user)
         managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         direct_engine: str | None = None
+        raw_query_on_organization_grant = False
         if self.query.connectionId:
             source = get_direct_connection_source(
                 self.team,
@@ -176,7 +183,13 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
                     adapter = get_adapter_for_source(source, team=self.team)
                     direct_engine = adapter.engine if adapter is not None else None
+                raw_query_on_organization_grant = bool(self.query.sendRawQuery) and raw_query_uses_organization_grant(
+                    source
+                )
+                if raw_query_on_organization_grant:
+                    require_browser_session_for_organization_grant()
         self._managed_warehouse_sql_mode = managed_warehouse_sql_mode
+        self._raw_query_on_organization_grant = raw_query_on_organization_grant
         self._direct_engine = direct_engine
         self._trino_canary = self._decide_trino_canary(user if user is not None else self.user)
         self._direct_connection_validated = True
@@ -234,11 +247,15 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._validate_direct_connection()
         if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO and self.query.sendRawQuery:
             return [managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL]
+        labels: list[str] = []
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
-            return [
+            labels.append(
                 f"{managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{self.query.connectionId}"
-            ]
-        return None
+            )
+        if self._raw_query_on_organization_grant:
+            # A query status read with this label rechecks the browser session and project access.
+            labels.append(managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL)
+        return labels or None
 
     def run(
         self,

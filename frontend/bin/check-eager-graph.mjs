@@ -145,6 +145,9 @@ const ROOTS = [
             'src/layout/navigation/projectNoticeLogic.tsx',
             // Only impersonating staff see this notice, and it pulls in react-draggable.
             'src/layout/navigation/ImpersonationNotice/ImpersonationNotice.tsx',
+            // Toolbar-only code. App modules reach the mounted toolbar through lib/toolbar/toolbarRuntime.ts.
+            'src/toolbar/shared/toolbarConfigLogic.ts',
+            'src/toolbar/shared/toolbarFetch.ts',
             // The cohort saved toast pulls in the workflows audience code and generated API clients.
             'src/scenes/cohorts/cohortSavedToast.ts',
             // The wizard run card opens this drawer on click, and the drawer pulls in quill primitives.
@@ -247,6 +250,10 @@ const ROOTS = [
             // esbuild splits chunks by what can reach a file, so one static import through the quill-charts
             // barrel puts every chart type on the home load. The home sparklines load lazily instead.
             'packages/quill/packages/charts/',
+            // The home starts runs but shows no run thread. A hit means a module on the home path imports
+            // `posthog_ai/frontend/api/logics` statically. Import `api/launch`, and load `api/logics`
+            // with a dynamic import where the run starts.
+            'products/posthog_ai/frontend/logics/runStreamLogic.ts',
         ],
     },
     {

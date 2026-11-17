@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -485,7 +486,13 @@ class TestOfflineEvaluationService(TestCase):
 
     @parameterized.expand([(-1, 0), (0, 2), (1, 2)])
     def test_retention_boundary_and_run_event(self, seconds: int, expected: int) -> None:
-        receipt = self.ingestion.upload(self.experiment.id, self.submission)
+        submission = UploadSubmission(
+            items=[replace(self.item, payload={"input": "café 雪", "output": None})],
+            results=[replace(self.result, payload={})],
+        )
+        item_bytes = len('{"input": "café 雪", "output": null}'.encode())
+        result_bytes = 2
+        receipt = self.ingestion.upload(self.experiment.id, submission)
         experiment_before = OfflineExperiment.objects.for_team(self.team.id).values().get()
         item_before = OfflineExperimentItem.objects.for_team(self.team.id).values().get()
         result_before = OfflineEvaluationResult.objects.for_team(self.team.id).values().get()
@@ -497,6 +504,9 @@ class TestOfflineEvaluationService(TestCase):
             expire_offline_evaluation_payloads()
             properties = scoped.return_value.__enter__.return_value.call_args.kwargs["properties"]
             self.assertEqual(properties["payloads_expired"], expected)
+            self.assertEqual(properties["item_payload_bytes_deleted"], item_bytes if expected else 0)
+            self.assertEqual(properties["result_payload_bytes_deleted"], result_bytes if expected else 0)
+            self.assertEqual(properties["payload_bytes_deleted"], item_bytes + result_bytes if expected else 0)
             self.assertEqual(properties["batches"], expected)
             self.assertEqual(properties["status"], "completed")
             self.assertEqual(OfflineExperimentItemPayload.objects.for_team(self.team.id).count(), 1 - expected // 2)
@@ -504,6 +514,9 @@ class TestOfflineEvaluationService(TestCase):
             expire_offline_evaluation_payloads()
             self.assertEqual(
                 scoped.return_value.__enter__.return_value.call_args.kwargs["properties"]["payloads_expired"], 0
+            )
+            self.assertEqual(
+                scoped.return_value.__enter__.return_value.call_args.kwargs["properties"]["payload_bytes_deleted"], 0
             )
         if expected:
             item_before["payload_state"] = PayloadState.EXPIRED
@@ -553,6 +566,8 @@ class TestOfflineEvaluationService(TestCase):
 
     @parameterized.expand([("item",), ("result",)])
     def test_retention_rolls_back_payload_deletion_and_reports_failure(self, failing_owner: str) -> None:
+        item_bytes = len(json.dumps(self.item.payload, ensure_ascii=False).encode())
+        result_bytes = len(json.dumps(self.result.payload, ensure_ascii=False).encode())
         receipt = self.ingestion.upload(self.experiment.id, self.submission)
         failing_model = OfflineExperimentItem if failing_owner == "item" else OfflineEvaluationResult
         original_update = TeamScopedQuerySet.update
@@ -578,6 +593,7 @@ class TestOfflineEvaluationService(TestCase):
             committed = int(failing_owner == "result")
             self.assertEqual(properties["batches"], committed)
             self.assertEqual(properties["payloads_expired"], committed)
+            self.assertEqual(properties["payload_bytes_deleted"], item_bytes if committed else 0)
             self.assertEqual(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists(), not committed)
             self.assertTrue(OfflineEvaluationResultPayload.objects.for_team(self.team.id).exists())
             self.assertEqual(failing_model.objects.for_team(self.team.id).get().payload_state, PayloadState.AVAILABLE)
@@ -585,6 +601,7 @@ class TestOfflineEvaluationService(TestCase):
             retry = scoped.return_value.__enter__.return_value.call_args.kwargs["properties"]
             self.assertEqual(retry["status"], "completed")
             self.assertEqual(retry["payloads_expired"], 2 - committed)
+            self.assertEqual(retry["payload_bytes_deleted"], result_bytes + (0 if committed else item_bytes))
         self.assertFalse(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists())
         self.assertFalse(OfflineEvaluationResultPayload.objects.for_team(self.team.id).exists())
 
@@ -785,7 +802,9 @@ class TestOfflineEvaluationServiceConcurrency(TransactionTestCase):
     def setUp(self) -> None:
         _, _, self.team = Organization.objects.bootstrap(None)
         self.lifecycle = OfflineExperimentService(team_id=self.team.id, user_access_control=None)
-        self.ingestion = OfflineEvaluationIngestionService(team_id=self.team.id, user_access_control=None)
+        self.ingestion = OfflineEvaluationIngestionService(
+            team_id=self.team.id, user_access_control=None, can_read_results=True
+        )
         self.experiment = self.lifecycle.create(
             ExperimentSubmission(id=uuid4(), name="Concurrent upload", started_at=timezone.now())
         ).experiment
@@ -890,6 +909,44 @@ class TestOfflineEvaluationServiceConcurrency(TransactionTestCase):
             list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)),
             [1, 1] if overlapping else [1],
         )
+
+    def test_composite_waits_for_concurrent_input_commit_and_duplicate_is_idempotent(self) -> None:
+        source = self.submission.results[0]
+        scorer = ScoreDefinition.objects.create(team=self.team, name="Overall", kind="numeric", calculation="composite")
+        version = scorer.create_new_version(
+            config={},
+            composition={
+                "expression": "score",
+                "inputs": [{"alias": "score", "scorer_version_id": str(source.scorer_version_id)}],
+            },
+            created_by=None,
+        )
+        request = UploadSubmission(
+            results=[
+                ResultSubmission(item_id=source.item_id, scorer_version_id=version.id, status="ok", calculate=True)
+            ]
+        )
+        started = Event()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with transaction.atomic():
+                self.ingestion.upload(self.experiment.id, self.submission)
+                pending = executor.submit(
+                    self._run_second_operation, lambda: self.ingestion.upload(self.experiment.id, request), started
+                )
+                self.assertTrue(started.wait(timeout=10))
+            computed = pending.result(timeout=10)
+            started.clear()
+            with transaction.atomic():
+                first = self.ingestion.upload(self.experiment.id, request)
+                pending = executor.submit(
+                    self._run_second_operation, lambda: self.ingestion.upload(self.experiment.id, request), started
+                )
+                self.assertTrue(started.wait(timeout=10))
+            duplicate = pending.result(timeout=10)
+        assert isinstance(computed, UploadReceipt) and isinstance(duplicate, UploadReceipt)
+        self.assertEqual(duplicate.results, first.results)
+        self.assertEqual(duplicate.results[0].id, computed.results[0].id)
+        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 2)
 
     def test_concurrent_experiment_creation_returns_one_identity(self) -> None:
         submission = ExperimentSubmission(id=uuid4(), name="Retried creation", started_at=self.experiment.started_at)

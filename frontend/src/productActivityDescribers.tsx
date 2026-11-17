@@ -43,6 +43,14 @@ export const productActivityDescribers: Partial<Record<ActivityScope, () => Prom
         import('../../products/dashboards/frontend/dashboardActivityDescriber').then(
             (module) => module.dashboardActivityDescriber
         ),
+    [ActivityScope.DATA_QUALITY_CHECK]: () =>
+        import('../../products/data_quality/frontend/activityDescriber').then(
+            (module) => module.dataQualityCheckActivityDescriber
+        ),
+    [ActivityScope.DATA_QUALITY_CHECK_SCHEDULE]: () =>
+        import('../../products/data_quality/frontend/activityDescriber').then(
+            (module) => module.dataQualityCheckScheduleActivityDescriber
+        ),
     [ActivityScope.DATA_WAREHOUSE_SAVED_QUERY]: () =>
         import('scenes/data-warehouse/saved_queries/activityDescriptions').then(
             (module) => module.dataWarehouseSavedQueryActivityDescriber

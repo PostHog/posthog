@@ -2185,6 +2185,61 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "$virt_is_bot": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_is_bot`",
+                  "id": null,
+                  "name": "$virt_is_bot",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "$virt_traffic_type": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_type`",
+                  "id": null,
+                  "name": "$virt_traffic_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_traffic_category": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_category`",
+                  "id": null,
+                  "name": "$virt_traffic_category",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_bot_name": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_name`",
+                  "id": null,
+                  "name": "$virt_bot_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_bot_operator": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_operator`",
+                  "id": null,
+                  "name": "$virt_bot_operator",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "logs",
@@ -3157,6 +3212,17 @@
                   "table": null,
                   "type": "boolean"
               },
+              "names_brand": {
+                  "chain": null,
+                  "description": "The answer text names one of the project's own brands. An answer with `cited` true also counts as a mention. Null when the check failed, and on older checks not yet filled in.",
+                  "fields": null,
+                  "hogql_value": "names_brand",
+                  "id": null,
+                  "name": "names_brand",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
               "num_citations": {
                   "chain": null,
                   "description": "How many URLs the answer cited.",
@@ -3667,11 +3733,11 @@
       },
       "system.alerts": {
           "certification": null,
-          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert.",
+          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the insight alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -3759,7 +3825,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -3781,7 +3847,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -12341,11 +12407,11 @@
       },
       "system.logs_alerts": {
           "certification": null,
-          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert.",
+          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the logs alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -12510,7 +12576,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -12532,7 +12598,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -13710,17 +13776,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "float"
-              },
-              "sampling_mode": {
-                  "chain": null,
-                  "description": "Quality pre-filter: focused, balanced or comprehensive.",
-                  "fields": null,
-                  "hogql_value": "sampling_mode",
-                  "id": null,
-                  "name": "sampling_mode",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
               },
               "model": {
                   "chain": null,
@@ -18940,6 +18995,61 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "$virt_is_bot": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_is_bot`",
+                  "id": null,
+                  "name": "$virt_is_bot",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "$virt_traffic_type": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_type`",
+                  "id": null,
+                  "name": "$virt_traffic_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_traffic_category": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_traffic_category`",
+                  "id": null,
+                  "name": "$virt_traffic_category",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_bot_name": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_name`",
+                  "id": null,
+                  "name": "$virt_bot_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_bot_operator": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_bot_operator`",
+                  "id": null,
+                  "name": "$virt_bot_operator",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "logs",
@@ -19912,6 +20022,17 @@
                   "table": null,
                   "type": "boolean"
               },
+              "names_brand": {
+                  "chain": null,
+                  "description": "The answer text names one of the project's own brands. An answer with `cited` true also counts as a mention. Null when the check failed, and on older checks not yet filled in.",
+                  "fields": null,
+                  "hogql_value": "names_brand",
+                  "id": null,
+                  "name": "names_brand",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
               "num_citations": {
                   "chain": null,
                   "description": "How many URLs the answer cited.",
@@ -20422,11 +20543,11 @@
       },
       "system.alerts": {
           "certification": null,
-          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert.",
+          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the insight alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -20514,7 +20635,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -20536,7 +20657,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -29096,11 +29217,11 @@
       },
       "system.logs_alerts": {
           "certification": null,
-          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert.",
+          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the logs alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -29265,7 +29386,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -29287,7 +29408,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -30465,17 +30586,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "float"
-              },
-              "sampling_mode": {
-                  "chain": null,
-                  "description": "Quality pre-filter: focused, balanced or comprehensive.",
-                  "fields": null,
-                  "hogql_value": "sampling_mode",
-                  "id": null,
-                  "name": "sampling_mode",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
               },
               "model": {
                   "chain": null,

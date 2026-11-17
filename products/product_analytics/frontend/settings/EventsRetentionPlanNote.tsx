@@ -8,7 +8,6 @@ import { urls } from 'scenes/urls'
 import { BillingPlan } from '~/types'
 
 import type { OrganizationEventsRetentionApi } from 'products/product_analytics/frontend/generated/api.schemas'
-import { LONGEST_PLAN_RETENTION_MONTHS } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 
 import { retentionPeriodLabel } from './retentionPeriodLabel'
 
@@ -16,6 +15,8 @@ export type EventsRetentionPlan = Pick<
     OrganizationEventsRetentionApi,
     'plan_retention_months' | 'default_retention_months' | 'default_is_grandfathered'
 >
+
+const LONGEST_PLAN_RETENTION_MONTHS = 84
 
 const BILLING_PLAN_NAMES: Record<BillingPlan, string> = {
     [BillingPlan.Free]: 'Free',

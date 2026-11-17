@@ -90,7 +90,9 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     // visual-review, etc.) stay off to keep the surface stable.
     // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
     const featureFlags = {
+        'workflows-resend-import': true,
         'self-driving-usage-display': true,
+        'today-rail-nav': true,
         tracing: true,
         tasks: true,
         'tasks-mcp-agent-run-start': true,
@@ -101,8 +103,10 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'signals-report-monitoring': true,
         'inbox-report-actions-mcp': true,
         'inbox-reports-create-mcp': true,
+        'workflows-bulk-suppressions-mcp': true,
         'signals-reviewer-exclusions-mcp': true,
         'ai-observability-offline-evaluations': true,
+        'ai-observability-composite-validation': true,
         'workflows-supabase-auth-emails': true,
         'warehouse-suggestions': true,
         'workflows-destination-suggestion': true,
@@ -110,7 +114,6 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'subscription-source-summaries': true,
         'marketing-analytics-conversion-setup-ai': true,
         'marketing-analytics-recommendations': true,
-        'workflows-mcp-onboarding': true,
         'workflows-sending-tier-requests': true,
         'insight-data-checks': true,
         'workflows-transactional-email-api': true,
@@ -124,9 +127,13 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'mcp-session-recording-console-logs': true,
         'anomalies-search': true,
         'warehouse-multi-destination': true,
+        'dwh-custom-source-ai-builder': true,
         'feature-flag-rules-v2-mcp': true,
         'discussions-slack-sync': true,
         'ui-customization': true,
+        'platform-alerts-source-warehouse': true,
+        'logs-agent-tools': true,
+        'signals-source-filters': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
         a.name.localeCompare(b.name)

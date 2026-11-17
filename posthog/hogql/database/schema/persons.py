@@ -28,6 +28,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     WhereClauseExtractor,
     is_nondeterministic_function,
     top_level_conjuncts,
+    unwrap_table_alias_type,
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
@@ -187,10 +188,11 @@ def select_from_persons_table(
         # Skip aggregate, DISTINCT, and window-function selects too: they must see every person, and
         # the executor stamps a default LIMIT on every query, so pushing it down would cap
         # e.g. `SELECT count() FROM persons` at the page size instead of counting the whole team.
-        # HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
+        # JOIN, HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
         # rows after deduplication, so they need the full person set as well.
         can_push_to_inner = (
             node.select_from
+            and not node.select_from.next_join
             and node.select_from.type
             and hasattr(node.select_from.type, "table")
             and node.select_from.type.table
@@ -374,6 +376,13 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
     )
 
 
+def _person_id_pushdown_applies(join_to_add: LazyJoinToAdd, context: HogQLContext) -> bool:
+    if context.modifiers.personIdPushdown is not None:
+        return context.modifiers.personIdPushdown
+    left = unwrap_table_alias_type(join_to_add.lazy_join_type.table_type)
+    return isinstance(left, (ast.TableType, ast.LazyTableType)) and left.table.person_id_pushdown_default
+
+
 def persons_join_is_inner(context: HogQLContext) -> bool:
     """True when the persons join drops each row that has no persons row."""
     team = context.team
@@ -407,7 +416,11 @@ def join_with_persons_table(
 
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from persons table")
-    pushdown = build_person_id_pushdown_predicate(join_to_add, node) if context.modifiers.personIdPushdown else None
+    pushdown = (
+        build_person_id_pushdown_predicate(join_to_add, node)
+        if _person_id_pushdown_applies(join_to_add, context)
+        else None
+    )
     join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node, filter=pushdown))
 
     join_expr.join_type = "INNER JOIN" if persons_join_is_inner(context) else "LEFT JOIN"

@@ -344,6 +344,59 @@ export interface ActivitySummarySearchMatchApi {
     snippet: string | null
 }
 
+/**
+ * * `owned` - Owned
+ * * `watched` - Watched
+ */
+export type SummaryObjectRelationEnumApi =
+    (typeof SummaryObjectRelationEnumApi)[keyof typeof SummaryObjectRelationEnumApi]
+
+export const SummaryObjectRelationEnumApi = {
+    Owned: 'owned',
+    Watched: 'watched',
+} as const
+
+export interface ActivitySummarySearchObjectApi {
+    /** `owned` when the member changed the object, `watched` when they opened it on many days.
+     *
+     * * `owned` - Owned
+     * * `watched` - Watched */
+    relation: SummaryObjectRelationEnumApi
+    /** The object type, such as `insight` or `dashboard`. */
+    type: string
+    /** The short id for an insight, a notebook or a replay playlist, else the primary key. */
+    id: string
+    /** The object name. */
+    name: string
+    /**
+     * Days the member changed the object. Set on an owned object only.
+     * @nullable
+     */
+    edit_days: number | null
+    /**
+     * Days the member opened the object. Set on a watched object only.
+     * @nullable
+     */
+    open_days: number | null
+    /**
+     * The last day of the change or the view, as YYYY-MM-DD.
+     * @nullable
+     */
+    last_at: string | null
+    /**
+     * True when someone else created the watched object. Null on an owned object.
+     * @nullable
+     */
+    not_theirs: boolean | null
+}
+
+export interface ActivitySummarySearchProductsApi {
+    /** Products the member changed something in, the most active first. */
+    works_in: ActivitySummaryProductEnumApi[]
+    /** Products the member only opened, the most opened first. */
+    visits: ActivitySummaryProductEnumApi[]
+}
+
 export interface ActivitySummarySearchHitApi {
     /** The member. Use it in `suggested_reviewers`. */
     user_uuid: string
@@ -363,6 +416,8 @@ export interface ActivitySummarySearchHitApi {
     score: number | null
     /** Why this member matched. */
     matched_on: ActivitySummarySearchMatchApi[]
+    /** The member's owned and watched objects that matched the object filter, or whose name matched a query term. */
+    objects: ActivitySummarySearchObjectApi[]
     /**
      * One or two sentences about what the member works on in this project.
      * @nullable
@@ -372,6 +427,8 @@ export interface ActivitySummarySearchHitApi {
     themes: ActivitySummaryThemeApi[]
     /** How the member works in this project overall, the main mode first. */
     modes: ActivitySummaryModeEnumApi[]
+    /** The products the member works in or visits. */
+    products: ActivitySummarySearchProductsApi
     /**
      * When this summary was written.
      * @nullable
@@ -389,6 +446,8 @@ export interface ActivitySummarySearchHitApi {
 export interface ActivitySummarySearchResultApi {
     /** The matching members, best match first. */
     results: ActivitySummarySearchHitApi[]
+    /** All the members that matched, before `offset` and `limit`. */
+    total: number
     /** False when the search used keywords only: a `keyword` search, a request with no query, or a `hybrid` search whose vector search failed. */
     semantic_used: boolean
     /** Members with access to the project and no summary yet. The search cannot find them. */
@@ -564,6 +623,17 @@ export const AnomalyGroupByEnumApi = {
     Insight: 'insight',
 } as const
 
+/**
+ * * `unusual` - Unusual
+ * * `recent` - Recent
+ */
+export type AnomalyOrderEnumApi = (typeof AnomalyOrderEnumApi)[keyof typeof AnomalyOrderEnumApi]
+
+export const AnomalyOrderEnumApi = {
+    Unusual: 'unusual',
+    Recent: 'recent',
+} as const
+
 export interface AnomalyFlaggedPointApi {
     /** The start of the flagged bucket, in the project timezone. */
     bucket_start: string
@@ -577,6 +647,18 @@ export interface AnomalyFlaggedPointApi {
      * @nullable
      */
     score: number | null
+}
+
+export interface AnomalySeriesPointApi {
+    /** The start of the scored bucket, in the project timezone. */
+    bucket_start: string
+    /**
+     * The series value of the bucket at scoring time.
+     * @nullable
+     */
+    value: number | null
+    /** Whether the detector flagged the bucket. */
+    flag: boolean
 }
 
 export interface AnomalySeriesApi {
@@ -646,6 +728,8 @@ export interface AnomalySeriesApi {
     last_flagged_bucket: string | null
     /** Up to 5 flagged buckets in the range, newest first. */
     flagged_points: AnomalyFlaggedPointApi[]
+    /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
+    points?: AnomalySeriesPointApi[]
 }
 
 export interface AnomalyTopSeriesApi {
@@ -705,7 +789,7 @@ export interface AnomalyInsightRowApi {
      * @nullable
      */
     last_flagged_bucket: string | null
-    /** Up to 3 flagged series, most anomalous first. */
+    /** Up to 3 flagged series, in the requested `order`. */
     top_series: AnomalyTopSeriesApi[]
 }
 
@@ -729,10 +813,17 @@ export interface AnomalySearchResponseApi {
      * * `series` - Series
      * * `insight` - Insight */
     group_by: AnomalyGroupByEnumApi
-    /** One row per series, most anomalous first. Empty unless `group_by` is `series`. */
+    /** The applied order.
+     *
+     * * `unusual` - Unusual
+     * * `recent` - Recent */
+    order: AnomalyOrderEnumApi
+    /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
     series: AnomalySeriesApi[]
-    /** One row per insight, most anomalous first. Empty unless `group_by` is `insight`. */
+    /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
     insights: AnomalyInsightRowApi[]
+    /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
+    has_more: boolean
     /** True when `limit` or a read cap left rows out. */
     truncated: boolean
     /**
@@ -819,6 +910,21 @@ export interface SignalTeamConfigApi {
      * @maxLength 20000
      */
     implementation_instructions?: string
+    /**
+     * ID of a project-shared custom sandbox image that scout runs without their own image start from. Null uses the standard image. Only a project admin with editor access to skills can set it. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    scout_custom_image_id?: string | null
+    /**
+     * ID of a project-shared custom sandbox image that report research and monitoring assessment runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    research_custom_image_id?: string | null
+    /**
+     * ID of a project-shared custom sandbox image that report implementation runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    implementation_custom_image_id?: string | null
     /**
      * Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.
      * @nullable
@@ -987,6 +1093,18 @@ export interface InboxOnboardingJobsApi {
 }
 
 /**
+ * * `app` - App
+ * * `agent` - Agent
+ */
+export type InboxOnboardingOriginEnumApi =
+    (typeof InboxOnboardingOriginEnumApi)[keyof typeof InboxOnboardingOriginEnumApi]
+
+export const InboxOnboardingOriginEnumApi = {
+    App: 'app',
+    Agent: 'agent',
+} as const
+
+/**
  * * `github_optional` - GitHub optional
  */
 export type InboxActivationModeEnumApi = (typeof InboxActivationModeEnumApi)[keyof typeof InboxActivationModeEnumApi]
@@ -1073,6 +1191,9 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
  * * `google_search_console` - Google Search Console
+ * * `bing_webmaster_tools` - Bing Webmaster Tools
+ * * `ahrefs` - Ahrefs
+ * * `semrush` - Semrush
  * * `pagerduty` - PagerDuty
  * * `opsgenie` - Opsgenie
  * * `incident_io` - incident.io
@@ -1113,6 +1234,14 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `statuspage` - Statuspage
  * * `cronitor` - Cronitor
  * * `instatus` - Instatus
+ * * `rootly` - Rootly
+ * * `zenduty` - Zenduty
+ * * `splunk_observability_cloud` - Splunk Observability Cloud
+ * * `uptimerobot` - UptimeRobot
+ * * `rootly_alerts` - Rootly alerts
+ * * `incident_io_alerts` - incident.io alerts
+ * * `firehydrant_alerts` - FireHydrant alerts
+ * * `grafana_irm_alert_groups` - Grafana IRM alert groups
  * * `asana` - Asana
  * * `monday` - monday.com
  * * `plane` - Plane
@@ -1120,6 +1249,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `helpscout` - Help Scout
  * * `decagon` - Decagon
  * * `vitally` - Vitally
+ * * `intercom_tickets` - Intercom tickets
+ * * `pylon` - Pylon
  * * `usersnap` - Usersnap
  * * `typeform` - Typeform
  * * `qualtrics` - Qualtrics
@@ -1134,6 +1265,38 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `azure_application_insights` - Azure Application Insights
  * * `appsignal` - AppSignal
  * * `cursor` - Cursor
+ * * `github_dependabot` - GitHub Dependabot
+ * * `github_code_scanning` - GitHub code scanning
+ * * `github_secret_scanning` - GitHub secret scanning
+ * * `beamer` - Beamer
+ * * `beamer_nps` - Beamer NPS
+ * * `chameleon` - Chameleon
+ * * `etsy` - Etsy
+ * * `featurebase_surveys` - Featurebase surveys
+ * * `g2` - G2
+ * * `gumroad` - Gumroad
+ * * `trustpilot_product_reviews` - Trustpilot product reviews
+ * * `uservoice_nps` - UserVoice NPS
+ * * `vitally_nps` - Vitally NPS
+ * * `woocommerce` - WooCommerce
+ * * `yotpo` - Yotpo
+ * * `airbrake` - Airbrake
+ * * `amazon_cloudwatch` - Amazon CloudWatch
+ * * `logicmonitor` - LogicMonitor
+ * * `mux` - Mux
+ * * `sonarcloud` - SonarCloud
+ * * `checkmarx` - Checkmarx
+ * * `veracode` - Veracode
+ * * `veracode_sca` - Veracode SCA
+ * * `semgrep_sca` - Semgrep Supply Chain
+ * * `gitguardian` - GitGuardian
+ * * `infisical` - Infisical
+ * * `aws_macie` - AWS Macie
+ * * `sentinelone` - SentinelOne
+ * * `jfrog_xray` - JFrog Xray
+ * * `dynatrace_security` - Dynatrace Application Security
+ * * `app_store_connect` - App Store Connect
+ * * `sentry_feedback` - Sentry user feedback
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1190,6 +1353,9 @@ export const SignalSourceProductEnumApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
+    BingWebmasterTools: 'bing_webmaster_tools',
+    Ahrefs: 'ahrefs',
+    Semrush: 'semrush',
     Pagerduty: 'pagerduty',
     Opsgenie: 'opsgenie',
     IncidentIo: 'incident_io',
@@ -1230,6 +1396,14 @@ export const SignalSourceProductEnumApi = {
     Statuspage: 'statuspage',
     Cronitor: 'cronitor',
     Instatus: 'instatus',
+    Rootly: 'rootly',
+    Zenduty: 'zenduty',
+    SplunkObservabilityCloud: 'splunk_observability_cloud',
+    Uptimerobot: 'uptimerobot',
+    RootlyAlerts: 'rootly_alerts',
+    IncidentIoAlerts: 'incident_io_alerts',
+    FirehydrantAlerts: 'firehydrant_alerts',
+    GrafanaIrmAlertGroups: 'grafana_irm_alert_groups',
     Asana: 'asana',
     Monday: 'monday',
     Plane: 'plane',
@@ -1237,6 +1411,8 @@ export const SignalSourceProductEnumApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -1251,6 +1427,38 @@ export const SignalSourceProductEnumApi = {
     AzureApplicationInsights: 'azure_application_insights',
     Appsignal: 'appsignal',
     Cursor: 'cursor',
+    GithubDependabot: 'github_dependabot',
+    GithubCodeScanning: 'github_code_scanning',
+    GithubSecretScanning: 'github_secret_scanning',
+    Beamer: 'beamer',
+    BeamerNps: 'beamer_nps',
+    Chameleon: 'chameleon',
+    Etsy: 'etsy',
+    FeaturebaseSurveys: 'featurebase_surveys',
+    G2: 'g2',
+    Gumroad: 'gumroad',
+    TrustpilotProductReviews: 'trustpilot_product_reviews',
+    UservoiceNps: 'uservoice_nps',
+    VitallyNps: 'vitally_nps',
+    Woocommerce: 'woocommerce',
+    Yotpo: 'yotpo',
+    Airbrake: 'airbrake',
+    AmazonCloudwatch: 'amazon_cloudwatch',
+    Logicmonitor: 'logicmonitor',
+    Mux: 'mux',
+    Sonarcloud: 'sonarcloud',
+    Checkmarx: 'checkmarx',
+    Veracode: 'veracode',
+    VeracodeSca: 'veracode_sca',
+    SemgrepSca: 'semgrep_sca',
+    Gitguardian: 'gitguardian',
+    Infisical: 'infisical',
+    AwsMacie: 'aws_macie',
+    Sentinelone: 'sentinelone',
+    JfrogXray: 'jfrog_xray',
+    DynatraceSecurity: 'dynatrace_security',
+    AppStoreConnect: 'app_store_connect',
+    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**
@@ -1358,6 +1566,9 @@ export interface InboxOnboardingSourceApi {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
+     * * `bing_webmaster_tools` - Bing Webmaster Tools
+     * * `ahrefs` - Ahrefs
+     * * `semrush` - Semrush
      * * `pagerduty` - PagerDuty
      * * `opsgenie` - Opsgenie
      * * `incident_io` - incident.io
@@ -1398,6 +1609,14 @@ export interface InboxOnboardingSourceApi {
      * * `statuspage` - Statuspage
      * * `cronitor` - Cronitor
      * * `instatus` - Instatus
+     * * `rootly` - Rootly
+     * * `zenduty` - Zenduty
+     * * `splunk_observability_cloud` - Splunk Observability Cloud
+     * * `uptimerobot` - UptimeRobot
+     * * `rootly_alerts` - Rootly alerts
+     * * `incident_io_alerts` - incident.io alerts
+     * * `firehydrant_alerts` - FireHydrant alerts
+     * * `grafana_irm_alert_groups` - Grafana IRM alert groups
      * * `asana` - Asana
      * * `monday` - monday.com
      * * `plane` - Plane
@@ -1405,6 +1624,8 @@ export interface InboxOnboardingSourceApi {
      * * `helpscout` - Help Scout
      * * `decagon` - Decagon
      * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
      * * `usersnap` - Usersnap
      * * `typeform` - Typeform
      * * `qualtrics` - Qualtrics
@@ -1418,7 +1639,39 @@ export interface InboxOnboardingSourceApi {
      * * `google_play_console` - Google Play Console
      * * `azure_application_insights` - Azure Application Insights
      * * `appsignal` - AppSignal
-     * * `cursor` - Cursor */
+     * * `cursor` - Cursor
+     * * `github_dependabot` - GitHub Dependabot
+     * * `github_code_scanning` - GitHub code scanning
+     * * `github_secret_scanning` - GitHub secret scanning
+     * * `beamer` - Beamer
+     * * `beamer_nps` - Beamer NPS
+     * * `chameleon` - Chameleon
+     * * `etsy` - Etsy
+     * * `featurebase_surveys` - Featurebase surveys
+     * * `g2` - G2
+     * * `gumroad` - Gumroad
+     * * `trustpilot_product_reviews` - Trustpilot product reviews
+     * * `uservoice_nps` - UserVoice NPS
+     * * `vitally_nps` - Vitally NPS
+     * * `woocommerce` - WooCommerce
+     * * `yotpo` - Yotpo
+     * * `airbrake` - Airbrake
+     * * `amazon_cloudwatch` - Amazon CloudWatch
+     * * `logicmonitor` - LogicMonitor
+     * * `mux` - Mux
+     * * `sonarcloud` - SonarCloud
+     * * `checkmarx` - Checkmarx
+     * * `veracode` - Veracode
+     * * `veracode_sca` - Veracode SCA
+     * * `semgrep_sca` - Semgrep Supply Chain
+     * * `gitguardian` - GitGuardian
+     * * `infisical` - Infisical
+     * * `aws_macie` - AWS Macie
+     * * `sentinelone` - SentinelOne
+     * * `jfrog_xray` - JFrog Xray
+     * * `dynatrace_security` - Dynatrace Application Security
+     * * `app_store_connect` - App Store Connect
+     * * `sentry_feedback` - Sentry user feedback */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -1518,6 +1771,11 @@ export interface ScoutSuggestionItemApi {
 }
 
 export interface InboxOnboardingDraftApi {
+    /** Where setup started: the app or a link from an agent.
+     *
+     * * `app` - App
+     * * `agent` - Agent */
+    onboarding_origin?: InboxOnboardingOriginEnumApi
     /** Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.
      *
      * * `github_optional` - GitHub optional */
@@ -1585,6 +1843,14 @@ export interface InboxOnboardingStateApi {
     completed_at: string | null
 }
 
+export interface InboxOnboardingExposureApi {
+    /** Where setup started: the app or a link from an agent.
+     *
+     * * `app` - App
+     * * `agent` - Agent */
+    onboarding_origin?: InboxOnboardingOriginEnumApi
+}
+
 export interface PauseStateResponseApi {
     /**
      * The timestamp the pipeline is paused until, or null if not paused/not running.
@@ -1613,6 +1879,35 @@ export interface PauseResponseApi {
     /** The timestamp the pipeline is paused until. */
     paused_until: string
 }
+
+/**
+ * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+ * @nullable
+ */
+export type PaginatedSignalReportListListApiPersonalRankingStatus = {
+    /** real: the model personalized 2 or more reports, so the ranking can reorder the list. one_report: it personalized a single report. not_personalized: the build finished without personalizing. empty: the build had no reports to rank. fallback: the build kept the default order, see fallback_reason. none: no ranking is stored. */
+    state: 'real' | 'one_report' | 'not_personalized' | 'empty' | 'fallback' | 'none'
+    /**
+     * Reports in the stored ranking. Null when state is none.
+     * @nullable
+     */
+    size: number | null
+    /**
+     * Minutes since the ranking was built. Null when state is none.
+     * @nullable
+     */
+    age_minutes: number | null
+    /**
+     * Minutes since a build or the scheduled check last confirmed the ranking's inputs. Null when state is none.
+     * @nullable
+     */
+    checked_age_minutes: number | null
+    /**
+     * Why the build kept the default order, when state is fallback. Else null.
+     * @nullable
+     */
+    fallback_reason: string | null
+} | null | null
 
 export interface ReviewerStateApi {
     /**
@@ -2330,7 +2625,7 @@ export interface ReportRankingPredictionApi {
 }
 
 export interface ReportRankingApi {
-    /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text and the model sorts and filters treat the report as unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
+    /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text. The model sorts and filters still use them. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
      *
      * * `scored` - scored
      * * `stale` - stale
@@ -2766,6 +3061,11 @@ export interface PaginatedSignalReportListListApi {
      * @nullable
      */
     ranking_id?: string | null
+    /**
+     * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+     * @nullable
+     */
+    personal_ranking_status?: PaginatedSignalReportListListApiPersonalRankingStatus
     /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. Only a search with a full page can cap the count. */
     count_is_capped?: boolean
     /**
@@ -3420,6 +3720,7 @@ export interface SignalReportDeletionStatusApi {
 /**
  * * `get_it_merged` - Get it merged
  * * `make_it_green` - Make it green
+ * * `resolve_conflicts` - Resolve conflicts
  * * `suggested_prompt` - Suggested prompt
  * * `ask` - Ask
  */
@@ -3428,6 +3729,7 @@ export type ReportTaskActionKindEnumApi = (typeof ReportTaskActionKindEnumApi)[k
 export const ReportTaskActionKindEnumApi = {
     GetItMerged: 'get_it_merged',
     MakeItGreen: 'make_it_green',
+    ResolveConflicts: 'resolve_conflicts',
     SuggestedPrompt: 'suggested_prompt',
     Ask: 'ask',
 } as const
@@ -3436,10 +3738,11 @@ export const ReportTaskActionKindEnumApi = {
  * One report action that starts an agent run, with whether the report offers it now.
  */
 export interface SignalReportTaskActionApi {
-    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI on the report's open pull request and stops without merging it. `suggested_prompt` sends one of the prompts the report suggests.
+    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `suggested_prompt` sends one of the prompts the report suggests.
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3469,6 +3772,7 @@ export interface SignalReportTaskActionRunRequestApi {
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3478,7 +3782,7 @@ export interface SignalReportTaskActionRunRequestApi {
      */
     suggested_prompt_index?: number
     /**
-     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
      * @maxLength 2000
      */
     message?: string
@@ -3632,6 +3936,8 @@ export interface PullRequestCheckApi {
  */
 export interface PullRequestChecksResponseApi {
     readonly checks: readonly PullRequestCheckApi[]
+    /** True when GitHub reports that the pull request conflicts with its base branch. False while GitHub is still computing it. */
+    readonly has_conflict: boolean
 }
 
 /**
@@ -4225,6 +4531,9 @@ export interface SignalReportLeaveReviewersApi {
  * * `hubspot` - hubspot
  * * `engineering_analytics` - engineering_analytics
  * * `google_search_console` - google_search_console
+ * * `bing_webmaster_tools` - bing_webmaster_tools
+ * * `ahrefs` - ahrefs
+ * * `semrush` - semrush
  * * `pagerduty` - pagerduty
  * * `opsgenie` - opsgenie
  * * `incident_io` - incident_io
@@ -4265,6 +4574,14 @@ export interface SignalReportLeaveReviewersApi {
  * * `statuspage` - statuspage
  * * `cronitor` - cronitor
  * * `instatus` - instatus
+ * * `rootly` - rootly
+ * * `zenduty` - zenduty
+ * * `splunk_observability_cloud` - splunk_observability_cloud
+ * * `uptimerobot` - uptimerobot
+ * * `rootly_alerts` - rootly_alerts
+ * * `incident_io_alerts` - incident_io_alerts
+ * * `firehydrant_alerts` - firehydrant_alerts
+ * * `grafana_irm_alert_groups` - grafana_irm_alert_groups
  * * `asana` - asana
  * * `monday` - monday
  * * `plane` - plane
@@ -4272,6 +4589,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `helpscout` - helpscout
  * * `decagon` - decagon
  * * `vitally` - vitally
+ * * `intercom_tickets` - intercom_tickets
+ * * `pylon` - pylon
  * * `usersnap` - usersnap
  * * `typeform` - typeform
  * * `qualtrics` - qualtrics
@@ -4286,6 +4605,38 @@ export interface SignalReportLeaveReviewersApi {
  * * `azure_application_insights` - azure_application_insights
  * * `appsignal` - appsignal
  * * `cursor` - cursor
+ * * `github_dependabot` - github_dependabot
+ * * `github_code_scanning` - github_code_scanning
+ * * `github_secret_scanning` - github_secret_scanning
+ * * `beamer` - beamer
+ * * `beamer_nps` - beamer_nps
+ * * `chameleon` - chameleon
+ * * `etsy` - etsy
+ * * `featurebase_surveys` - featurebase_surveys
+ * * `g2` - g2
+ * * `gumroad` - gumroad
+ * * `trustpilot_product_reviews` - trustpilot_product_reviews
+ * * `uservoice_nps` - uservoice_nps
+ * * `vitally_nps` - vitally_nps
+ * * `woocommerce` - woocommerce
+ * * `yotpo` - yotpo
+ * * `airbrake` - airbrake
+ * * `amazon_cloudwatch` - amazon_cloudwatch
+ * * `logicmonitor` - logicmonitor
+ * * `mux` - mux
+ * * `sonarcloud` - sonarcloud
+ * * `checkmarx` - checkmarx
+ * * `veracode` - veracode
+ * * `veracode_sca` - veracode_sca
+ * * `semgrep_sca` - semgrep_sca
+ * * `gitguardian` - gitguardian
+ * * `infisical` - infisical
+ * * `aws_macie` - aws_macie
+ * * `sentinelone` - sentinelone
+ * * `jfrog_xray` - jfrog_xray
+ * * `dynatrace_security` - dynatrace_security
+ * * `app_store_connect` - app_store_connect
+ * * `sentry_feedback` - sentry_feedback
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4342,6 +4693,9 @@ export const SignalSourceProductApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
+    BingWebmasterTools: 'bing_webmaster_tools',
+    Ahrefs: 'ahrefs',
+    Semrush: 'semrush',
     Pagerduty: 'pagerduty',
     Opsgenie: 'opsgenie',
     IncidentIo: 'incident_io',
@@ -4382,6 +4736,14 @@ export const SignalSourceProductApi = {
     Statuspage: 'statuspage',
     Cronitor: 'cronitor',
     Instatus: 'instatus',
+    Rootly: 'rootly',
+    Zenduty: 'zenduty',
+    SplunkObservabilityCloud: 'splunk_observability_cloud',
+    Uptimerobot: 'uptimerobot',
+    RootlyAlerts: 'rootly_alerts',
+    IncidentIoAlerts: 'incident_io_alerts',
+    FirehydrantAlerts: 'firehydrant_alerts',
+    GrafanaIrmAlertGroups: 'grafana_irm_alert_groups',
     Asana: 'asana',
     Monday: 'monday',
     Plane: 'plane',
@@ -4389,6 +4751,8 @@ export const SignalSourceProductApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -4403,6 +4767,38 @@ export const SignalSourceProductApi = {
     AzureApplicationInsights: 'azure_application_insights',
     Appsignal: 'appsignal',
     Cursor: 'cursor',
+    GithubDependabot: 'github_dependabot',
+    GithubCodeScanning: 'github_code_scanning',
+    GithubSecretScanning: 'github_secret_scanning',
+    Beamer: 'beamer',
+    BeamerNps: 'beamer_nps',
+    Chameleon: 'chameleon',
+    Etsy: 'etsy',
+    FeaturebaseSurveys: 'featurebase_surveys',
+    G2: 'g2',
+    Gumroad: 'gumroad',
+    TrustpilotProductReviews: 'trustpilot_product_reviews',
+    UservoiceNps: 'uservoice_nps',
+    VitallyNps: 'vitally_nps',
+    Woocommerce: 'woocommerce',
+    Yotpo: 'yotpo',
+    Airbrake: 'airbrake',
+    AmazonCloudwatch: 'amazon_cloudwatch',
+    Logicmonitor: 'logicmonitor',
+    Mux: 'mux',
+    Sonarcloud: 'sonarcloud',
+    Checkmarx: 'checkmarx',
+    Veracode: 'veracode',
+    VeracodeSca: 'veracode_sca',
+    SemgrepSca: 'semgrep_sca',
+    Gitguardian: 'gitguardian',
+    Infisical: 'infisical',
+    AwsMacie: 'aws_macie',
+    Sentinelone: 'sentinelone',
+    JfrogXray: 'jfrog_xray',
+    DynatraceSecurity: 'dynatrace_security',
+    AppStoreConnect: 'app_store_connect',
+    SentryFeedback: 'sentry_feedback',
 } as const
 
 /**
@@ -5209,6 +5605,31 @@ export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
     position: number
 }
 
+export interface BingWebmasterToolsSearchOpportunitySignalExtraApi {
+    site_url: string | null
+    issue_flag: string | null
+    issue: string | null
+    affected_urls: string | null
+    example_url: string | null
+    inbound_links: string | null
+}
+
+export interface AhrefsSearchOpportunitySignalExtraApi {
+    project_id: string | null
+    issue_id: string | null
+    issue_category: string | null
+    issue_importance: string | null
+    affected_urls: string | null
+}
+
+export interface SemrushSearchOpportunitySignalExtraApi {
+    project_id: string | null
+    issue_id: string | null
+    affected_pages: string | null
+    example_url: string | null
+    audit_snapshot_id: string | null
+}
+
 export interface HelpscoutConversationSignalExtraApi {
     number: string | null
     status: string | null
@@ -5225,6 +5646,22 @@ export interface DecagonConversationSignalExtraApi {
 
 export interface VitallyConversationSignalExtraApi {
     external_url: string | null
+    created_at: string | null
+}
+
+export interface IntercomTicketsTicketSignalExtraApi {
+    ticket_id: string | null
+    category: string | null
+    ticket_state_category: string | null
+    ticket_type_name: string | null
+    created_at: string | null
+}
+
+export interface PylonTicketSignalExtraApi {
+    number: string | null
+    state: string | null
+    type: string | null
+    link: string | null
     created_at: string | null
 }
 
@@ -5404,6 +5841,58 @@ export interface InstatusIncidentSignalExtraApi {
     components: string[]
 }
 
+export interface RootlyIncidentSignalExtraApi {
+    status: string | null
+    severity_name: string | null
+    kind: string | null
+    url: string | null
+    created_at: string | null
+}
+
+export interface ZendutyIncidentSignalExtraApi {
+    incident_number: string | null
+    status: string | null
+    urgency: string | null
+    creation_date: string | null
+}
+
+export interface SplunkObservabilityCloudIncidentSignalExtraApi {
+    severity: string | null
+    anomaly_state: string | null
+    triggered_at: string | null
+}
+
+export interface UptimerobotIncidentSignalExtraApi {
+    status: string | null
+    type: string | null
+    started_at: string | null
+}
+
+export interface RootlyAlertsIncidentSignalExtraApi {
+    status: string | null
+    source: string | null
+    url: string | null
+    created_at: string | null
+}
+
+export interface IncidentIoAlertsIncidentSignalExtraApi {
+    status: string | null
+    alert_source_id: string | null
+    created_at: string | null
+}
+
+export interface FirehydrantAlertsIncidentSignalExtraApi {
+    status: string | null
+    starts_at: string | null
+}
+
+export interface GrafanaIrmAlertGroupsIncidentSignalExtraApi {
+    state: string | null
+    alerts_count: string | null
+    integration_id: string | null
+    created_at: string | null
+}
+
 export interface GooglePlayConsoleIssueSignalExtraApi {
     issue_type: string | null
     code_location: string | null
@@ -5424,6 +5913,15 @@ export interface AzureApplicationInsightsIssueSignalExtraApi {
     last_seen: string | null
 }
 
+export type AppsignalIssueSignalExtraApiKind =
+    | (typeof AppsignalIssueSignalExtraApiKind)[keyof typeof AppsignalIssueSignalExtraApiKind]
+    | null
+
+export const AppsignalIssueSignalExtraApiKind = {
+    PerformanceIncident: 'performance_incident',
+    AnomalyIncident: 'anomaly_incident',
+} as const
+
 export interface AppsignalIssueSignalExtraApi {
     state: string | null
     severity: string | null
@@ -5431,6 +5929,10 @@ export interface AppsignalIssueSignalExtraApi {
     occurrence_count: string | null
     created_at: string | null
     last_occurred_at: string | null
+    kind?: AppsignalIssueSignalExtraApiKind
+    mean_duration_ms?: string | null
+    alert_state?: string | null
+    metric_name?: string | null
 }
 
 export interface CursorIssueSignalExtraApi {
@@ -5440,6 +5942,119 @@ export interface CursorIssueSignalExtraApi {
     bugs_found: string | null
     publication_status: string | null
     timestamp: string | null
+}
+
+export interface AppStoreConnectReviewSignalExtraApi {
+    app_id: string | null
+    rating: string | null
+    territory: string | null
+    created_date: string | null
+}
+
+export interface SentryFeedbackSignalExtraApi {
+    project_slug: string | null
+    event_id: string | null
+    date_created: string | null
+}
+
+export interface SonarcloudScannerFindingSignalExtraApi {
+    severity: string | null
+    type: string | null
+    status: string | null
+    component: string | null
+    rule: string | null
+    creation_date: string | null
+}
+
+export interface CheckmarxScannerFindingSignalExtraApi {
+    result_type: string | null
+    finding_severity: string | null
+    finding_state: string | null
+    first_seen: string | null
+    scans: string | null
+}
+
+export interface VeracodeScannerFindingSignalExtraApi {
+    application_guid: string | null
+    scan_type: string | null
+    finding_severity: string | null
+    violates_policy: string | null
+    cwe_id: string | null
+    finding_category: string | null
+    finding_state: string | null
+    resolution_status: string | null
+    first_found_date: string | null
+}
+
+export interface VeracodeScaScannerFindingSignalExtraApi {
+    cve_name: string | null
+    component_filename: string | null
+    component_version: string | null
+    max_severity: string | null
+    affected_applications: string | null
+    first_seen: string | null
+}
+
+export interface SemgrepScaScannerFindingSignalExtraApi {
+    vulnerability_identifier: string | null
+    package_name: string | null
+    ecosystem: string | null
+    finding_severity: string | null
+    reachability_state: string | null
+    affected_findings: string | null
+    first_seen: string | null
+}
+
+export interface GitguardianScannerFindingSignalExtraApi {
+    severity: string | null
+    validity: string | null
+    status: string | null
+    occurrences_count: string | null
+    gitguardian_url: string | null
+    date: string | null
+}
+
+export interface InfisicalScannerFindingSignalExtraApi {
+    rule: string | null
+    resource_name: string | null
+    resource_type: string | null
+    data_source_type: string | null
+    severity: string | null
+    status: string | null
+    created_at: string | null
+}
+
+export interface AwsMacieScannerFindingSignalExtraApi {
+    type: string | null
+    category: string | null
+    severity_level: string | null
+    region: string | null
+    created_at: string | null
+}
+
+export interface SentineloneScannerFindingSignalExtraApi {
+    classification: string | null
+    confidence_level: string | null
+    analyst_verdict: string | null
+    incident_status: string | null
+    threat_mitigation_status: string | null
+    detection_type: string | null
+    created_at: string | null
+}
+
+export interface JfrogXrayScannerFindingSignalExtraApi {
+    issue_id: string | null
+    violation_severity: string | null
+    violation_type: string | null
+    violations: string | null
+    first_seen: string | null
+}
+
+export interface DynatraceSecurityScannerFindingSignalExtraApi {
+    display_id: string | null
+    vulnerability_type: string | null
+    status: string | null
+    first_seen_timestamp: string | null
 }
 
 export interface TriggerDevErrorSignalExtraApi {
@@ -5530,6 +6145,85 @@ export interface OkendoReviewSignalExtraApi {
     date_created: string | null
 }
 
+export interface BeamerFeedbackSignalExtraApi {
+    status: string | null
+    category: string | null
+    votes_count: string | null
+    comments_count: string | null
+    date: string | null
+    permalink: string | null
+}
+
+export interface BeamerNpsFeedbackSignalExtraApi {
+    score: string | null
+    date: string | null
+}
+
+export interface ChameleonFeedbackSignalExtraApi {
+    button_text: string | null
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface FeaturebaseSurveysFeedbackSignalExtraApi {
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface UservoiceNpsFeedbackSignalExtraApi {
+    rating: string | null
+    created_at: string | null
+}
+
+export interface VitallyNpsFeedbackSignalExtraApi {
+    score: string | null
+    nps_type: string | null
+    created_at: string | null
+}
+
+export interface EtsyReviewSignalExtraApi {
+    rating: string | null
+    listing_id: string | null
+    language: string | null
+    created_timestamp: string | null
+}
+
+export interface G2ReviewSignalExtraApi {
+    star_rating: string | null
+    product_name: string | null
+    url: string | null
+    submitted_at: string | null
+}
+
+export interface GumroadReviewSignalExtraApi {
+    rating: string | null
+    product_id: string | null
+    created_at: string | null
+}
+
+export interface TrustpilotProductReviewsReviewSignalExtraApi {
+    stars: string | null
+    language: string | null
+    state: string | null
+    product_name: string | null
+    created_at: string | null
+}
+
+export interface WoocommerceReviewSignalExtraApi {
+    rating: string | null
+    status: string | null
+    verified: string | null
+    product_id: string | null
+    date_created_gmt: string | null
+}
+
+export interface YotpoReviewSignalExtraApi {
+    score: string | null
+    sku: string | null
+    deleted: string | null
+    created_at: string | null
+}
+
 export interface AwsSecurityHubScannerFindingSignalExtraApi {
     severity_label: string | null
     compliance_status: string | null
@@ -5560,6 +6254,103 @@ export interface MicrosoftDefenderCloudAppsScannerFindingSignalExtraApi {
     severity_value: string | null
     resolution_status_value: string | null
     timestamp: string | null
+}
+
+export interface GithubDependabotScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    severity: string | null
+    ghsa_id: string | null
+    cve_id: string | null
+    package_ecosystem: string | null
+    package_name: string | null
+    vulnerable_version_range: string | null
+    first_patched_version: string | null
+    manifest_path: string | null
+    dependency_scope: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
+}
+
+export interface GithubCodeScanningScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    rule_id: string | null
+    rule_severity: string | null
+    security_severity_level: string | null
+    tool_name: string | null
+    location_path: string | null
+    location_start_line: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
+}
+
+export interface GithubSecretScanningScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    secret_type: string | null
+    validity: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
+}
+
+export type NewrelicIssueSignalExtraKindEnumApi =
+    (typeof NewrelicIssueSignalExtraKindEnumApi)[keyof typeof NewrelicIssueSignalExtraKindEnumApi]
+
+export const NewrelicIssueSignalExtraKindEnumApi = {
+    AlertIssue: 'alert_issue',
+    JavascriptError: 'javascript_error',
+    TransactionError: 'transaction_error',
+} as const
+
+export interface NewrelicIssueSignalExtraApi {
+    kind: NewrelicIssueSignalExtraKindEnumApi
+    issue_id?: string | null
+    priority?: string | null
+    activated_at?: string | null
+    app_name?: string | null
+    error_class?: string | null
+    sample_transaction?: string | null
+    occurrences?: string | null
+    first_seen?: string | null
+    last_seen?: string | null
+}
+
+export interface AmazonCloudwatchIncidentSignalExtraApi {
+    alarm_name: string | null
+    alarm_kind: string | null
+    transitions: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface LogicmonitorIncidentSignalExtraApi {
+    severity: string | null
+    acked: string | null
+    monitor_object_name: string | null
+    datasource: string | null
+    instance_name: string | null
+    data_point_name: string | null
+    start_epoch: string | null
+}
+
+export interface AirbrakeIssueSignalExtraApi {
+    project_id: string | null
+    environment: string | null
+    notice_total_count: string | null
+    created_at: string | null
+    last_notice_at: string | null
+}
+
+export interface MuxIssueSignalExtraApi {
+    error_id: string | null
+    error_code: string | null
+    view_count: string | null
+    view_share: string | null
+    last_seen_at: string | null
 }
 
 export type SignalExtraApi =
@@ -5633,9 +6424,14 @@ export type SignalExtraApi =
     | Dynamics365TicketSignalExtraApi
     | ZohoCrmTicketSignalExtraApi
     | GoogleSearchConsoleSearchOpportunitySignalExtraApi
+    | BingWebmasterToolsSearchOpportunitySignalExtraApi
+    | AhrefsSearchOpportunitySignalExtraApi
+    | SemrushSearchOpportunitySignalExtraApi
     | HelpscoutConversationSignalExtraApi
     | DecagonConversationSignalExtraApi
     | VitallyConversationSignalExtraApi
+    | IntercomTicketsTicketSignalExtraApi
+    | PylonTicketSignalExtraApi
     | PagerdutyIncidentSignalExtraApi
     | OpsgenieAlertSignalExtraApi
     | IncidentIoIncidentSignalExtraApi
@@ -5659,10 +6455,31 @@ export type SignalExtraApi =
     | StatuspageIncidentSignalExtraApi
     | CronitorIncidentSignalExtraApi
     | InstatusIncidentSignalExtraApi
+    | RootlyIncidentSignalExtraApi
+    | ZendutyIncidentSignalExtraApi
+    | SplunkObservabilityCloudIncidentSignalExtraApi
+    | UptimerobotIncidentSignalExtraApi
+    | RootlyAlertsIncidentSignalExtraApi
+    | IncidentIoAlertsIncidentSignalExtraApi
+    | FirehydrantAlertsIncidentSignalExtraApi
+    | GrafanaIrmAlertGroupsIncidentSignalExtraApi
     | GooglePlayConsoleIssueSignalExtraApi
     | AzureApplicationInsightsIssueSignalExtraApi
     | AppsignalIssueSignalExtraApi
     | CursorIssueSignalExtraApi
+    | AppStoreConnectReviewSignalExtraApi
+    | SentryFeedbackSignalExtraApi
+    | SonarcloudScannerFindingSignalExtraApi
+    | CheckmarxScannerFindingSignalExtraApi
+    | VeracodeScannerFindingSignalExtraApi
+    | VeracodeScaScannerFindingSignalExtraApi
+    | SemgrepScaScannerFindingSignalExtraApi
+    | GitguardianScannerFindingSignalExtraApi
+    | InfisicalScannerFindingSignalExtraApi
+    | AwsMacieScannerFindingSignalExtraApi
+    | SentineloneScannerFindingSignalExtraApi
+    | JfrogXrayScannerFindingSignalExtraApi
+    | DynatraceSecurityScannerFindingSignalExtraApi
     | TriggerDevErrorSignalExtraApi
     | ChecklyErrorGroupSignalExtraApi
     | RoarkIssueSignalExtraApi
@@ -5675,10 +6492,30 @@ export type SignalExtraApi =
     | GainsightPxFeedbackSignalExtraApi
     | TrustpilotReviewSignalExtraApi
     | OkendoReviewSignalExtraApi
+    | BeamerFeedbackSignalExtraApi
+    | BeamerNpsFeedbackSignalExtraApi
+    | ChameleonFeedbackSignalExtraApi
+    | FeaturebaseSurveysFeedbackSignalExtraApi
+    | UservoiceNpsFeedbackSignalExtraApi
+    | VitallyNpsFeedbackSignalExtraApi
+    | EtsyReviewSignalExtraApi
+    | G2ReviewSignalExtraApi
+    | GumroadReviewSignalExtraApi
+    | TrustpilotProductReviewsReviewSignalExtraApi
+    | WoocommerceReviewSignalExtraApi
+    | YotpoReviewSignalExtraApi
     | AwsSecurityHubScannerFindingSignalExtraApi
     | AwsGuarddutyScannerFindingSignalExtraApi
     | AwsInspectorScannerFindingSignalExtraApi
     | MicrosoftDefenderCloudAppsScannerFindingSignalExtraApi
+    | GithubDependabotScannerFindingSignalExtraApi
+    | GithubCodeScanningScannerFindingSignalExtraApi
+    | GithubSecretScanningScannerFindingSignalExtraApi
+    | NewrelicIssueSignalExtraApi
+    | AmazonCloudwatchIncidentSignalExtraApi
+    | LogicmonitorIncidentSignalExtraApi
+    | AirbrakeIssueSignalExtraApi
+    | MuxIssueSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -5777,6 +6614,9 @@ export interface SignalNodeApi {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
+     * * `bing_webmaster_tools` - bing_webmaster_tools
+     * * `ahrefs` - ahrefs
+     * * `semrush` - semrush
      * * `pagerduty` - pagerduty
      * * `opsgenie` - opsgenie
      * * `incident_io` - incident_io
@@ -5817,6 +6657,14 @@ export interface SignalNodeApi {
      * * `statuspage` - statuspage
      * * `cronitor` - cronitor
      * * `instatus` - instatus
+     * * `rootly` - rootly
+     * * `zenduty` - zenduty
+     * * `splunk_observability_cloud` - splunk_observability_cloud
+     * * `uptimerobot` - uptimerobot
+     * * `rootly_alerts` - rootly_alerts
+     * * `incident_io_alerts` - incident_io_alerts
+     * * `firehydrant_alerts` - firehydrant_alerts
+     * * `grafana_irm_alert_groups` - grafana_irm_alert_groups
      * * `asana` - asana
      * * `monday` - monday
      * * `plane` - plane
@@ -5824,6 +6672,8 @@ export interface SignalNodeApi {
      * * `helpscout` - helpscout
      * * `decagon` - decagon
      * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
      * * `usersnap` - usersnap
      * * `typeform` - typeform
      * * `qualtrics` - qualtrics
@@ -5837,7 +6687,39 @@ export interface SignalNodeApi {
      * * `google_play_console` - google_play_console
      * * `azure_application_insights` - azure_application_insights
      * * `appsignal` - appsignal
-     * * `cursor` - cursor */
+     * * `cursor` - cursor
+     * * `github_dependabot` - github_dependabot
+     * * `github_code_scanning` - github_code_scanning
+     * * `github_secret_scanning` - github_secret_scanning
+     * * `beamer` - beamer
+     * * `beamer_nps` - beamer_nps
+     * * `chameleon` - chameleon
+     * * `etsy` - etsy
+     * * `featurebase_surveys` - featurebase_surveys
+     * * `g2` - g2
+     * * `gumroad` - gumroad
+     * * `trustpilot_product_reviews` - trustpilot_product_reviews
+     * * `uservoice_nps` - uservoice_nps
+     * * `vitally_nps` - vitally_nps
+     * * `woocommerce` - woocommerce
+     * * `yotpo` - yotpo
+     * * `airbrake` - airbrake
+     * * `amazon_cloudwatch` - amazon_cloudwatch
+     * * `logicmonitor` - logicmonitor
+     * * `mux` - mux
+     * * `sonarcloud` - sonarcloud
+     * * `checkmarx` - checkmarx
+     * * `veracode` - veracode
+     * * `veracode_sca` - veracode_sca
+     * * `semgrep_sca` - semgrep_sca
+     * * `gitguardian` - gitguardian
+     * * `infisical` - infisical
+     * * `aws_macie` - aws_macie
+     * * `sentinelone` - sentinelone
+     * * `jfrog_xray` - jfrog_xray
+     * * `dynatrace_security` - dynatrace_security
+     * * `app_store_connect` - app_store_connect
+     * * `sentry_feedback` - sentry_feedback */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -7383,6 +8265,11 @@ export interface SignalScoutConfigOptionsApi {
      */
     model?: string | null
     /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    custom_image_id?: string | null
+    /**
      * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
      * @maxItems 10
      */
@@ -7740,6 +8627,11 @@ export interface SignalScoutConfigApi {
      */
     readonly model: string | null
     /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    readonly custom_image_id: string | null
+    /**
      * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
      * @maxItems 100
      */
@@ -7893,6 +8785,11 @@ export interface SignalScoutConfigCreateApi {
      * @nullable
      */
     model?: string | null
+    /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    custom_image_id?: string | null
     /**
      * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
      * @maxItems 10
@@ -8057,6 +8954,11 @@ export interface PatchedSignalScoutConfigUpdateApi {
      * @nullable
      */
     model?: string | null
+    /**
+     * ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image.
+     * @nullable
+     */
+    custom_image_id?: string | null
     /** Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. */
     auto_pause_exempt?: boolean
     /**
@@ -9888,6 +10790,69 @@ export interface ProjectProfileApi {
 }
 
 /**
+ * * `authored` - Authored
+ * * `edited` - Edited
+ */
+export type ReportInvolvementEnumApi = (typeof ReportInvolvementEnumApi)[keyof typeof ReportInvolvementEnumApi]
+
+export const ReportInvolvementEnumApi = {
+    Authored: 'authored',
+    Edited: 'edited',
+} as const
+
+/**
+ * * `inbox` - Inbox
+ * * `slack` - Slack
+ */
+export type DiscussionSourceEnumApi = (typeof DiscussionSourceEnumApi)[keyof typeof DiscussionSourceEnumApi]
+
+export const DiscussionSourceEnumApi = {
+    Inbox: 'inbox',
+    Slack: 'slack',
+} as const
+
+/**
+ * One discussion a person opened on a report your scout emitted or edited.
+ */
+export interface ScoutReportDiscussionApi {
+    /** The report the discussion is about. */
+    report_id: string
+    /** The report's title, truncated. */
+    report_title: string
+    /** `authored` when your scout emitted the report, `edited` when it only edited it.
+     *
+     * * `authored` - Authored
+     * * `edited` - Edited */
+    involvement: ReportInvolvementEnumApi
+    /** `inbox` when the discussion started from Ask AI in the inbox, `slack` when it started from a reply in the report's Slack thread.
+     *
+     * * `inbox` - Inbox
+     * * `slack` - Slack */
+    source: DiscussionSourceEnumApi
+    /** The discussion task. */
+    task_id: string
+    /** When the discussion started. */
+    created_at: string
+    /** When the discussion last changed, for example when a run wrote its summary. Rows sort by it, newest first. */
+    active_at: string
+    /**
+     * Status of the discussion's latest run, for example `in_progress` or `completed`. Null before it runs.
+     * @nullable
+     */
+    status: string | null
+    /**
+     * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project. For a `slack` discussion, other people in the public thread can shape the summary, so it is returned when the person who started the discussion may steer scouts.
+     * @nullable
+     */
+    task_summary: string | null
+    /**
+     * For a `slack` discussion, the message that started it, in the person's own words. Null when that person may not steer scouts on this project, or started a later Slack discussion on the same report. Always null for an `inbox` discussion, because a scout note carried its question.
+     * @nullable
+     */
+    question: string | null
+}
+
+/**
  * * `default` - Default
  * * `custom` - Custom
  */
@@ -11324,6 +12289,177 @@ export interface AlertPatternPreviewResponseApi {
     has_more: boolean
 }
 
+/**
+ * * `string` - string
+ * * `integer` - integer
+ * * `number` - number
+ * * `boolean` - boolean
+ * * `datetime` - datetime
+ * * `array<string>` - array<string>
+ * * `array<integer>` - array<integer>
+ * * `array<number>` - array<number>
+ * * `array<boolean>` - array<boolean>
+ */
+export type SignalFilterFieldTypeEnumApi =
+    (typeof SignalFilterFieldTypeEnumApi)[keyof typeof SignalFilterFieldTypeEnumApi]
+
+export const SignalFilterFieldTypeEnumApi = {
+    String: 'string',
+    Integer: 'integer',
+    Number: 'number',
+    Boolean: 'boolean',
+    Datetime: 'datetime',
+    ArrayString: 'array<string>',
+    ArrayInteger: 'array<integer>',
+    ArrayNumber: 'array<number>',
+    ArrayBoolean: 'array<boolean>',
+} as const
+
+export interface SourceFilterCatalogFieldApi {
+    /** Name to use for this field in a filter expression. */
+    name: string
+    /** Type of the field's value. Compare it with values of the same type.
+     *
+     * * `string` - string
+     * * `integer` - integer
+     * * `number` - number
+     * * `boolean` - boolean
+     * * `datetime` - datetime
+     * * `array<string>` - array<string>
+     * * `array<integer>` - array<integer>
+     * * `array<number>` - array<number>
+     * * `array<boolean>` - array<boolean> */
+    type: SignalFilterFieldTypeEnumApi
+    /** What the field holds, and its value when the record has none (null, or an empty array). */
+    description: string
+}
+
+export interface SourceFilterCatalogApi {
+    /** Source product the filter applies to, for example `linear`. */
+    source_product: string
+    /** Source type the filter applies to, for example `issue`. */
+    source_type: string
+    /** Catalog version a filter saved now is pinned to. A saved filter keeps the meaning of its version. */
+    catalog_version: number
+    /** Fields a filter expression can use. */
+    filter_fields: SourceFilterCatalogFieldApi[]
+    /** Example expressions that are valid for this source. */
+    starter_expressions: string[]
+}
+
+export interface SourceFilterCatalogListApi {
+    /** One entry per source whose filter this project can set. A source that is missing does not take a filter. */
+    results: SourceFilterCatalogApi[]
+}
+
+export interface SourceFilterPreviewRequestApi {
+    /**
+     * Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+     * @maxLength 100
+     */
+    source_product: string
+    /**
+     * Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+     * @maxLength 100
+     */
+    source_type: string
+    /**
+     * Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through.
+     * @maxLength 16384
+     */
+    expression: string
+}
+
+/**
+ * * `ok` - ok
+ * * `invalid_expression` - invalid_expression
+ * * `not_connected` - not_connected
+ * * `not_synced` - not_synced
+ * * `access_denied` - access_denied
+ * * `incompatible_table` - incompatible_table
+ * * `query_failed` - query_failed
+ */
+export type SourceFilterPreviewStatusEnumApi =
+    (typeof SourceFilterPreviewStatusEnumApi)[keyof typeof SourceFilterPreviewStatusEnumApi]
+
+export const SourceFilterPreviewStatusEnumApi = {
+    Ok: 'ok',
+    InvalidExpression: 'invalid_expression',
+    NotConnected: 'not_connected',
+    NotSynced: 'not_synced',
+    AccessDenied: 'access_denied',
+    IncompatibleTable: 'incompatible_table',
+    QueryFailed: 'query_failed',
+} as const
+
+/**
+ * Each catalog field's value for this record. A malformed value reads as null, or an empty array.
+ */
+export type SourceFilterPreviewRecordApiFieldValues = { [key: string]: string | number | string[] | null }
+
+export interface SourceFilterPreviewRecordApi {
+    /** The record's id in the source. */
+    id: string
+    /**
+     * Short identifier people use for the record.
+     * @nullable
+     */
+    identifier: string | null
+    /**
+     * The record's title.
+     * @nullable
+     */
+    title: string | null
+    /**
+     * Link to the record in the source.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * When the record was created, as emission reads it.
+     * @nullable
+     */
+    created_at: string | null
+    /** True when a field the expression uses holds a value that cannot be read, so the record never passes. */
+    malformed: boolean
+    /** Each catalog field's value for this record. A malformed value reads as null, or an empty array. */
+    field_values: SourceFilterPreviewRecordApiFieldValues
+}
+
+export interface SourceFilterPreviewResponseApi {
+    /** `ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. `not_connected` when the project has no syncing import for the source. `not_synced` when the import has not finished a first sync. `access_denied` when you cannot read the source's warehouse table. `incompatible_table` when the table does not have the columns the filter fields read. `query_failed` when the preview query did not run.
+     *
+     * * `ok` - ok
+     * * `invalid_expression` - invalid_expression
+     * * `not_connected` - not_connected
+     * * `not_synced` - not_synced
+     * * `access_denied` - access_denied
+     * * `incompatible_table` - incompatible_table
+     * * `query_failed` - query_failed */
+    status: SourceFilterPreviewStatusEnumApi
+    /**
+     * Why the status is not `ok`, when there is a reason.
+     * @nullable
+     */
+    error: string | null
+    /** Catalog version the expression was checked against. */
+    catalog_version: number
+    /** The preview reads records created in this many past days. */
+    lookback_days: number
+    /** Records in the window that emission would read before the filter. 0 unless `status` is `ok`. */
+    total_count: number
+    /** Records in the window that pass the filter. */
+    passing_count: number
+    /** Records in the window that the filter excludes. */
+    excluded_count: number
+    /** Excluded records that hold a value the filter cannot read. Included in `excluded_count`. */
+    malformed_count: number
+    /** The newest records that pass the filter, at most 10. */
+    passing: SourceFilterPreviewRecordApi[]
+    /** The newest records that the filter excludes, at most 10. */
+    excluded: SourceFilterPreviewRecordApi[]
+}
+
 export interface SourceSpendApi {
     /** Product that emitted the signals. */
     source_product: string
@@ -11432,9 +12568,9 @@ export interface SelfDrivingTrialStatusApi {
     new_work_paused: boolean
     /** Enabled scouts across this project's environments. */
     enabled_scouts: number
-    /** Maximum enabled scouts during the trial. */
+    /** Maximum enabled scouts allowed for the project. */
     scout_limit: number
-    /** On activation, all but the three oldest enabled scouts pause. */
+    /** Number of scouts paused when the trial starts. */
     scouts_to_pause: number
     /** What happens to new work after the trial.
      *
@@ -11643,6 +12779,12 @@ export type SignalsActivitySummaryVersionsRetrieveParams = {
 
 export type SignalsActivitySummaryMembersSearchParams = {
     /**
+     * Only members with a theme or an object seen in this many days.
+     * @minimum 1
+     * @maximum 365
+     */
+    active_since_days?: number
+    /**
      * Members to leave out, such as people you already checked.
      */
     exclude_user_uuids?: string[]
@@ -11656,6 +12798,45 @@ export type SignalsActivitySummaryMembersSearchParams = {
      * @maximum 25
      */
     limit?: number
+    /**
+     * Only members who work in this mode, overall or on one of their themes.
+     *
+     * * `building` - Building
+     * * `analyzing` - Analyzing
+     * * `monitoring` - Monitoring
+     * * `investigating` - Investigating
+     * * `operating` - Operating
+     * * `experimenting` - Experimenting
+     * @minLength 1
+     */
+    mode?: SignalsActivitySummaryMembersSearchMode
+    /**
+     * Only members who changed or often open this object. Requires `object_type`. Use the short id for an insight, a notebook or a replay playlist (the id in its URL, such as `aBc123Xy`), and the numeric or UUID primary key for every other type.
+     * @minLength 1
+     * @maxLength 64
+     */
+    object_id?: string
+    /**
+     * With `object_type` or `object_id`: `owned` matches members who changed the object, `watched` members who opened it on many days, and `any` both.
+     *
+     * * `any` - Any
+     * * `owned` - Owned
+     * * `watched` - Watched
+     * @minLength 1
+     */
+    object_relation?: SignalsActivitySummaryMembersSearchObjectRelation
+    /**
+     * Only members who changed or often open an object of this type, such as `insight`, `dashboard`, `feature_flag`, `experiment`, `notebook` or `hog_function`. Combine with `object_id` for one object.
+     * @minLength 1
+     * @maxLength 64
+     */
+    object_type?: string
+    /**
+     * The number of results to skip, for the next page. Compare with `total`.
+     * @minimum 0
+     * @maximum 500
+     */
+    offset?: number
     /**
      * Only members who work in or visit this product.
      *
@@ -11704,7 +12885,33 @@ export type SignalsActivitySummaryMembersSearchParams = {
      * @minLength 1
      */
     search_mode?: SignalsActivitySummaryMembersSearchSearchMode
+    /**
+     * Only these members. With no query, this reads their summaries directly.
+     * @maxItems 25
+     */
+    user_uuids?: string[]
 }
+
+export type SignalsActivitySummaryMembersSearchMode =
+    (typeof SignalsActivitySummaryMembersSearchMode)[keyof typeof SignalsActivitySummaryMembersSearchMode]
+
+export const SignalsActivitySummaryMembersSearchMode = {
+    Building: 'building',
+    Analyzing: 'analyzing',
+    Monitoring: 'monitoring',
+    Investigating: 'investigating',
+    Operating: 'operating',
+    Experimenting: 'experimenting',
+} as const
+
+export type SignalsActivitySummaryMembersSearchObjectRelation =
+    (typeof SignalsActivitySummaryMembersSearchObjectRelation)[keyof typeof SignalsActivitySummaryMembersSearchObjectRelation]
+
+export const SignalsActivitySummaryMembersSearchObjectRelation = {
+    Any: 'any',
+    Owned: 'owned',
+    Watched: 'watched',
+} as const
 
 export type SignalsActivitySummaryMembersSearchProduct =
     (typeof SignalsActivitySummaryMembersSearchProduct)[keyof typeof SignalsActivitySummaryMembersSearchProduct]
@@ -11803,6 +13010,10 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     group_by?: SignalsAnomaliesSearchRetrieveGroupBy
     /**
+     * Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. Costs one more query. Has no effect with `group_by: insight`.
+     */
+    include_points?: boolean
+    /**
      * Only the series of this insight, by numeric id.
      */
     insight_id?: number
@@ -11823,9 +13034,28 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     limit?: number
     /**
+     * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
+     * @minimum 0
+     * @maximum 10000
+     */
+    offset?: number
+    /**
      * Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.
      */
     only_flagged?: boolean
+    /**
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     *
+     * * `unusual` - Unusual
+     * * `recent` - Recent
+     * @minLength 1
+     */
+    order?: SignalsAnomaliesSearchRetrieveOrder
+    /**
+     * Only insights whose name contains this text, ignoring case.
+     * @maxLength 200
+     */
+    search?: string
 }
 
 export type SignalsAnomaliesSearchRetrieveGroupBy =
@@ -11844,6 +13074,14 @@ export const SignalsAnomaliesSearchRetrieveInterval = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
+} as const
+
+export type SignalsAnomaliesSearchRetrieveOrder =
+    (typeof SignalsAnomaliesSearchRetrieveOrder)[keyof typeof SignalsAnomaliesSearchRetrieveOrder]
+
+export const SignalsAnomaliesSearchRetrieveOrder = {
+    Unusual: 'unusual',
+    Recent: 'recent',
 } as const
 
 export type SignalsProcessingListParams = {
@@ -11929,11 +13167,11 @@ export type SignalsReportsListParams = {
      */
     ranking_id?: string
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string
     /**
@@ -11953,7 +13191,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
      */
     sort?: string
     /**
@@ -12214,11 +13452,11 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      */
     priority?: string
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string
     /**
@@ -12443,6 +13681,23 @@ export type SignalsScoutProjectProfileGetParams = {
      * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
      */
     summary_only?: boolean
+}
+
+export type SignalsScoutReportDiscussionsListParams = {
+    /**
+     * Maximum rows to return, newest first. Defaults to 20.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Narrow to discussions on one report. Returns nothing for a report your scout never emitted or edited.
+     */
+    report_id?: string
+    /**
+     * Only discussions started or updated at or after this time, so a discussion that began earlier but concluded since is included. Defaults to 14 days ago. Pass the `completed_at` of your newest completed run to read only what changed since then.
+     */
+    since?: string
 }
 
 export type SignalsScoutRunsListParams = {

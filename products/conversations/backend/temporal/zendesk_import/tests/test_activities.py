@@ -17,14 +17,13 @@ from posthog.models.comment import Comment
 
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, ZendeskImportJob
 from products.conversations.backend.models.constants import Channel, Priority, Status
+from products.conversations.backend.temporal.ticket_import.persistence import BuiltTicket, persist_ticket_batch
 from products.conversations.backend.temporal.zendesk_import.activities import (
     ImportBatchInput,
     UpdateJobProgressInput,
     UpdateJobStatusInput,
-    _BuiltTicket,
     _import_ticket_batch_sync,
     _parse_zendesk_datetime,
-    _persist_ticket_batch,
     _update_job_progress_sync,
     _update_job_status_sync,
 )
@@ -623,8 +622,8 @@ class TestZendeskImportBatchActivity(BaseTest):
         self.assertFalse(Ticket.objects.filter(team=self.team, zendesk_ticket_id=404).exists())
 
 
-def _zendesk_allocation_ticket(team: Team) -> _BuiltTicket:
-    return _BuiltTicket(
+def _zendesk_allocation_ticket(team: Team) -> BuiltTicket:
+    return BuiltTicket(
         ticket=Ticket(
             team=team,
             widget_session_id="zendesk-allocation",
@@ -673,7 +672,7 @@ class TestZendeskTicketNumberAllocationConcurrency(NonAtomicBaseTest):
                 with connection.cursor() as cursor:
                     cursor.execute("SET lock_timeout = '250ms'")
                 with self.assertRaisesRegex(OperationalError, "canceling statement due to lock timeout"):
-                    _persist_ticket_batch(self.team, [built], {})
+                    persist_ticket_batch(self.team, [built], {})
             finally:
                 with connection.cursor() as cursor:
                     cursor.execute("RESET lock_timeout")
@@ -699,7 +698,7 @@ class TestZendeskTicketNumberAllocationConcurrency(NonAtomicBaseTest):
                 with connection.cursor() as cursor:
                     cursor.execute("SET lock_timeout = '10s'")
                     cursor.execute("SET statement_timeout = '15s'")
-                _persist_ticket_batch(self.team, [_zendesk_allocation_ticket(self.team)], {})
+                persist_ticket_batch(self.team, [_zendesk_allocation_ticket(self.team)], {})
             finally:
                 close_old_connections()
 

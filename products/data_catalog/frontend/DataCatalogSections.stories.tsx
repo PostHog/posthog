@@ -312,6 +312,13 @@ const meta: Meta<typeof DataCatalogScene> = {
                         results: proposals,
                         count: 1,
                     },
+                    '/api/projects/:team_id/data_catalog/pending_review/': {
+                        metrics: 0,
+                        relationships: 1,
+                        certifications: 0,
+                    },
+                    '/api/projects/:team_id/data_modeling_nodes/attention_count/': { count: 0 },
+                    '/api/projects/:team_id/data_quality_checks/failing_count/': { count: 0 },
                     '/api/projects/:team_id/data_catalog/metrics/': { results: metrics, count: metrics.length },
                     '/api/projects/:team_id/warehouse_view_links/': { results: viewLinks, count: viewLinks.length },
                     '/api/organizations/:organization_id/members/': {

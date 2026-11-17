@@ -226,6 +226,11 @@ def get_plan_floor_clamp(properties: Mapping[str, Any] | None) -> PlanFloorClamp
     )
 
 
+def get_plan_floor_clamp_by_saved_query(team_id: int, saved_query_id: str | uuid.UUID) -> PlanFloorClamp | None:
+    nodes = Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).only("properties")
+    return next((clamp for node in nodes if (clamp := get_plan_floor_clamp(node.properties)) is not None), None)
+
+
 def set_declared_pin(node: Node, pinned: bool) -> None:
     """Pin (or unpin) the node's declared target without touching sibling system state."""
     if pinned and get_declared_target(node) is None:

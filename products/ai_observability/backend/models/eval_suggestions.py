@@ -1,6 +1,6 @@
 from django.db import models
 
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.utils import UUIDModel
 
 
@@ -8,6 +8,7 @@ class EvalSuggestionKind(models.TextChoices):
     NEW_HOG = "new_hog", "New Hog eval"
     NEW_LLM_JUDGE = "new_llm_judge", "New LLM judge"
     FIX_EVAL = "fix_eval", "Fix an evaluation"
+    FIX_PROMPT = "fix_prompt", "Fix a prompt"
 
 
 class EvalSuggestionStatus(models.TextChoices):
@@ -24,6 +25,11 @@ class EvalSuggestionDismissReason(models.TextChoices):
     FIXED_CAUSE = "fixed_cause", "Fixed the cause"
 
 
+class EvalSuggestionReviewVerdict(models.TextChoices):
+    GOOD = "good", "Good"
+    BAD = "bad", "Bad"
+
+
 class EvalSuggestionRunStatus(models.TextChoices):
     RUNNING = "running", "Running"
     COMPLETED = "completed", "Completed"
@@ -36,7 +42,7 @@ class EvalSuggestionRunTrigger(models.TextChoices):
     MANUAL = "manual", "Manual"
 
 
-class EvalSuggestionRun(TeamScopedRootMixin, UUIDModel):
+class EvalSuggestionRun(UUIDModel):
     """One pipeline run for one team. The API shows the suggestions of the team's latest completed run,
     so a run that fails halfway never replaces a complete set of cards with a partial one."""
 
@@ -60,6 +66,9 @@ class EvalSuggestionRun(TeamScopedRootMixin, UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
+    # Each environment's runs and cards come from its own traces, so a child environment never reads its parent's.
+    objects = EnvironmentScopedManager()
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "status", "-completed_at"], name="llma_evalsugg_run_latest"),
@@ -67,7 +76,7 @@ class EvalSuggestionRun(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class EvalSuggestion(TeamScopedRootMixin, UUIDModel):
+class EvalSuggestion(UUIDModel):
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
     )
@@ -89,7 +98,8 @@ class EvalSuggestion(TeamScopedRootMixin, UUIDModel):
     draft = models.JSONField(default=dict)
     filters = models.JSONField(default=list)
     rollout_percentage = models.FloatField(default=100)
-    # Only Hog checks carry a rate, because only they are measured exactly. Judges stay "possible".
+    # Hog checks carry the rate measured on the sample, and reviewed judges the count the review model made.
+    # Other judges stay "possible".
     measured_failure_rate = models.FloatField(null=True, blank=True)
     sample_size = models.PositiveIntegerField(null=True, blank=True)
     # [{"trace_id": str, "reason": str}], one line each.
@@ -105,6 +115,19 @@ class EvalSuggestion(TeamScopedRootMixin, UUIDModel):
     )
     dismiss_reason = models.CharField(max_length=32, choices=EvalSuggestionDismissReason.choices, null=True, blank=True)
     decided_at = models.DateTimeField(null=True, blank=True)
+    # A staff label for tuning what the pipeline shows. Customers never see it.
+    review_verdict = models.CharField(max_length=8, choices=EvalSuggestionReviewVerdict.choices, null=True, blank=True)
+    review_note = models.TextField(blank=True, default="", db_default="")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
     created_evaluation = models.ForeignKey(
         "ai_observability.Evaluation", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
@@ -117,6 +140,8 @@ class EvalSuggestion(TeamScopedRootMixin, UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = EnvironmentScopedManager()
+
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["run", "dedupe_key"], name="llma_evalsugg_unique_per_run"),
@@ -126,7 +151,7 @@ class EvalSuggestion(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class EvalSuggestionTeamState(TeamScopedRootMixin):
+class EvalSuggestionTeamState(models.Model):
     """Team extension: when someone last loaded the suggestions, and the day of the last first-visit run."""
 
     team = models.OneToOneField(
@@ -134,3 +159,5 @@ class EvalSuggestionTeamState(TeamScopedRootMixin):
     )
     last_visited_at = models.DateTimeField(null=True, blank=True, db_index=True)
     first_visit_run_on = models.DateField(null=True, blank=True)
+
+    objects = EnvironmentScopedManager()

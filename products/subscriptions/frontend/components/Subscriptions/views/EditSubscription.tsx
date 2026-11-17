@@ -7,6 +7,7 @@ import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { ImageSize } from 'lib/components/ImageSize/ImageSize'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -817,6 +818,15 @@ export function EditSubscription({
                             <LemonLabel className="mb-2">Settings</LemonLabel>
                             {!isAiPrompt && (
                                 <>
+                                    <LemonField name={['delivery_config', 'image_size']}>
+                                        {({ value, onChange }) => (
+                                            <ImageSize
+                                                value={value}
+                                                onChange={onChange}
+                                                description="Applies to each insight image in this subscription. Leave a dimension blank for automatic sizing. Content fits without stretching or cropping."
+                                            />
+                                        )}
+                                    </LemonField>
                                     <LemonField name="summary_enabled">
                                         {({ value, onChange }) => (
                                             <AIConsentPopoverWrapper>

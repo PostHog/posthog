@@ -1,5 +1,5 @@
 import { Fragment, type ReactElement, useEffect, useRef, useState } from 'react'
-import { Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 import { useReducedMotion } from 'react-native-reanimated'
 
 import { groupThousands } from '@/model/adapters/text'
@@ -16,6 +16,7 @@ interface Stat {
     label: string
     about: string
     value: number | null
+    loading?: boolean
 }
 
 interface LiveStatsProps {
@@ -23,47 +24,68 @@ interface LiveStatsProps {
     uniqueVisitors: number | null
     pageviews: number | null
     onAbout: (text: string) => void
+    audience?: 'web' | 'mobile' | 'mixed'
+    metrics?: Stat[]
+    compact?: boolean
 }
 
-/** The web's three live numbers in columns with dividers. A changed number counts to its new value and flashes blue. */
-export function LiveStats({ usersOnline, uniqueVisitors, pageviews, onAbout }: LiveStatsProps): ReactElement {
+export function LiveStats({
+    usersOnline,
+    uniqueVisitors,
+    pageviews,
+    onAbout,
+    audience = 'web',
+    metrics,
+    compact = false,
+}: LiveStatsProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const stats: Stat[] = [
+    const stats: Stat[] = metrics ?? [
         {
             key: 'users-online',
             label: 'Users online',
-            about: 'People active on your site right now.',
+            about: 'Users active right now.',
             value: usersOnline,
         },
         {
             key: 'unique-visitors',
-            label: 'Unique visitors',
-            about: 'Distinct visitors in the last 30 minutes.',
+            label: audience === 'web' ? 'Unique visitors' : 'Active users',
+            about:
+                audience === 'web' ? 'Unique visitors in the last 30 minutes.' : 'Unique users in the last 30 minutes.',
             value: uniqueVisitors,
         },
-        { key: 'pageviews', label: 'Pageviews', about: 'Total pages viewed in the last 30 minutes.', value: pageviews },
+        { key: 'pageviews', label: 'Pageviews', about: 'Pages viewed in the last 30 minutes.', value: pageviews },
     ]
     return (
         <View style={styles.card} testID="live-stats">
             {stats.map((stat, index) => (
                 <Fragment key={stat.key}>
                     {index > 0 ? <View style={styles.divider} /> : null}
-                    <View style={styles.stat}>
-                        <Pressable44
-                            onPress={() => onAbout(stat.about)}
-                            accessibilityLabel={`${stat.label}. ${stat.about}`}
-                            pressedBackground={colors.pressed}
-                            style={styles.labelButton}
-                            testID={`live-stat-${stat.key}-label`}
-                        >
+                    <Pressable44
+                        style={styles.stat}
+                        onPress={() => onAbout(stat.about)}
+                        accessibilityLabel={`${stat.label}: ${stat.value === null ? (stat.loading !== false ? 'Loading' : 'unavailable') : groupThousands(stat.value)}. ${stat.about}`}
+                        pressedBackground={colors.pressed}
+                        testID={`live-stat-${stat.key}-label`}
+                    >
+                        <View style={[styles.labelButton, compact && styles.compactLabel]}>
                             <Text style={styles.label} numberOfLines={2}>
                                 {stat.label}
                             </Text>
                             <InfoIcon size={12} color={colors.tertiary} />
-                        </Pressable44>
-                        <AnimatedCount value={stat.value} label={stat.label} testID={`live-stat-${stat.key}`} />
-                    </View>
+                        </View>
+                        {stat.value === null && stat.loading !== false ? (
+                            <View style={styles.loading}>
+                                <ActivityIndicator
+                                    color={colors.tertiary}
+                                    accessibilityLabel={`Loading ${stat.label}`}
+                                    testID={`live-stat-${stat.key}-loading`}
+                                />
+                            </View>
+                        ) : (
+                            <AnimatedCount value={stat.value} label={stat.label} testID={`live-stat-${stat.key}`} />
+                        )}
+                    </Pressable44>
                 </Fragment>
             ))}
         </View>
@@ -131,6 +153,7 @@ function AnimatedCount({
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    loading: { height: 38, alignItems: 'flex-start', justifyContent: 'center' },
     card: {
         flexDirection: 'row',
         paddingVertical: 12,
@@ -164,11 +187,11 @@ const useStyles = createStyles(({ colors }) => ({
         color: colors.tertiary,
         flexShrink: 1,
     },
+    compactLabel: {
+        minHeight: 20,
+    },
     value: {
-        fontSize: 28,
-        lineHeight: 34,
-        fontWeight: '700',
-        letterSpacing: -0.4,
+        ...type.screenTitle,
         color: colors.ink,
         fontVariant: ['tabular-nums'],
     },

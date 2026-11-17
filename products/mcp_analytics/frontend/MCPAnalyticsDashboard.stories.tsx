@@ -17,19 +17,19 @@ import { expect, userEvent } from 'storybook/test'
 import { modelLab } from './aiLabs'
 import { labMark } from './aiLabs'
 import { ActivityNextSteps } from './earlyData/ActivityNextSteps'
-import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
+import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
 
 const KPI_RESULTS = [
-    ['2026-05-25', 320, 4100, 120, 1900, false],
-    ['2026-05-26', 310, 3950, 140, 2050, false],
-    ['2026-05-27', 298, 3800, 110, 1880, false],
-    ['2026-06-01', 340, 4300, 150, 2100, true],
-    ['2026-06-02', 355, 4500, 165, 2200, true],
-    ['2026-06-03', 372, 4720, 158, 2080, true],
-    ['2026-06-04', 360, 4600, 170, 2290, true],
-    ['2026-06-05', 388, 4900, 182, 2150, true],
-    ['2026-06-06', 401, 5100, 176, 2240, true],
-    ['2026-06-07', 415, 5300, 168, 2290, true],
+    ['2026-05-25', 320, 4100, 120, 1900, 251],
+    ['2026-05-26', 310, 3950, 140, 2050, 246],
+    ['2026-05-27', 298, 3800, 110, 1880, 239],
+    ['2026-06-01', 340, 4300, 150, 2100, 262],
+    ['2026-06-02', 355, 4500, 165, 2200, 271],
+    ['2026-06-03', 372, 4720, 158, 2080, 280],
+    ['2026-06-04', 360, 4600, 170, 2290, 294],
+    ['2026-06-05', 388, 4900, 182, 2150, 288],
+    ['2026-06-06', 401, 5100, 176, 2240, 301],
+    ['2026-06-07', 415, 5300, 168, 2290, 312],
 ]
 
 const TOOL_RESULTS = [
@@ -771,7 +771,7 @@ const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
 const DASHBOARD_SECTIONS: Record<string, unknown[]> = {
     kpis: KPI_RESULTS,
     periodTotals: [[1840, 1655, 2050, 2180]],
-    toolRows: TOOL_RESULTS,
+    toolRows: TOOL_RESULTS.map((row) => [...row, 'calls']),
     sessionRows: SESSION_RESULTS,
     harnessRows: HARNESS_RESULTS,
     modelRows: MODEL_BREAKDOWN_RESULTS,
@@ -964,16 +964,9 @@ export const DashboardNarrow: Story = {
     parameters: { layout: 'padded' },
     render: () => (
         <div className="w-[520px]">
-            <MCPAnalyticsDashboardOverview />
+            <MCPAnalyticsLeaderboardHome />
         </div>
     ),
-}
-
-export const DashboardLeaderboardHome: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME],
-        testOptions: { viewportWidths: ['medium', 'wide'] },
-    },
 }
 
 export const DashboardWithMenuBar: Story = {

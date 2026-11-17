@@ -7,9 +7,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic, peekFeatureFlag } from 'lib/logic/featureFlagLogic'
 import {
     ReplayLayout,
+    isFeedReplayLayout,
     isNewReplayLayout,
     offeredReplayLayout,
     replayLayoutFrom,
+    staffReplayLayout,
 } from 'scenes/session-recordings/playlist/replayLayout'
 import { urls } from 'scenes/urls'
 
@@ -45,6 +47,8 @@ export interface playerSettingsLogicValues {
     hideViewedRecordings: HideViewedRecordingsOptions
     isPlaylistCollapsed: boolean
     isVerticallyStacked: boolean
+    layoutHintDismissed: boolean
+    layoutHintShown: boolean
     legacyDebugLinkPending: boolean
     playerControlsOverlay: boolean
     playlistOpen: boolean
@@ -78,6 +82,9 @@ export interface playerSettingsLogicActions {
         value: true
     }
     dismissDebugHint: () => {
+        value: true
+    }
+    dismissLayoutHint: () => {
         value: true
     }
     openWatchPanelSection: (section: WatchPanelSection) => {
@@ -131,8 +138,8 @@ export interface playerSettingsLogicActions {
     setSpeed: (speed: number) => {
         speed: number
     }
-    setStaffLayoutOverride: (layout: ReplayLayout | null) => {
-        layout: ReplayLayout | null
+    setStaffLayoutOverride: (layout: ReplayLayout) => {
+        layout: ReplayLayout
     }
     setTimestampFormat: (format: TimestampFormat) => {
         format: TimestampFormat
@@ -166,6 +173,12 @@ export interface playerSettingsLogicMeta {
             canOverrideLayout: boolean
         ) => ReplayLayout
         debugMode: (debugModePreference: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
+        layoutHintShown: (
+            replayLayout: ReplayLayout,
+            layoutHintDismissed: boolean,
+            watchLayoutOffered: boolean,
+            canOverrideLayout: boolean
+        ) => boolean
         debugHintShown: (replayLayout: ReplayLayout, debugHintDismissed: boolean) => boolean
         sidebarOpen: (userPreferenceSidebarOpen: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
         isVerticallyStacked: (preferredSidebarStacking: SessionRecordingSidebarStacking) => boolean
@@ -206,7 +219,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlayerControlsOverlay: (playerControlsOverlay: boolean) => ({ playerControlsOverlay }),
         setAmbientBackground: (ambientBackground: boolean) => ({ ambientBackground }),
         setPreferClassicReplayLayout: (preferClassicReplayLayout: boolean) => ({ preferClassicReplayLayout }),
-        setStaffLayoutOverride: (layout: ReplayLayout | null) => ({ layout }),
+        setStaffLayoutOverride: (layout: ReplayLayout) => ({ layout }),
         setWatchPanelOpenSections: (sections: WatchPanelSection[]) => ({ sections }),
         openWatchPanelSection: (section: WatchPanelSection) => ({ section }),
         clearWatchPanelFocus: true,
@@ -214,6 +227,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setWatchPanelCollapsed: (collapsed: boolean) => ({ collapsed }),
         setWatchDebugDock: (dock: WatchDebugDock) => ({ dock }),
         dismissDebugHint: true,
+        dismissLayoutHint: true,
         setLegacyDebugLinkPending: (pending: boolean) => ({ pending }),
     }),
     reducers(() => ({
@@ -330,6 +344,15 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 dismissDebugHint: () => true,
+                setDebugMode: (state, { open }) => open || state,
+            },
+        ],
+        layoutHintDismissed: [
+            false,
+            { persist: true },
+            {
+                dismissLayoutHint: () => true,
+                setPreferClassicReplayLayout: () => true,
             },
         ],
         watchPanelOpenSections: [
@@ -377,13 +400,23 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 replayLayoutFrom(
                     peekFeatureFlag(featureFlags, FEATURE_FLAGS.REPLAY_WATCH_LAYOUT),
                     preferClassicReplayLayout,
-                    canOverrideLayout ? staffLayoutOverride : null
+                    canOverrideLayout ? staffReplayLayout(staffLayoutOverride) : null
                 ),
         ],
         debugMode: [
             (s) => [s.debugModePreference, s.urlOverrideSidebarOpen],
             (debugModePreference: boolean, urlOverrideSidebarOpen: boolean | null): boolean =>
                 urlOverrideSidebarOpen ?? debugModePreference,
+        ],
+        layoutHintShown: [
+            (s) => [s.replayLayout, s.layoutHintDismissed, s.watchLayoutOffered, s.canOverrideLayout],
+            (
+                replayLayout: ReplayLayout,
+                layoutHintDismissed: boolean,
+                watchLayoutOffered: boolean,
+                canOverrideLayout: boolean
+            ): boolean =>
+                isNewReplayLayout(replayLayout) && !layoutHintDismissed && watchLayoutOffered && !canOverrideLayout,
         ],
         debugHintShown: [
             (s) => [s.replayLayout, s.debugHintDismissed],
@@ -442,7 +475,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             })
         },
         setDebugMode: ({ open }) => {
-            if (open && values.watchDebugDock === 'bottom') {
+            if (open && values.watchDebugDock === 'bottom' && !isFeedReplayLayout(values.replayLayout)) {
                 actions.openWatchPanelSection('debug')
             }
         },

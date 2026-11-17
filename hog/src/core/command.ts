@@ -97,7 +97,7 @@ interface CommandDefinition<Args, Options, Result> {
     telemetry?(input: CommandInput<Args, Options> & { result: Result }): Record<string, unknown>
     // What --raw prints, for a result that holds more than its views show. Defaults to the result.
     raw?(result: Result): unknown
-    // The exit code for a result. Defaults to 0. Failures throw a HogError instead.
+    // The exit code for a result. Defaults to EXIT_SUCCESS. Failures throw a HogError instead.
     exitCode?(result: Result): number
 }
 

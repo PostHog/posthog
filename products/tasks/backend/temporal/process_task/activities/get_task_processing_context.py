@@ -29,6 +29,7 @@ from products.tasks.backend.constants import (
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    PERSIST_AGENT_MEMORY_FEATURE_FLAG,
     PI_ACP_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
@@ -50,7 +51,10 @@ from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
-from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
+from products.tasks.backend.logic.services.agent_instructions import (
+    agent_instructions_state_update,
+    receives_agent_memory,
+)
 from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_domains,
     _get_debug_only_ports,
@@ -119,6 +123,7 @@ class TaskProcessingContext:
     task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
     github_user_integration_id: str | None = None
+    repository_integration_id: int | None = None
     task_created_by_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
@@ -169,6 +174,8 @@ class TaskProcessingContext:
     # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
     interactive_max_run_duration_seconds: int | None = None
     pi_acp_conversation_enabled: bool = False
+    # Captured at workflow start; the memory persist commands are gated on it together with a patch marker.
+    persist_agent_memory_enabled: bool = False
     # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
     # workflow start and persisted into TaskRun.state at provision time, so activities
     # and out-of-band consumers route deterministically for the run's whole life.
@@ -212,6 +219,10 @@ class TaskProcessingContext:
     @property
     def has_github_credentials(self) -> bool:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
+
+    @property
+    def has_gitlab_credentials(self) -> bool:
+        return self.repository_integration_id is not None
 
     @property
     def repositories(self) -> list[str]:
@@ -422,6 +433,7 @@ class TaskProcessingContext:
 
 
 PR_LOOP_FEATURE_FLAG = "tasks-pr-loop"
+CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY = "custom_image_fallback_reason"
 
 RUN_FEATURE_FLAG_KEYS: list[str] = [
     PR_LOOP_FEATURE_FLAG,
@@ -435,6 +447,7 @@ RUN_FEATURE_FLAG_KEYS: list[str] = [
     HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
     PI_ACP_FEATURE_FLAG,
+    PERSIST_AGENT_MEMORY_FEATURE_FLAG,
 ]
 
 
@@ -1008,7 +1021,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                         "warn",
                         f"Custom image '{custom_image.name}' is private to its creator; using the default base image",
                     )
-                elif custom_image.is_ready:
+                elif custom_image.has_usable_build:
                     environment_custom_image_name = custom_image.modal_image_name
                 else:
                     emit_agent_log(
@@ -1038,14 +1051,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     # A per-run image (picked at task start) wins over the environment's image.
     state_custom_image_id = state.get("custom_image_id")
+    custom_image_fallback_reason: str | None = None
     if state_custom_image_id:
         with StepTimer("load_custom_image"):
             state_custom_image = SandboxCustomImage.get_accessible_for_task(
                 image_id=state_custom_image_id, team_id=task.team_id, task_created_by_id=task.created_by_id
             )
-        if state_custom_image is not None and state_custom_image.is_ready:
+        if state_custom_image is not None and state_custom_image.has_usable_build:
             environment_custom_image_name = state_custom_image.modal_image_name
         else:
+            custom_image_fallback_reason = "unavailable" if state_custom_image is None else "not_ready"
             emit_agent_log(
                 run_id,
                 "warn",
@@ -1073,8 +1088,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # that gates other origins. This mirrors the babysitting the Slack coding bot
     # gets for its PRs.
     flags = _fetch_run_flags(distinct_id=distinct_id, organization_id=organization_id, run_id=run_id)
-    pr_loop_enabled = task.origin_product == Task.OriginProduct.SIGNAL_REPORT or _flag_enabled(
-        flags, PR_LOOP_FEATURE_FLAG
+    # The PR follow-up loop reads GitHub checks and reviews, so it stays off for GitLab merge requests.
+    pr_loop_enabled = task.repository_integration_id is None and (
+        task.origin_product == Task.OriginProduct.SIGNAL_REPORT or _flag_enabled(flags, PR_LOOP_FEATURE_FLAG)
     )
     log_with_activity_context(f"pr_loop_enabled: {pr_loop_enabled} for this task run", run_id=run_id)
     state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
@@ -1188,6 +1204,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             custom_image_name = environment_custom_image_name
             log_with_activity_context(f"Using custom base image: {custom_image_name}", run_id=run_id)
         else:
+            if state_custom_image_id and custom_image_fallback_reason is None:
+                custom_image_fallback_reason = "runtime_not_enabled"
             emit_agent_log(
                 run_id,
                 "warn",
@@ -1202,6 +1220,22 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         log_with_activity_context(
             f"Using the organization's default custom base image: {custom_image_name}", run_id=run_id
         )
+    if (
+        input.launches_agent
+        and input.resumed_sandbox_id is None
+        and (custom_image_fallback_reason is not None or CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY in state)
+    ):
+        try:
+            if custom_image_fallback_reason is None:
+                state.pop(CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY)
+                TaskRun.update_state_atomic(task_run.id, remove_keys=[CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY])
+            else:
+                state[CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY] = custom_image_fallback_reason
+                TaskRun.update_state_atomic(
+                    task_run.id, updates={CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: custom_image_fallback_reason}
+                )
+        except Exception as e:
+            log_with_activity_context("custom_image_fallback_reason_stamp_failed", run_id=run_id, error=str(e))
     burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
         run_id=run_id,
         state=state,
@@ -1324,8 +1358,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         team_id=task.team_id,
         team_uuid=str(task.team.uuid),
         organization_id=str(task.team.organization_id),
-        github_integration_id=task.github_integration_id,
-        github_user_integration_id=user_github_integration_id,
+        # A GitLab task gets no GitHub credential, so the GitHub refresh loop never rewrites its remote.
+        github_integration_id=task.github_integration_id if task.repository_integration_id is None else None,
+        github_user_integration_id=user_github_integration_id if task.repository_integration_id is None else None,
+        repository_integration_id=task.repository_integration_id,
         repository=run_repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
@@ -1379,4 +1415,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         sandbox_backend=sandbox_backend,
         dev_stack_preview_enabled=dev_stack_preview_enabled,
         pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI and _is_pi_acp_enabled(flags=flags),
+        # Memory belongs to the task's creator, so a run another person drives must not read or write it.
+        persist_agent_memory_enabled=receives_agent_memory(task)
+        and (actor_user is None or actor_user.id == task.created_by_id)
+        and not state.get("agent_memory_locked")
+        and _flag_enabled(flags, PERSIST_AGENT_MEMORY_FEATURE_FLAG),
     )

@@ -7,6 +7,7 @@ import { classifyAuthMethod } from '@/lib/auth-method'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
+import { METRIC_LIST_TOOL, resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     buildMCPAnalyticsGroups,
@@ -16,7 +17,7 @@ import {
 } from '@/lib/posthog/analytics'
 import { type RequestProperties, sanitizeToolFilterNames } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
-import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
@@ -88,6 +89,10 @@ function buildBaseProperties(
                   $mcp_project_name: analyticsContext.projectName,
                   ...buildMCPContextProperties(analyticsContext),
               }
+            : {}),
+        // `unknown` means the catalog read failed, which the prompt treats as `lookup`.
+        ...(state.allTools.some(({ name }) => name === METRIC_LIST_TOOL)
+            ? { metric_catalog_mode: state.metricCatalog ? resolveMetricCatalogMode(state.metricCatalog) : 'unknown' }
             : {}),
         mcp_runtime: 'hono',
         $mcp_vendor_client: clientIdentity.mcpVendorClient,
@@ -276,7 +281,7 @@ export async function trackExecuteSqlGeneration(
     meta: ExecuteSqlGenerationMeta,
     analyticsMeta?: ToolCallAnalyticsMeta
 ): Promise<void> {
-    if (toolName !== EXECUTE_SQL_TOOL_NAME) {
+    if (toolName !== EXECUTE_SQL_TOOL_NAME || !shouldCaptureToolCall(toolName, args)) {
         return
     }
     const query = (args as { query?: unknown } | null | undefined)?.query
@@ -378,12 +383,35 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 // A send's recipient address, subject and distinct ID are a customer's own customer data, and the list takes an
 // address as its search. Key-based redaction catches none of them. `$mcp_tool_call` still records the call.
-const EMAIL_RECIPIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
-    'workflows-transactional-emails-list',
-    'workflows-transactional-email-get',
+// The suppression and opt-out imports take a list of addresses, but their result holds only counts and entry
+// numbers, so it is still captured.
+type EmailRecipientExposure = 'arguments' | 'arguments-and-result'
+
+const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new Map([
+    ['workflows-transactional-emails-list', 'arguments-and-result'],
+    ['workflows-transactional-email-get', 'arguments-and-result'],
+    ['opt-outs-list', 'arguments-and-result'],
+    ['opt-outs-remove', 'arguments-and-result'],
+    ['opt-outs-add', 'arguments'],
+    ['suppressions-list', 'arguments-and-result'],
+    ['suppressions-remove', 'arguments-and-result'],
+    ['suppressions-add', 'arguments'],
 ])
 
 const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
+
+// A start holds a vendor API key that can do anything in the customer's account, and results quote sender addresses and
+// template text. Key-based redaction misses both, also when the call arrives as an exec command string.
+// `$mcp_tool_call` still records the call.
+const PROVIDER_IMPORT_TOOL_PREFIX = 'provider-imports-'
+
+function isProviderImportTool(toolName: string, input: unknown): boolean {
+    if (toolName.startsWith(PROVIDER_IMPORT_TOOL_PREFIX)) {
+        return true
+    }
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return toolName === 'exec' && typeof command === 'string' && command.includes(PROVIDER_IMPORT_TOOL_PREFIX)
+}
 
 function sendsEmailContent(toolName: string, input: unknown): boolean {
     if (toolName.startsWith(EMAIL_SEND_TOOL_PREFIX)) {
@@ -395,23 +423,33 @@ function sendsEmailContent(toolName: string, input: unknown): boolean {
     return toolName === 'exec' && typeof command === 'string' && command.includes(EMAIL_SEND_TOOL_PREFIX)
 }
 
-function readsEmailRecipients(toolName: string, input: unknown): boolean {
-    if (EMAIL_RECIPIENT_TOOL_NAMES.has(toolName)) {
-        return true
+function emailRecipientExposure(toolName: string, input: unknown): EmailRecipientExposure | undefined {
+    const direct = EMAIL_RECIPIENT_TOOLS.get(toolName)
+    if (direct) {
+        return direct
     }
     const command = (input as { command?: unknown } | null | undefined)?.command
-    return (
-        toolName === 'exec' &&
-        typeof command === 'string' &&
-        [...EMAIL_RECIPIENT_TOOL_NAMES].some((name) => command.includes(name))
-    )
+    if (toolName !== 'exec' || typeof command !== 'string') {
+        return undefined
+    }
+    const matched = [...EMAIL_RECIPIENT_TOOLS]
+        .filter(([name]) => command.includes(name))
+        .map(([, exposure]) => exposure)
+    return matched.includes('arguments-and-result') ? 'arguments-and-result' : matched[0]
 }
 
-function shouldCaptureToolInput(toolName: string, input: unknown): boolean {
+function shouldCaptureToolCall(toolName: string, input: unknown): boolean {
+    // Property-filter values can contain credentials under the generic `value` key.
+    if (hasSqlFilters(toolName, input)) {
+        return false
+    }
     if (isPrivateScoutTrialTool(toolName)) {
         return false
     }
     if (sendsEmailContent(toolName, input)) {
+        return false
+    }
+    if (isProviderImportTool(toolName, input)) {
         return false
     }
     // A proxied third-party tool's args and result are the vendor's content — an issue
@@ -429,14 +467,19 @@ function shouldCaptureToolInput(toolName: string, input: unknown): boolean {
     if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
         return false
     }
-    if (readsEmailRecipients(toolName, input)) {
-        return false
-    }
-    return true
+    return emailRecipientExposure(toolName, input) !== 'arguments-and-result'
 }
 
-function shouldCaptureToolOutput(toolName: string, input: unknown): boolean {
-    if (!shouldCaptureToolInput(toolName, input)) {
+function shouldCaptureToolInput(toolName: string, input: unknown): boolean {
+    return shouldCaptureToolCall(toolName, input) && emailRecipientExposure(toolName, input) === undefined
+}
+
+function shouldCaptureToolOutput(toolName: string, input: unknown, isError: boolean): boolean {
+    if (!shouldCaptureToolCall(toolName, input)) {
+        return false
+    }
+    // A failed import's error text can quote the addresses from the command that exec rejected.
+    if (isError && emailRecipientExposure(toolName, input) !== undefined) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,
@@ -476,6 +519,10 @@ const REDACTED_VALUE = '[redacted]'
 // private half, marked `secret: true` only because the UI groups it with the
 // real credentials.
 //
+// `webhook_url` is the whole credential of a Teams, Discord or generic webhook
+// destination: the secret token sits in its path or query, so the URL cannot
+// be shown with only its host.
+//
 // `app_id`/`api_id` and the trailing `username` case cover sources whose
 // credential is an identifier rather than a token: Open Exchange Rates'
 // `app_id` and Veracode's `api_id` are the whole usable credential, and
@@ -487,7 +534,7 @@ const REDACTED_VALUE = '[redacted]'
 // pattern can't tell those apart by name, and over-redacting a non-secret
 // identifier is harmless where under-redacting a credential is not.
 const SENSITIVE_KEY_PATTERN =
-    /password|passwd|passphrase|secret|credential|certificate|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|app[_-]?id|api[_-]?id|(^|[_-])(token|key|keys|username)$/i
+    /password|passwd|passphrase|secret|credential|certificate|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|webhook[_-]?url|app[_-]?id|api[_-]?id|(^|[_-])(token|key|keys|username)$/i
 
 function redactSecrets(value: unknown): unknown {
     if (Array.isArray(value)) {
@@ -552,7 +599,7 @@ function capturedPayload(
         ...(parameters !== undefined && shouldCaptureToolInput(toolName, parameters)
             ? { parameters: redactForCapture(parameters) }
             : {}),
-        ...(response !== undefined && !isError && shouldCaptureToolOutput(toolName, parameters)
+        ...(response !== undefined && !isError && shouldCaptureToolOutput(toolName, parameters, isError)
             ? { response: redactForCapture(omitAppData(response)) }
             : {}),
     }
@@ -563,13 +610,20 @@ function omitAppData(output: unknown): unknown {
         return output
     }
     const result = output as Record<string, unknown>
-    const meta = result._meta
-    if (typeof meta !== 'object' || meta === null || Array.isArray(meta) || !(APP_DATA_META_KEY in meta)) {
-        return output
+    const sanitized: Record<string, unknown> = { ...result }
+    for (const field of ['_meta', 'structuredContent']) {
+        const carrier = result[field]
+        if (
+            typeof carrier === 'object' &&
+            carrier !== null &&
+            !Array.isArray(carrier) &&
+            APP_DATA_META_KEY in carrier
+        ) {
+            const { [APP_DATA_META_KEY]: _appData, ...rest } = carrier as Record<string, unknown>
+            sanitized[field] = rest
+        }
     }
-    const sanitizedMeta: Record<string, unknown> = { ...meta }
-    delete sanitizedMeta[APP_DATA_META_KEY]
-    return { ...result, _meta: sanitizedMeta }
+    return sanitized
 }
 
 /**
@@ -583,14 +637,14 @@ function omitAppData(output: unknown): unknown {
  */
 export async function trackToolSpan(toolName: string, state: ResolvedState, meta: ToolSpanMeta): Promise<void> {
     try {
-        if (!shouldCaptureToolOutput(toolName, meta.input)) {
+        if (!shouldCaptureToolOutput(toolName, meta.input, meta.isError)) {
             return
         }
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
         const toolCategory = getToolCategory(toolName)
-        const inputState = serializeSpanState(meta.input)
+        const inputState = shouldCaptureToolInput(toolName, meta.input) ? serializeSpanState(meta.input) : undefined
         const outputState = serializeSpanState(
             state.clientProfile.consumer === 'posthog_ai' ? omitAppData(meta.output) : meta.output
         )
@@ -726,6 +780,7 @@ export async function trackSkillInvoked(state: ResolvedState, invocation: SkillI
                 skill_name: invocation.skill,
                 skill_identifier: `${invocation.source}:${invocation.skill}`,
                 skill_read_kind: invocation.readKind,
+                ...(invocation.path ? { skill_file_path: invocation.path } : {}),
             },
         })
     } catch {

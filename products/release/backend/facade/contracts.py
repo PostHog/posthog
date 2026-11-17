@@ -6,25 +6,28 @@ No Django imports. Used by facade as inputs/outputs.
 """
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
+
+MAX_LINKED = 100
 
 
 class ReleaseNotFoundError(Exception):
     pass
 
 
-class UnknownFeatureFlagsError(Exception):
-    def __init__(self, flag_ids: list[int]) -> None:
-        super().__init__(flag_ids)
-        self.flag_ids = flag_ids
+class InvalidMergeError(Exception):
+    pass
 
 
-class UnknownBroadcastsError(Exception):
-    def __init__(self, broadcast_ids: list[UUID]) -> None:
-        super().__init__(broadcast_ids)
-        self.broadcast_ids = broadcast_ids
+class UnknownLinkedObjectsError(Exception):
+    def __init__(self, field: str, noun: str, ids: list[Any]) -> None:
+        super().__init__(field, ids)
+        self.field = field
+        self.noun = noun
+        self.ids = ids
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,51 @@ class BroadcastVisibility:
 
 
 @dataclass(frozen=True)
+class LinkedSurveyDTO:
+    id: UUID
+    name: str
+    created_at: datetime
+    start_date: datetime | None
+    end_date: datetime | None
+    linked_flag_id: int | None
+    archived: bool
+
+
+@dataclass(frozen=True)
+class SurveyVisibility:
+    existing: frozenset[UUID]
+    visible: frozenset[UUID]
+    linkable: frozenset[UUID]
+    summaries: tuple[LinkedSurveyDTO, ...] = ()
+
+    @property
+    def hidden(self) -> frozenset[UUID]:
+        return self.existing - self.visible
+
+
+@dataclass(frozen=True)
+class LinkedInsightDTO:
+    id: int
+    short_id: str
+    name: str
+    created_at: datetime | None
+    last_modified_at: datetime | None
+    deleted: bool
+
+
+@dataclass(frozen=True)
+class InsightVisibility:
+    existing: frozenset[int]
+    visible: frozenset[int]
+    linkable: frozenset[int]
+    summaries: tuple[LinkedInsightDTO, ...] = ()
+
+    @property
+    def hidden(self) -> frozenset[int]:
+        return self.existing - self.visible
+
+
+@dataclass(frozen=True)
 class FlagVisibility:
     existing: frozenset[int]
     visible: frozenset[int]
@@ -72,6 +120,17 @@ class ReleaseOwnerDTO:
 
 
 @dataclass(frozen=True)
+class ReleaseSummary:
+    id: UUID
+    name: str
+    description: str
+    auto_named: bool
+    owner_first_name: str | None
+    feature_flag_ids: list[int]
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class ReleaseDTO:
     id: UUID
     name: str
@@ -81,7 +140,28 @@ class ReleaseDTO:
     has_hidden_flags: bool
     broadcast_ids: list[UUID]
     broadcasts: list[LinkedBroadcastDTO]
+    survey_ids: list[UUID]
+    surveys: list[LinkedSurveyDTO]
+    insight_ids: list[int]
+    insights: list[LinkedInsightDTO]
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class CatalogOwnerDTO:
+    id: int
+    uuid: UUID
+    first_name: str
+    last_name: str
+    email: str
+
+
+@dataclass(frozen=True)
+class CatalogReleaseDTO:
+    id: UUID
+    name: str
+    created_at: datetime
+    owner: CatalogOwnerDTO | None
 
 
 @dataclass(frozen=True)
@@ -92,6 +172,8 @@ class CreateReleaseInput:
     owner_id: int | None = None
     feature_flag_ids: tuple[int, ...] = ()
     broadcast_ids: tuple[UUID, ...] = ()
+    survey_ids: tuple[UUID, ...] = ()
+    insight_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
