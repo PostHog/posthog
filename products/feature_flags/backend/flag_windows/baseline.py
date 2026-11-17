@@ -10,8 +10,8 @@ rate and the baseline share a denominator.
 Hours are UTC clock hours. In a timezone with daylight saving time, an earlier week is one hour off the local time of
 day for part of the year.
 
-The query reads every event of each earlier week in the day, because the denominator is every person (or group) with
-an event. People are counted per kind of actor of the watched flags: persons, or the groups of each group type.
+The query reads every event of each day it counts, because the denominator is every person (or group) with an event.
+People are counted per kind of actor of the watched flags: persons, or the groups of each group type.
 """
 
 from collections.abc import Sequence
@@ -68,9 +68,7 @@ def error_baseline(
     )
     return {
         actor_kind: [
-            # The weeks count from the oldest, and the baseline lists the latest first.
-            BaselineHour(start=midnight + hour * HOUR, weeks=tuple(reversed(by_week)))
-            for hour, by_week in enumerate(by_hour)
+            BaselineHour(start=midnight + hour * HOUR, weeks=tuple(by_week)) for hour, by_week in enumerate(by_hour)
         ]
         for actor_kind, by_hour in counts.items()
     }
@@ -89,8 +87,8 @@ def errors_by_hour(
 def _errors_by_hour_and_week(
     team: Team, group_type_indexes: Sequence[int | None], origin: datetime, weeks: int, query_type: str
 ) -> dict[int | None, list[list[HourErrors]]]:
-    """For each kind of actor and each UTC hour of the day at `origin`, the errors of that day and the `weeks - 1`
-    days a week, two weeks and so on after it, from the oldest."""
+    """The errors of `weeks` days one week apart, starting with the day that begins at `origin`, a UTC midnight, by kind
+    of actor. The outer index is the UTC hour, and the inner index is the week, latest first."""
     actor_kinds = list(dict.fromkeys(group_type_indexes))
     if not actor_kinds:
         return {}
@@ -102,7 +100,7 @@ def _errors_by_hour_and_week(
         week_from_origin, hour = divmod(int(row[0]), HOURS_PER_WEEK)
         values = iter(row[1:])
         for actor_kind in actor_kinds:
-            counts[actor_kind][hour][week_from_origin] = HourErrors(
+            counts[actor_kind][hour][weeks - week_from_origin - 1] = HourErrors(
                 active=int(next(values)), with_errors=int(next(values))
             )
     return counts
@@ -117,7 +115,7 @@ def _query(actor_kinds: Sequence[int | None], origin: datetime, weeks: int) -> a
         columns.append(parse_expr("uniqIf({actor}, {present} AND event = '$exception')", placeholders=placeholders))
     # The events table sorts each team's events by day, so a query reads every whole day that it touches. One UTC day
     # per week keeps the query to one day of events per week.
-    in_earlier_weeks = ast.Or(
+    in_counted_days = ast.Or(
         exprs=[
             parse_expr(
                 "timestamp >= {start} AND timestamp < {end}",
@@ -142,7 +140,7 @@ def _query(actor_kinds: Sequence[int | None], origin: datetime, weeks: int) -> a
             *columns,
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=in_earlier_weeks,
+        where=in_counted_days,
         group_by=[ast.Field(chain=["hour"])],
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["hour"]), order="ASC")],
         # One row per hour and week. HogQL adds LIMIT 100 to a query without one.

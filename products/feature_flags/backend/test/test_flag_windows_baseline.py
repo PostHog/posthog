@@ -102,6 +102,7 @@ class TestErrorBaseline(ClickhouseTestMixin, BaseTest):
         }
 
     def test_the_day_itself_counts_each_utc_hour_without_the_earlier_weeks_or_the_next_day(self) -> None:
+        # A day that starts at midnight in the team's timezone would read 04:00 to 04:00 UTC and count other events.
         self.team.timezone = "America/New_York"
         self.team.save()
         self._send(
@@ -116,6 +117,5 @@ class TestErrorBaseline(ClickhouseTestMixin, BaseTest):
 
         errors = errors_by_hour(self.team, [None], DAY)
 
-        assert errors == {
-            None: [_errors(2, 1) if hour == 0 else _errors(1, 0) if hour == 5 else NONE for hour in range(24)]
-        }
+        by_hour = {0: _errors(2, 1), 5: _errors(1, 0)}
+        assert errors == {None: [by_hour.get(hour, NONE) for hour in range(24)]}
