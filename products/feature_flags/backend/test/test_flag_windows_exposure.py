@@ -69,8 +69,8 @@ EVERYONE = WatchedCondition(position=0, properties=())
 
 # (distinct id, minutes after START, event properties)
 Event = tuple[str, int, dict[str, Any]]
-# (minutes after START of the bucket, with_flag, exposed, unexposed, by_variant)
-BucketCounts = tuple[int, int, int, int, dict[str, int]]
+# (bucket start in minutes after START, then the in_bucket with_flag, exposed, unexposed and by_variant)
+ExpectedBucket = tuple[int, int, int, int, dict[str, int]]
 
 
 def _text_compared_with_a_number(team: Team) -> dict[str, Any]:
@@ -189,7 +189,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         _name: str,
         edit: WatchedEdit,
         events: list[Event],
-        expected: list[BucketCounts],
+        expected: list[ExpectedBucket],
         window: tuple[int, int] = (0, 30),
     ) -> None:
         self._send(events)

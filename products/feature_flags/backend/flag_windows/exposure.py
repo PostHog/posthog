@@ -42,7 +42,7 @@ class ExposureCounts:
     with_flag: int
     # The people (or groups) with a value other than false.
     exposed: int
-    # The people (or groups) with the value false, or that loaded flags without it when the edit enables the flag. A
+    # The people (or groups) with the value false, or that loaded flags without this flag when the edit enables it. A
     # person whose value changed counts here and in `exposed`, so this isn't `with_flag - exposed`.
     unexposed: int
     # The people (or groups) with each variant that the flag serves. Empty for a boolean flag.
