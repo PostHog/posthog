@@ -7,6 +7,14 @@ const meta: Meta<typeof MarketingAnalyticsNotReady> = {
     title: 'Scenes-App/Marketing Analytics/Not ready',
     component: MarketingAnalyticsNotReady,
     tags: ['autodocs'],
+    decorators: [
+        // LemonBanner is a CSS container, so it has no width of its own and needs a sized parent.
+        (Story) => (
+            <div className="w-160">
+                <Story />
+            </div>
+        ),
+    ],
 }
 export default meta
 
