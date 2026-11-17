@@ -37,9 +37,16 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.agent_instructions import AgentInstructionsStore
-from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    SandboxCustomImage,
+    SandboxEnvironment,
+    Task,
+    TaskRun,
+)
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+    CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY,
     RUN_FEATURE_FLAG_KEYS,
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -1371,6 +1378,88 @@ class TestGetTaskProcessingContextActivity:
 
         assert result.use_modal_vm_sandbox is True
         assert result.custom_image_name == "posthog-dev-stack"
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "image_status, modal_image_name, image_exists, vm_enabled, input_kwargs, expected_image, expected_reason",
+        [
+            (SandboxCustomImage.Status.READY, "custom:latest", True, True, {}, "custom:latest", None),
+            (SandboxCustomImage.Status.BUILDING, "custom:latest", True, True, {}, "custom:latest", None),
+            (SandboxCustomImage.Status.SCANNING, "custom:latest", True, True, {}, "custom:latest", None),
+            (SandboxCustomImage.Status.BUILDING, "", True, True, {}, None, "not_ready"),
+            (SandboxCustomImage.Status.BUILD_FAILED, "custom:latest", True, True, {}, None, "not_ready"),
+            (SandboxCustomImage.Status.READY, "custom:latest", False, True, {}, None, "unavailable"),
+            (SandboxCustomImage.Status.READY, "custom:latest", True, False, {}, None, "runtime_not_enabled"),
+            (
+                SandboxCustomImage.Status.READY,
+                "custom:latest",
+                True,
+                True,
+                {"resumed_sandbox_id": "sandbox-live"},
+                "custom:latest",
+                "stale",
+            ),
+            (
+                SandboxCustomImage.Status.READY,
+                "custom:latest",
+                False,
+                True,
+                {"resumed_sandbox_id": "sandbox-live"},
+                None,
+                "stale",
+            ),
+            (SandboxCustomImage.Status.READY, "custom:latest", False, True, {"launches_agent": False}, None, "stale"),
+        ],
+        ids=[
+            "ready",
+            "rebuilding_serves_last_build",
+            "rescanning_serves_last_build",
+            "first_build",
+            "build_failed",
+            "missing",
+            "runtime_not_enabled",
+            "continuation_keeps_reason_when_image_became_ready",
+            "continuation_keeps_reason_when_image_was_deleted",
+            "orchestrator_context_keeps_reason",
+        ],
+    )
+    def test_per_run_custom_image_resolution_records_the_fallback_reason(
+        self,
+        activity_environment,
+        test_task,
+        image_status,
+        modal_image_name,
+        image_exists,
+        vm_enabled,
+        input_kwargs,
+        expected_image,
+        expected_reason,
+    ):
+        image = SandboxCustomImage.objects.for_team(test_task.team_id).create(
+            team=test_task.team,
+            created_by=test_task.created_by,
+            name="custom",
+            status=image_status,
+            modal_image_name=modal_image_name,
+        )
+        image_id = str(image.id)
+        if not image_exists:
+            SandboxCustomImage.objects.for_team(test_task.team_id).filter(id=image.id).delete()
+        task_run = test_task.create_run(
+            extra_state={"custom_image_id": image_id, CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: "stale"}
+        )
+        payloads = {MODAL_VM_SANDBOX_FEATURE_FLAG: '{"origin_products": ["user_created"]}'} if vm_enabled else {}
+
+        with patch(ALL_FLAGS_TARGET, return_value=_flags(payloads=payloads)):
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context,
+                GetTaskProcessingContextInput(run_id=str(task_run.id), **{"launches_agent": True, **input_kwargs}),
+            )
+
+        task_run.refresh_from_db()
+        assert result.custom_image_name == expected_image
+        assert task_run.state.get(CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY) == expected_reason
+        assert result.state.get(CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY) == expected_reason
 
     @pytest.mark.django_db(transaction=True)
     @override_settings(HOGLAND_API_URL="https://hogland.example", HOGLAND_API_TOKEN="hog-tok")
