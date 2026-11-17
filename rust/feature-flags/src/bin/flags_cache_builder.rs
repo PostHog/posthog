@@ -498,6 +498,7 @@ async fn consume_loop(
         redis_client,
         Duration::from_secs(cfg.shadow_mismatch_ttl_seconds),
     );
+    tracing::info!("Consumer loop started");
 
     loop {
         // Reporting healthy each iteration covers the idle case: with no traffic

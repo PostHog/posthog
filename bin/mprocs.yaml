@@ -338,7 +338,7 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service flags-cache-builder
         capability: flag_evaluation
-        ready_pattern: 'Starting flags-cache-builder'
+        ready_pattern: 'Consumer loop started'
         groups:
             layer: Product services
             tech: Rust
