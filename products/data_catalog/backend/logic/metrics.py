@@ -20,6 +20,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
+import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.database.database import Database, system_table_denials
@@ -65,6 +66,8 @@ class _Unset:
 
 
 _UNSET = _Unset()
+
+logger = structlog.get_logger(__name__)
 
 # The columns _reset_to_proposed touches, so a lifecycle reset can be scoped into update_fields.
 _APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at"})
@@ -225,12 +228,27 @@ DENIED_TABLES_CACHE_TTL_SECONDS = 300
 DeniedTablesLoader = Callable[[Team, User, UserAccessControl], set[str]]
 
 
+def _read_cached_denied_tables(key: str) -> list[str] | None:
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("data_catalog_denied_tables_cache_read_failed", key=key, exc_info=True)
+        return None
+
+
+def _write_cached_denied_tables(key: str, denied: list[str]) -> None:
+    try:
+        cache.set(key, denied, DENIED_TABLES_CACHE_TTL_SECONDS)
+    except Exception:
+        logger.warning("data_catalog_denied_tables_cache_write_failed", key=key, exc_info=True)
+
+
 def cached_denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
     key = f"data_catalog:denied_tables:{team.id}:{user.id}"
-    denied = cache.get(key)
+    denied = _read_cached_denied_tables(key)
     if denied is None:
         denied = sorted(_denied_tables(team, user, user_access_control))
-        cache.set(key, denied, DENIED_TABLES_CACHE_TTL_SECONDS)
+        _write_cached_denied_tables(key, denied)
     return set(denied)
 
 
@@ -750,7 +768,7 @@ def metrics_visible_to_user(
         metrics = metrics.filter(definition__kind=filters.definition_kind)
     if denied_tables is None:
         if not metrics.exclude(referenced_table_names=[]).exists():
-            return metrics
+            return metrics.filter(referenced_table_names=[])
         denied_tables = load_denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics
