@@ -380,6 +380,21 @@ class TestComposeFlashFindings:
         assert [issue.id for issue in selection.kept] == expected_kept
         assert [(drop.issue.id, drop.disposition, drop.rank) for drop in selection.dropped] == expected_dropped
 
+    def test_devex_findings_post_in_their_own_lane(self) -> None:
+        # A devex must-fix in the shared selection would take a cap slot and a budget slot, so a routed turn
+        # would post fewer of the other sessions' findings than the same turn without the lens.
+        main = [_issue(f"m{n}", IssuePriority.SHOULD_FIX) for n in range(1, 5)]
+        devex = [
+            _issue("d1", IssuePriority.SHOULD_FIX, DEVEX_LENS.source),
+            _issue("d2", IssuePriority.MUST_FIX, DEVEX_LENS.source),
+            _issue("d3", IssuePriority.CONSIDER, DEVEX_LENS.source),
+        ]
+
+        selection = compose_flash_findings(main, [], lens_part_count=1, budget_left=4, devex=devex)
+
+        assert [issue.id for issue in selection.kept] == ["m1", "m2", "m3", "m4", "d2", "d1"]
+        assert [(drop.issue.id, drop.disposition, drop.rank) for drop in selection.dropped] == [("d3", "cap", 7)]
+
 
 def _flash_dedup(*duplicates: tuple[str, str]) -> AsyncMock:
     return AsyncMock(
@@ -438,6 +453,41 @@ class TestDedupeFlashFindings:
         kept = (await self._dedupe(pr_metadata, [main, lens], mock_llm)).kept
 
         assert [issue.id for issue in kept] == expected_ids
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "llm_duplicate,expected",
+        [
+            pytest.param(
+                ("2003-1-1", "2000-1-1"),
+                [("2000-1-1", IssuePriority.CONSIDER), ("2002-1-1", IssuePriority.SHOULD_FIX)],
+                id="devex_p1_drops_into_a_main_p3_without_raising_it",
+            ),
+            pytest.param(
+                ("2002-1-1", "2003-1-1"),
+                [
+                    ("2000-1-1", IssuePriority.CONSIDER),
+                    ("2002-1-1", IssuePriority.SHOULD_FIX),
+                    ("2003-1-1", IssuePriority.MUST_FIX),
+                ],
+                id="a_lens_finding_never_drops_into_a_devex_finding",
+            ),
+        ],
+    )
+    async def test_a_devex_finding_can_lose_to_any_session_and_changes_nothing_else(
+        self, pr_metadata: PRMetadata, llm_duplicate: tuple[str, str], expected: list[tuple[str, IssuePriority]]
+    ) -> None:
+        # A main finding raised to must-fix by a devex duplicate leaves the cap, and a lens finding that drops
+        # into a devex one moves into the devex lane, so either way a routed turn posts a different set.
+        issues = [
+            _issue("2000-1-1", IssuePriority.CONSIDER),
+            _issue("2002-1-1", IssuePriority.SHOULD_FIX, _LENS_SOURCE),
+            _issue("2003-1-1", IssuePriority.MUST_FIX, DEVEX_LENS.source),
+        ]
+
+        kept = (await self._dedupe(pr_metadata, issues, _flash_dedup(llm_duplicate))).kept
+
+        assert sorted((issue.id, issue.priority) for issue in kept) == sorted(expected)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
