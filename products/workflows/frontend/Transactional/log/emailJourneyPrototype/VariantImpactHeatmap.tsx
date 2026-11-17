@@ -64,7 +64,9 @@ export function VariantImpactHeatmap({ data }: { data: ImpactData }): JSX.Elemen
                 <div className="w-full @4xl:w-[28rem] shrink-0 flex flex-col gap-3">
                     {!selected ? (
                         <section className="border rounded bg-surface-primary p-4 flex flex-col gap-3">
-                            <h3 className="text-base font-semibold m-0">Pick a link in the email</h3>
+                            <h3 className="text-base font-semibold m-0">
+                                {data.links.length ? 'Pick a link in the email' : 'Link clicks not tracked'}
+                            </h3>
                             <p className="text-sm text-secondary m-0">
                                 {data.links.length
                                     ? 'Each link shows who clicked it and who converted. Pick one to see what those people did next.'

@@ -54,7 +54,11 @@ export function GoalPicker({ data }: { data: ImpactData }): JSX.Element {
                 options={GOAL_OPTIONS.map((event) => ({ value: event, label: event }))}
                 data-attr="prototype-impact-goal"
             />
-            {data.goal && <span className="text-secondary">within {data.goal.windowDays} days of the click</span>}
+            {data.goal && (
+                <span className="text-secondary">
+                    within {data.goal.windowDays} days of the {data.clicked === null ? 'send' : 'click'}
+                </span>
+            )}
         </span>
     )
 }

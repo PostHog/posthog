@@ -13,9 +13,21 @@ export type JourneySurface = 'email' | 'send'
 export type JourneyVariant = 'D' | 'E' | 'F' | 'today' | 'A'
 
 export const JOURNEY_VARIANTS: { key: JourneyVariant; surface: JourneySurface; name: string }[] = [
-    { key: 'D', surface: 'email', name: 'Impact funnel' },
-    { key: 'E', surface: 'email', name: 'Findings first' },
-    { key: 'F', surface: 'email', name: 'The email as a heatmap' },
+    {
+        key: 'D',
+        surface: 'email',
+        name: 'Impact funnel · low use: email page · agent contract: email stats · muscle memory: default Metrics view · known pain: template page',
+    },
+    {
+        key: 'E',
+        surface: 'email',
+        name: 'Findings first · low use: email page · agent contract: email stats · muscle memory: default Metrics view · known pain: template page',
+    },
+    {
+        key: 'F',
+        surface: 'email',
+        name: 'The email as a heatmap · low use: email page · agent contract: email stats · muscle memory: default Metrics view · known pain: template page',
+    },
     { key: 'today', surface: 'send', name: "today's send detail, for comparison" },
     { key: 'A', surface: 'send', name: 'Click timeline · low use: Watch · agent contract: activity' },
 ]
