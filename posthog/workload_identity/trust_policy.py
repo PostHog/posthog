@@ -52,6 +52,7 @@ from posthog.rate_limit import (
     WorkloadTrustPolicyRequestBurstThrottle,
     WorkloadTrustPolicyRequestSustainedThrottle,
 )
+from posthog.scopes.catalog import translate_renamed_scopes
 from posthog.scopes.exposure import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
 from posthog.workload_identity.providers import (
@@ -229,7 +230,8 @@ class CIScopeListField(serializers.ListField):
         super().__init__(allow_empty=False, **kwargs)
 
     def to_internal_value(self, data: Any) -> list[str]:
-        scopes = super().to_internal_value(data)
+        # A policy saved before the code review rename can send its stored old scope names back.
+        scopes = translate_renamed_scopes(super().to_internal_value(data))
         not_grantable = workload_trust_policy_scopes_not_grantable(scopes)
         if not_grantable:
             raise serializers.ValidationError(
