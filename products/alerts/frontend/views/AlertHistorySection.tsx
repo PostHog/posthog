@@ -24,12 +24,13 @@ import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { DetectorType } from '~/queries/schema/schema-general'
+import { DetectorType, LLMDetectorModel } from '~/queries/schema/schema-general'
 
 import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryChart'
 
 import { alertLogic, CHART_CHECKS_LIMIT, detectorHasAnomalyScore, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'
+import { LLM_DETECTOR_MODEL_LABELS } from '../logic/detectorConfigDefaults'
 import { formatForecastRange, getForecastCheckDetail } from '../logic/forecastRules'
 import { isAnyRowHogQLConfig } from '../types'
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
@@ -272,6 +273,22 @@ export function AlertHistorySection({
                     return typeof kind === 'string' && kind !== 'none'
                         ? capitalizeFirstLetter(kind.replaceAll('_', ' '))
                         : '—'
+                },
+            })
+        }
+        // An alert's model can change, so each AI check names the model that judged it.
+        if (alertHistoryChecksSortedDesc.some((check) => typeof check.triggered_metadata?.model === 'string')) {
+            columns.push({
+                title: 'Model',
+                render: (_value, check) => {
+                    const model = check.triggered_metadata?.model
+                    return typeof model === 'string' ? (
+                        <span className="whitespace-nowrap">
+                            {LLM_DETECTOR_MODEL_LABELS[model as LLMDetectorModel] ?? model}
+                        </span>
+                    ) : (
+                        '—'
+                    )
                 },
             })
         }
