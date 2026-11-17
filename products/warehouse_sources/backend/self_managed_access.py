@@ -545,6 +545,8 @@ def _bucket_tables(source: ExternalDataSource) -> dict[str, str | None]:
         try:
             location = parse_self_managed_url(table.url_pattern)
         except UnmappableTableError:
+            # A URL PostHog can't map, such as one with a `?` wildcard, may still name this bucket.
+            tables.setdefault(str(table.id), None)
             continue
         if self_managed_storage_identity(location) == identity or (group_key and location.group_key == group_key):
             tables.setdefault(str(table.id), None)

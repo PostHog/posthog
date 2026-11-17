@@ -1966,6 +1966,17 @@ class TestDefineAddedTable:
 
         assert (table.kind, table.path, listed) == ("delta", "events", ["events/_delta_log"])
 
+    def test_a_failed_delta_log_probe_that_is_not_a_denial_stops_before_listing_the_folder(self) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = TimeoutError("read timed out")
+
+        with pytest.raises(Exception):
+            _source_with_store(store).define_added_table(
+                EXPORTS_ROOT_CONFIG, "events", "events/", "infer", allow_double_quotes=True
+            )
+
+        assert [c.args[0] for c in store.list_objects.call_args_list] == ["events/_delta_log"]
+
     def test_a_folder_without_a_delta_log_is_not_a_delta_table(self, tmp_path: Path) -> None:
         _write_files(tmp_path, ["events/a.parquet"])
 

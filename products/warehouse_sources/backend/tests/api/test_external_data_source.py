@@ -16870,7 +16870,18 @@ class TestAddTableByPath(APIBaseTest):
                 status.HTTP_403_FORBIDDEN,
             ),
             ("hidden_table_of_a_source_for_another_bucket", "plain_source", "other-bucket", status.HTTP_201_CREATED),
-            ("hidden_self_managed_table_without_a_region", "self_managed", None, status.HTTP_403_FORBIDDEN),
+            (
+                "hidden_self_managed_table_without_a_region",
+                "self_managed",
+                "https://example-bucket.s3.amazonaws.com/hr/payroll/*.parquet",
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "hidden_self_managed_table_posthog_can_not_map",
+                "self_managed",
+                "https://example-bucket.s3.amazonaws.com/hr/payroll/?.parquet",
+                status.HTTP_403_FORBIDDEN,
+            ),
         ]
     )
     def test_refuses_a_table_that_would_show_files_another_table_hides(
@@ -16885,12 +16896,12 @@ class TestAddTableByPath(APIBaseTest):
             "plain_source": lambda: self._source(bucket=holder_bucket or "example-bucket"),
         }[holder_kind]()
         if holder_kind == "self_managed":
-            # A URL without a region still names the source's bucket.
+            # `holder_bucket` is the table's URL here.
             payroll = DataWarehouseTable.objects.create(
                 name="payroll",
                 team=self.team,
                 format=DataWarehouseTable.TableFormat.Parquet,
-                url_pattern="https://example-bucket.s3.amazonaws.com/hr/payroll/*.parquet",
+                url_pattern=holder_bucket,
                 credential=DataWarehouseCredential.objects.create(
                     team=self.team, access_key="AKIAEXAMPLE", access_secret="c2VjcmV0"
                 ),

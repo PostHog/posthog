@@ -395,14 +395,16 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     def _holds_delta_log(self, store: ObjectStore, path: str) -> bool:
         """Whether the folder is a Delta table. Only its log is listed, so a large table is not walked.
 
-        A key may be allowed to list the folder but not the log folder, so a failed probe means "not Delta",
-        and the folder listing that follows reports any real error.
+        A key may be allowed to list the folder but not the log folder, so a denied probe means "not Delta",
+        and the folder listing that follows reports any real error. Other failures, such as a timeout, propagate.
         """
         log = f"{path}/{DELTA_LOG_DIRECTORY}" if path else DELTA_LOG_DIRECTORY
         try:
             return bool(store.list_objects(log, 1))
-        except Exception:
-            return False
+        except Exception as e:
+            if isinstance(e, PermissionError) or _http_status(e) in (401, 403):
+                return False
+            raise
 
     def _check_added_delta_table(self, store: ObjectStore, table: TableDefinition) -> None:
         try:
