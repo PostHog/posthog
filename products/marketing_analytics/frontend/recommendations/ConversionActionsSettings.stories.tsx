@@ -38,7 +38,15 @@ const ACTIONS = {
 const meta: Meta<typeof ConversionActionsSettings> = {
     title: 'Scenes-App/Marketing Analytics/Recommendation conversion actions',
     component: ConversionActionsSettings,
-    decorators: [mswDecorator({})],
+    decorators: [
+        mswDecorator({}),
+        // The banner and skeletons size to their parent, so the snapshot needs a sized one.
+        (Story) => (
+            <div className="w-160">
+                <Story />
+            </div>
+        ),
+    ],
     parameters: {
         layout: 'padded',
         mockDate: '2025-02-15T12:00:00Z',
