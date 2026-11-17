@@ -59,11 +59,11 @@ export interface crossProjectDashboardLogicValues {
     hasUnsavedLayoutChanges: boolean
     layoutEditMode: boolean
     layoutSaving: boolean
+    loadingTileIds: string[]
     missingPropertyKeys: Record<number, string[]>
     missingPropertyKeysLoading: boolean
     pendingLayouts: Partial<ResponsiveTileLayouts> | null
     projectIds: number[]
-    loadingTileIds: string[]
     savedLayouts: ResponsiveTileLayouts
     tileProjects: Record<number, CrossProjectTileProject>
     tileResults: Record<string, TileFetchResult>
@@ -176,15 +176,15 @@ export interface crossProjectDashboardLogicActions {
         overrides: CrossProjectDashboardFilters
         tileId: string
     }
-    tileLoadsStarted: (tileIds: string[]) => {
-        tileIds: string[]
-    }
     tileLoaded: (
         tileId: string,
         result: TileFetchResult
     ) => {
         result: TileFetchResult
         tileId: string
+    }
+    tileLoadsStarted: (tileIds: string[]) => {
+        tileIds: string[]
     }
     updateDashboard: (details: CrossProjectDashboardDetails) => {
         details: CrossProjectDashboardDetails
