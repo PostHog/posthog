@@ -13,7 +13,7 @@ import json
 import asyncio
 import logging
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -23,6 +23,7 @@ from posthog.dataclasses import frozen
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     DEVEX_LENS,
+    DEVEX_LENS_MAX_FINDINGS,
     DEVEX_LENS_NAME,
     FLASH_FIRST_REVIEW_CAP_MULTIPLIER,
     FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
@@ -305,6 +306,7 @@ def compose_flash_findings(
     group_levels: Mapping[str, int] | None = None,
     budget_left: int | None = None,
     first_review: bool = False,
+    devex: Sequence[Issue] = (),
 ) -> FlashSelection:
     """The findings a Flash turn keeps, highest priority first, P0 before P1, and the main review first on ties.
 
@@ -317,6 +319,9 @@ def compose_flash_findings(
     but not under the budget drops as `budget`, the rest as `cap`. A first review gets
     `FLASH_FIRST_REVIEW_CAP_MULTIPLIER` times the cap.
 
+    The devex lens findings (`devex`) take no part in the cap or the budget. They have their own lane of
+    `DEVEX_LENS_MAX_FINDINGS`, ranked after every other finding, and the rest of them drop as `cap`.
+
     The caller persists only the kept findings. A persisted finding that never posts counts as already
     raised, so every later turn would keep it off the PR too.
     """
@@ -327,8 +332,10 @@ def compose_flash_findings(
     others = [issue for issue in ranked if issue.priority != IssuePriority.MUST_FIX]
     under_cap = others[: max(cap - len(must_fix), 0)]
     kept = under_cap if budget_left is None else under_cap[: max(budget_left - len(must_fix), 0)]
-    kept_ids = {issue.id for issue in [*must_fix, *kept]}
+    devex_ranked = _flash_order(list(devex), [], group_levels)
+    kept_ids = {issue.id for issue in [*must_fix, *kept, *devex_ranked[:DEVEX_LENS_MAX_FINDINGS]]}
     over_budget_ids = {issue.id for issue in under_cap} - kept_ids
+    ranked = [*ranked, *devex_ranked]
     return FlashSelection(
         kept=[issue for issue in ranked if issue.id in kept_ids],
         dropped=[
@@ -375,6 +382,13 @@ class FlashTurnStats:
     must_fix_off_change: int | None = None
 
 
+def _stats_disposition(drop: DroppedIssue) -> str:
+    """The drop reason the completed event counts. A devex lane drop is not a turn cap drop, so cap pressure compares."""
+    if drop.disposition == "cap" and drop.issue.source_perspective == DEVEX_LENS.source:
+        return "devex_lane"
+    return drop.disposition
+
+
 def flash_turn_stats(
     candidates: list[Issue],
     selection: FlashSelection,
@@ -412,7 +426,7 @@ def flash_turn_stats(
         candidates=per_session,
         must_fix=must_fix,
         after_dedup=len(selection.kept) + cut,
-        dropped=dict(Counter(drop.disposition for drop in selection.dropped)),
+        dropped=dict(Counter(_stats_disposition(drop) for drop in selection.dropped)),
         kept=len(selection.kept),
         dedup_fell_back=selection.dedup_fell_back,
         budget_left=selection.budget_left,
@@ -462,6 +476,8 @@ def _resolve_duplicates(
     lens_outcome: DedupOutcome,
     *,
     earlier_ids: set[str],
+    devex: Sequence[Issue] = (),
+    devex_outcome: DedupOutcome | None = None,
 ) -> list[_HeldDuplicate]:
     """Keep only the removals whose target survives, and point each one at the survivor.
 
@@ -474,10 +490,13 @@ def _resolve_duplicates(
     """
     main_ids = {issue.id for issue in main}
     lens_ids = {issue.id for issue in lens}
+    devex_ids = {issue.id for issue in devex}
     calls = [
         (main_outcome, main_ids | earlier_ids),
         (lens_outcome, lens_ids | main_ids | earlier_ids),
     ]
+    if devex_outcome is not None:
+        calls.append((devex_outcome, devex_ids | lens_ids | main_ids | earlier_ids))
     targets: dict[str, str] = {}
     removals: dict[str, _HeldDuplicate] = {}
     for outcome, shown_ids in calls:
@@ -492,7 +511,7 @@ def _resolve_duplicates(
             targets[issue_id] = named
             removals[issue_id] = _HeldDuplicate(duplicate=duplicate, fell_back=outcome.fell_back)
 
-    rank = {issue.id: position for position, issue in enumerate(_flash_order(main, lens))}
+    rank = {issue.id: position for position, issue in enumerate(_flash_order(main, [*lens, *devex]))}
     for start in list(targets):
         path: list[str] = []
         node = start
@@ -531,12 +550,17 @@ def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> dict[str
     duplicate reported a more severe level of the same stored priority, such as a P0 merged into a P1,
     takes that level, so its comment leads with it; the turn stats count both levels as must-fix.
     Across stored priorities the survivor keeps its session's level, which the turn stats count.
+
+    A devex lens duplicate raises only a devex survivor. A raise of another session's finding to must-fix would move
+    that finding out of the cap, so a routed turn would post a different set than an unrouted one.
     """
     kept_by_id = {issue.id: issue for issue in kept}
     group_levels: dict[str, int] = {}
     for duplicate in duplicates:
         survivor = kept_by_id.get(duplicate.duplicate_of or "")
-        if survivor is None:
+        if survivor is None or (
+            duplicate.issue.source_perspective == DEVEX_LENS.source and survivor.source_perspective != DEVEX_LENS.source
+        ):
             continue
         group_levels[survivor.id] = max(
             group_levels.get(survivor.id, _reported_level(survivor)), _reported_level(duplicate.issue)
@@ -771,10 +795,12 @@ async def dedupe_flash_findings(
 ) -> FlashSelection:
     """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
 
-    Two dedup calls run in parallel. The main findings dedup against earlier turns only: Flash posts what it
+    The dedup calls run in parallel. The main findings dedup against earlier turns only: Flash posts what it
     finds whatever other comments on the PR say. The lens findings dedup against those too and against the
     main findings as anchors, so a lens
-    finding can lose to a main finding but never the other way around. A removal holds only when what
+    finding can lose to a main finding but never the other way around. The devex lens findings dedup in a
+    third call with the main and lens findings as anchors, so they can lose to any other session's finding but
+    never take its place. A removal holds only when what
     it repeats survives (`_resolve_duplicates`). A finding that survives takes the priority of the most
     severe duplicate removed in its favor. `fall_back_on_any_error` lets a dedup
     call fall back to the positional pre-filter on any failure, for the activity's last attempt.
@@ -785,8 +811,9 @@ async def dedupe_flash_findings(
     old_code_ids = {issue.id for issue in old_code}
     reviewed = [issue for issue in issues if issue.id not in old_code_ids]
     main = [issue for issue in reviewed if issue.source_perspective == SINGLE_AGENT_SOURCE]
-    lens = [issue for issue in reviewed if issue.source_perspective != SINGLE_AGENT_SOURCE]
-    main_outcome, lens_outcome = await asyncio.gather(
+    devex = [issue for issue in reviewed if issue.source_perspective == DEVEX_LENS.source]
+    lens = [issue for issue in reviewed if issue.source_perspective not in (SINGLE_AGENT_SOURCE, DEVEX_LENS.source)]
+    main_outcome, lens_outcome, devex_outcome = await asyncio.gather(
         deduplicate_issues(
             team_id=team_id,
             user_id=user_id,
@@ -814,13 +841,68 @@ async def dedupe_flash_findings(
             for_flash=True,
             fall_back_on_any_error=fall_back_on_any_error,
         ),
+        deduplicate_issues(
+            team_id=team_id,
+            user_id=user_id,
+            issues=devex,
+            pr_metadata=pr_metadata,
+            pr_comments=[],
+            prior_findings=prior_findings,
+            branch=branch,
+            repository=repository,
+            workflow_id_prefix=workflow_id_prefix,
+            anchors=[*main, *lens],
+            for_flash=True,
+            # The optional lane must never fail or retry the turn's dedup.
+            fall_back_on_any_error=True,
+        ),
     )
+    # The positional fallback ignores the anchors, so its devex findings could repeat a main or lens finding.
+    lost_devex = devex if devex_outcome.fell_back else []
+    if lost_devex:
+        logger.warning("The devex dedup fell back, so the devex lane posts nothing on this turn")
     prior_keys = {finding.issue_key for finding, _ in prior_findings}
-    held = _resolve_duplicates(main, lens, main_outcome, lens_outcome, earlier_ids=prior_keys)
+    held = _resolve_duplicates(
+        main,
+        lens,
+        main_outcome,
+        lens_outcome,
+        earlier_ids=prior_keys,
+        devex=devex,
+        devex_outcome=None if lost_devex else devex_outcome,
+    )
     removed_ids = {removal.duplicate.issue.id for removal in held}
     kept_main = [issue for issue in main if issue.id not in removed_ids]
     kept_lens = [issue for issue in lens if issue.id not in removed_ids]
-    group_levels = _raise_survivors([*kept_main, *kept_lens], [removal.duplicate for removal in held])
+    kept_devex = [issue for issue in devex if issue.id not in removed_ids and not lost_devex]
+    group_levels = _raise_survivors([*kept_main, *kept_lens, *kept_devex], [removal.duplicate for removal in held])
+    # A devex finding that repeats a main or lens finding the cap or budget then drops would leave the PR with
+    # neither, so the most severe devex finding of each such anchor goes back into the devex lane.
+    shared_ids = {issue.id for issue in [*main, *lens]}
+    posted_ids = {
+        issue.id
+        for issue in compose_flash_findings(
+            kept_main,
+            kept_lens,
+            lens_part_count=lens_part_count,
+            group_levels=group_levels,
+            budget_left=budget_left,
+            first_review=first_review,
+        ).kept
+    }
+    by_unposted_anchor: dict[str, list[Issue]] = {}
+    for removal in held:
+        anchor = removal.duplicate.duplicate_of
+        if (
+            removal.duplicate.issue.source_perspective == DEVEX_LENS.source
+            and anchor is not None
+            and anchor in shared_ids
+            and anchor not in posted_ids
+        ):
+            by_unposted_anchor.setdefault(anchor, []).append(removal.duplicate.issue)
+    restored_ids = {_flash_order(group, [])[0].id for group in by_unposted_anchor.values()}
+    held = [removal for removal in held if removal.duplicate.issue.id not in restored_ids]
+    kept_devex = [*kept_devex, *(issue for issue in devex if issue.id in restored_ids)]
     composed = compose_flash_findings(
         kept_main,
         kept_lens,
@@ -828,6 +910,7 @@ async def dedupe_flash_findings(
         group_levels=group_levels,
         budget_left=budget_left,
         first_review=first_review,
+        devex=kept_devex,
     )
     turn_issues = {issue.id: issue for issue in issues}
     dedup_drops = [
@@ -835,15 +918,17 @@ async def dedupe_flash_findings(
         for removal in held
     ]
     logger.info(
-        "Flash keeps %s of %s main and %s lens finding(s) left after dedup, after %s on unchanged code",
+        "Flash keeps %s of %s main, %s lens and %s devex finding(s) left after dedup, after %s on unchanged code",
         len(composed.kept),
         len(kept_main),
         len(kept_lens),
+        len(kept_devex),
         len(old_code),
     )
     old_code_drops = [DroppedIssue(issue=issue, disposition="old_code") for issue in old_code]
+    lost_devex_drops = [DroppedIssue(issue=issue, disposition="cap") for issue in lost_devex]
     return replace(
         composed,
-        dropped=[*old_code_drops, *dedup_drops, *composed.dropped],
+        dropped=[*old_code_drops, *dedup_drops, *composed.dropped, *lost_devex_drops],
         dedup_fell_back=main_outcome.fell_back or lens_outcome.fell_back,
     )
