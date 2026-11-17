@@ -28,7 +28,7 @@ CLEAN_LABEL = "no_risks_detected"
 NOT_SCANNED = "not_scanned"
 # The labels a gate passes. A label GuardDog adds in a later version is refused until it is listed here.
 PASSING_LABELS = (CLEAN_LABEL, "low", "suspicious")
-SCANNER_PATH = "tools/dependency-proof/dependency_proof/scan.py"
+SCANNER_PATH = "tools/change-prover/change_prover/scan.py"
 
 NPM_NAME = re.compile(r"(@[A-Za-z0-9][A-Za-z0-9._~-]*/)?[A-Za-z0-9][A-Za-z0-9._~-]*")
 PLAIN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")

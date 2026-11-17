@@ -3,11 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from dependency_proof.prove import PROVER_FILES
+from change_prover.prove import PROVER_FILES
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = PACKAGE_ROOT.parent.parent
-CORE = PACKAGE_ROOT / "dependency_proof" / "core"
+CORE = PACKAGE_ROOT / "change_prover" / "core"
 SIDE_EFFECT_MODULES = {"os", "subprocess", "socket", "http", "urllib", "shutil", "pathlib", "importlib"}
 
 
@@ -27,13 +27,13 @@ def imported_modules(source: Path) -> list[str]:
 def test_the_core_imports_no_side_effecting_module_and_no_shell_module(source: Path) -> None:
     for name in imported_modules(source):
         assert name.split(".")[0] not in SIDE_EFFECT_MODULES, f"{source.name} imports {name}"
-        if name.split(".")[0] == "dependency_proof":
-            assert name.startswith("dependency_proof.core"), f"{source.name} imports the shell module {name}"
+        if name.split(".")[0] == "change_prover":
+            assert name.startswith("change_prover.core"), f"{source.name} imports the shell module {name}"
 
 
 def test_every_file_the_workflows_run_from_is_pinned() -> None:
     package_files = [
-        *(PACKAGE_ROOT / "dependency_proof").rglob("*.py"),
+        *(PACKAGE_ROOT / "change_prover").rglob("*.py"),
         PACKAGE_ROOT / "pyproject.toml",
         PACKAGE_ROOT / "uv.lock",
     ]

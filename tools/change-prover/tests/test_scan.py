@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from dependency_proof import scan as scanner
+from change_prover import scan as scanner
 
 PNPM_BASE = """lockfileVersion: '9.0'
 

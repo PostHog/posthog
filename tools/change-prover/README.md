@@ -1,4 +1,4 @@
-# Dependency proof
+# Change prover
 
 ## What the prover proves
 
@@ -38,7 +38,7 @@ The prover reads the head from the git object database and writes its dependency
 The pnpm version comes from the merge base, and the settings come from the default branch.
 
 The proof pins the code it ran.
-`PROVER_FILES` in `dependency_proof/prove.py` lists every file the workflows run from.
+`PROVER_FILES` in `change_prover/prove.py` lists every file the workflows run from.
 The proof reports the blob SHA of each of those files at the workflow commit.
 It also reports the blob SHA of each pnpm settings file it read.
 `.stamphog/policy.yml` repeats the same list as `publisher_files` on the `dependency_proof` attestation, so change both together.
@@ -47,7 +47,7 @@ A proof made by an older prover, or under older settings, therefore lifts nothin
 `tests/test_package.py` fails when a package module, `pyproject.toml` or `uv.lock` is missing from `PROVER_FILES`.
 
 Every decision lives in a pure core.
-`dependency_proof/core/` holds pure functions over plain values, and every refusal is raised there.
+`change_prover/core/` holds pure functions over plain values, and every refusal is raised there.
 `prove.py`, `scan.py` and `cli.py` are the shell: they read git, the GitHub API and the registry, and they run pnpm.
 The shell may interleave reads and checks, but it never decides.
 `tests/test_package.py` keeps side-effecting modules out of the core.

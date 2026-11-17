@@ -15,17 +15,17 @@ from typing import Any
 
 import pytest
 
-from dependency_proof import (
+from change_prover import (
     cli,
     prove as prover,
 )
-from dependency_proof.core.policy import RENOVATE_BOT_USER_ID, ChangedFile, Refused
+from change_prover.core.policy import RENOVATE_BOT_USER_ID, ChangedFile, Refused
 
 REPOSITORY = "PostHog/posthog"
 HEAD, MERGE_BASE, WORKFLOW_SHA = "a" * 40, "b" * 40, "c" * 40
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
 WORKSPACE = b"packages:\n    - '.'\nminimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n    - posthog-js\n    - '@posthog/*'\n    - left-pad@1.3.0\nallowBuilds:\n    esbuild: true\n"
-PROVER = "tools/dependency-proof/dependency_proof/prove.py"
+PROVER = "tools/change-prover/change_prover/prove.py"
 REPLAY_FLAGS = ["--lockfile-only", "--recursive", "--ignore-scripts", "--ignore-pnpmfile"]
 
 
@@ -232,19 +232,19 @@ def test_an_eligible_update_is_attested_after_a_frozen_replay_of_renovates_comma
             ".github/actions/setup-uv/action.yml": None,
             ".github/workflows/dependency-proof-trigger.yml": None,
             ".github/workflows/dependency-proof.yml": None,
-            "tools/dependency-proof/dependency_proof/__init__.py": None,
-            "tools/dependency-proof/dependency_proof/__main__.py": None,
-            "tools/dependency-proof/dependency_proof/cli.py": None,
-            "tools/dependency-proof/dependency_proof/core/__init__.py": None,
-            "tools/dependency-proof/dependency_proof/core/conclusion.py": None,
-            "tools/dependency-proof/dependency_proof/core/identity.py": None,
-            "tools/dependency-proof/dependency_proof/core/lockfile_yaml.py": None,
-            "tools/dependency-proof/dependency_proof/core/policy.py": None,
-            "tools/dependency-proof/dependency_proof/core/replay.py": None,
+            "tools/change-prover/change_prover/__init__.py": None,
+            "tools/change-prover/change_prover/__main__.py": None,
+            "tools/change-prover/change_prover/cli.py": None,
+            "tools/change-prover/change_prover/core/__init__.py": None,
+            "tools/change-prover/change_prover/core/conclusion.py": None,
+            "tools/change-prover/change_prover/core/identity.py": None,
+            "tools/change-prover/change_prover/core/lockfile_yaml.py": None,
+            "tools/change-prover/change_prover/core/policy.py": None,
+            "tools/change-prover/change_prover/core/replay.py": None,
             PROVER: _fake_blob_sha(b"the prover"),
-            "tools/dependency-proof/dependency_proof/scan.py": None,
-            "tools/dependency-proof/pyproject.toml": None,
-            "tools/dependency-proof/uv.lock": None,
+            "tools/change-prover/change_prover/scan.py": None,
+            "tools/change-prover/pyproject.toml": None,
+            "tools/change-prover/uv.lock": None,
             ".npmrc": None,
             ".nvmrc": None,
             ".pnpmfile.cjs": None,

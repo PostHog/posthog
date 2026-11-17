@@ -34,7 +34,7 @@ deny:
                 # These paths hold the dependency proof publisher and the setup-uv action it runs.
                 # A PR that edits either one changes what the proof checks.
                 - '^\.github/workflows/dependency-proof'
-                - '^tools/dependency-proof/'
+                - '^tools/change-prover/'
                 - '^\.github/actions/setup-uv/'
                 - 'packages/owners-yaml/'
                 # Transitional: branches that predate the move still carry the resolver here.
@@ -140,26 +140,26 @@ attestations:
           - '(?:^|/)package\.json$'
           - '(?:^|/)pnpm-lock\.yaml$'
           - '(?:^|/)pnpm-workspace\.yaml$'
-      # This list is a copy of PROVER_FILES in tools/dependency-proof/dependency_proof/prove.py, so
+      # This list is a copy of PROVER_FILES in tools/change-prover/change_prover/prove.py, so
       # update both together. The engine ignores a proof whose marker does not pin every file listed here.
       publisher_files:
           - .github/actions/setup-uv/action.yml
           - .github/workflows/dependency-proof-trigger.yml
           - .github/workflows/dependency-proof.yml
           - .nvmrc
-          - tools/dependency-proof/dependency_proof/__init__.py
-          - tools/dependency-proof/dependency_proof/__main__.py
-          - tools/dependency-proof/dependency_proof/cli.py
-          - tools/dependency-proof/dependency_proof/core/__init__.py
-          - tools/dependency-proof/dependency_proof/core/conclusion.py
-          - tools/dependency-proof/dependency_proof/core/identity.py
-          - tools/dependency-proof/dependency_proof/core/lockfile_yaml.py
-          - tools/dependency-proof/dependency_proof/core/policy.py
-          - tools/dependency-proof/dependency_proof/core/replay.py
-          - tools/dependency-proof/dependency_proof/prove.py
-          - tools/dependency-proof/dependency_proof/scan.py
-          - tools/dependency-proof/pyproject.toml
-          - tools/dependency-proof/uv.lock
+          - tools/change-prover/change_prover/__init__.py
+          - tools/change-prover/change_prover/__main__.py
+          - tools/change-prover/change_prover/cli.py
+          - tools/change-prover/change_prover/core/__init__.py
+          - tools/change-prover/change_prover/core/conclusion.py
+          - tools/change-prover/change_prover/core/identity.py
+          - tools/change-prover/change_prover/core/lockfile_yaml.py
+          - tools/change-prover/change_prover/core/policy.py
+          - tools/change-prover/change_prover/core/replay.py
+          - tools/change-prover/change_prover/prove.py
+          - tools/change-prover/change_prover/scan.py
+          - tools/change-prover/pyproject.toml
+          - tools/change-prover/uv.lock
 # Stamphog reviews PRs from these bots. It approves one only when an attestation that declares
 # `publisher_files` proved every file the PR changes.
 bot_authors:

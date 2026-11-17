@@ -16,7 +16,7 @@ rules:
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
       owners: team-devex
     # The dependency proof decides which bot updates stamphog may approve on its own. The prover
-    # itself is in tools/dependency-proof, which its own owners.yaml marks sensitive.
+    # itself is in tools/change-prover, which its own owners.yaml marks sensitive.
     - match:
           - '/workflows/dependency-proof.yml'
           - '/workflows/dependency-proof-trigger.yml'

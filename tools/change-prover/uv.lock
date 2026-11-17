@@ -76,6 +76,30 @@ wheels = [
 ]
 
 [[package]]
+name = "change-prover"
+version = "0.0.0"
+source = { virtual = "." }
+default-groups = []
+dependencies = [
+    { name = "pyyaml" },
+]
+
+[package.dev-dependencies]
+scan = [
+    { name = "guarddog" },
+]
+test = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyyaml", specifier = "==6.0.3" }]
+
+[package.metadata.requires-dev]
+scan = [{ name = "guarddog", specifier = "==3.2.0" }]
+test = [{ name = "pytest", specifier = "==9.1.1" }]
+
+[[package]]
 name = "charset-normalizer"
 version = "3.5.2"
 source = { registry = "https://pypi.org/simple" }
@@ -192,30 +216,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d4/aa/f3f6e0de7e6253b8baa8b2d8fb9d50924fa75cee3d4624bd4bc1208ee923/cryptography-50.0.2-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:ce47f66801c20ec6c6632453bb5960fe38939e9306970b48b3a5a26de7745d94", size = 5058280, upload-time = "2026-09-30T15:29:44.827Z" },
     { url = "https://files.pythonhosted.org/packages/f6/b6/a1faf3a27ae9405fb34b1713cc73b2d8a26b04d5c561578fa2e6ef3e5bb9/cryptography-50.0.2-cp39-abi3-win_amd64.whl", hash = "sha256:4e81d95e5bafc2d6e34e4bed780e53e4d5b9a2f928573428aa4d35fbec1eb0de", size = 3854095, upload-time = "2026-09-30T15:29:46.782Z" },
 ]
-
-[[package]]
-name = "dependency-proof"
-version = "0.0.0"
-source = { virtual = "." }
-default-groups = []
-dependencies = [
-    { name = "pyyaml" },
-]
-
-[package.dev-dependencies]
-scan = [
-    { name = "guarddog" },
-]
-test = [
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "pyyaml", specifier = "==6.0.3" }]
-
-[package.metadata.requires-dev]
-scan = [{ name = "guarddog", specifier = "==3.2.0" }]
-test = [{ name = "pytest", specifier = "==9.1.1" }]
 
 [[package]]
 name = "disposable-email-domains"

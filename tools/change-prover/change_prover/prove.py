@@ -1,7 +1,7 @@
 """Prove one pull request's dependency update from the default branch and the merge base.
 
 This is the shell: it reads git, the GitHub API and the registry, and runs pnpm. Every refusal
-is decided in `dependency_proof.core`.
+is decided in `change_prover.core`.
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from dependency_proof.core import identity, policy
-from dependency_proof.core.lockfile_yaml import comparable, load_yaml
-from dependency_proof.core.policy import LOCKFILE, MANIFEST, WORKSPACE_FILE, join
-from dependency_proof.core.replay import replay_commands
+from change_prover.core import identity, policy
+from change_prover.core.lockfile_yaml import comparable, load_yaml
+from change_prover.core.policy import LOCKFILE, MANIFEST, WORKSPACE_FILE, join
+from change_prover.core.replay import replay_commands
 
 REGISTRY = "https://registry.npmjs.org/"
 PAGE_SIZE = 100
@@ -32,19 +32,19 @@ PROVER_FILES = (
     ".github/workflows/dependency-proof-trigger.yml",
     ".github/workflows/dependency-proof.yml",
     ".nvmrc",
-    "tools/dependency-proof/dependency_proof/__init__.py",
-    "tools/dependency-proof/dependency_proof/__main__.py",
-    "tools/dependency-proof/dependency_proof/cli.py",
-    "tools/dependency-proof/dependency_proof/core/__init__.py",
-    "tools/dependency-proof/dependency_proof/core/conclusion.py",
-    "tools/dependency-proof/dependency_proof/core/identity.py",
-    "tools/dependency-proof/dependency_proof/core/lockfile_yaml.py",
-    "tools/dependency-proof/dependency_proof/core/policy.py",
-    "tools/dependency-proof/dependency_proof/core/replay.py",
-    "tools/dependency-proof/dependency_proof/prove.py",
-    "tools/dependency-proof/dependency_proof/scan.py",
-    "tools/dependency-proof/pyproject.toml",
-    "tools/dependency-proof/uv.lock",
+    "tools/change-prover/change_prover/__init__.py",
+    "tools/change-prover/change_prover/__main__.py",
+    "tools/change-prover/change_prover/cli.py",
+    "tools/change-prover/change_prover/core/__init__.py",
+    "tools/change-prover/change_prover/core/conclusion.py",
+    "tools/change-prover/change_prover/core/identity.py",
+    "tools/change-prover/change_prover/core/lockfile_yaml.py",
+    "tools/change-prover/change_prover/core/policy.py",
+    "tools/change-prover/change_prover/core/replay.py",
+    "tools/change-prover/change_prover/prove.py",
+    "tools/change-prover/change_prover/scan.py",
+    "tools/change-prover/pyproject.toml",
+    "tools/change-prover/uv.lock",
 )
 # Every file pnpm reads to write a lockfile without installing.
 REPLAY_FILES = (MANIFEST, LOCKFILE, WORKSPACE_FILE, ".npmrc", "*.patch")
