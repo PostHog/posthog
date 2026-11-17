@@ -44,8 +44,8 @@ migrations = [
 [conditions]
 crosses-package = "src.package != dst.package and dst.external == none"
 # A use whose import public-surface reports: a product module past its export, in another package,
-# that no allowance of public-surface lets through. model-crossings leaves it there (A5: one rule
-# owns each coupling).
+# that no allowance of public-surface lets through. model-crossings leaves it there: one rule
+# owns each coupling.
 public-surface-reports = "surface.tier == 'product' and surface.package != src.package and src.history != true and not (surface.exported or (src.wiring == 'registration' and surface.wiring == 'location') or (surface.permanent == true and src.tier == 'core'))"
 # A facade's own code, its fixtures left out.
 facade-code = "src.zone == 'facade' and src.zone != 'fixtures'"
@@ -63,7 +63,7 @@ setting-api-schema     = "edge.setting == 'SPECTACULAR_SETTINGS' or edge.setting
 setting-logging        = "edge.setting == 'LOGGING' or edge.setting startswith 'LOGGING.'"
 setting-caches         = "edge.setting == 'CACHES' or edge.setting startswith 'CACHES.'"
 setting-login-flow     = "edge.setting in ['SOCIAL_AUTH_PIPELINE', 'AXES_LOCKOUT_CALLABLE']"  # a login flow behind a URL, not the per-request pipeline
-# What a facade hands out that is defined in a product file outside the facade (T7): the facade
+# What a facade hands out that is defined in a product file outside the facade: the facade
 # only passes the name on, so the file that defines it is what code outside reads.
 handed-out-origin = "dst.tier == 'product' and dst.zone != 'facade'"
 # A facade module that hands names out to code outside: `facade/testing.py` only to its tests.
@@ -116,7 +116,7 @@ request_seed = { type = "bool" }
 source_vendor = { type = "string" }
 # A product's AppConfig module: Django imports it at setup in every process.
 app_config = { type = "bool" }
-# Code under posthog/temporal/ that core owns (T9): the worker platform, the cross-product
+# Code under posthog/temporal/ that core owns: the worker platform, the cross-product
 # orchestrators and the workflows whose domain is core. Anything else there is product code.
 temporal_home    = { type = "bool" }
 # The folder right under posthog/temporal/ a file sits in, or `(top level)` for a module there.
@@ -142,7 +142,7 @@ match    = ["products/access_control/**", "products/notifications/**", "products
 set      = { role = "foundation" }
 override = true
 
-# Product code that still lives outside products/ keeps its product id (B12).
+# Product code that still lives outside products/ keeps its product id.
 [[assign]]
 match    = "posthog/temporal/ai_observability/**"
 set      = { package = "ai_observability", tier = "product", role = "feature" }
@@ -263,9 +263,9 @@ match = [
 except_paths = ["products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/**"]
 set = { permanent = true }
 
-# Where core keeps Temporal code (T9, the core placement study of Nov 16): the loose platform
-# modules, the core-platform subtrees, the cross-product orchestrators, and their tests. A subtree
-# the study does not place as core is product code waiting to move: `temporal-placement` holds it.
+# Where core keeps Temporal code: the loose platform modules, the core-platform subtrees, the
+# cross-product orchestrators, and their tests. A subtree this list does not place in core is
+# product code waiting to move: `temporal-placement` holds it.
 [[assign]]
 match = "posthog/temporal/{subtree}/**"
 set   = { temporal_subtree = "{subtree}" }
@@ -292,7 +292,7 @@ match = [
 ]
 set   = { temporal_home = true }
 
-# Every package under packages/ is a leaf (B13).
+# Every package under packages/ is a leaf.
 [[assign]]
 match = "packages/{pkg}/**"
 set   = { package = "{pkg}", tier = "leaf" }
@@ -475,7 +475,7 @@ paths    = ["backend/routes.py", "backend/webhook_consumers.py", "backend/data_f
 audience = "src.zone == 'composition' or src.registry != none"
 shape    = "registration"
 
-# Presentation adapters by base class, with an audience (agreed Nov 9).
+# Presentation adapters by base class, with an audience.
 [exports.presentation-adapter]
 within      = "products/{product}"
 paths       = ["backend/presentation/**"]
@@ -740,7 +740,7 @@ growth_key    = ["src.module"]
 
 [rules.thin-commands]
 primitive  = "edge"
-doc        = "A management command reaches its own product through the facade (B2). Dev seeders named as test code are out."
+doc        = "A management command reaches its own product through the facade. Dev seeders named as test code are out."
 why        = "A management command is an entry point. An entry point uses its product through the facade, so the command stays thin."
 ways       = [
   { safety = "safe", text = "If the facade exports the name, import it from the facade." },
@@ -887,7 +887,7 @@ growth_key    = ["dst.symbol"]
 
 [rules.receiver-direction]
 primitive  = "edge"
-doc        = "A product never listens to another product's sender (B6). The ledger keeps the sender. A receiver in a test is no wiring."
+doc        = "A product never listens to another product's sender. The ledger keeps the sender. A receiver in a test is no wiring."
 why        = "A product must not listen to the signals of another product. The sender cannot see its listeners, so a change there can break this product with no failed test."
 ways       = [
   { safety = "care", text = "Register a callback through a hook that the other product exports." },
@@ -964,7 +964,7 @@ ledger        = false
 # `app_setup` attr), not in a function `ready()` defines or hands on; and the `admin` module the
 # admin app's autodiscovery imports by name, with what it imports at module level (the pack's
 # `autodiscovered` attr), as for the AppConfig module. A location run by name is one row, watched
-# by any one watched file in it, as the product lint reads it (the owner, Nov 16).
+# by any one watched file in it, as the product lint reads it.
 # A `connect` in a hook's own body (the Django pack's `hook` attr) is no receiver of its own: the
 # hook's callers are, by their `installs` edges.
 [rules.wiring-watched]
@@ -998,7 +998,7 @@ growth_key = ["subject"]
 # code and tests do not count. turbo-discover cascades into a
 # product's dependents only when its contract-check is affected, so another product's reader misses
 # a change to an unwatched file as surely as core does. A list: public-surface holds the crossing as
-# debt. A facade re-export does not end the reach (T7): the file that defines what a
+# debt. A facade re-export does not end the reach: the file that defines what a
 # facade module hands out is watched too, with every module on the name's path to it (`: chain`),
 # read at the module the code names or at one the name passes through on its way there. A facade
 # that defines the name itself ends it. When the module the code names belongs to the reader, that
@@ -1041,7 +1041,7 @@ ledger        = false
 
 [rules.no-new-package-cycles]
 primitive  = "cycle"
-doc        = "No new dependency may close a cycle between products. A sealed FK still points one way (B9)."
+doc        = "No new dependency may close a cycle between products. A sealed FK still points one way."
 why        = "Products must not form a cycle. A cycle makes the products one unit for tests and for change."
 ways       = [
   { safety = "care", text = "Remove the new dependency. Use a hook that the other product exports, or move the shared code to the product that owns it." },
@@ -1089,7 +1089,7 @@ growth_key = ["src.package", "dst.package"]
 
 [rules.no-product-lists-in-core]
 primitive  = "edge"
-doc        = "A core registration point (the modules the preset marks with `wiring = \"registration\"`: the Temporal worker and schedules, the query runner, the Celery schedule, the Max presets) lists products by name: each product module it names is a row (B14). Core calling a product's facade anywhere else is allowed. Migrations are frozen history and are not judged; Django settings may name product paths as strings; core production code may name a declared permanent interface. Not caught: a new hard-coded product list in a core module the preset does not mark as a registration point."
+doc        = "A core registration point (the modules the preset marks with `wiring = \"registration\"`: the Temporal worker and schedules, the query runner, the Celery schedule, the Max presets) lists products by name: each product module it names is a row. Core calling a product's facade anywhere else is allowed. Migrations are frozen history and are not judged; Django settings may name product paths as strings; core production code may name a declared permanent interface. Not caught: a new hard-coded product list in a core module the preset does not mark as a registration point."
 why        = "Products register themselves. A core registration point must not list products by name."
 ways       = [
   { safety = "care", text = "Register the object from the product, through its AppConfig or a registry entry. Remove the line from core." },
@@ -1153,7 +1153,7 @@ growth_key    = ["edge.child", "edge.parent"]
 # Off for now: own-database has no producer and its policy was never decided.
 # [rules.own-database]
 # primitive  = "layout"
-# doc        = "A product model has its own database route (B7). Incomplete until the pack sets `database` on models."
+# doc        = "A product model has its own database route. Incomplete until the pack sets `database` on models."
 # on         = "symbol"
 # select     = "kind == 'model' and tier == 'product' and database != none"
 # require    = "database != 'default'"
@@ -1164,7 +1164,7 @@ growth_key    = ["edge.child", "edge.parent"]
 
 [rules.product-code-at-home]
 primitive  = "layout"
-doc        = "Product code lives under products/ (B12); counted per package, so a new file outside fails."
+doc        = "Product code lives under products/; counted per package, so a new file outside fails."
 why        = "Product code lives under products/<product>/. Then the product owns its files and its tests."
 ways       = [
   { safety = "care", text = "Move the file to products/<product>/backend/. Update its imports." },
@@ -1177,7 +1177,7 @@ growth_key = ["package"]
 
 [rules.temporal-placement]
 primitive  = "layout"
-doc        = "Code under posthog/temporal/ sits where core keeps its own Temporal code: the worker platform, the cross-product orchestrators and the workflows whose domain is core (T9). Every other file is a row, counted per folder right under posthog/temporal/, so a new file in a product-shaped folder or a new folder fails; product Temporal code goes to products/<product>/backend/temporal/. Code already labelled a product's is product-code-at-home's."
+doc        = "Code under posthog/temporal/ sits where core keeps its own Temporal code: the worker platform, the cross-product orchestrators and the workflows whose domain is core. Every other file is a row, counted per folder right under posthog/temporal/, so a new file in a product-shaped folder or a new folder fails; product Temporal code goes to products/<product>/backend/temporal/. Code already labelled a product's is product-code-at-home's."
 why        = "posthog/temporal/ holds only core Temporal code: the worker platform, the cross-product orchestrators and the core workflows."
 ways       = [
   { safety = "care", text = "Move the file to products/<product>/backend/temporal/." },
