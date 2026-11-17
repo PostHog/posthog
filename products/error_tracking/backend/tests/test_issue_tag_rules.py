@@ -158,6 +158,7 @@ class TestIssueTagRules(BaseTest):
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         run_issue_taggers(self.team.id, issue.id, lambda team: BIG_UNHANDLED_ORDER)
         other = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        outsider = User.objects.create(email="outsider@example.com")
         self._restrict_revenue_for_the_member()
         code_keys = {definition.key for definition in registry.ISSUE_TAG_DEFINITIONS}
 
@@ -169,10 +170,12 @@ class TestIssueTagRules(BaseTest):
         assert visible(self.user) == ({self.unhandled.key}, {self.unhandled.key})
         both = {self.big_order.key, self.unhandled.key}
         assert visible(other) == (both, both)
-        with self.assertRaises(UnknownIssueTagError):
-            correct_issue_tag(
-                self.team.id, issue.id, self.big_order.key, applied=False, user=self.user, was_impersonated=False
-            )
+        assert visible(outsider) == (set(), set())
+        for user in (self.user, outsider):
+            with self.assertRaises(UnknownIssueTagError):
+                correct_issue_tag(
+                    self.team.id, issue.id, self.big_order.key, applied=False, user=user, was_impersonated=False
+                )
 
     @parameterized.expand(
         [
@@ -289,19 +292,55 @@ class TestIssueTagRules(BaseTest):
         )
 
 
+NONE: dict[str, frozenset[str]] = {"event": frozenset(), "person": frozenset()}
+PLAN = frozenset({"plan"})
+GROUP_PLAN = {"key": "plan", "type": "group", "group_type_index": 0}
+
+
+def _filter(leaf: dict[str, Any]) -> dict[str, Any]:
+    return {"type": "AND", "values": [{"type": "AND", "values": [leaf]}]}
+
+
+def _events(*names: str) -> RestrictedPropertyNames:
+    return RestrictedPropertyNames(event=frozenset(names), person=frozenset())
+
+
+def _people(*names: str) -> RestrictedPropertyNames:
+    return RestrictedPropertyNames(event=frozenset(), person=frozenset(names))
+
+
 class TestRuleFilterReadsRestrictedProperty(SimpleTestCase):
     @parameterized.expand(
         [
-            ("same_name", _event_filter("revenue", "gt", 10), {"revenue"}, True),
-            ("parent_of_a_restricted_path", _event_filter("payload", "is_set", "is_set"), {"payload.secret"}, True),
-            ("child_of_a_restricted_name", _event_filter("customer.ssn", "is_set", "is_set"), {"customer"}, True),
-            ("unrelated_name", _event_filter("revenue", "gt", 10), {"plan"}, False),
-            ("hogql_filter", {"type": "AND", "values": [{"type": "hogql", "key": "properties.plan"}]}, {"x"}, True),
+            ("same_name", _event_filter("revenue", "gt", 10), _events("revenue"), True),
+            (
+                "parent_of_a_restricted_path",
+                _event_filter("payload", "is_set", "is_set"),
+                _events("payload.secret"),
+                True,
+            ),
+            (
+                "child_of_a_restricted_name",
+                _event_filter("customer.ssn", "is_set", "is_set"),
+                _events("customer"),
+                True,
+            ),
+            ("unrelated_name", _event_filter("revenue", "gt", 10), _events("plan"), False),
+            ("person_property", _filter({"key": "email", "type": "person"}), _people("email"), True),
+            ("event_name_on_a_person_filter", _filter({"key": "email", "type": "person"}), _events("email"), False),
+            ("group_property_of_its_type", _filter(GROUP_PLAN), RestrictedPropertyNames(**NONE, group={0: PLAN}), True),
+            (
+                "group_property_of_another_type",
+                _filter(GROUP_PLAN),
+                RestrictedPropertyNames(**NONE, group={1: PLAN}),
+                False,
+            ),
+            ("hogql_filter", _filter({"type": "hogql", "key": "properties.plan"}), _events("x"), True),
+            ("filter_without_a_key", _filter({"type": "event", "value": 1}), _events("x"), True),
+            ("value_that_is_not_a_filter", {"type": "AND", "values": ["revenue"]}, _events("x"), True),
         ]
     )
     def test_follows_dot_paths_and_fails_closed(
-        self, _name: str, filters: dict[str, Any], restricted_events: set[str], expected: bool
+        self, _name: str, filters: dict[str, Any], restricted: RestrictedPropertyNames, expected: bool
     ) -> None:
-        restricted = RestrictedPropertyNames(event=frozenset(restricted_events), person=frozenset())
-
         assert _reads_restricted_property(filters, restricted) is expected
