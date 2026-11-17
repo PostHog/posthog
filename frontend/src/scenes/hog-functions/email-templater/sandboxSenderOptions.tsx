@@ -1,4 +1,5 @@
-import type { LemonSelectSection } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { Tooltip, type LemonSelectSection } from '@posthog/lemon-ui'
 
 import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
@@ -46,10 +47,16 @@ export function selectedSenderValue(
     return sandbox?.selected ? SANDBOX_SENDER_VALUE : integrationId
 }
 
-export function sandboxSenderHint(sandbox: SandboxSenderChoice | null): string | null {
+export function sandboxSenderHint(sandbox: SandboxSenderChoice | null): JSX.Element | null {
     if (!sandbox?.selected) {
         return null
     }
-    const sendsAs = sandbox.fromLine ? `Sends as ${sandbox.fromLine}. ` : ''
-    return `${sendsAs}Only verified members of your organization receive sandbox email.`
+    return (
+        <span className="flex gap-1 items-center min-w-0">
+            {sandbox.fromLine ? <span className="truncate">{`Sends as ${sandbox.fromLine}.`}</span> : null}
+            <Tooltip title="Only verified members of your organization receive sandbox email.">
+                <IconInfo className="shrink-0 text-secondary" />
+            </Tooltip>
+        </span>
+    )
 }
