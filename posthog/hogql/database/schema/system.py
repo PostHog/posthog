@@ -43,7 +43,7 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.constants import AvailableFeature
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -1807,7 +1807,8 @@ replay_scanners: PostgresTable = PostgresTable(
             name="sampling_rate", description="Random share of matching sessions scanned, 0 to 1."
         ),
         "sampling_mode": StringDatabaseField(
-            name="sampling_mode", description="Quality pre-filter: focused, balanced or comprehensive."
+            name="sampling_mode",
+            description="Deprecated: scanners no longer filter on quality, so every scanner scans as comprehensive.",
         ),
         "model": StringDatabaseField(name="model", description="LLM model that scans each session; sets the price."),
         "_enabled": BooleanDatabaseField(name="enabled", hidden=True),

@@ -50,6 +50,7 @@ import { PREHEADER_FIELD, isHeaderFieldShown } from './emailHeaderFields'
 import { EmailHeaderRow } from './EmailHeaderRow'
 import { withInertLinks } from './emailPreviewHtml'
 import { EmailRecipientFields } from './EmailRecipientFields'
+import { sendingStoppedWarning } from './emailSenderFields'
 import { EmailSenderRow } from './EmailSenderRow'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { LiquidSupportedText } from './LiquidSupportedText'
@@ -282,6 +283,9 @@ export function NativeEmailIntegrationChoice({
         : value?.integrationId
           ? [value.integrationId]
           : []
+    const stoppedWarning = sandbox?.selected
+        ? null
+        : sendingStoppedWarning((integrationsOfKind ?? []).filter((x) => selectedIntegrationIds.includes(x.id)))
 
     // Presence of the override keys is what reveals the inputs, so a saved override is
     // visible again on reopen without any separate reveal state.
@@ -427,6 +431,7 @@ export function NativeEmailIntegrationChoice({
                 )}
             </div>
             {sandboxHint && <span className="px-2 pb-1 text-xs text-muted">{sandboxHint}</span>}
+            {stoppedWarning && <span className="px-2 pb-1 text-xs text-danger">{stoppedWarning}</span>}
             {overridesVisible && (
                 <>
                     <div className="flex gap-2 items-center border-t">

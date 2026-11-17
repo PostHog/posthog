@@ -22,7 +22,6 @@ from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_
 from posthog.temporal.session_replay.enforce_max_replay_retention import ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.replay_count_metrics import REPLAY_COUNT_METRICS_WORKFLOWS
-from posthog.temporal.session_replay.surfacing_scoring_sweep import SURFACING_SCORING_SWEEP_WORKFLOWS
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
@@ -163,7 +162,6 @@ class Command(BaseCommand):
             + WA_DIGEST_WORKFLOWS
             + DATA_CATALOG_DIGEST_WORKFLOWS
             + ERROR_TRACKING_WORKFLOWS
-            + SURFACING_SCORING_SWEEP_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))

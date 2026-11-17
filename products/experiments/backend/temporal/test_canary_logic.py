@@ -357,13 +357,26 @@ class TestCanarySampling(BaseTest):
         experiment.feature_flag.save()
         assert sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs()) == []
 
-    def test_data_warehouse_metrics_are_not_sampled(self):
+    @parameterized.expand(
+        [
+            ("data_warehouse", {"kind": "ExperimentDataWarehouseNode", "table_name": "stripe_charge"}),
+            (
+                "warehouse_native",
+                {
+                    "kind": "ExperimentWarehouseNativeNode",
+                    "connection_id": "00000000-0000-0000-0000-000000000000",
+                    "query": "SELECT customer_id AS entity_id, paid_at AS timestamp, amount FROM payments",
+                    "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+                    "math": "sum",
+                    "math_property": "amount",
+                },
+            ),
+        ]
+    )
+    def test_warehouse_metrics_are_not_sampled(self, _name, source):
         self._enable_precompute()
-        dw_mean = {
-            **_inline_metric("mean"),
-            "source": {"kind": "ExperimentDataWarehouseNode", "table_name": "stripe_charge"},
-        }
-        self._experiment([dw_mean, _inline_metric("funnel")])
+        warehouse_mean = {**_inline_metric("mean"), "source": source}
+        self._experiment([warehouse_mean, _inline_metric("funnel")])
         targets = sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs())
         assert [t.metric_type for t in targets] == ["funnel"]
 

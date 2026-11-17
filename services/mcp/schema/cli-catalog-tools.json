@@ -6517,6 +6517,9 @@
                     "iteration_count",
                     "best_holdout_score",
                     "error",
+                    "task_id",
+                    "task_run_id",
+                    "task_url",
                     "started_at",
                     "completed_at",
                     "created_at"
@@ -15339,6 +15342,11 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "created_by_id",
+                    "key": "created_by_id",
+                    "csv": false
+                },
+                {
                     "param": "ids",
                     "key": "ids",
                     "csv": false
@@ -15351,6 +15359,11 @@
                 {
                     "param": "offset",
                     "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "order",
+                    "key": "order",
                     "csv": false
                 },
                 {
@@ -24839,6 +24852,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "tags",
+                    "key": "tags",
                     "csv": false
                 },
                 {
@@ -38694,6 +38712,150 @@
             "validators": []
         }
     },
+    "provider-imports-create": {
+        "name": "provider-imports-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/messaging_provider_imports/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "provider",
+                    "key": "provider"
+                },
+                {
+                    "param": "steps",
+                    "key": "steps"
+                },
+                {
+                    "param": "api_key",
+                    "key": "api_key"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "provider-imports-get": {
+        "name": "provider-imports-get",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/messaging_provider_imports/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "provider-imports-list": {
+        "name": "provider-imports-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/messaging_provider_imports/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/workflows"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "provider-imports-providers": {
+        "name": "provider-imports-providers",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/messaging_provider_imports/providers/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "proxy-create": {
         "name": "proxy-create",
         "kind": "http",
@@ -46972,6 +47134,98 @@
                 {
                     "param": "suppressions",
                     "key": "suppressions"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "suppressions-list": {
+        "name": "suppressions-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/messaging_suppressions/suppressions/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "page",
+                    "key": "page",
+                    "csv": false
+                },
+                {
+                    "param": "page_size",
+                    "key": "page_size",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/workflows"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "suppressions-remove": {
+        "name": "suppressions-remove",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/messaging_suppressions/bulk_remove_suppressions/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "identifiers",
+                    "key": "identifiers"
+                },
+                {
+                    "param": "confirm_complaints",
+                    "key": "confirm_complaints"
                 }
             ],
             "injectBody": {},

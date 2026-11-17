@@ -19,6 +19,7 @@ import { version as uuidVersion } from 'uuid'
 import { keyedRunId } from '~/cdp/intake/run-intake'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
@@ -78,6 +79,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { FINGERPRINT_PURPOSE } from './services/hogflows/transactional-sends'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
 import {
@@ -2176,6 +2178,180 @@ describe('CDP API', () => {
             expect(res.body.invocation_id).toBeDefined()
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
+
+        const mintScheduledRunsToken = (
+            teamIds: number[],
+            { secret = 'local-dev-workflows-cancel-jwt', audience = 'posthog:workflows:scheduled_runs' } = {}
+        ) => jwt.sign({ team_ids: teamIds }, secret, { audience, expiresIn: '2m' })
+
+        it('queues every admissible run of a batch and answers each run in request order', async () => {
+            const eventHogFlow = await insertHogFlow({
+                ...scheduleHogFlow,
+                id: new UUIDT().toString(),
+                trigger: { type: 'event', filters: {} },
+            })
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+
+            const res = await supertest(app)
+                .post('/api/hog_flows/scheduled_invocations')
+                .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                .send({
+                    runs: [
+                        { team_id: team.id, hog_flow_id: scheduleHogFlow.id, variables: { greeting: 'Hello' } },
+                        { team_id: team.id, hog_flow_id: new UUIDT().toString() },
+                        { team_id: team.id, hog_flow_id: eventHogFlow.id },
+                        { team_id: team.id, hog_flow_id: scheduleHogFlow.id, variables: { greeting: 'Hi' } },
+                    ],
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.results).toEqual([
+                { status: 'queued', invocation_id: hogflowQueue.queued[0].id },
+                { status: 'workflow_not_found' },
+                { status: 'not_a_schedule_trigger' },
+                { status: 'queued', invocation_id: hogflowQueue.queued[1].id },
+            ])
+            expect(
+                hogflowQueue.queued.map((invocation: any) => [invocation.functionId, invocation.state.variables])
+            ).toEqual([
+                [scheduleHogFlow.id, { greeting: 'Hello' }],
+                [scheduleHogFlow.id, { greeting: 'Hi' }],
+            ])
+        })
+
+        it.each([
+            ['no token', () => ({}), () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] })],
+            ['no token and a malformed body', () => ({}), () => ({ runs: 'all of them' })],
+            [
+                'a token signed with the wrong key',
+                () => ({ Authorization: `Bearer ${mintScheduledRunsToken([team.id], { secret: 'wrong-key' })}` }),
+                () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] }),
+            ],
+            [
+                "another route's token",
+                () => ({
+                    Authorization: `Bearer ${mintScheduledRunsToken([team.id], { audience: 'posthog:workflows:manual_run' })}`,
+                }),
+                () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] }),
+            ],
+            [
+                'a token that leaves out a team of the batch',
+                () => ({ Authorization: `Bearer ${mintScheduledRunsToken([team.id + 1])}` }),
+                () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] }),
+            ],
+        ])('refuses a batch with %s and queues nothing', async (_desc, headers, body) => {
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+
+            const res = await supertest(app).post('/api/hog_flows/scheduled_invocations').set(headers()).send(body())
+
+            expect(res.status).toEqual(401)
+            expect(hogflowQueue.queued).toEqual([])
+        })
+
+        it.each([100, 20])(
+            'queues a batch of 100 runs and refuses 101 whatever the queue insert size (%i)',
+            async (insertBatchSize) => {
+                const hogflowQueue = createInMemoryJobQueue()
+                api['hogflowQueue'] = hogflowQueue
+                const defaultInsertBatchSize = hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE
+                hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = insertBatchSize
+                const post = (length: number) =>
+                    supertest(app)
+                        .post('/api/hog_flows/scheduled_invocations')
+                        .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                        .send({
+                            runs: Array.from({ length }, () => ({ team_id: team.id, hog_flow_id: scheduleHogFlow.id })),
+                        })
+                try {
+                    const refused = await post(101)
+                    expect(refused.status).toEqual(400)
+                    expect(hogflowQueue.queued).toEqual([])
+
+                    const accepted = await post(100)
+                    expect(accepted.status).toEqual(200)
+                    expect(hogflowQueue.queued).toHaveLength(100)
+                } finally {
+                    hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = defaultInsertBatchSize
+                }
+            }
+        )
+
+        it('queues a batch of 100 runs in one insert when the queue inserts 20 rows at a time', async () => {
+            const queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, {
+                ...hub,
+                CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 20,
+            })
+            const cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+            await queue.startAsProducer()
+            api['hogflowQueue'] = queue
+            const pool = queue['manager']!['pool']
+            const query = pool.query.bind(pool) as (...args: unknown[]) => Promise<unknown>
+            let inserts = 0
+            const failAfterFirstInsert = jest
+                .spyOn(pool, 'query')
+                .mockImplementation(((...args: unknown[]) =>
+                    String(args[0]).includes('INSERT INTO cyclotron_jobs') && inserts++ > 0
+                        ? Promise.reject(new Error('db down'))
+                        : query(...args)) as typeof pool.query)
+            try {
+                const res = await supertest(app)
+                    .post('/api/hog_flows/scheduled_invocations')
+                    .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                    .send({
+                        runs: Array.from({ length: 100 }, () => ({
+                            team_id: team.id,
+                            hog_flow_id: scheduleHogFlow.id,
+                        })),
+                    })
+                const { rows } = await cyclotron.query(
+                    'SELECT count(*)::int AS queued FROM cyclotron_jobs WHERE function_id = $1',
+                    [scheduleHogFlow.id]
+                )
+
+                expect(res.status).toEqual(200)
+                expect(rows[0].queued).toEqual(100)
+            } finally {
+                failAfterFirstInsert.mockRestore()
+                await queue.stopProducer()
+                await cyclotron.end()
+            }
+        })
+
+        it.each([
+            [
+                503,
+                'a workflow lookup before the insert',
+                () => {
+                    const query = hub.postgres.query.bind(hub.postgres)
+                    return jest
+                        .spyOn(hub.postgres, 'query')
+                        .mockImplementation(((...args: Parameters<typeof query>) =>
+                            args[3] === 'fetchHogFlows'
+                                ? Promise.reject(new Error('db down'))
+                                : query(...args)) as typeof query)
+                },
+            ],
+            [
+                500,
+                'the queue insert',
+                () => jest.spyOn(api['hogflowQueue'], 'queueInvocations').mockRejectedValueOnce(new Error('db down')),
+            ],
+        ])('answers a batch with %i and queues nothing when %s fails', async (status, _desc, breakStep) => {
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+            const broken = breakStep()
+
+            const res = await supertest(app)
+                .post('/api/hog_flows/scheduled_invocations')
+                .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                .send({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] })
+            broken.mockRestore()
+
+            expect(res.status).toEqual(status)
+            expect(hogflowQueue.queued).toEqual([])
+        })
     })
 
     describe('hogflow in-flight count', () => {
@@ -3160,6 +3336,8 @@ describe('CDP API', () => {
                     (
                         await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
                     ).rows.map((row) => row.id)
+                const unkeyedFingerprint = (): string =>
+                    IdempotencyKeys.fingerprint([hogFlow.id, keyed.to, keyed.distinct_id, keyed.variables])
                 const claimFingerprint = async (id: string): Promise<string | undefined> =>
                     (await cyclotron.query('SELECT fingerprint FROM cyclotron_idempotency_keys WHERE id = $1', [id]))
                         .rows[0]?.fingerprint
@@ -3183,6 +3361,40 @@ describe('CDP API', () => {
                     expect(uuidVersion(sent.body.invocation_id)).toEqual(5)
                     expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
                     expect(await claimFingerprint(sent.body.invocation_id)).toEqual(expect.any(String))
+                })
+
+                it.each([
+                    ['a keyed signature', () => {}],
+                    [
+                        'a keyed signature under a key that has since rotated',
+                        () => {
+                            api['deps'].encryptedFields = new EncryptedFields(
+                                `11beef0011beef0011beef0011beef11,${hub.ENCRYPTION_SALT_KEYS}`
+                            )
+                        },
+                    ],
+                ])('replays a retry whose claim holds %s', async (_, rotateKeys) => {
+                    const encryptedFields = api['deps'].encryptedFields
+                    try {
+                        const sent = await sendKeyed()
+                        await forgetValkeyRecord(keyed.idempotency_key as string)
+                        await cyclotron.query('UPDATE cyclotron_idempotency_keys SET fingerprint = $2 WHERE id = $1', [
+                            sent.body.invocation_id,
+                            new EncryptedFields(hub.ENCRYPTION_SALT_KEYS).sign(
+                                FINGERPRINT_PURPOSE,
+                                unkeyedFingerprint()
+                            ),
+                        ])
+                        rotateKeys()
+
+                        const retry = await sendKeyed()
+
+                        expect(retry.status).toEqual(202)
+                        expect(retry.body).toEqual({ ...sent.body, replayed: true })
+                        expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    } finally {
+                        api['deps'].encryptedFields = encryptedFields
+                    }
                 })
 
                 it.each([

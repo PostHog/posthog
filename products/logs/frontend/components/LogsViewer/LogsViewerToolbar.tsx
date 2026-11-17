@@ -5,6 +5,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useApmMobileLayout } from 'lib/hooks/useApmMobileLayout'
 import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { Scene } from 'scenes/sceneTypes'
@@ -31,6 +32,7 @@ export interface LogsViewerToolbarProps {
  * layout when the lens changes.
  */
 export const LogsViewerToolbar = ({ totalLogsCount }: LogsViewerToolbarProps): JSX.Element => {
+    const mobileLayout = useApmMobileLayout()
     const { liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
     const { setLiveTailRunning } = useActions(logsViewerDataLogic)
 
@@ -53,46 +55,48 @@ export const LogsViewerToolbar = ({ totalLogsCount }: LogsViewerToolbarProps): J
                     Live tail
                 </LemonButton>
             </Shortcut>
-            <LogsViewSettings />
-            <LogsColumnConfigurator />
+            {!mobileLayout && <LogsViewSettings />}
+            {!mobileLayout && <LogsColumnConfigurator />}
             <LogsExportMenu totalLogsCount={totalLogsCount} />
-            <Tooltip
-                title={
-                    <div className="flex flex-col gap-1.5 p-1">
-                        <div className="flex items-center justify-between gap-4">
-                            <span>Navigate</span>
-                            <span className="flex items-center gap-1">
-                                <KeyboardShortcut arrowup />
-                                <KeyboardShortcut arrowdown />
-                                or
-                                <KeyboardShortcut j />
-                                <KeyboardShortcut k />
-                            </span>
+            {!mobileLayout && (
+                <Tooltip
+                    title={
+                        <div className="flex flex-col gap-1.5 p-1">
+                            <div className="flex items-center justify-between gap-4">
+                                <span>Navigate</span>
+                                <span className="flex items-center gap-1">
+                                    <KeyboardShortcut arrowup />
+                                    <KeyboardShortcut arrowdown />
+                                    or
+                                    <KeyboardShortcut j />
+                                    <KeyboardShortcut k />
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-4">
+                                <span>Expand</span>
+                                <KeyboardShortcut enter />
+                            </div>
+                            <div className="flex items-center justify-between gap-4">
+                                <span>Prettify</span>
+                                <KeyboardShortcut p />
+                            </div>
+                            <div className="flex items-center justify-between gap-4">
+                                <span>Refresh</span>
+                                <KeyboardShortcut r />
+                            </div>
                         </div>
-                        <div className="flex items-center justify-between gap-4">
-                            <span>Expand</span>
-                            <KeyboardShortcut enter />
-                        </div>
-                        <div className="flex items-center justify-between gap-4">
-                            <span>Prettify</span>
-                            <KeyboardShortcut p />
-                        </div>
-                        <div className="flex items-center justify-between gap-4">
-                            <span>Refresh</span>
-                            <KeyboardShortcut r />
-                        </div>
-                    </div>
-                }
-            >
-                <button
-                    type="button"
-                    className="text-muted text-xs flex items-center gap-1 cursor-help bg-transparent border-none p-0"
-                    aria-label="Keyboard shortcuts"
+                    }
                 >
-                    <IconKeyboard className="text-base" />
-                    Shortcuts
-                </button>
-            </Tooltip>
+                    <button
+                        type="button"
+                        className="text-muted text-xs flex items-center gap-1 cursor-help bg-transparent border-none p-0"
+                        aria-label="Keyboard shortcuts"
+                    >
+                        <IconKeyboard className="text-base" />
+                        Shortcuts
+                    </button>
+                </Tooltip>
+            )}
         </div>
     )
 }
