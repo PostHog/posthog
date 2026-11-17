@@ -52,8 +52,8 @@ export function EmailSenderRow(): JSX.Element {
         setEmailTemplateValue('from', next)
     }
 
-    const sandboxHint = sandboxSenderHint(sandbox)
     const notes = [
+        sandboxSenderHint(sandbox),
         selected.length > 1 ? `Each run sends from one of ${selected.length} senders` : null,
         from.name || from.email
             ? `Sends as ${[from.name, from.email && `<${from.email}>`].filter(Boolean).join(' ')}`
@@ -110,11 +110,10 @@ export function EmailSenderRow(): JSX.Element {
                     onChooseSandbox={() => switchSenderKind(() => sandbox?.onSelect())}
                     onChangeFrom={changeFrom}
                 />
-                {sandboxHint || notes.length > 0 ? (
+                {notes.length > 0 ? (
                     <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs text-secondary">
-                        {sandboxHint}
-                        {notes.map((note) => (
-                            <span key={note} className="min-w-0 truncate">
+                        {notes.map((note, index) => (
+                            <span key={index} className="min-w-0 truncate">
                                 {note}
                             </span>
                         ))}
