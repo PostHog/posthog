@@ -101,6 +101,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
             | 'CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK'
+            | 'CDP_CYCLOTRON_RELEASE_WRITE_RETRY'
         > &
             Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>
     ) {
@@ -151,6 +152,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
             boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
             boundedFairDequeue: this.config.CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE,
+            releaseWriteRetry: this.config.CDP_CYCLOTRON_RELEASE_WRITE_RETRY,
             includeEmptyBatches: true,
         })
 
