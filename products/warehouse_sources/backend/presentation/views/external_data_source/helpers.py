@@ -52,7 +52,7 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
-    from posthog.integrations import IntegrationUsage
+    from posthog.integrations import IntegrationRecord, IntegrationUsage
 
     from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
@@ -504,6 +504,19 @@ def get_error_redaction_values(
         sensitive = set()
     values: set[str] = set()
     _collect_secret_values(job_inputs, sensitive, values)
+    return frozenset(value for value in values if len(value) >= _MIN_REDACTED_SECRET_LENGTH)
+
+
+def get_integration_error_redaction_values(integration: IntegrationRecord | None) -> frozenset[str]:
+    """The secret values of a destination's integration, to mask wherever they appear in its delivery errors.
+
+    Every value in `sensitive_config` is a secret. In `config`, only keys named like a secret are.
+    """
+    if integration is None:
+        return frozenset()
+    values: set[str] = set()
+    _collect_string_leaves(integration.sensitive_config, values)
+    _collect_secret_values(integration.config, set(), values)
     return frozenset(value for value in values if len(value) >= _MIN_REDACTED_SECRET_LENGTH)
 
 

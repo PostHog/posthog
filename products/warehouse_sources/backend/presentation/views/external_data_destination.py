@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any, Optional, cast
 from urllib.parse import quote
 from uuid import UUID
@@ -38,6 +39,7 @@ from products.warehouse_sources.backend.facade.destination_health import resume_
 from products.warehouse_sources.backend.facade.destinations import is_destination_type_enabled
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataDestination,
+    ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
     ExternalDataSourceDestination,
@@ -68,6 +70,11 @@ from products.warehouse_sources.backend.presentation.destination_connection_test
 )
 from products.warehouse_sources.backend.presentation.views.destination_links import MAX_DESTINATIONS_PER_LINK
 from products.warehouse_sources.backend.presentation.views.external_data_schema import resync_schema
+from products.warehouse_sources.backend.presentation.views.external_data_source import helpers as source_helpers
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    destination_named_in_failure,
+    is_configuration_failure_of,
+)
 
 # Which Integration kind holds the credentials for each destination type. A type absent from
 # this map needs no integration; the PostHog warehouse is the only such type today.
@@ -88,6 +95,11 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     str(ExternalDataDestination.Type.AZURE_BLOB): (str(IntegrationKind.AZURE_BLOB),),
     str(ExternalDataDestination.Type.MOTHERDUCK): (str(IntegrationKind.MOTHERDUCK),),
 }
+
+DELIVERY_FAILURES_WINDOW_DAYS = 14
+DELIVERY_FAILURES_LIMIT = 50
+# Failed runs of other destinations share the same sources, so read more runs than the response returns.
+DELIVERY_FAILURES_SCAN_LIMIT = 500
 
 INTEGRATION_ACCESS_DENIED = (
     "You do not have access to this integration. Ask a project admin for access, or connect your own credentials."
@@ -305,6 +317,44 @@ class AddSourcesResponseSerializer(serializers.Serializer):
     )
 
 
+class DestinationDeliveryFailureSerializer(serializers.Serializer):
+    job_id = serializers.UUIDField(help_text="ID of the sync run that could not deliver to this destination.")
+    source_id = serializers.UUIDField(help_text="ID of the source the run belongs to.")
+    source_name = serializers.CharField(help_text="Name of the source: its prefix, if any, and its type.")
+    source_type = serializers.CharField(help_text="Type of the source, for example `Stripe` or `MetaAds`.")
+    schema_id = serializers.UUIDField(allow_null=True, help_text="ID of the table the run synced.")
+    schema_name = serializers.CharField(allow_null=True, help_text="Name of the table the run synced.")
+    error = serializers.CharField(
+        help_text=(
+            "Why the delivery failed, as the destination reported it. Stored credentials of the source and of "
+            "the destination are masked."
+        )
+    )
+    is_configuration_error = serializers.BooleanField(
+        help_text=(
+            "Whether the destination's own settings caused the failure, for example a wrong password or a "
+            "missing permission. Configuration errors do not go away until the settings change."
+        )
+    )
+    created_at = serializers.DateTimeField(help_text="When the run started.")
+    finished_at = serializers.DateTimeField(allow_null=True, help_text="When the run stopped.")
+    workflow_run_id = serializers.CharField(
+        allow_null=True, help_text="ID that the run's log lines carry, to find the logs of this run."
+    )
+
+
+class DestinationDeliveryFailuresResponseSerializer(serializers.Serializer):
+    results = DestinationDeliveryFailureSerializer(
+        many=True,
+        help_text=(
+            f"Sync runs that could not deliver to this destination, newest first. At most "
+            f"{DELIVERY_FAILURES_LIMIT} runs from the last {DELIVERY_FAILURES_WINDOW_DAYS} days, from sources "
+            "you have access to."
+        ),
+    )
+    window_days = serializers.IntegerField(help_text="How many days back the runs go.")
+
+
 class DestinationConnectionTestStepSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="What this step checks.")
     description = serializers.CharField(help_text="A longer explanation of what this step checks.")
@@ -324,6 +374,15 @@ class DestinationConnectionTestResponseSerializer(serializers.Serializer):
         many=True,
         help_text="The steps of the connection test, in order. The test stops at the first failed step.",
     )
+
+
+def _delivery_error_detail(reason: str, destination_name: str) -> str:
+    """The part of a run's failure reason that comes after the `<destination name>: ` prefix."""
+    prefix = f"{destination_name}: "
+    if reason.startswith(prefix):
+        return reason[len(prefix) :]
+    index = reason.find(f": {prefix}")
+    return reason[index + 2 + len(prefix) :] if index >= 0 else reason
 
 
 def _planned_destination(
@@ -782,7 +841,7 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     # access to `external_data_source` instead.
     requires_resource_level_access = True
     # Token auth rejects any action missing from these lists.
-    scope_object_read_actions = ["list", "retrieve", "connect_link", "connect_link_status"]
+    scope_object_read_actions = ["list", "retrieve", "connect_link", "connect_link_status", "delivery_failures"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -1071,6 +1130,86 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     "tables_resyncing": tables_resyncing,
                     "resync_failures": resync_failures,
                 }
+            ).data
+        )
+
+    @extend_schema(responses={200: DestinationDeliveryFailuresResponseSerializer})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def delivery_failures(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List recent sync runs that could not deliver to this destination, with the error of each one."""
+        destination: ExternalDataDestination = self.get_object()
+        if destination.is_posthog_warehouse:
+            return Response(
+                DestinationDeliveryFailuresResponseSerializer(
+                    {"results": [], "window_days": DELIVERY_FAILURES_WINDOW_DAYS}
+                ).data
+            )
+
+        sources = ExternalDataSource.objects.filter(team_id=self.team_id).exclude(deleted=True)
+        accessible_source_ids = self._accessible_source_ids()
+        if accessible_source_ids is not None:
+            sources = sources.filter(id__in=accessible_source_ids)
+
+        destination_id = str(destination.id)
+        jobs = list(
+            ExternalDataJob.objects.filter(
+                team_id=self.team_id,
+                pipeline_id__in=sources.values("id"),
+                status=ExternalDataJob.Status.FAILED,
+                created_at__gte=timezone.now() - timedelta(days=DELIVERY_FAILURES_WINDOW_DAYS),
+                destination_ids__contains=[destination_id],
+            )
+            .exclude(latest_error__isnull=True)
+            .select_related("pipeline", "schema")
+            .order_by("-created_at")[:DELIVERY_FAILURES_SCAN_LIMIT]
+        )
+
+        # A run can deliver to several destinations, and its failure names the one that stopped it. The
+        # longest matching name wins, so a destination named `Prod` does not claim a failure of `Prod EU`.
+        names_by_id = {
+            str(named_id): name
+            for named_id, name in ExternalDataDestination.objects.for_team(self.team_id, canonical=True)
+            .filter(id__in={str(linked_id) for job in jobs for linked_id in job.destination_ids})
+            .values_list("id", "name")
+        }
+        destination_secrets = source_helpers.get_integration_error_redaction_values(destination.integration)
+        source_secrets: dict[str, frozenset[str]] = {}
+
+        results: list[dict[str, Any]] = []
+        for job in jobs:
+            reason = job.latest_error or ""
+            job_destination_names = [
+                names_by_id[str(linked_id)] for linked_id in job.destination_ids if str(linked_id) in names_by_id
+            ]
+            if destination_named_in_failure(reason, job_destination_names) != destination.name:
+                continue
+            source_id = str(job.pipeline_id)
+            if source_id not in source_secrets:
+                source_secrets[source_id] = source_helpers.get_error_redaction_values(job.pipeline)
+            results.append(
+                {
+                    "job_id": job.id,
+                    "source_id": job.pipeline_id,
+                    "source_name": _source_summary(job.pipeline)["name"],
+                    "source_type": job.pipeline.source_type,
+                    "schema_id": job.schema_id,
+                    "schema_name": job.schema.name if job.schema else None,
+                    "error": source_helpers.redact_error_message(
+                        _delivery_error_detail(reason, destination.name),
+                        source_secrets[source_id] | destination_secrets,
+                    ),
+                    "is_configuration_error": is_configuration_failure_of(reason, destination.name),
+                    "created_at": job.created_at,
+                    "finished_at": job.finished_at,
+                    "workflow_run_id": job.workflow_run_id,
+                }
+            )
+            if len(results) >= DELIVERY_FAILURES_LIMIT:
+                break
+
+        return Response(
+            DestinationDeliveryFailuresResponseSerializer(
+                {"results": results, "window_days": DELIVERY_FAILURES_WINDOW_DAYS}
             ).data
         )
 

@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataSourceDestination,
     get_or_create_warehouse_destination,
 )
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -59,6 +60,7 @@ from products.warehouse_sources.backend.presentation.destination_connection_test
     new_connection_test_table,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_destination import (
+    DELIVERY_FAILURES_LIMIT,
     DestinationConnectLinkQuerySerializer,
     ExternalDataDestinationViewSet,
 )
@@ -1354,6 +1356,36 @@ class TestSyncedSourcesAccessControl(DestinationAPITestBase):
         assert [entry["id"] for entry in listed] == [str(self.source.id)]
         assert str(hidden_source.id) not in [entry["id"] for entry in listed]
 
+    def test_delivery_failures_omit_a_source_the_viewer_cannot_see(self) -> None:
+        hidden_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="hidden",
+            connection_id="hidden-conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(hidden_source.id),
+            access_level="none",
+            organization_member=self.organization.memberships.get(user=self.viewer),
+        )
+        destination = self._create_destination()
+        for source in (self.source, hidden_source):
+            ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=source,
+                status=ExternalDataJob.Status.FAILED,
+                latest_error="analytics postgres: connection refused",
+                destination_ids=[str(destination.id)],
+            )
+
+        self.client.force_login(self.viewer)
+        results = self.client.get(f"{self.base}/{destination.id}/delivery_failures").json()["results"]
+
+        assert [row["source_id"] for row in results] == [str(self.source.id)]
+
 
 class TestDestinationLinkEndpoints(DestinationAPITestBase):
     def setUp(self) -> None:
@@ -2032,3 +2064,146 @@ class TestDestinationAPIKeyScopes(DestinationAPITestBase):
         )
 
         assert response.status_code == expected_status, response.json()
+
+
+class TestDeliveryFailures(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.destination = ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            type=ExternalDataDestination.Type.REDSHIFT,
+            name="Prod",
+            integration=self._redshift_integration("password"),
+            config={"database": "analytics", "schema": "raw"},
+        )
+        self.other_destination = ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            type=ExternalDataDestination.Type.POSTGRES,
+            name="Prod EU",
+            integration=self._integration(),
+            config={},
+        )
+
+    def _failed_job(self, latest_error: str | None, **overrides) -> ExternalDataJob:
+        fields = {
+            "team": self.team,
+            "pipeline": self.source,
+            "schema": self.schema,
+            "status": ExternalDataJob.Status.FAILED,
+            "latest_error": latest_error,
+            "destination_ids": [str(self.destination.id)],
+            "workflow_run_id": "run-1",
+            **overrides,
+        }
+        return ExternalDataJob.objects.create(**fields)
+
+    def _failures(self, destination: ExternalDataDestination | None = None) -> list[dict]:
+        destination = destination or self.destination
+        response = self.client.get(f"{self.base}/{destination.id}/delivery_failures")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["results"]
+
+    @parameterized.expand(
+        [
+            ("direct", "Prod: relation does not exist", "relation does not exist", False),
+            (
+                "after_retries",
+                "max retries exceeded: Prod: SSL connection closed",
+                "SSL connection closed",
+                False,
+            ),
+            (
+                "configuration_error",
+                "Prod: Destination configuration error. The user lacks privileges.",
+                "Destination configuration error. The user lacks privileges.",
+                True,
+            ),
+        ]
+    )
+    def test_returns_the_error_of_a_failed_delivery(
+        self, _name: str, latest_error: str, expected_error: str, is_configuration_error: bool
+    ) -> None:
+        job = self._failed_job(latest_error)
+
+        assert self._failures() == [
+            {
+                "job_id": str(job.id),
+                "source_id": str(self.source.id),
+                "source_name": "Stripe",
+                "source_type": "Stripe",
+                "schema_id": str(self.schema.id),
+                "schema_name": "charges",
+                "error": expected_error,
+                "is_configuration_error": is_configuration_error,
+                "created_at": job.created_at.isoformat().replace("+00:00", "Z"),
+                "finished_at": None,
+                "workflow_run_id": "run-1",
+            }
+        ]
+
+    @parameterized.expand(
+        [
+            ("another_destination_failed", {"latest_error": "Prod EU: timeout"}),
+            ("source_error_not_delivery", {"latest_error": "Stripe returned 401"}),
+            ("run_did_not_deliver_here", {"destination_ids": []}),
+            ("run_succeeded", {"status": ExternalDataJob.Status.COMPLETED}),
+            ("no_error", {"latest_error": None}),
+            ("too_old", {"created_at": timezone.now() - timedelta(days=15)}),
+        ]
+    )
+    def test_omits_runs_that_are_not_a_recent_failure_of_this_destination(self, _name: str, overrides: dict) -> None:
+        overrides = {"latest_error": "Prod: boom", **overrides}
+        created_at = overrides.pop("created_at", None)
+        job = self._failed_job(
+            overrides.pop("latest_error"),
+            destination_ids=overrides.pop(
+                "destination_ids", [str(self.destination.id), str(self.other_destination.id)]
+            ),
+            **overrides,
+        )
+        if created_at is not None:
+            ExternalDataJob.objects.filter(id=job.id).update(created_at=created_at)
+
+        assert self._failures() == []
+
+    def test_a_longer_destination_name_claims_its_own_failure(self) -> None:
+        self._failed_job("Prod EU: timeout", destination_ids=[str(self.destination.id), str(self.other_destination.id)])
+
+        assert self._failures() == []
+        assert [row["error"] for row in self._failures(self.other_destination)] == ["timeout"]
+
+    def test_omits_runs_of_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        other_source = ExternalDataSource.objects.create(
+            team=other_team,
+            source_id="other",
+            connection_id="other-conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        self._failed_job("Prod: boom", team=other_team, pipeline=other_source, schema=None)
+
+        assert self._failures() == []
+
+    def test_masks_the_destination_credentials_in_the_error(self) -> None:
+        self._failed_job("Prod: login for posthog on my-cluster.example.com rejected the value fake-secret")
+
+        [failure] = self._failures()
+
+        assert failure["error"] == "login for posthog on my-cluster.example.com rejected the value ***"
+
+    def test_returns_the_newest_runs_first_up_to_the_limit(self) -> None:
+        now = timezone.now()
+        jobs = [self._failed_job(f"Prod: failure {index}") for index in range(DELIVERY_FAILURES_LIMIT + 2)]
+        for index, job in enumerate(jobs):
+            ExternalDataJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=index))
+
+        results = self._failures()
+
+        assert [row["error"] for row in results] == [f"failure {index}" for index in range(DELIVERY_FAILURES_LIMIT)]
+
+    def test_the_posthog_warehouse_has_no_delivery_failures(self) -> None:
+        warehouse = get_or_create_warehouse_destination(self.team.pk)
+        self._failed_job("PostHog warehouse: boom", destination_ids=[str(warehouse.id)])
+
+        assert self._failures(warehouse) == []
