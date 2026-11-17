@@ -3,12 +3,25 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { BindLogic } from 'kea'
+import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { IntegrationEmailDomainView } from '../../Channels/IntegrationEmailDomainView'
+import { HogFlowFunctionConfiguration } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
+import { workflowLogic } from '../../Workflows/workflowLogic'
+import { WorkflowsDailyLimitsSettings } from './WorkflowsDailyLimitsSettings'
 import { WorkflowsEmailTrackingConsentSettings } from './WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from './WorkflowsEngagementEventsSettings'
+import { WorkflowsFrequencyCapSettings } from './WorkflowsFrequencyCapSettings'
+
+const OTHER_TAB_CONFIG = { capture_workflows_engagement_events: true, email_tracking_consent_mode: 'opt_in' }
+
+function setNumber(dataAttr: string, value: string): void {
+    fireEvent.change(document.querySelector(`[data-attr="${dataAttr}"]`) as HTMLInputElement, { target: { value } })
+}
 
 describe('workflows settings save', () => {
     let storedConfig: Record<string, any>
@@ -16,9 +29,16 @@ describe('workflows settings save', () => {
 
     beforeEach(() => {
         // Another tab saved both settings after this tab loaded the team.
-        storedConfig = { capture_workflows_engagement_events: true, email_tracking_consent_mode: 'opt_in' }
+        storedConfig = { ...OTHER_TAB_CONFIG }
         saves = 0
         useMocks({
+            get: {
+                '/api/projects/:team_id/hog_function_templates/': {
+                    results: [{ id: 'template-email', name: 'Email', type: 'destination', inputs_schema: [] }],
+                    count: 1,
+                    next: null,
+                },
+            },
             patch: {
                 '/api/environments/:team_id/': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
@@ -41,22 +61,97 @@ describe('workflows settings save', () => {
     it.each([
         {
             setting: 'the consent mode',
-            Component: WorkflowsEmailTrackingConsentSettings,
-            control: 'Opt-out',
-            expected: { capture_workflows_engagement_events: true, email_tracking_consent_mode: 'opt_out' },
+            renderSetting: () => render(<WorkflowsEmailTrackingConsentSettings />),
+            save: () => fireEvent.click(screen.getByText('Opt-out')),
+            saved: { email_tracking_consent_mode: 'opt_out' },
         },
         {
             setting: 'engagement events',
-            Component: WorkflowsEngagementEventsSettings,
-            control: 'Capture email engagement events',
-            expected: { capture_workflows_engagement_events: true, email_tracking_consent_mode: 'opt_in' },
+            renderSetting: () => render(<WorkflowsEngagementEventsSettings />),
+            save: () => fireEvent.click(screen.getByText('Capture email engagement events')),
+            saved: { capture_workflows_engagement_events: true },
         },
-    ])('saving $setting keeps the other setting another tab saved', async ({ Component, control, expected }) => {
-        render(<Component />)
+        {
+            setting: 'daily limits',
+            renderSetting: () =>
+                render(
+                    <WorkflowsDailyLimitsSettings
+                        perWorkflowField="workflow_task_rate_limit_per_day"
+                        perProjectField="workflow_task_team_rate_limit_per_day"
+                        defaultPerWorkflow={100}
+                        defaultPerProject={500}
+                        unit="tasks"
+                        attrPrefix="workflows-task"
+                    />
+                ),
+            save: () => {
+                setNumber('workflows-task-limit-per-workflow', '50')
+                fireEvent.click(screen.getByText('Save'))
+            },
+            saved: { workflow_task_rate_limit_per_day: 50, workflow_task_team_rate_limit_per_day: null },
+        },
+        {
+            setting: 'the frequency cap',
+            renderSetting: () => render(<WorkflowsFrequencyCapSettings />),
+            save: () => {
+                setNumber('workflows-frequency-cap-max-messages', '3')
+                setNumber('workflows-frequency-cap-window-days', '7')
+                fireEvent.click(screen.getByText('Save'))
+            },
+            saved: {
+                marketing_frequency_cap_max_messages: 3,
+                marketing_frequency_cap_window_days: 7,
+                marketing_frequency_cap_hold_hours: null,
+            },
+        },
+        {
+            setting: 'the default sender',
+            renderSetting: () =>
+                render(
+                    <IntegrationEmailDomainView
+                        integration={{
+                            domain: 'example.com',
+                            integrations: [
+                                {
+                                    id: 7,
+                                    kind: 'email',
+                                    display_name: 'hello@example.com',
+                                    icon_url: '',
+                                    config: { verified: true, name: 'Hello', email: 'hello@example.com' },
+                                    created_at: '2026-11-01T00:00:00Z',
+                                },
+                            ],
+                        }}
+                    />
+                ),
+            save: () => {
+                fireEvent.click(screen.getByText('example.com'))
+                fireEvent.click(screen.getByText('Make default'))
+            },
+            saved: { default_email_integration_id: 7 },
+        },
+        {
+            setting: 'engagement events from the email step',
+            renderSetting: async () => {
+                const logic = workflowLogic({ id: 'new' })
+                logic.mount()
+                logic.actions.loadHogFunctionTemplatesById()
+                await expectLogic(logic).toDispatchActions(['loadHogFunctionTemplatesByIdSuccess'])
+                render(
+                    <BindLogic logic={workflowLogic} props={{ id: 'new' }}>
+                        <HogFlowFunctionConfiguration templateId="template-email" inputs={{}} setInputs={() => {}} />
+                    </BindLogic>
+                )
+            },
+            save: () => fireEvent.click(screen.getByText('Enable engagement events')),
+            saved: { capture_workflows_engagement_events: true },
+        },
+    ])('saving $setting keeps what another tab saved', async ({ renderSetting, save, saved }) => {
+        await renderSetting()
 
-        fireEvent.click(screen.getByText(control))
+        save()
 
         await waitFor(() => expect(saves).toBe(1))
-        expect(storedConfig).toEqual(expected)
+        expect(storedConfig).toEqual({ ...OTHER_TAB_CONFIG, ...saved })
     })
 })
