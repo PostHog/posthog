@@ -248,6 +248,27 @@ def test_only_a_registry_name_and_version_reach_the_scanner(ecosystem, name, ver
     assert scanner.Package(ecosystem, name, version).scannable is scannable
 
 
+LEFT_PAD = scanner.Package("npm", "left-pad", "1.3.1")
+TARBALL = scanner.Package("npm", "tarball-dep", "https://example.com/tarball-dep.tgz")
+
+
+@pytest.mark.parametrize(
+    "labels,skipped,clean",
+    [
+        ([], [], True),
+        (["no_risks_detected", "low", "suspicious"], [], True),
+        (["no_risks_detected", "high_risk"], [], False),
+        (["no_risks_detected", "not_scanned"], [], False),
+        (["no_risks_detected", "a_label_from_a_later_guarddog"], [], False),
+        (["no_risks_detected"], [TARBALL], False),
+    ],
+)
+def test_the_gate_is_clean_only_when_every_added_package_was_scanned_below_high_risk(labels, skipped, clean):
+    findings = [scanner.Finding(LEFT_PAD, label, 0.0, ()) for label in labels]
+
+    assert scanner.is_clean(findings, skipped) is clean
+
+
 def test_a_package_from_outside_the_registry_is_not_scanned_under_its_registry_name():
     assert not scanner.Package("crates", "itoa", "1.0.15", "git+https://example.com/itoa.git#abc").scannable
 
