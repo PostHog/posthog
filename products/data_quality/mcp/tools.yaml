@@ -90,8 +90,8 @@ tools:
         title: Run a data quality check
         description: >
             Run one check now. Returns a suite run to poll; read the outcome from
-            system.information_schema.data_quality_check_runs once it finishes. Each project can start 20 runs a
-            minute and 60 an hour. Over that, the call fails with HTTP 429; wait for the time in Retry-After.
+            system.information_schema.data_quality_check_runs once it finishes. Each project can start 20 runs a minute
+            and 60 an hour. Over that, the call fails with HTTP 429; wait for the time in Retry-After.
     data-quality-check-schedule:
         operation: data_quality_checks_schedule_partial_update
         enabled: true
