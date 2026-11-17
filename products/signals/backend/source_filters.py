@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime
 from uuid import UUID
@@ -253,3 +254,56 @@ def record_window_processed(
         last_error_code="",
         last_error_message="",
     )
+
+
+class SourceFilterRunState(TextChoices):
+    OK = "ok", "ok"
+    FAILING = "failing", "failing"
+
+
+@frozen
+class SourceFilterRunStatus:
+    state: SourceFilterRunState
+    error_code: str | None
+    error_message: str | None
+    failed_at: datetime | None
+    unread_since: datetime | None
+    last_success_at: datetime | None
+    malformed_count: int
+
+
+def filter_run_statuses(team_id: int) -> dict[tuple[str, str], SourceFilterRunStatus]:
+    """How emission last went for each filtered source on a team, keyed by `(source_product, source_type)`.
+
+    A source can import several warehouse schemas, each with its own state row. One failing schema makes
+    the source failing, so a broken import is never hidden behind its siblings.
+    """
+    rows_by_source: defaultdict[tuple[str, str], list[SignalSourceFilterState]] = defaultdict(list)
+    for row in SignalSourceFilterState.objects.for_team(team_id).only(
+        "source_product",
+        "source_type",
+        "last_error_code",
+        "last_error_message",
+        "last_error_at",
+        "pending_window_start",
+        "last_success_at",
+        "last_malformed_count",
+    ):
+        rows_by_source[(row.source_product, row.source_type)].append(row)
+
+    statuses: dict[tuple[str, str], SourceFilterRunStatus] = {}
+    for source, rows in rows_by_source.items():
+        failing = [row for row in rows if row.last_error_code]
+        latest_failure = max(failing, key=lambda row: row.last_error_at or timezone.now()) if failing else None
+        unread = [row.pending_window_start for row in failing if row.pending_window_start is not None]
+        successes = [row.last_success_at for row in rows if row.last_success_at is not None]
+        statuses[source] = SourceFilterRunStatus(
+            state=SourceFilterRunState.FAILING if failing else SourceFilterRunState.OK,
+            error_code=latest_failure.last_error_code if latest_failure else None,
+            error_message=(latest_failure.last_error_message or None) if latest_failure else None,
+            failed_at=latest_failure.last_error_at if latest_failure else None,
+            unread_since=min(unread) if unread else None,
+            last_success_at=max(successes) if successes else None,
+            malformed_count=sum(row.last_malformed_count for row in rows),
+        )
+    return statuses

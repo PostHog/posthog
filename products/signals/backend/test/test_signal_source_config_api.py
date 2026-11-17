@@ -1,6 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from threading import Barrier
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest
@@ -32,7 +34,12 @@ from products.signals.backend.facade.source_configs import (
     get_analytics_alert_name_patterns,
     get_analytics_alert_scope,
 )
-from products.signals.backend.models import SignalFilterCatalogVersion, SignalFilterSourceDefinition, SignalSourceConfig
+from products.signals.backend.models import (
+    SignalFilterCatalogVersion,
+    SignalFilterSourceDefinition,
+    SignalSourceConfig,
+    SignalSourceFilterState,
+)
 from products.signals.backend.serializers import SignalSourceConfigSerializer
 from products.signals.backend.source_filters import writes_open
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -334,6 +341,58 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
+
+    @parameterized.expand(
+        [
+            (
+                "one_failing_schema_makes_the_source_failing",
+                True,
+                [
+                    {"last_success_at": datetime(2026, 11, 10, 8, tzinfo=UTC), "last_malformed_count": 2},
+                    {
+                        "last_error_code": "unknown_field",
+                        "last_error_message": "Use an unqualified field from the filter catalog.",
+                        "last_error_at": datetime(2026, 11, 10, 9, tzinfo=UTC),
+                        "pending_window_start": datetime(2026, 11, 9, tzinfo=UTC),
+                        "last_malformed_count": 1,
+                    },
+                ],
+                {
+                    "state": "failing",
+                    "error_code": "unknown_field",
+                    "error_message": "Use an unqualified field from the filter catalog.",
+                    "failed_at": "2026-11-10T09:00:00Z",
+                    "unread_since": "2026-11-09T00:00:00Z",
+                    "last_success_at": "2026-11-10T08:00:00Z",
+                    "malformed_count": 3,
+                },
+            ),
+            (
+                "removed_filter_hides_old_failures",
+                False,
+                [{"last_error_code": "query_failed", "last_error_at": datetime(2026, 11, 10, tzinfo=UTC)}],
+                None,
+            ),
+            ("not_fetched_with_the_filter_yet", True, [], None),
+        ]
+    )
+    def test_list_reports_filter_status(self, _name, has_filter, state_rows, expected):
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="linear",
+            source_type="issue",
+            config={"hogql_filter": {"expression": "assignee_id IS NULL", "catalog_version": 1}} if has_filter else {},
+            created_by=self.user,
+        )
+        for row in state_rows:
+            SignalSourceFilterState.objects.create(
+                team=self.team, source_product="linear", source_type="issue", schema_id=uuid4(), **row
+            )
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"][0]["filter_status"] == expected
 
     # --- Retrieve ---
 
