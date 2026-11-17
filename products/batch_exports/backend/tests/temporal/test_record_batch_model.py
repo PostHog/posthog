@@ -13,6 +13,7 @@ import pyarrow as pa
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
+from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.credentials import AWSKeyPair
 from posthog.models import OrganizationMembership, User
@@ -176,11 +177,11 @@ class TestSessionsRecordBatchModel:
             for expr in hogql_query.where.exprs
         )
 
-    async def test_as_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
+    async def test_as_query_with_context(self, ateam, data_interval_start, data_interval_end):
         model = SessionsRecordBatchModel(
             team_id=ateam.id,
         )
-        printed_query, _ = await model.as_query_with_parameters(data_interval_start, data_interval_end)
+        printed_query, _ = await model.as_query_with_context(data_interval_start, data_interval_end)
 
         assert f"equals(raw_sessions.team_id, {ateam.id})" in printed_query
         assert "FORMAT ArrowStream" in printed_query
@@ -220,7 +221,7 @@ class TestSessionsRecordBatchModel:
     async def test_interleaved_calls_do_not_mix_team_ids(
         self, ateam, another_ateam, data_interval_start, data_interval_end
     ):
-        """Regression test to reproduce a previous race condition in as_query_with_parameters where
+        """Regression test to reproduce a previous race condition in as_query_with_context where
         two different models were created with different team IDs, and the second model's query
         overwrote the first model's query."""
 
@@ -244,11 +245,11 @@ class TestSessionsRecordBatchModel:
         assert f"equals(raw_sessions.team_id, {ateam.id})" in printed_query
         assert f"team_id, {another_ateam.id}" not in printed_query
 
-    async def test_as_insert_into_s3_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
+    async def test_as_insert_into_s3_query_with_context(self, ateam, data_interval_start, data_interval_end):
         model = SessionsRecordBatchModel(
             team_id=ateam.id,
         )
-        printed_query, _ = await model.as_insert_into_s3_query_with_parameters(
+        printed_query, _ = await model.as_insert_into_s3_query_with_context(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
@@ -286,14 +287,14 @@ class TestSessionsRecordBatchModel:
         # this model needs no request settings: the printer already emitted them
         assert model.get_clickhouse_request_settings() == {}
 
-    async def test_as_insert_into_s3_query_with_parameters_keyless_auth(
+    async def test_as_insert_into_s3_query_with_context_keyless_auth(
         self, ateam, data_interval_start, data_interval_end
     ):
         """Test that keyless S3 auth generates the correct s3() function call without credentials."""
         model = SessionsRecordBatchModel(
             team_id=ateam.id,
         )
-        printed_query, _ = await model.as_insert_into_s3_query_with_parameters(
+        printed_query, _ = await model.as_insert_into_s3_query_with_context(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
@@ -351,8 +352,8 @@ class TestSessionsRecordBatchModelSelection:
         interval_start: dt.datetime,
         interval_end: dt.datetime,
     ) -> list[str]:
-        printed_query, parameters = await model._print_query(interval_start, interval_end, output_format="JSONEachRow")
-        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=parameters)
+        printed_query, context = await model._print_query(interval_start, interval_end, output_format="JSONEachRow")
+        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=context.values)
         return [row["session_id"] for row in rows]
 
     async def test_selects_late_session_by_interval_covering_its_ingestion(self, clickhouse_client, ateam):
@@ -428,32 +429,40 @@ class TestSessionsRecordBatchModelSelection:
 @pytest.mark.django_db
 class TestHogQLQueryRecordBatchModel:
     @pytest.mark.parametrize(
-        "hogql_query",
+        "hogql_query,table,workload",
         [
-            "SELECT event AS event, distinct_id AS distinct_id FROM events",
-            "WITH exported_events AS (SELECT event, distinct_id FROM events) "
-            "SELECT event AS event, distinct_id AS distinct_id FROM exported_events",
+            ("SELECT event AS event, distinct_id AS distinct_id FROM events", "events", Workload.DEFAULT),
+            (
+                "WITH exported_events AS (SELECT event, distinct_id FROM events) "
+                "SELECT event AS event, distinct_id AS distinct_id FROM exported_events",
+                "events",
+                Workload.DEFAULT,
+            ),
+            ("SELECT body FROM logs", "logs", Workload.LOGS),
         ],
-        ids=["table", "cte"],
+        ids=["table", "cte", "logs"],
     )
-    async def test_as_query_with_parameters(self, ateam, auser, data_interval_start, data_interval_end, hogql_query):
+    async def test_as_query_with_context(
+        self, ateam, auser, data_interval_start, data_interval_end, hogql_query, table, workload
+    ):
         model = HogQLQueryRecordBatchModel(
             team_id=ateam.id,
             hogql_query=hogql_query,
             user_id=auser.pk,
         )
-        printed_query, query_parameters = await model.as_query_with_parameters(data_interval_start, data_interval_end)
+        printed_query, context = await model.as_query_with_context(data_interval_start, data_interval_end)
 
         # should add filter on team_id
-        assert f"equals(events.team_id, {ateam.id})" in printed_query
+        assert f"equals({table}.team_id, {ateam.id})" in printed_query
         assert "FORMAT ArrowStream" in printed_query
-        assert "log_comment" in query_parameters
+        assert "log_comment" in context.values
+        assert context.workload == workload
         # without interval placeholders the query runs as-is, as of now
         assert f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" not in printed_query
         assert model.wait_for_data_interval_end is False
-        assert model.hogql_table_names == ("events",)
+        assert model.hogql_table_names == (table,)
 
-    async def test_as_query_with_parameters_applies_data_interval(
+    async def test_as_query_with_context_applies_data_interval(
         self, ateam, auser, data_interval_start, data_interval_end
     ):
         model = HogQLQueryRecordBatchModel(
@@ -465,7 +474,7 @@ class TestHogQLQueryRecordBatchModel:
                 "AND timestamp < {data_interval_end}"
             ),
         )
-        printed_query, _ = await model.as_query_with_parameters(data_interval_start, data_interval_end)
+        printed_query, _ = await model.as_query_with_context(data_interval_start, data_interval_end)
 
         upper_bound = f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
         lower_bound = f"toDateTime64('{data_interval_start:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
@@ -475,7 +484,7 @@ class TestHogQLQueryRecordBatchModel:
         assert "equals(event, %(hogql_val_" in printed_query
         assert model.wait_for_data_interval_end is True
 
-    async def test_as_query_with_parameters_selects_only_rows_in_data_interval(self, clickhouse_client, ateam, auser):
+    async def test_as_query_with_context_selects_only_rows_in_data_interval(self, clickhouse_client, ateam, auser):
         await truncate_events(clickhouse_client)
         data_interval_start = dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
         data_interval_end = dt.datetime(2021, 1, 15, 11, 0, 0, tzinfo=dt.UTC)
@@ -498,20 +507,30 @@ class TestHogQLQueryRecordBatchModel:
             ),
         )
 
-        printed_query, parameters = await model._print_query(
+        printed_query, context = await model._print_query(
             data_interval_start, data_interval_end, output_format="JSONEachRow"
         )
-        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=parameters)
+        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=context.values)
 
         assert {row["uuid"] for row in rows} == {event["uuid"] for event in events_in_range}
 
-    async def test_as_insert_into_s3_query_with_parameters(self, ateam, auser, data_interval_start, data_interval_end):
+    @pytest.mark.parametrize(
+        "hogql_query,table,workload",
+        [
+            ("SELECT event AS event, distinct_id AS distinct_id FROM events", "events", Workload.DEFAULT),
+            ("SELECT body FROM logs", "logs", Workload.LOGS),
+        ],
+        ids=["events", "logs"],
+    )
+    async def test_as_insert_into_s3_query_with_context(
+        self, ateam, auser, data_interval_start, data_interval_end, hogql_query, table, workload
+    ):
         model = HogQLQueryRecordBatchModel(
             team_id=ateam.id,
-            hogql_query="SELECT event AS event, distinct_id AS distinct_id FROM events",
+            hogql_query=hogql_query,
             user_id=auser.pk,
         )
-        printed_query, query_parameters = await model.as_insert_into_s3_query_with_parameters(
+        printed_query, context = await model.as_insert_into_s3_query_with_context(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
@@ -522,7 +541,9 @@ class TestHogQLQueryRecordBatchModel:
         assert "INSERT INTO FUNCTION" in printed_query
         assert "https://test-bucket.s3.amazonaws.com/test-prefix/export_{_partition_id}.arrow" in printed_query
         assert "PARTITION BY rand() %% 5" in printed_query
-        assert f"equals(events.team_id, {ateam.id})" in printed_query
+        assert f"equals({table}.team_id, {ateam.id})" in printed_query
+        assert "log_comment" in context.values
+        assert context.workload == workload
         # the user's query is wrapped as-is: settings are sent as query parameters, so we never write a
         # SETTINGS clause into the query
         assert "SETTINGS" not in printed_query
@@ -566,7 +587,7 @@ class TestHogQLQueryRecordBatchModel:
         model = HogQLQueryRecordBatchModel(
             team_id=ateam.pk, hogql_query="SELECT properties AS properties FROM events", user_id=auser.pk
         )
-        await model.as_query_with_parameters(None, None)
+        await model.as_query_with_context(None, None)
 
         assert model.get_clickhouse_request_settings()["json_type_escape_dots_in_keys"] == "1"
 
@@ -659,7 +680,7 @@ class TestHogQLQueryRecordBatchModel:
             team_id=ateam.pk, batch_export_model=batch_export_model
         )
         assert record_batch_model is not None
-        printed_query, _ = await record_batch_model.as_query_with_parameters(data_interval_start, data_interval_end)
+        printed_query, _ = await record_batch_model.as_query_with_context(data_interval_start, data_interval_end)
 
         assert ("toTimeZone(events.timestamp" in printed_query) is converts_timezone
 
@@ -671,7 +692,7 @@ class TestHogQLQueryRecordBatchModel:
         await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
         payload = BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
         _, model, _, _, _, _ = resolve_batch_exports_model(ateam.pk, payload)
-        await model.as_query_with_parameters(None, None)
+        await model.as_query_with_context(None, None)
 
         if actor_state == "deleted":
             await User.objects.filter(pk=auser.pk).adelete()
@@ -694,7 +715,7 @@ class TestHogQLQueryRecordBatchModel:
             )
 
         with pytest.raises(UnsupportedHogQLQueryError, match="Save the export again"):
-            await model.as_query_with_parameters(None, None)
+            await model.as_query_with_context(None, None)
 
     @pytest.mark.parametrize("use_new_events_schema", [False, True])
     async def test_rechecks_user_property_restrictions_at_runtime(
@@ -717,7 +738,7 @@ class TestHogQLQueryRecordBatchModel:
             _, model, _, _, _, _ = resolve_batch_exports_model(
                 ateam.pk, BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
             )
-            before, _ = await model.as_query_with_parameters(None, None)
+            before, _ = await model.as_query_with_context(None, None)
             assert "NULL AS secret" not in before
             assert "JSONDropKeys" not in before
 
@@ -725,13 +746,13 @@ class TestHogQLQueryRecordBatchModel:
                 team=ateam, property_definition=prop, organization_member=membership, access_level="none"
             )
             await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
-            after, parameters = await model.as_insert_into_s3_query_with_parameters(
+            after, context = await model.as_insert_into_s3_query_with_context(
                 None, None, "https://example.com/staging", None, 1
             )
 
         assert "NULL AS secret" in after
         assert "JSONDropKeys" in after
-        assert any(isinstance(value, list) and "secret_field" in value for value in parameters.values())
+        assert any(isinstance(value, list) and "secret_field" in value for value in context.values.values())
 
     async def test_rechecks_table_access_at_runtime(
         self, ateam: "Team", aorganization: "Organization", auser: User
@@ -752,7 +773,7 @@ class TestHogQLQueryRecordBatchModel:
             _, model, _, _, _, _ = resolve_batch_exports_model(
                 ateam.pk, BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
             )
-            await model.as_query_with_parameters(None, None)
+            await model.as_query_with_context(None, None)
             membership = await OrganizationMembership.objects.aget(user=auser, organization=aorganization)
             await AccessControl.objects.acreate(
                 team=ateam,
@@ -763,7 +784,7 @@ class TestHogQLQueryRecordBatchModel:
             )
 
             with pytest.raises(UnsupportedHogQLQueryError, match="You don't have access to table `export_view`"):
-                await model.as_query_with_parameters(None, None)
+                await model.as_query_with_context(None, None)
 
 
 @pytest.mark.django_db

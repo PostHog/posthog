@@ -810,13 +810,14 @@ async def _write_batch_export_record_batches_to_internal_stage(
             query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         if isinstance(query_or_model, RecordBatchModel):
-            query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
+            query, context = await query_or_model.as_insert_into_s3_query_with_context(
                 data_interval_start=interval_start,
                 data_interval_end=interval_end,
                 s3_folder=s3_staging_folder_url,
                 credentials=_get_s3_credentials(),
                 num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
             )
+            query_parameters = context.values
             query_settings = query_or_model.get_clickhouse_request_settings()
         else:
             query = query_or_model
