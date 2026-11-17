@@ -19,6 +19,7 @@ import { version as uuidVersion } from 'uuid'
 import { keyedRunId } from '~/cdp/intake/run-intake'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
@@ -3334,6 +3335,8 @@ describe('CDP API', () => {
                     (
                         await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [hogFlow.id])
                     ).rows.map((row) => row.id)
+                const unkeyedFingerprint = (): string =>
+                    IdempotencyKeys.fingerprint([hogFlow.id, keyed.to, keyed.distinct_id, keyed.variables])
                 const claimFingerprint = async (id: string): Promise<string | undefined> =>
                     (await cyclotron.query('SELECT fingerprint FROM cyclotron_idempotency_keys WHERE id = $1', [id]))
                         .rows[0]?.fingerprint
@@ -3357,6 +3360,42 @@ describe('CDP API', () => {
                     expect(uuidVersion(sent.body.invocation_id)).toEqual(5)
                     expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
                     expect(await claimFingerprint(sent.body.invocation_id)).toEqual(expect.any(String))
+                    expect(await claimFingerprint(sent.body.invocation_id)).not.toEqual(unkeyedFingerprint())
+                })
+
+                it.each([
+                    [
+                        'the unkeyed hash stored before the fingerprint was keyed',
+                        async (runId: string) => {
+                            await cyclotron.query(
+                                'UPDATE cyclotron_idempotency_keys SET fingerprint = $2 WHERE id = $1',
+                                [runId, unkeyedFingerprint()]
+                            )
+                        },
+                    ],
+                    [
+                        'a signature under a key that has since rotated',
+                        () => {
+                            api['deps'].encryptedFields = new EncryptedFields(
+                                `11beef0011beef0011beef0011beef11,${hub.ENCRYPTION_SALT_KEYS}`
+                            )
+                        },
+                    ],
+                ])('replays a retry whose claim holds %s', async (_, ageClaim) => {
+                    const encryptedFields = api['deps'].encryptedFields
+                    try {
+                        const sent = await sendKeyed()
+                        await forgetValkeyRecord(keyed.idempotency_key as string)
+                        await ageClaim(sent.body.invocation_id)
+
+                        const retry = await sendKeyed()
+
+                        expect(retry.status).toEqual(202)
+                        expect(retry.body).toEqual({ ...sent.body, replayed: true })
+                        expect(await jobsOfFlow()).toEqual([sent.body.invocation_id])
+                    } finally {
+                        api['deps'].encryptedFields = encryptedFields
+                    }
                 })
 
                 it.each([
