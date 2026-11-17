@@ -195,10 +195,6 @@ def _counts_by_last_value(read: FlagRead, last: LastValue) -> list[ast.Expr]:
 
 
 def _counts(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
-    unexposed = parse_expr(
-        "{with_flag} AND NOT {exposed}",
-        placeholders={"with_flag": read.with_flag, "exposed": read.exposed},
-    )
     return [
         ast.Constant(value=True),
         # A fingerprint that isn't synced to ClickHouse yet has no issue, and counts as new. An event without a
@@ -211,9 +207,9 @@ def _counts(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
             placeholders={"edited_at": ast.Constant(value=edit.edited_at)},
         ),
         read.exposed,
-        unexposed,
+        read.unexposed,
         *[read.has_variant(variant) for variant in edit.variants],
-        *in_condition_columns(read, [read.exposed, unexposed]),
+        *in_condition_columns(read, [read.exposed, read.unexposed]),
     ]
 
 

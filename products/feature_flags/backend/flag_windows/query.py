@@ -143,6 +143,12 @@ class FlagRead:
     # The person (or group) is in a watched condition, by each way of matching. Empty without watched conditions.
     in_condition: Mapping[ConditionMatch, ast.Expr] = field(default_factory=dict)
 
+    @property
+    def unexposed(self) -> ast.Expr:
+        return parse_expr(
+            "{with_flag} AND NOT {exposed}", placeholders={"with_flag": self.with_flag, "exposed": self.exposed}
+        )
+
     def has_variant(self, variant: str) -> ast.Expr:
         return parse_expr(
             "{variant_key} = {variant}",
