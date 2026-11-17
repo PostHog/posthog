@@ -38,6 +38,13 @@ const confirmedEmail = {
     capture_engagement: false,
 }
 
+const confirmedTemplateEmail = {
+    to: 'jane@example.com',
+    template_id: '0190f1d2-3c4b-7a5e-9f00-112233445566',
+    message_data: { reset_link: 'https://example.com/reset/abc' },
+    distinct_id: 'user-1',
+}
+
 const SEND_EMAIL_CONFIRMATION_FROM_OLDER_SCHEMA = {
     hash: 'eyJhbGciOiJIUzI1NiIsInR5cCI6Ik1DUC1TSUdORUQtU1RBVEUifQ.eyJwYXlsb2FkIjp7ImRpZ2VzdCI6ImJmMmNlZTcwODNiMjNiOTQ1YzMwODExMTlmZjE4ZjVhOTU4MWQ1YmNiMzkzYWQ1YmMwNzcyZjZmOWY5YTRhZWQifSwic3ViIjoidGVzdC1kaXN0aW5jdC1pZCIsImF1ZCI6IndvcmtmbG93cy1zZW5kLWVtYWlsQDZkZWQyY2MwOTYyZmQyNDAiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MTcwMDAwMDMwMCwianRpIjoibm9uY2UtZml4ZWQifQ.cymNk3iDfbQPDR-oVP1AOHjZjCRptl473TV6L6ZLuP8',
     stash: {
@@ -54,6 +61,15 @@ describe('Generated confirmed tools', () => {
             tool: 'workflows-send-email',
             input: confirmedEmail,
             request: { method: 'POST', url: '/api/projects/42/messaging/send/email/', body: confirmedEmail },
+        },
+        {
+            tool: 'workflows-send-email-template',
+            input: confirmedTemplateEmail,
+            request: {
+                method: 'POST',
+                url: '/api/projects/42/messaging/send/email/',
+                body: confirmedTemplateEmail,
+            },
         },
         {
             tool: 'access-control-default-rule-set',
