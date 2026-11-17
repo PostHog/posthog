@@ -5,6 +5,7 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { DashboardRefreshButton } from 'lib/components/DashboardRefreshButton/DashboardRefreshButton'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -25,7 +26,6 @@ import { AddCrossProjectTileModal } from './AddCrossProjectTileModal'
 import { CrossProjectDashboardGrid } from './CrossProjectDashboardGrid'
 import { CrossProjectDashboardLayoutActions } from './CrossProjectDashboardLayoutActions'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
-import { CrossProjectDashboardRefreshAction } from './CrossProjectDashboardRefreshAction'
 import { openCrossProjectTileOverrideDialog } from './openCrossProjectTileOverrideDialog'
 import { QuillCrossProjectDashboardActions } from './QuillCrossProjectDashboardActions'
 
@@ -50,6 +50,7 @@ export function CrossProjectDashboardScene(): JSX.Element {
         layoutEditMode,
         gridLayouts,
         refreshToken,
+        tilesRefreshing,
     } = useValues(crossProjectDashboardLogic)
     const {
         removeTile,
@@ -63,6 +64,7 @@ export function CrossProjectDashboardScene(): JSX.Element {
         updateDashboard,
         deleteDashboard,
         tileRefreshSettled,
+        refreshTiles,
     } = useActions(crossProjectDashboardLogic)
     const { requestOpenModal } = useActions(addCrossProjectTileLogic({ dashboardId: dashboard?.id ?? '' }))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -108,7 +110,14 @@ export function CrossProjectDashboardScene(): JSX.Element {
                                     { value: 'month', label: 'Month' },
                                 ]}
                             />
-                            <CrossProjectDashboardRefreshAction />
+                            {tiles.length > 0 && (
+                                <DashboardRefreshButton
+                                    loading={tilesRefreshing}
+                                    onRefresh={refreshTiles}
+                                    dataAttr="cross-project-dashboard-refresh"
+                                    shortcutName="CrossProjectDashboardRefresh"
+                                />
+                            )}
                             <CrossProjectDashboardLayoutActions />
                             <LemonButton
                                 type="primary"

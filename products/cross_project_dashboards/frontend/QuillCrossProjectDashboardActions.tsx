@@ -17,6 +17,7 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
+import { QuillDashboardRefreshButton } from 'lib/components/DashboardRefreshButton/QuillDashboardRefreshButton'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import type { IntervalType } from '~/types'
@@ -24,7 +25,6 @@ import type { IntervalType } from '~/types'
 import { addCrossProjectTileLogic } from './addCrossProjectTileLogic'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
 import { QuillCrossProjectDashboardLayoutActions } from './QuillCrossProjectDashboardLayoutActions'
-import { QuillCrossProjectDashboardRefreshAction } from './QuillCrossProjectDashboardRefreshAction'
 
 const INTERVAL_OPTIONS: { value: IntervalType | null; label: string }[] = [
     { value: null, label: 'Default interval' },
@@ -35,8 +35,8 @@ const INTERVAL_OPTIONS: { value: IntervalType | null; label: string }[] = [
 ]
 
 export function QuillCrossProjectDashboardActions(): JSX.Element | null {
-    const { dashboard, dashboardFilters } = useValues(crossProjectDashboardLogic)
-    const { setDates, setInterval, deleteDashboard } = useActions(crossProjectDashboardLogic)
+    const { dashboard, dashboardFilters, tiles, tilesRefreshing } = useValues(crossProjectDashboardLogic)
+    const { setDates, setInterval, deleteDashboard, refreshTiles } = useActions(crossProjectDashboardLogic)
     const { requestOpenModal } = useActions(addCrossProjectTileLogic({ dashboardId: dashboard?.id ?? '' }))
 
     if (!dashboard) {
@@ -66,7 +66,14 @@ export function QuillCrossProjectDashboardActions(): JSX.Element | null {
                     ))}
                 </SelectContent>
             </Select>
-            <QuillCrossProjectDashboardRefreshAction />
+            {tiles.length > 0 && (
+                <QuillDashboardRefreshButton
+                    loading={tilesRefreshing}
+                    onRefresh={refreshTiles}
+                    dataAttr="cross-project-dashboard-refresh"
+                    shortcutName="CrossProjectDashboardRefresh"
+                />
+            )}
             <QuillCrossProjectDashboardLayoutActions />
             <Button variant="primary" onClick={requestOpenModal} data-attr="cross-project-add-tile">
                 <IconPlus />
