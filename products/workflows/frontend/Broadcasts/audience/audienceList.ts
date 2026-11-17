@@ -28,7 +28,6 @@ export function isCohortInclusion(filter: AnyPropertyFilter): boolean {
 
 export const COMPUTED_FILTER_KEYS = new Set(['bytecode', 'bytecode_error', 'conditionHash'])
 
-// The query schema refuses `negation` and compiled keys. The backend excludes a cohort on `negation` or `not_in`.
 export function toActorsQueryProperties(audienceProperties: AnyPropertyFilter[]): AnyPersonScopeFilter[] {
     return audienceProperties.map((filter) => {
         const { negation, ...rest } = filter as AnyPropertyFilter & { negation?: boolean }

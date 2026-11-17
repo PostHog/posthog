@@ -13,8 +13,11 @@ _INCREMENTAL_ENDPOINTS = {
     "nps_ratings",
     "tickets",
     "ticket_messages",
+    "supporters",
+    "features",
+    "status_updates",
 }
-_FULL_REFRESH_ENDPOINTS = {"suggestion_statuses", "labels"}
+_FULL_REFRESH_ENDPOINTS = {"suggestion_statuses", "labels", "categories"}
 
 
 class TestUservoiceSource:
