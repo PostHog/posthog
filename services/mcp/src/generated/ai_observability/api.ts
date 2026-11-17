@@ -4162,6 +4162,7 @@ export const TaggersListQueryParams = () => zod.object({
     enabled: zod.boolean().optional().describe('Filter by enabled status'),
     id__in: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
+    migrated_to_evaluation_id: zod.string().optional().describe('Only the tagger that was migrated to this evaluation'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .array(zod.string())

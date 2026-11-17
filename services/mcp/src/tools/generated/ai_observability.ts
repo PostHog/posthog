@@ -3070,6 +3070,7 @@ const llmaTaggerList = (): ToolBase<
                 enabled: params.enabled,
                 id__in: Array.isArray(params.id__in) ? params.id__in.join(',') || undefined : params.id__in,
                 limit: params.limit,
+                migrated_to_evaluation_id: params.migrated_to_evaluation_id,
                 offset: params.offset,
                 order_by: Array.isArray(params.order_by) ? params.order_by.join(',') || undefined : params.order_by,
                 search: params.search,

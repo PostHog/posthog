@@ -197,10 +197,10 @@ The next delivery skips and dismisses the standing approval, and the engine refu
 
 ## The manual trigger (the one exception to label mode)
 
-`request_manual_review` (`POST review_runs/` and the `stamphog-review-runs-create` MCP tool) queues a review because a project member asked for it.
+`request_manual_review` (`POST code_review/approvals/runs/` and the `code-review-approvals-runs-create` MCP tool) queues a review because a project member asked for it.
 The request stands in for the trigger label, so it bypasses `review_mode` and nothing else.
 Every other webhook-path gate still refuses: closed PRs, drafts, bot authors, untrusted author associations, and authors below write permission.
-The requester's own GitHub access is not checked; the `stamphog:write` scope and the product's access control are the gate.
+The requester's own GitHub access is not checked; the `code_review_approval:write` scope and the product's access control are the gate.
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
 
@@ -253,7 +253,7 @@ A field added to the engine context belongs in the fingerprint, or a stale verdi
 ## Trust boundaries
 
 - Turning reviews **off** (`enabled=False`, the soft-delete) and changing when they run (`review_mode`,
-  `trigger_label`) need the `manager` level on the `stamphog` resource, on an update or a create alike. Turning reviews
+  `trigger_label`) need the `manager` level on the `code_review_approval` resource, on an update or a create alike. Turning reviews
   **on** (`enabled=True`, or `add_repository`) needs `editor`, so an editor can re-enable a repository
   a manager paused; that is the requested self-serve direction. A supplied value counts even when it
   matches the stored one, because the view's snapshot of the row is stale by the time the facade
