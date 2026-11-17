@@ -23,8 +23,8 @@ export interface TeamLogsConfigApi {
      */
     logs_session_id_attribute_keys: string[]
     /**
-     * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
-     * @maxItems 10
+     * Ordered list of JSON keys whose value is the message text that log patterns are derived from. Selection checks keys in order; the first key whose value is a non-empty string wins. A key first matches a literal top-level key, so a dot can be part of the key name. When no such key holds a message, a dotted key such as 'fields.message' is read as a path into nested objects when patterns are mined at query time. Defaults to ['message', 'msg', 'log', 'msg_', '_msg', 'content', 'event', 'fields.message', 'error', 'fields.error']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+     * @maxItems 20
      * @items.maxLength 200
      */
     logs_pattern_message_keys: string[]
@@ -46,8 +46,8 @@ export interface PatchedTeamLogsConfigApi {
      */
     logs_session_id_attribute_keys?: string[]
     /**
-     * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
-     * @maxItems 10
+     * Ordered list of JSON keys whose value is the message text that log patterns are derived from. Selection checks keys in order; the first key whose value is a non-empty string wins. A key first matches a literal top-level key, so a dot can be part of the key name. When no such key holds a message, a dotted key such as 'fields.message' is read as a path into nested objects when patterns are mined at query time. Defaults to ['message', 'msg', 'log', 'msg_', '_msg', 'content', 'event', 'fields.message', 'error', 'fields.error']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+     * @maxItems 20
      * @items.maxLength 200
      */
     logs_pattern_message_keys?: string[]
