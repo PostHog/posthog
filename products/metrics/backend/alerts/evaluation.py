@@ -119,8 +119,9 @@ BATCH_SLOT_LEASE_SECONDS: Final = 90
 # Ten times the most groups a configuration can hold. A query past it is refused before its series
 # are judged, so one high-cardinality expression cannot exhaust the worker.
 MAX_SERIES: Final = 1000
-# Bounds the points a range query hands the worker, so a long window over many series cannot exhaust it.
-MAX_POINTS: Final = MAX_SERIES * 60
+# Bounds the response a check reads, so a long window over many series cannot exhaust the worker. An hour
+# of checks over `MAX_SERIES` series with short labels is about 3 MB.
+MAX_RESPONSE_BYTES: Final = 8_000_000
 # Applies only without a partition checkpoint. Far past any partition lag that leaves the team fresh,
 # and short enough that groups which stopped reporting cannot hold every instance slot.
 ABSENT_RESOLVE_AFTER: Final = timedelta(hours=1)
@@ -129,10 +130,6 @@ _UNEXPECTED_ERROR: Final = "Alert check failed unexpectedly. PostHog has been no
 _INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
 _TOO_MANY_SERIES: Final = (
     f"The query returned more than {MAX_SERIES} series. Aggregate it, for example with sum by (...)."
-)
-_TOO_MANY_POINTS: Final = (
-    f"The query returns more than {MAX_POINTS} points across its window. Aggregate it, for example with "
-    "sum by (...), or look back over fewer checks."
 )
 
 _COMPARE: Final[dict[str, Callable[[float, float], bool]]] = {
@@ -359,8 +356,6 @@ def _query(
     result: list[Any] = data.get("result") or []
     if len(result) > MAX_SERIES:
         raise PromQLQueryError(_TOO_MANY_SERIES)
-    if len(result) * periods > MAX_POINTS:
-        raise PromQLQueryError(_TOO_MANY_POINTS)
     steps: list[list[_Sample]] = [[] for _ in range(periods)]
     for series in result:
         labels = {str(key): str(value) for key, value in (series.get("metric") or {}).items()}
@@ -380,6 +375,7 @@ def _snuffle(team: Team, path: str, data: dict[str, str], timeout_seconds: float
         data={**data, "timeout": f"{int(timeout_seconds)}s"},
         timeout=timeout_seconds,
         ch_user=ClickHouseUser.ALERTS_PLATFORM_METRICS,
+        max_bytes=MAX_RESPONSE_BYTES,
     )
     return payload.get("data") or {}
 

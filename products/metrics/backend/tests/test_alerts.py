@@ -213,6 +213,8 @@ def _response(status_code: int, body: dict[str, Any]) -> requests.Response:
     response = requests.Response()
     response.status_code = status_code
     response._content = json.dumps(body).encode()
+    # Lets a streamed read iterate the body set above.
+    response._content_consumed = True
     return response
 
 
@@ -432,18 +434,15 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         assert self._kinds(self._evaluate()) == {}
 
-    def test_a_long_window_over_many_series_records_a_failure(self) -> None:
-        with team_scope(self.team.id):
-            platform_testing.set_evaluation_window(self.configuration_id, periods=1441, datapoints=1441)
-        self.snuffle.return_value = _response(
-            200,
-            _matrix(self.due_at - CHECKPOINT_EVAL_DELAY, *(({"group": str(index)}, ["1"]) for index in range(42))),
-        )
+    def test_a_response_over_the_size_budget_records_a_failure(self) -> None:
+        self.enterContext(patch("products.metrics.backend.alerts.evaluation.MAX_RESPONSE_BYTES", 1_000))
+        self.snuffle.return_value = _response(200, _vector(*(({"group": str(index)}, "2000") for index in range(50))))
 
         outcome = self._evaluate()
 
         assert outcome.failure is not None
-        assert "points" in (outcome.error_message or "")
+        assert "more than" in (outcome.error_message or "")
+        assert self.snuffle.call_args.kwargs["stream"] is True
 
     def test_a_group_missing_now_keeps_its_earlier_breaches(self) -> None:
         self.checkpoint.return_value = self.due_at
