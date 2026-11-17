@@ -448,9 +448,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     def get_created_by(self, instance: ExternalDataSource) -> str | None:
         return instance.created_by.email if instance.created_by else None
 
+    def _registered_source(self, instance: ExternalDataSource) -> AnySource | None:
+        try:
+            return SourceRegistry.get_source(instance.source_type)
+        except ValueError:
+            # Removing a vendor's source leaves its stored rows behind, so an unregistered type is expected here.
+            return None
+
     def get_supports_webhooks(self, instance: ExternalDataSource) -> bool:
         try:
-            source = SourceRegistry.get_source(instance.source_type)
+            source = self._registered_source(instance)
             return isinstance(source, WebhookSource)
         except Exception as e:
             capture_exception(e)
@@ -475,7 +482,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_file_name(self, instance: ExternalDataSource) -> str | None:
         try:
-            return SourceRegistry.get_source(instance.source_type).uploaded_file_name(instance)
+            source = self._registered_source(instance)
+            return source.uploaded_file_name(instance) if source is not None else None
         except Exception as e:
             capture_exception(e)
             return None
