@@ -71,6 +71,8 @@ export type EmailPhoneStyle = Pick<
     | 'buttonWidth'
     | 'innerPaddingX'
     | 'innerPaddingY'
+    | 'borderRadius'
+    | 'backgroundColor'
 >
 
 /** A Liquid condition around a block, as the old editor's display conditions write it. */

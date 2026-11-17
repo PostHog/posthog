@@ -153,7 +153,7 @@ describe('unlayerToEmailDocument', () => {
         ])
     })
 
-    it('keeps a social footer looking the same, as an HTML block', () => {
+    it('keeps a social footer looking the same, as an HTML block whose icons wrap on a narrow screen', () => {
         const { document } = unlayerToEmailDocument(
             design([
                 content('social', {
@@ -167,6 +167,7 @@ describe('unlayerToEmailDocument', () => {
         expect(node?.type).toEqual('emailHtml')
         expect(node?.attrs?.html).toContain('social/icons/circle-black/github.png')
         expect(node?.attrs?.html).toContain('href="https://example.com/gh"')
+        expect(node?.attrs?.html).toContain('style="display:inline-table;')
     })
 
     it('keeps a menu looking the same, as an HTML block, and an empty one as the space it took', () => {
@@ -305,6 +306,12 @@ describe('unlayerToEmailDocument', () => {
             block: content('heading', { text: '<h1>Big</h1>', fontSize: '22px' }),
             exported: undefined,
             sent: ['<h1 style="margin:0;font-size:22px;font-weight:400;line-height:140%"><h1>Big</h1></h1>'],
+        },
+        {
+            name: "code in the email app's own monospace font",
+            block: content('text', { text: '<p>Run <code>make</code></p>' }),
+            exported: undefined,
+            sent: ['Run <code>make</code>'],
         },
         {
             name: 'a button with no alignment, which the old editor centers',
@@ -537,6 +544,25 @@ describe('unlayerToEmailDocument', () => {
         expect(html).toMatch(/<div style="display:inline-block;width:50%;/)
         expect(html).toMatch(/\.ph-m-\d+ \{ padding:4px 0px 6px 0px !important; \}/)
         expect(html).toContain('<tr class="ph-hide-mobile">')
+    })
+
+    it("follows the old editor's html where it disagrees with the design: body width and phone-only row and column settings", () => {
+        const source = design(
+            [content('text', { text: '<p>Hi</p>' })],
+            { _meta: { htmlID: 'u_row_1' } },
+            { _meta: { htmlID: 'u_column_1' } }
+        )
+        const exported = `<html><head><style>@media (min-width: 660px) { .u-row { width: 640px !important; } }
+@media (max-width: 660px) { .u-row-container { padding-left: 0px !important; padding-right: 0px !important; } }
+@media (max-width: 660px) { .u-row-container { padding-left: 16px !important; padding-right: 16px !important; } }
+@media (max-width: 480px) { #u_row_1.v-row-padding--vertical { padding-top: 0px !important; padding-bottom: 0px !important; } #u_column_1 .v-col-border-radius { border-radius: 0px !important; } }</style></head>
+<body><div class="u-row-container"><p>Hi</p></div></body></html>`
+
+        const html = renderEmailHtml(unlayerToEmailDocument(source, exported).document?.doc ?? {})
+
+        expect(html).toContain('max-width:640px;table-layout:fixed')
+        expect(html).toMatch(/\.ph-m-\d+ \{ padding:0px 16px 0px 16px !important; \}/)
+        expect(html).toMatch(/\.ph-m-\d+ \{ border-radius: 0px !important; \}/)
     })
 
     it('gives an email whose width is a percentage a standard body width', () => {

@@ -158,6 +158,8 @@ const PHONE_KEYS = [
     'buttonWidth',
     'innerPaddingX',
     'innerPaddingY',
+    'borderRadius',
+    'backgroundColor',
 ] as const
 const STYLE_FLAGS = ['uppercase', 'linkUnderline', 'inheritText', 'noStack'] as const
 
@@ -349,6 +351,9 @@ function wrapMarks(html: string, node: JSONContent, ctx: RenderContext): string 
             case 'strike':
                 return `<s>${inner}</s>`
             case 'code':
+                if (ctx.page.oldEditorStyles) {
+                    return `<code>${inner}</code>`
+                }
                 return `<code style="font-family:'Courier New',Courier,monospace;color:#111111;background-color:#f2f2f2;padding:1px 4px;border-radius:3px">${inner}</code>`
             case 'textStyle': {
                 const style = css({
@@ -703,9 +708,21 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
                     ? `<!--[if mso]><table role="presentation" width="${available}" cellpadding="0" cellspacing="0" border="0"><tr>${msoCell}<![endif]-->`
                     : `<!--[if mso]></td>${msoCell}<![endif]-->`
             let className = style.noStack ? '' : columnStyle.padding ? 'ph-col' : 'ph-col ph-col-gap'
-            if (columnStyle.phone?.padding && ctx.phoneRules) {
+            const phone = columnStyle.phone
+            const phoneColumnCss = phone
+                ? [
+                      phone.padding ? `padding: ${sides(phone.padding)} !important;` : '',
+                      phone.borderRadius !== undefined ? `border-radius: ${px(phone.borderRadius)}px !important;` : '',
+                      safeColor(phone.backgroundColor)
+                          ? `background-color: ${safeColor(phone.backgroundColor)} !important;`
+                          : '',
+                  ]
+                      .join(' ')
+                      .trim()
+                : ''
+            if (phoneColumnCss && ctx.phoneRules) {
                 const phoneClass = `ph-m-${ctx.phoneRules.length + 1}`
-                ctx.phoneRules.push(`.${phoneClass} { padding: ${sides(columnStyle.phone.padding)} !important; }`)
+                ctx.phoneRules.push(`.${phoneClass} { ${phoneColumnCss} }`)
                 className += ` ${phoneClass}`
             }
             const classAttribute = className.trim() ? ` class="${className.trim()}"` : ''
@@ -977,6 +994,8 @@ export function renderEmailHtml(doc: JSONContent): string {
     const bodyCss = css({
         width: '100%',
         'max-width': `${bodyWidth}px`,
+        // The old editor's body kept its width, so content wider than it overflowed instead of widening the email.
+        'table-layout': page.oldEditorStyles ? 'fixed' : undefined,
         'background-color': bodyBackground,
         'border-radius': page.bodyBorderRadius ? `${px(page.bodyBorderRadius)}px` : undefined,
         border: page.bodyBorderWidth

@@ -628,10 +628,13 @@ function socialIconsHtml(values: Record<string, any>): string {
             const file = name.toLowerCase().replace(/[^a-z0-9]/g, '')
             const url = String(icon.url ?? '')
             const href = (name === 'Email' && !/^mailto:/i.test(url) ? `mailto:${url}` : url).replace(/"/g, '&quot;')
-            return `<td style="padding:0 ${spacing / 2}px"><a href="${href}" target="_blank"><img src="https://cdn.tools.unlayer.com/social/icons/${iconType}/${file}.png" alt="${name.replace(/"/g, '&quot;')}" width="${size}" height="${size}" style="display:block;border:0" /></a></td>`
+            return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-table;vertical-align:top;margin:0 ${spacing / 2}px"><tr><td><a href="${href}" target="_blank"><img src="https://cdn.tools.unlayer.com/social/icons/${iconType}/${file}.png" alt="${name.replace(/"/g, '&quot;')}" width="${size}" height="${size}" style="display:block;border:0" /></a></td></tr></table>`
         })
-        .join('')
-    return `<table role="presentation" align="${align(values.align) ?? 'center'}" cellpadding="0" cellspacing="0" border="0"><tr>${cells}</tr></table>`
+        // Each icon is its own inline table so they wrap on a narrow screen, as in the old editor. Outlook on Windows
+        // ignores inline tables, so it gets one row of cells.
+        .join('<!--[if mso]></td><td><![endif]-->')
+    const side = align(values.align) ?? 'center'
+    return `<div style="text-align:${side};font-size:0;line-height:0"><!--[if mso]><table role="presentation" align="${side}" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->${cells}<!--[if mso]></td></tr></table><![endif]--></div>`
 }
 
 function hexColor(value: unknown, fallback: string): string {
@@ -845,7 +848,7 @@ function exportedStyles(storedHtml: string | null | undefined): ExportedStyles {
     const html = storedHtml ?? ''
     const phone = new Map<string, Map<string, string>>()
     for (const [, id, className, declarations] of html.matchAll(
-        /#(u_[a-z_]{1,40}_\d{1,9}) \.(v-[\w-]{1,60}) \{([^{}]{0,1000})\}/g
+        /#(u_[a-z_]{1,40}_\d{1,9}) ?\.(v-[\w-]{1,60}) \{([^{}]{0,1000})\}/g
     )) {
         const rules = phone.get(id) ?? new Map<string, string>()
         rules.set(className, declarations.replace(/!important/g, '').trim())
@@ -915,6 +918,8 @@ function phoneStyleFrom(rules: Map<string, string> | undefined): EmailPhoneStyle
         buttonWidth: parsePx(declaration(rules, 'v-size-width', 'width')),
         innerPaddingX: innerPadding?.left,
         innerPaddingY: innerPadding?.top,
+        borderRadius: parsePx(declaration(rules, 'v-col-border-radius', 'border-radius')),
+        backgroundColor: declaration(rules, 'v-col-background-color', 'background-color'),
     }
     const kept = Object.fromEntries(
         Object.entries(style).filter(([, value]) => value !== undefined && !Number.isNaN(value))
@@ -1333,19 +1338,32 @@ export function unlayerToEmailDocument(
     const notKept = new Set<string>()
     const bodyValues = body.values ?? {}
     const rows: any[] = [...(body.headers ?? []), ...body.rows, ...(body.footers ?? [])]
-    // A width in percent can't be a fixed body width, and the old editor's export of it is broken anyway.
-    const bodyWidth = String(bodyValues.contentWidth ?? '')
-        .trim()
-        .endsWith('%')
-        ? 600
-        : (parsePx(bodyValues.contentWidth) ?? 500)
     const exported = exportedRows(storedHtml)
+    // The width the old editor's html actually used wins, as a design can disagree with it. A width in percent can't be
+    // a fixed body width, and the old editor's export of it is broken anyway.
+    const exportedWidth = parsePx(
+        /\.u-row\s?\{\s{0,20}width:\s?(\d{2,4})px\s?!important/.exec(exported?.css ?? '')?.[1]
+    )
+    const bodyWidth =
+        exportedWidth ??
+        (String(bodyValues.contentWidth ?? '')
+            .trim()
+            .endsWith('%')
+            ? 600
+            : (parsePx(bodyValues.contentWidth) ?? 500))
     const hoverButtons = exportedHoverButtons(storedHtml)
     const styles = exportedStyles(storedHtml)
     const rowHtml = exported && exported.rows.length === rows.length ? exported.rows : null
-    const rowSidePaddingDroppedOnPhones = /\.u-row-container\s*\{[^}]*padding-left:\s*0(px)?\s*!important/.test(
-        exported?.css ?? ''
-    )
+    // The last rule wins: the old editor's own drops a row's side padding on phones, and a design's custom CSS can
+    // add some back.
+    const phoneSideRules = [
+        ...(exported?.css ?? '').matchAll(
+            /\.u-row-container\s?\{[^{}]{0,400}?padding-left:\s?(\d{1,3})(?:px)?\s?!important/g
+        ),
+    ]
+    const phoneSidePadding = phoneSideRules.length
+        ? parseFloat(phoneSideRules[phoneSideRules.length - 1][1])
+        : undefined
 
     const rowBackgrounds = new Set(rows.map((row) => row.values?.backgroundColor ?? ''))
     const sharedRowBackground = rowBackgrounds.size === 1 ? [...rowBackgrounds][0] : ''
@@ -1460,7 +1478,7 @@ export function unlayerToEmailDocument(
             const background = column.values?.backgroundColor
             const padding = parseSides(column.values?.padding)
             const hasPadding = padding && (padding.top || padding.right || padding.bottom || padding.left)
-            const phonePadding = phoneStyleFrom(styles.phone.get(String(column.values?._meta?.htmlID ?? '')))?.padding
+            const columnPhone = phoneStyleFrom(styles.phone.get(String(column.values?._meta?.htmlID ?? '')))
             return {
                 blocks,
                 style: compact({
@@ -1468,7 +1486,13 @@ export function unlayerToEmailDocument(
                     padding: hasPadding ? padding : undefined,
                     borderRadius: parsePx(column.values?.borderRadius) || undefined,
                     ...uniformBorder(column.values?.border, rowUnsupported, 'columns with a border on only some sides'),
-                    phone: phonePadding ? { padding: phonePadding } : undefined,
+                    phone: columnPhone
+                        ? (compact({
+                              padding: columnPhone.padding,
+                              borderRadius: columnPhone.borderRadius,
+                              backgroundColor: columnPhone.backgroundColor,
+                          }) ?? undefined)
+                        : undefined,
                 }),
                 ratio: cells[index] ?? 1,
             }
@@ -1478,15 +1502,16 @@ export function unlayerToEmailDocument(
         const rowRules = styles.phone.get(String(rowValues._meta?.htmlID ?? ''))
         const phoneTop = parsePx(declaration(rowRules, 'v-row-padding--vertical', 'padding-top'))
         const phoneBottom = parsePx(declaration(rowRules, 'v-row-padding--vertical', 'padding-bottom'))
-        const keptSidePadding =
-            exported && !rowSidePaddingDroppedOnPhones && (parsedRowPadding?.left || parsedRowPadding?.right)
+        // Older exports have no rule, so a row's own side padding stays on phones.
+        const phoneLeft = exported ? (phoneSidePadding ?? parsedRowPadding?.left ?? 0) : 0
+        const phoneRight = exported ? (phoneSidePadding ?? parsedRowPadding?.right ?? 0) : 0
         const phoneRowPadding =
-            keptSidePadding || phoneTop !== undefined || phoneBottom !== undefined
+            phoneLeft || phoneRight || phoneTop !== undefined || phoneBottom !== undefined
                 ? {
                       top: phoneTop ?? parsedRowPadding?.top ?? 0,
                       bottom: phoneBottom ?? parsedRowPadding?.bottom ?? 0,
-                      left: keptSidePadding ? (parsedRowPadding?.left ?? 0) : 0,
-                      right: keptSidePadding ? (parsedRowPadding?.right ?? 0) : 0,
+                      left: phoneLeft,
+                      right: phoneRight,
                   }
                 : undefined
         const noStack =
