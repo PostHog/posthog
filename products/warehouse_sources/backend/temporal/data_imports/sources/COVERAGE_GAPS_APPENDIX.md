@@ -10498,11 +10498,11 @@ Diffed against: <https://docs.ruddr.io/llms.txt>
 - [x] `opportunities` — the sales pipeline, a whole analytical domain currently unavailable (high)
 - [x] `opportunity-stages` — lookup table resolving the stage IDs carried on opportunities (high)
 - [x] `project-roles` — lookup resolving the role IDs on project members and time entries (high)
-- [ ] `project-expenses` — cost side of project profitability (medium)
-- [ ] `payments` — cash collection against invoices (medium)
-- [ ] `timesheets` — submission and approval state wrapping the time entries we sync (medium)
+- [x] `project-expenses` — cost side of project profitability (medium)
+- [x] `payments` — cash collection against invoices (medium)
+- [x] `timesheets` — submission and approval state wrapping the time entries we sync (medium)
 - [x] `project-health-reports` — periodic project status history, a natural trend series (medium)
-- [ ] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
+- [x] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
 
 Note: Ruddr documents roughly 78 list endpoints; the connector exposes 17. Beyond those listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
 
