@@ -97,7 +97,7 @@ _NOT_STARTED_STAGES = ("Waking up the hedgehog", "Stretching the little legs", "
 _QUEUED_STAGES = ("Waiting in line for a sandbox", "Queued behind other hedgehogs", "Saving a spot in the sandbox line")
 _IN_PROGRESS_STAGES = (
     "Paws on the keyboard",
-    "Nose in the code",
+    "Nose in the coke",
     "Digging through the code",
     "Building, one quill at a time",
 )
