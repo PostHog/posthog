@@ -30,14 +30,17 @@ describe('emailImpactLogic', () => {
     let logic: ReturnType<typeof emailImpactLogic.build>
     let requestedFrom: string[]
     let answer: [number, unknown] | Promise<[number, unknown]>
+    let onRequest: () => void
 
     beforeEach(() => {
         requestedFrom = []
         answer = [200, IMPACT]
+        onRequest = () => {}
         useMocks({
             get: {
                 '/api/projects/:team_id/transactional_email_log/impact/': ({ params }) => {
                     requestedFrom.push(String(params.team_id))
+                    onRequest()
                     return answer
                 },
             },
@@ -81,10 +84,11 @@ describe('emailImpactLogic', () => {
             answerNewSends = () => resolve([200, { ...IMPACT, sent: 4 }])
         })
 
-        change()
-        await expectLogic(logic).toDispatchActions(['loadImpact']).delay(150)
+        const requested = new Promise<void>((resolve) => (onRequest = resolve))
 
-        expect(requestedFrom).toHaveLength(2)
+        change()
+        await requested
+
         expect(logic.values.funnelState).toBe('loading')
         answerNewSends()
         await expectLogic(logic).toFinishAllListeners()

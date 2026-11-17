@@ -27,7 +27,13 @@ describe('impactSteps', () => {
     it.each([
         ['every send went out tracked', impact, true],
         ['every send went out untracked', untracked, false],
-        ['some sends went out untracked', { ...impact, untracked: 40 }, true],
+        ['fewer sends counted untracked than sent, and none opened or clicked', { ...untracked, untracked: 97 }, false],
+        ['some sends went out untracked and others recorded opens', { ...impact, untracked: 40 }, true],
+        [
+            'an untracked send counted in the period sits beside a recorded click',
+            { ...impact, sent: 1, delivered: 1, opened: 0, clicked: 1, untracked: 1 },
+            true,
+        ],
         ['tracked sends nobody opened or clicked', { ...impact, opened: 0, clicked: 0 }, true],
         ['nothing was sent', { ...impact, sent: 0 }, true],
     ])('reads click tracking when %s', (_, data, expected) => {

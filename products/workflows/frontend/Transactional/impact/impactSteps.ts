@@ -32,7 +32,7 @@ function share(value: number, of: number): number | null {
 }
 
 export function clicksTracked(impact: TransactionalEmailImpactApi): boolean {
-    return impact.untracked === 0 || impact.untracked < impact.sent
+    return !(impact.untracked > 0 && impact.opened === 0 && impact.clicked === 0)
 }
 
 export function impactFunnelState(
