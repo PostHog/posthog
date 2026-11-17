@@ -1,11 +1,20 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { loadPasswordEstimator, validatePassword } from 'lib/components/PasswordStrength'
+
 import { SignupPasswordStrength } from './SignupPasswordStrength'
 
-const meta: Meta<typeof SignupPasswordStrength> = {
+const meta: Meta<{ password: string }> = {
     title: 'Scenes-Other/Authentication/Signup password strength',
-    component: SignupPasswordStrength,
     parameters: { testOptions: { snapshotBrowsers: [] } },
+    loaders: [async () => ({ estimatorReady: await loadPasswordEstimator() })],
+    render: ({ password }) => (
+        <SignupPasswordStrength
+            password={password}
+            validatedPassword={validatePassword(password)}
+            estimatorLoading={false}
+        />
+    ),
     decorators: [
         (Story) => (
             <div className="max-w-96">
@@ -16,7 +25,7 @@ const meta: Meta<typeof SignupPasswordStrength> = {
 }
 export default meta
 
-type Story = StoryObj<typeof SignupPasswordStrength>
+type Story = StoryObj<{ password: string }>
 
 export const Empty: Story = { args: { password: '' } }
 export const Weak: Story = { args: { password: 'password123' } }

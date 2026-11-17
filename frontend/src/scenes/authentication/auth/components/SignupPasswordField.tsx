@@ -16,6 +16,7 @@ export function SignupPasswordField(): JSX.Element {
         signupPanelAuth,
         signupPanelAuthErrors,
         validatedPassword,
+        passwordEstimatorReadyLoading,
         featureFlags,
         passkeyRegistered,
         isPasskeyRegistering,
@@ -55,7 +56,13 @@ export function SignupPasswordField(): JSX.Element {
                             fullWidth
                         />
                     </LemonField.Pure>
-                    {showCrackEstimate && <SignupPasswordStrength password={signupPanelAuth.password} />}
+                    {showCrackEstimate && (
+                        <SignupPasswordStrength
+                            password={signupPanelAuth.password}
+                            validatedPassword={validatedPassword}
+                            estimatorLoading={passwordEstimatorReadyLoading}
+                        />
+                    )}
                     <LemonButton
                         type="tertiary"
                         size="small"

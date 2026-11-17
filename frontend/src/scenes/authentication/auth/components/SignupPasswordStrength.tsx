@@ -1,51 +1,32 @@
 import './SignupPasswordStrength.scss'
 
-import { useEffect, useState } from 'react'
-import type { ZXCVBNResult } from 'zxcvbn'
-
 import { IconInfo, IconLock } from '@posthog/icons'
 
+import type { ValidatedPasswordResult } from 'lib/components/PasswordStrength'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { HEDGEHOG_LIFETIME_SECONDS, hedgehogLifetimes } from './hedgehogLifetimes'
+import { HEDGEHOG_LIFETIME_SECONDS, formatEstimateCount, hedgehogLifetimes } from './hedgehogLifetimes'
 
-export function SignupPasswordStrength({ password }: { password: string }): JSX.Element {
-    const [estimate, setEstimate] = useState<ZXCVBNResult | null>(null)
-    const [unavailable, setUnavailable] = useState(false)
+export function SignupPasswordStrength({
+    password,
+    validatedPassword,
+    estimatorLoading,
+}: {
+    password: string
+    validatedPassword: ValidatedPasswordResult
+    estimatorLoading: boolean
+}): JSX.Element {
     const { ref: hedgehogsRef, width } = useResizeObserver<HTMLDivElement>()
 
-    useEffect(() => {
-        let canceled = false
-        setUnavailable(false)
-        if (password && password.length <= 72) {
-            void import('zxcvbn')
-                .then(({ default: zxcvbn }) => {
-                    if (!canceled) {
-                        setEstimate(zxcvbn(password))
-                    }
-                })
-                .catch(() => {
-                    if (!canceled) {
-                        setEstimate(null)
-                        setUnavailable(true)
-                    }
-                })
-        } else {
-            setEstimate(null)
-        }
-        return () => {
-            canceled = true
-        }
-    }, [password])
-
-    const crackTimeSeconds = estimate ? estimate.guesses / 1e10 : 0
+    const hasEstimate = validatedPassword.crackTimeSeconds !== undefined
+    const crackTimeSeconds = validatedPassword.crackTimeSeconds ?? 0
     const lifetimes = crackTimeSeconds / HEDGEHOG_LIFETIME_SECONDS
     const capacity = Math.max(1, Math.floor(((width ?? 0) + 4) / 34)) * 2
     const visibleLifetimes = Math.min(Math.max(lifetimes, 0.5), capacity)
     const remainingHedgehogs = Math.max(0, Math.ceil(lifetimes) - capacity)
-    const strength = estimate
+    const strength = hasEstimate
         ? crackTimeSeconds < 24 * 60 * 60
             ? 'weak'
             : crackTimeSeconds < HEDGEHOG_LIFETIME_SECONDS / 3
@@ -71,22 +52,17 @@ export function SignupPasswordStrength({ password }: { password: string }): JSX.
                             className="SignupPasswordStrength__headline font-semibold text-sm"
                             data-strength={strength}
                             aria-label={
-                                estimate
-                                    ? `${strength} password: ${hedgehogLifetimes(estimate.guesses / 1e10)}`
-                                    : undefined
+                                hasEstimate ? `${strength} password: ${hedgehogLifetimes(crackTimeSeconds)}` : undefined
                             }
                         >
-                            {password.length > 72
-                                ? 'Use 72 characters or fewer'
-                                : !password
-                                  ? 'How long would a hedgehog need?'
-                                  : unavailable
-                                    ? 'Estimate unavailable'
-                                    : estimate
-                                      ? hedgehogLifetimes(estimate.guesses / 1e10)
-                                      : 'Estimating…'}
+                            {!password
+                                ? 'How long would a hedgehog need?'
+                                : hasEstimate
+                                  ? hedgehogLifetimes(crackTimeSeconds)
+                                  : validatedPassword.feedback ||
+                                    (estimatorLoading ? 'Estimating…' : 'Estimate unavailable')}
                         </span>
-                        {estimate && (
+                        {hasEstimate && (
                             <Tooltip title="One hedgehog lifetime is 3 years. This estimates how long it would take to guess your password at 10 billion guesses per second. More lifetimes means a stronger password.">
                                 <LemonButton
                                     type="tertiary"
@@ -99,16 +75,12 @@ export function SignupPasswordStrength({ password }: { password: string }): JSX.
                             </Tooltip>
                         )}
                     </div>
-                    {estimate && (
+                    {hasEstimate && (
                         <span className="text-xs text-secondary ml-auto">
                             {`or ${
                                 lifetimes * 3 >= 100
-                                    ? `${new Intl.NumberFormat('en-US', {
-                                          notation: 'compact',
-                                          compactDisplay: 'long',
-                                          maximumSignificantDigits: 3,
-                                      }).format(lifetimes * 3)} years`
-                                    : estimate.crack_times_display.offline_fast_hashing_1e10_per_second
+                                    ? `${formatEstimateCount(lifetimes * 3)} years`
+                                    : validatedPassword.crackTimeDisplay
                             }`}
                         </span>
                     )}
@@ -124,8 +96,8 @@ export function SignupPasswordStrength({ password }: { password: string }): JSX.
                     ))}
                 </div>
                 {remainingHedgehogs > 0 && (
-                    <span className="text-xs text-secondary">
-                        {`and ${remainingHedgehogs.toLocaleString('en-US')} more hedgehogs`}
+                    <span className="SignupPasswordStrength__remaining text-xs text-secondary">
+                        {`and ${formatEstimateCount(remainingHedgehogs)} more hedgehogs`}
                     </span>
                 )}
             </div>
