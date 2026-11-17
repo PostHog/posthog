@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -51,6 +51,21 @@ class FakeGateway:
         return [request.content.decode() for request in self.requests]
 
 
+class FakeCapture:
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+        self.error: Exception | None = None
+
+    @contextmanager
+    def scoped(self, **_options: Any) -> Iterator[Callable[..., None]]:
+        yield self.record
+
+    def record(self, **event: Any) -> None:
+        if self.error is not None:
+            raise self.error
+        self.events.append(event)
+
+
 @override_settings(**GATEWAY_SETTINGS)
 class TestAbuseClassification(BaseTest):
     def setUp(self) -> None:
@@ -59,21 +74,20 @@ class TestAbuseClassification(BaseTest):
         self.gateway = FakeGateway()
         self.flag_enabled = MagicMock(return_value=True)
         self.flag_payload = MagicMock(return_value=None)
-        self.scoped_capture = MagicMock()
+        self.capture = FakeCapture()
         for patcher in (
             patch.object(
                 httpx.HTTPTransport, "handle_request", new=lambda _self, request: self.gateway.handle(request)
             ),
             patch("posthoganalytics.feature_enabled", new=self.flag_enabled),
             patch("posthoganalytics.get_feature_flag_payload", new=self.flag_payload),
-            patch(SCOPED_CAPTURE, new=self.scoped_capture),
+            patch(SCOPED_CAPTURE, new=self.capture.scoped),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
 
     def captured_events(self) -> list[dict[str, Any]]:
-        capture = self.scoped_capture.return_value.__enter__.return_value
-        return [call.kwargs for call in capture.call_args_list]
+        return self.capture.events
 
     @contextmanager
     def committed(self) -> Iterator[None]:
@@ -202,14 +216,13 @@ class TestAbuseClassification(BaseTest):
 
     @parameterized.expand([("gateway_down", True), ("capture_down", False)])
     def test_a_failed_classification_is_retried_on_the_next_save(self, _name: str, gateway_down: bool) -> None:
-        capture = self.scoped_capture.return_value.__enter__.return_value
         if gateway_down:
             self.gateway.response = httpx.Response(503, json={"error": "busy"})
         else:
-            capture.side_effect = RuntimeError("capture unreachable")
+            self.capture.error = RuntimeError("capture unreachable")
         hog_function = self.create_destination()
         self.gateway.response = httpx.Response(200, json=_decision(SCORES))
-        capture.side_effect = None
+        self.capture.error = None
 
         with self.committed():
             hog_function.save()
