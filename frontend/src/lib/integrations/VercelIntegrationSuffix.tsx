@@ -101,21 +101,27 @@ function VercelEnvMappingEditor({
     }
 
     const handleSave = async (): Promise<void> => {
+        if (!currentOrganization) {
+            return
+        }
         setSaving(true)
         setError(null)
         try {
-            const res = await fetch(`/api/organizations/@current/integrations/${integration.id}/environment-mapping/`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('posthog_csrftoken') || '',
-                },
-                body: JSON.stringify({
-                    production: mapping.production,
-                    preview: mapping.preview || mapping.production,
-                    development: mapping.development || mapping.production,
-                }),
-            })
+            const res = await fetch(
+                `/api/organizations/${currentOrganization.id}/integrations/${integration.id}/environment-mapping/`,
+                {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                    },
+                    body: JSON.stringify({
+                        production: mapping.production,
+                        preview: mapping.preview || mapping.production,
+                        development: mapping.development || mapping.production,
+                    }),
+                }
+            )
             if (!res.ok) {
                 throw new Error('Failed to save')
             }

@@ -18,7 +18,7 @@ rules:
           itself and is allowed. A few bootstrap files and the toolbar are
           exempted in paths.exclude below.
       languages: [typescript, javascript]
-      severity: WARNING
+      severity: ERROR
       paths:
           include:
               - 'frontend/'

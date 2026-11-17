@@ -193,13 +193,11 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
             __default: null as MemberOffboardingResourceApi[] | null,
             loadResources: async (_, breakpoint) => {
                 const member = values.member
-                if (!member) {
+                const organizationId = values.currentOrganization?.id
+                if (!member || !organizationId) {
                     return null
                 }
-                const resources = await membersOffboardingPreviewRetrieve(
-                    values.currentOrganization?.id ?? '@current',
-                    member.user.uuid
-                )
+                const resources = await membersOffboardingPreviewRetrieve(organizationId, member.user.uuid)
                 breakpoint()
                 return resources
             },
@@ -276,11 +274,12 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
         removed: {
             __default: false,
             remove: async () => {
-                if (!values.member || values.resourcesLoading || values.savingResourcesLoading) {
+                const organizationId = values.currentOrganization?.id
+                if (!values.member || !organizationId || values.resourcesLoading || values.savingResourcesLoading) {
                     return false
                 }
                 const member = values.member
-                await membersDestroy(values.currentOrganization?.id ?? '@current', member.user.uuid)
+                await membersDestroy(organizationId, member.user.uuid)
                 lemonToast.success(`Removed ${fullNameOrEmail(member.user)} from organization`)
                 actions.close()
                 actions.postRemoveMember(member.user.uuid)

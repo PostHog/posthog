@@ -9,9 +9,16 @@ import { projectLogic } from 'scenes/projectLogic'
 import { desktopBetaTermsLogic } from './desktopBetaTermsLogic'
 import { ORG_ADMIN_REQUIRED_TOOLTIP } from './organizationSettingsConstants'
 
-export function OrganizationDesktopBetaTerms(): JSX.Element {
+export function OrganizationDesktopBetaTerms(): JSX.Element | null {
     const { currentProjectId } = useValues(projectLogic)
-    const logic = desktopBetaTermsLogic({ projectId: String(currentProjectId ?? '@current') })
+    if (currentProjectId === null) {
+        return null
+    }
+    return <DesktopBetaTermsSwitch projectId={String(currentProjectId)} />
+}
+
+function DesktopBetaTermsSwitch({ projectId }: { projectId: string }): JSX.Element {
+    const logic = desktopBetaTermsLogic({ projectId })
     const { desktopBetaTermsAccepted, desktopBetaTermsAcceptedLoading } = useValues(logic)
     const { acceptDesktopBetaTerms } = useActions(logic)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })

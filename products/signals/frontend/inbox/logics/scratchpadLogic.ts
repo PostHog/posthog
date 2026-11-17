@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, sel
 import { loaders } from 'kea-loaders'
 
 import { dayjs } from 'lib/dayjs'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { signalsReportsRetrieve, signalsScoutScratchpadSearch } from 'products/signals/frontend/generated/api'
@@ -933,14 +934,14 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             // scratchpad key names belongs to the parent, while the reports endpoint filters by the
             // team the URL carries and does not canonicalize it. A child-environment id would 404
             // every title. `currentProjectId` mirrors that canonical id, and equals the team id for
-            // a root project; it reads '@current' until the team loads, which we reject.
-            const projectId = teamLogic.values.currentProjectId
+            // a root project; it is null until the project loads.
+            const projectId = projectLogic.values.currentProjectId
             // An id reaches `reportTitles` only when its response lands, so a pass that starts
             // while another is in flight would list, and ask for, every id the first one is
             // already fetching. Two loads answering at different times is ordinary here.
             const inFlight: Set<string> = (cache.resolvingReportIds ??= new Set<string>())
             const ids = values.unresolvedReportIds.filter((reportId) => !inFlight.has(reportId))
-            if (!projectId || projectId === '@current' || ids.length === 0) {
+            if (projectId === null || ids.length === 0) {
                 return
             }
             // A 404 from an earlier mount, or from the findings feed, is already terminal.
