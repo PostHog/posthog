@@ -1307,7 +1307,7 @@ def _redact_restricted_snapshot_text(
         intent_text_redacted=True,
         clusters=[dataclasses.replace(c, label="", sample_intents=[]) for c in snapshot.clusters],
         long_tail=dataclasses.replace(snapshot.long_tail, sample_intents=[]) if snapshot.long_tail else None,
-        recurring=[dataclasses.replace(r, intent_text="") for r in snapshot.recurring],
+        recurring=[dataclasses.replace(r, intent_text="", sample_variants=[]) for r in snapshot.recurring],
     )
 
 
@@ -1329,6 +1329,8 @@ def _to_recurring_dto(item: dict[str, Any]) -> contracts.RecurringIntentEntry:
         call_count=int(item.get("call_count", 0)),
         error_count=int(item.get("error_count", 0)),
         error_rate_pct=float(item.get("error_rate_pct", 0.0)),
+        variant_count=int(item.get("variant_count", 1)),
+        sample_variants=[str(s) for s in item.get("sample_variants", []) if isinstance(s, str)],
     )
 
 

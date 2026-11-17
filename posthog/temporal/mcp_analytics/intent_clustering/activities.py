@@ -116,7 +116,10 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 recurring = await database_sync_to_async(intent_clustering.fetch_recurring_intents)(
                     team, lookback_days=inputs.lookback_days
                 )
-                recurring_texts = {r.intent_text for r in recurring}
+                # The same automation step worded differently becomes one entry; the
+                # exclusion set still carries every wording.
+                recurring = await intent_clustering.merge_reworded_recurring(team, recurring)
+                recurring_texts = intent_clustering.recurring_exclusion_texts(recurring)
 
                 # Stratified sampling: bucket intent-bearing sessions per tool
                 # so every tool keeps a floor, instead of a uniform sample that

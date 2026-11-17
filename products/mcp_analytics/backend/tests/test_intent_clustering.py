@@ -64,6 +64,8 @@ from products.mcp_analytics.backend.intent_clustering import (
     fetch_session_calls,
     fetch_tool_descriptions,
     fetch_window_stats,
+    merge_reworded_recurring,
+    recurring_exclusion_texts,
     sample_corpus_sessions,
     top_corpus_tools,
 )
@@ -195,6 +197,8 @@ class TestBuildSnapshot:
                 "call_count": 10,
                 "error_count": 1,
                 "error_rate_pct": 10.0,
+                "variant_count": 1,
+                "sample_variants": [],
             }
         ]
 
@@ -1569,3 +1573,109 @@ class TestEmbeddingCacheModel(_MCPAnalyticsTeamScopedTestMixin, BaseTest):
                 model=EMBEDDING_MODEL,
                 embedding=_encode_embedding([1.0]),
             )
+
+
+# merge_reworded_recurring ------------------------------------------------
+
+_SCOUT_WORDINGS = [
+    "Read pinned scout skill",
+    "Discover pinned scout skill",
+    "Discover the pinned scout skill reader.",
+    "Find the pinned scout skill.",
+    "Load the pinned scout skill before investigation.",
+    "Discover the bound scout skill tool.",
+    "Discover the bound skill reader.",
+]
+
+
+_TEAM: Any = SimpleNamespace(id=1)
+
+
+def _topic_embeddings(texts: list[str]) -> np.ndarray:
+    """Stand-in for the embedding model: texts about one topic point the same way, with a little jitter."""
+    topic_axis = {"skill": 0, "funnel": 1, "order": 2}
+    rows = []
+    for i, text in enumerate(texts):
+        axis = next(a for word, a in topic_axis.items() if word in text.lower())
+        vector = np.zeros(3, dtype=np.float32)
+        vector[axis] = 1.0
+        vector[(axis + 1) % 3] = 0.05 * (i % 3)
+        rows.append(vector)
+    return np.stack(rows)
+
+
+class TestMergeRewordedRecurring:
+    def _merge(self, recurring: list[RecurringIntent]) -> list[RecurringIntent]:
+        async def fake_embed(team: Any, texts: list[str], prefix: str = "") -> tuple[np.ndarray, list[int]]:
+            return _topic_embeddings(texts), list(range(len(texts)))
+
+        with patch.object(intent_clustering, "embed_texts_async", fake_embed):
+            return asyncio.run(merge_reworded_recurring(_TEAM, recurring))
+
+    def test_scout_wordings_collapse_into_one_entry_with_summed_counts(self) -> None:
+        scout = [
+            RecurringIntent(intent_text=text, session_count=100 - i, call_count=200, error_count=10)
+            for i, text in enumerate(_SCOUT_WORDINGS)
+        ]
+        distinct = [
+            RecurringIntent(intent_text="signup funnel comparison", session_count=50, call_count=60, error_count=0),
+            RecurringIntent(intent_text="aggregated order counts", session_count=40, call_count=40, error_count=4),
+        ]
+
+        merged = self._merge([*scout, *distinct])
+
+        assert [m.intent_text for m in merged] == [
+            "Read pinned scout skill",
+            "signup funnel comparison",
+            "aggregated order counts",
+        ]
+        assert merged[0].session_count == sum(100 - i for i in range(len(_SCOUT_WORDINGS)))
+        assert merged[0].call_count == 200 * len(_SCOUT_WORDINGS)
+        assert merged[0].error_count == 10 * len(_SCOUT_WORDINGS)
+        assert merged[0].variants == tuple(_SCOUT_WORDINGS)
+        assert recurring_exclusion_texts(merged) == {
+            *_SCOUT_WORDINGS,
+            "signup funnel comparison",
+            "aggregated order counts",
+        }
+
+    def test_snapshot_limit_applies_after_merging(self) -> None:
+        scout = [
+            RecurringIntent(intent_text=f"{text} {i}", session_count=1000, call_count=1, error_count=0)
+            for i, text in enumerate(_SCOUT_WORDINGS * 10)
+        ]
+        others = [
+            RecurringIntent(intent_text=f"orders report {i}", session_count=5, call_count=1, error_count=0)
+            for i in range(intent_clustering.MAX_RECURRING_INTENTS)
+        ]
+        # The "orders report" texts share one topic, so they merge into a single entry as well.
+        merged = self._merge([*scout, *others])
+
+        snapshot = intent_clustering._serialize_recurring(merged)
+
+        assert len(merged) == 2
+        assert snapshot[0]["variant_count"] == len(scout)
+        assert len(snapshot[0]["sample_variants"]) == intent_clustering.MAX_SAMPLE_VARIANTS
+
+    def test_serialized_entries_cap_at_the_display_limit(self) -> None:
+        entries = [
+            RecurringIntent(intent_text=f"automation {i}", session_count=100 - i, call_count=1, error_count=0)
+            for i in range(intent_clustering.MAX_RECURRING_INTENTS + 10)
+        ]
+
+        assert len(intent_clustering._serialize_recurring(entries)) == intent_clustering.MAX_RECURRING_INTENTS
+
+    def test_embedding_failure_falls_back_to_exact_text_entries(self) -> None:
+        recurring = [
+            RecurringIntent(intent_text=text, session_count=10, call_count=1, error_count=0)
+            for text in _SCOUT_WORDINGS[:2]
+        ]
+
+        async def boom(*args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("embedding worker down")
+
+        with patch.object(intent_clustering, "embed_texts_async", boom):
+            merged = asyncio.run(merge_reworded_recurring(_TEAM, recurring))
+
+        assert merged == recurring
+        assert recurring_exclusion_texts(merged) == set(_SCOUT_WORDINGS[:2])
