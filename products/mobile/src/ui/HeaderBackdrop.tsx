@@ -7,7 +7,7 @@ import { useScreenBlurTarget } from './ScreenBlur'
 import { layout } from './tokens'
 
 export const HEADER_FADE = 8
-const HEADER_BLUR_INTENSITY = 16.5
+const HEADER_BLUR_INTENSITY = 20
 
 export function HeaderBackdrop({
     fadeStart,
@@ -18,11 +18,15 @@ export function HeaderBackdrop({
 }): ReactElement {
     const screenTarget = useScreenBlurTarget()
     const height = fadeStart + HEADER_FADE
-    const solid = fadeStart / height
     return (
         <View style={[styles.backdrop, { height }]}>
-            <BlurEdge solid={solid} intensity={HEADER_BLUR_INTENSITY} blurTarget={blurTarget ?? screenTarget} />
-            <FadeEdge direction="down" solid={solid} opacity={layout.chromeTint} />
+            <BlurEdge
+                solid={0}
+                curve="smooth"
+                intensity={HEADER_BLUR_INTENSITY}
+                blurTarget={blurTarget ?? screenTarget}
+            />
+            <FadeEdge direction="down" solid={0} curve="smooth" opacity={layout.chromeTint} />
         </View>
     )
 }
