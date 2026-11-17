@@ -22,7 +22,6 @@ from posthog.models.deletion_targets import DeletionTarget, placement_for
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
-from products.error_tracking.backend.facade.api import document_embedding_tables, document_embeddings_buffer_table
 from products.mcp_analytics.backend.facade.clickhouse_schema import (
     MCP_INTENT_ASSIGNMENTS_DATA_TABLE,
     MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE,
@@ -111,31 +110,15 @@ def _replica_rows_exist(target: DeletionTarget, *, cluster: ClickhouseCluster, w
     return any(results.values())
 
 
-def _embedding_targets() -> list[DeletionTarget]:
-    targets = [
-        DeletionTarget(data_table=table.sharded_table, read_table=table.distributed_table, optional=True)
-        for table in document_embedding_tables()
-    ]
-    buffer = document_embeddings_buffer_table()
-    targets.append(DeletionTarget(data_table=buffer, read_table=buffer, optional=True))
-    return targets
-
-
 def has_state(*, erasure: IntentErasure, cluster: ClickhouseCluster) -> bool:
-    """Read-only probe for derived intent data in any store this layer can see. Never a drain proof."""
+    """Read-only probe for derived intent data in the stores this layer owns. Never a drain proof.
+
+    Document embeddings belong to the pipeline layer, whose storage provider purges and verifies them.
+    """
     if any(_pg_state_exists(team_id) for team_id in erasure.source_team_ids):
         return True
-    team_ids = {"team_ids": erasure.source_team_ids}
-    if _replica_rows_exist(ASSIGNMENTS, cluster=cluster, where="team_id IN %(team_ids)s", params=team_ids):
-        return True
-    return any(
-        _replica_rows_exist(
-            target,
-            cluster=cluster,
-            where="team_id IN %(team_ids)s AND product = %(product)s AND document_type = %(document_type)s",
-            params={**team_ids, "product": "mcp_analytics", "document_type": "mcp-intent"},
-        )
-        for target in _embedding_targets()
+    return _replica_rows_exist(
+        ASSIGNMENTS, cluster=cluster, where="team_id IN %(team_ids)s", params={"team_ids": erasure.source_team_ids}
     )
 
 

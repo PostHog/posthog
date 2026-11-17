@@ -337,6 +337,7 @@ rules:
                               |MCPIntentClusterSnapshot
                               |MCPIntentClusteringRun
                               |MCPIntentEmbeddingCache
+                              |MCPIntentErasure
                               |MCPIntentTopic
                               |MCPIntentWriteBarrier
                               |MCPMeasuredStats
@@ -884,6 +885,7 @@ rules:
                         |MCPIntentClusterSnapshot
                         |MCPIntentClusteringRun
                         |MCPIntentEmbeddingCache
+                        |MCPIntentErasure
                         |MCPIntentTopic
                         |MCPIntentWriteBarrier
                         |MCPMemberAutoConnectOptOut
