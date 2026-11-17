@@ -172,12 +172,9 @@ narrow:
 - These runs bypass the review-mode and author-write-permission gates: the reviewers' toggle is
   the gate, and the App's machine user is not a collaborator (the permission lookup would always
   deny). `review_mode` keeps governing human PRs only.
-- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` sets `request_external_review` on the
-  `FinishedReviewRun` it passes to the hooks in `facade/finished_review_hooks.py`) **only** for these runs. A human author reads their own refusal and decides what comes next.
-  A self-driving PR has no such author, and its refusal otherwise sits unread until Inbox triage.
-  In ALL mode an unconditional handoff also fires a second bot review on every PR the repo opens.
-  The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
-  what the reviewer prompt was told about its own invocation.
+- A refused or escalated verdict requests an external review for these runs, or when the repository has opted into `deep_review_on_refusal`. `[review]`
+  The repository opt-in requests Deep for every final refusal, including gate refusals; waits and failures do not qualify.
+  Without the opt-in, the derived `ReviewTrigger` keeps the self-driving handoff aligned with the reviewer prompt.
 
 ## Bot admission (the other exception to the bot-author refusal)
 
@@ -210,7 +207,7 @@ A refusal writes nothing to GitHub and creates no run, so it cannot leave or rem
 The repo's `review_on_clean_external_review` switch must be on, and it takes the `manager` level like `routing_mode`.
 Like the manual trigger it bypasses `review_mode` and nothing else: the Celery task re-reads the config from the writer and refuses a closed PR, a draft, a bot author, an untrusted association, an author below write, a disabled repo, and a head that is no longer current.
 The head dedupe in `_queue_review_at_head` applies, so a head that already has a review gets no second one.
-The run is stamped with the `reviewhog_clean` trigger and no provenance dict, apart from manual and inbox provenance, so it never earns the self-driving carve-out or the ReviewHog refusal handoff. `ReviewRun.is_silent` reads that stamp.
+The run is stamped with the `reviewhog_clean` trigger and no provenance dict, apart from manual and inbox provenance, so it never earns the self-driving carve-out. A refusal can request Deep only through the repository's `deep_review_on_refusal` opt-in. `ReviewRun.is_silent` reads that stamp.
 
 The run is silent: only an approval reaches the PR, through the same attest, adopt and guard steps as any approval.
 Every other verdict, and a failure, writes nothing to GitHub, on retries too: no review, no label strip, no failure notice, no 👀, no WAIT re-review after an external review, and the pre-check skips its LLM refusal summary.

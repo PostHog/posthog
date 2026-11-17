@@ -107,6 +107,7 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
         routing_mode=obj.routing_mode,
         routing_fork_labels=fork_labels(obj),
         review_on_clean_external_review=obj.review_on_clean_external_review,
+        deep_review_on_refusal=obj.deep_review_on_refusal,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -455,6 +456,7 @@ def create_repo_config(
     routing_mode: str | None = None,
     routing_fork_labels: dict[str, str] | None = None,
     review_on_clean_external_review: bool | None = None,
+    deep_review_on_refusal: bool | None = None,
 ) -> contracts.RepoConfigDTO:
     """Create a repo config, refusing a repository another team already owns.
 
@@ -475,6 +477,8 @@ def create_repo_config(
         fields["routing_fork_labels"] = routing_fork_labels
     if review_on_clean_external_review is not None:
         fields["review_on_clean_external_review"] = review_on_clean_external_review
+    if deep_review_on_refusal is not None:
+        fields["deep_review_on_refusal"] = deep_review_on_refusal
     # unique_stamphog_installation_repo backs this at the DB level, so a race that slips past the
     # read still fails closed on the create below and surfaces as the same domain error.
     try:

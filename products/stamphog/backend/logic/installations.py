@@ -32,7 +32,15 @@ def reset_unverified_review_policy(config: StamphogRepoConfig) -> list[str]:
     config.review_on_clean_external_review = StamphogRepoConfig._meta.get_field(
         "review_on_clean_external_review"
     ).get_default()
-    return ["review_mode", "trigger_label", "routing_mode", "routing_fork_labels", "review_on_clean_external_review"]
+    config.deep_review_on_refusal = StamphogRepoConfig._meta.get_field("deep_review_on_refusal").get_default()
+    return [
+        "review_mode",
+        "trigger_label",
+        "routing_mode",
+        "routing_fork_labels",
+        "review_on_clean_external_review",
+        "deep_review_on_refusal",
+    ]
 
 
 def _write_db() -> str:

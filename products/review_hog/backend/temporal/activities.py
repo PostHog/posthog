@@ -165,6 +165,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
+from products.review_hog.backend.reviewer.stamphog_requests import stamphog_request_completed
 from products.review_hog.backend.reviewer.status_comment import (
     FinalizeStatusCommentInput,
     ensure_status_comment,
@@ -292,6 +293,7 @@ class FetchPRDataInput:
     # This turn's mode. Read only to hold the tier back on a flash turn: the persisted arm must stay
     # what the PR's next normal review runs on. Defaulted so pre-field payloads stay full reviews.
     review_mode: str = REVIEW_MODE_FULL
+    stamphog_review_run_id: str | None = None
 
 
 @dataclass(frozen=False)
@@ -463,6 +465,7 @@ class SandboxStageInput:
     # Names the single-agent sessions' arms (`single_agent_arms`). Control on payloads from before the field.
     arm_set: str = field(default=CONTROL_ARM_SET, kw_only=True)
     devex_lens: bool = field(default=False, kw_only=True)
+    stamphog_review_run_id: str | None = field(default=None, kw_only=True)
 
 
 @dataclass
@@ -685,6 +688,7 @@ class RecordTurnMarkerInput:
     publishes: bool | None = None
     arm_set: str = CONTROL_ARM_SET
     devex_lens: bool = False
+    stamphog_review_run_id: str | None = None
 
 
 @frozen
@@ -949,7 +953,11 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     # whether this turn has anything to do. `published_head_sha == head_sha` means we already reviewed
     # and posted this exact head; new comments are surfaced for visibility but don't gate yet.
     report = ReviewReport.objects.for_team(input.team_id).get(id=report_id)
-    already_published = review_already_published(report, head_sha, input.review_mode)
+    already_published = (
+        stamphog_request_completed(report, input.stamphog_review_run_id)
+        if input.stamphog_review_run_id is not None
+        else review_already_published(report, head_sha, input.review_mode)
+    )
     already_completed = bool(head_sha) and report.automatic_reviewed_head_sha == head_sha
     # This turn's index. run_count (completed turns) only bumps at finalize, so a turn that fails and
     # resumes reuses the same index while a fresh turn gets a new one.
@@ -1284,8 +1292,11 @@ def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | 
             publishes=input.publishes,
             arm_set=input.arm_set,
             devex_lens=input.devex_lens,
+            stamphog_review_run_id=input.stamphog_review_run_id,
         )
     except Exception:
+        if input.stamphog_review_run_id is not None:
+            raise
         logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
         return None
 
@@ -1297,7 +1308,8 @@ async def record_turn_marker_activity(input: RecordTurnMarkerInput) -> ReviewHog
     """Record the turn's ReviewHog version and input fingerprint as a `turn_marker` artefact.
 
     Runs after the skill sync, so the fingerprint hashes the skill versions the stages then pin.
-    Returns the marker for the completed event and the status comment footer. Best-effort.
+    Returns the marker for the completed event and the status comment footer. Refusal-triggered
+    Deep reviews require it to distinguish a fresh request from a retried handoff.
     """
     return await database_sync_to_async(_record_turn_marker_safe, thread_sensitive=False)(input)
 
@@ -1481,6 +1493,7 @@ def _prepare_review_prompt(
     blind_spot_check: bool,
     wave_perspectives: list[LoadedPerspectiveDTO],
     review_arm: ReviewArm,
+    stamphog_review_run_id: str | None = None,
 ) -> str | None:
     """Build the review prompt for one (perspective, chunk), or None if already reviewed this turn."""
     done = load_perspective_results(
@@ -1489,6 +1502,7 @@ def _prepare_review_prompt(
         head_sha=head_sha,
         review_arm=review_arm,
         review_design=REVIEW_DESIGN_PIPELINE,
+        stamphog_review_run_id=stamphog_review_run_id,
     )
     if (pass_number, chunk_id) in done:
         return None
@@ -1549,6 +1563,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         input.blind_spot_check,
         input.wave_perspectives,
         arm,
+        stamphog_review_run_id=input.stamphog_review_run_id,
     )
     if prompt is None:
         return True
@@ -1587,6 +1602,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         head_sha=input.head_sha,
         results={(input.pass_number, input.chunk_id): review},
         review_arm=arm,
+        stamphog_review_run_id=input.stamphog_review_run_id,
     )
     await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return True
@@ -1910,6 +1926,7 @@ def _combine_and_clean(
     review_design: str,
     arm_set: str,
     devex_lens: bool,
+    stamphog_review_run_id: str | None = None,
 ) -> list[Issue]:
     if review_design == REVIEW_DESIGN_SINGLE_AGENT:
         perspective_results = load_single_agent_results(
@@ -1922,7 +1939,12 @@ def _combine_and_clean(
             }
     else:
         perspective_results = load_perspective_results(
-            team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm, review_design=review_design
+            team_id=team_id,
+            report_id=report_id,
+            head_sha=head_sha,
+            review_arm=review_arm,
+            review_design=review_design,
+            stamphog_review_run_id=stamphog_review_run_id,
         )
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha, review_design=review_design)
     pr_files = snapshot.pr_files if snapshot is not None else []
@@ -2004,7 +2026,14 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     )
     single_agent = input.review_design == REVIEW_DESIGN_SINGLE_AGENT
     issues = await database_sync_to_async(_combine_and_clean, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, review_arm, input.review_design, input.arm_set, input.devex_lens
+        input.team_id,
+        input.report_id,
+        input.head_sha,
+        review_arm,
+        input.review_design,
+        input.arm_set,
+        input.devex_lens,
+        input.stamphog_review_run_id,
     )
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design

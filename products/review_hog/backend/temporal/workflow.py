@@ -289,6 +289,7 @@ class ReviewPerspectivesWorkflow:
                         skill_version=skill_version,
                         blind_spot_check=blind_spot_check,
                         wave_perspectives=wave_perspectives,
+                        stamphog_review_run_id=inputs.stamphog_review_run_id,
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,
                     heartbeat_timeout=_SANDBOX_HEARTBEAT,
@@ -507,6 +508,7 @@ class ReviewPRWorkflow:
                 trigger_source=inputs.trigger_source,
                 signal_priority=inputs.signal_priority,
                 review_mode=inputs.review_mode,
+                stamphog_review_run_id=inputs.stamphog_review_run_id,
             ),
             start_to_close_timeout=_FETCH_TIMEOUT,
             retry_policy=_RETRY,
@@ -750,11 +752,14 @@ class ReviewPRWorkflow:
                             publishes=publishes_to_pr,
                             arm_set=meta.arm_set,
                             devex_lens=devex_lens,
+                            stamphog_review_run_id=inputs.stamphog_review_run_id,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
                     )
                 except ActivityError:
+                    if inputs.stamphog_review_run_id is not None:
+                        raise
                     workflow.logger.warning("Could not record the turn marker; continuing without it")
 
             stage = SandboxStageInput(
@@ -772,6 +777,7 @@ class ReviewPRWorkflow:
                 delta_since_head_sha=delta_since_head_sha,
                 arm_set=meta.arm_set,
                 devex_lens=devex_lens,
+                stamphog_review_run_id=inputs.stamphog_review_run_id,
             )
 
             # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
@@ -1246,6 +1252,7 @@ class ReviewPRWorkflow:
                 flash_reasoning_effort=stage.flash_reasoning_effort,
                 chunk_ids=chunk_ids,
                 acting_user_id=acting_user_id,
+                stamphog_review_run_id=stage.stamphog_review_run_id,
             ),
             id=f"{workflow.info().workflow_id}/review",
             retry_policy=_RETRY,

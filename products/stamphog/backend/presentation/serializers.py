@@ -84,7 +84,8 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         help_text=(
             "The caller's access level on the stamphog resource, resolved for the team that owns this "
             "row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change "
-            "review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review."
+            "review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review "
+            "or deep_review_on_refusal."
         ),
     )
 
@@ -152,12 +153,21 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
             "routing_mode",
             "routing_fork_labels",
             "review_on_clean_external_review",
+            "deep_review_on_refusal",
             "user_access_level",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {
+            "deep_review_on_refusal": {
+                "read_only": True,
+                "help_text": (
+                    "Whether a final Stamphog refusal or escalation requests a Deep PostHog Review, including "
+                    "size and restricted-path refusals. Completed reviews do not suppress it; an active Deep "
+                    "review does. Waits, errors and superseded runs do not trigger it. Defaults to false."
+                ),
+            },
             "provider": {
                 "required": False,
                 "help_text": "SCM provider this config talks to. Defaults to 'github'.",
@@ -922,6 +932,15 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
             "'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting "
             "review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent "
             "review before routing. Defaults to false."
+        ),
+    )
+
+    deep_review_on_refusal = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether a final Stamphog refusal or escalation requests a Deep PostHog Review, including "
+            "size and restricted-path refusals. Completed reviews do not suppress it; an active Deep "
+            "review does. Waits, errors and superseded runs do not trigger it. Defaults to false."
         ),
     )
 

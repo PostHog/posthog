@@ -60,6 +60,12 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
             ),
+        deep_review_on_refusal: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether a final Stamphog refusal or escalation requests a Deep PostHog Review, including size and restricted-path refusals. Completed reviews do not suppress it; an active Deep review does. Waits, errors and superseded runs do not trigger it. Defaults to false.'
+            ),
     })
     .describe(
         "Input shape for creating\/updating a repo config.\n\nSeparate from the read serializer because the contract is an output shape: it carries a\nrequired id, which a create request has no way to supply. Same split as visual_review's\ninput serializers.\n\ninstallation_id is deliberately absent: it may only ever be set by the verified\nsync_installation flow, which proves the caller owns the installation before binding it. A\nclient-supplied value on this path is ignored, so a manually created config carries no\ninstallation and simply won't resolve webhooks until synced."
@@ -115,6 +121,12 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
+            ),
+        deep_review_on_refusal: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether a final Stamphog refusal or escalation requests a Deep PostHog Review, including size and restricted-path refusals. Completed reviews do not suppress it; an active Deep review does. Waits, errors and superseded runs do not trigger it. Defaults to false.'
             ),
     })
     .describe(
@@ -172,6 +184,12 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
+            ),
+        deep_review_on_refusal: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether a final Stamphog refusal or escalation requests a Deep PostHog Review, including size and restricted-path refusals. Completed reviews do not suppress it; an active Deep review does. Waits, errors and superseded runs do not trigger it. Defaults to false.'
             ),
     })
     .describe(

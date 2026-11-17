@@ -194,6 +194,9 @@ const stamphogRepoConfigsUpdate = (): ToolBase<
         if (params.review_on_clean_external_review !== undefined) {
             body['review_on_clean_external_review'] = params.review_on_clean_external_review
         }
+        if (params.deep_review_on_refusal !== undefined) {
+            body['deep_review_on_refusal'] = params.deep_review_on_refusal
+        }
         const result = await context.api.request<Schemas.StamphogRepoConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/repo_configs/${encodeURIComponent(String(params.id))}/`,

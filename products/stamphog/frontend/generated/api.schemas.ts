@@ -292,8 +292,10 @@ export interface StamphogRepoConfigApi {
     readonly routing_fork_labels: StamphogRepoConfigApiRoutingForkLabels
     /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
     readonly review_on_clean_external_review: boolean
+    /** Whether a final Stamphog refusal or escalation requests a Deep PostHog Review, including size and restricted-path refusals. Completed reviews do not suppress it; an active Deep review does. Waits, errors and superseded runs do not trigger it. Defaults to false. */
+    readonly deep_review_on_refusal: boolean
     /**
-     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
+     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review or deep_review_on_refusal.
      * @nullable
      */
     readonly user_access_level: string | null
@@ -353,6 +355,8 @@ export interface StamphogRepoConfigWriteApi {
     routing_fork_labels?: StamphogRepoConfigWriteApiRoutingForkLabels
     /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
     review_on_clean_external_review?: boolean
+    /** Whether a final Stamphog refusal or escalation requests a Deep PostHog Review, including size and restricted-path refusals. Completed reviews do not suppress it; an active Deep review does. Waits, errors and superseded runs do not trigger it. Defaults to false. */
+    deep_review_on_refusal?: boolean
 }
 
 /**
@@ -398,6 +402,8 @@ export interface PatchedStamphogRepoConfigWriteApi {
     routing_fork_labels?: PatchedStamphogRepoConfigWriteApiRoutingForkLabels
     /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
     review_on_clean_external_review?: boolean
+    /** Whether a final Stamphog refusal or escalation requests a Deep PostHog Review, including size and restricted-path refusals. Completed reviews do not suppress it; an active Deep review does. Waits, errors and superseded runs do not trigger it. Defaults to false. */
+    deep_review_on_refusal?: boolean
 }
 
 /**

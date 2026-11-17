@@ -295,6 +295,14 @@ When a self-driving Inbox implementation run opens its bot-authored draft PR, re
 Later pushes re-review through the normal webhook path via a positively identified carve-out, and every other bot author stays refused at every layer unless the policy names it under `bot_authors`.
 See [AGENTS.md](AGENTS.md) for the carve-out's invariants.
 
+**Deep review after a refusal.** A repository manager can set `deep_review_on_refusal` through the repository config API or MCP tools. It defaults to `false` and is independent of the review mode and clean-review trigger.
+When enabled, a final refusal or escalation requests a Deep PostHog Review, including size and restricted-path gate refusals and silent reviews.
+Waits, technical failures, superseded runs, and approvals do not request one.
+An earlier completed review does not suppress the request. An active Deep review absorbs it; an active Standard review finishes before the queued Deep review starts.
+Each refusal can request a fresh turn, but retrying the same handoff cannot repeat a completed turn.
+The repository must already be connected to PostHog Review. The PR owner's existing opt-in still governs automatic fixes.
+Repositories without this setting retain the self-driving handoff: Standard by default, Deep after a published Deep review, and no repeat for a head already pending or completed.
+
 ## Security model
 
 The sandbox runs an LLM over untrusted PR content, so it holds no long-lived secrets.

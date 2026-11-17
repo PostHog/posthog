@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -16,8 +16,13 @@ from temporalio.testing import ActivityEnvironment
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
 
-from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.reviewer.artefact_content import (
+    PRSnapshotArtefact,
+    ReviewIssueFinding,
+    TurnMarkerArtefact,
+    ValidationVerdict,
+)
 from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuePriority
@@ -29,6 +34,7 @@ from products.review_hog.backend.reviewer.tools.publish_review import (
     _review_marker,
 )
 from products.review_hog.backend.temporal.activities import PublishInput, _publish, publish_review_activity
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 # `_publish` now delegates to `publish_persisted_review` in the tool, so the GitHub-post seam and the
 # snapshot load are patched there; the installation auth is still resolved in the activity wrapper.
@@ -155,6 +161,79 @@ def _pr_metadata(head_sha: str) -> PRMetadata:
 
 
 class TestPublishIdempotency(BaseTest):
+    @parameterized.expand([("findings", True), ("clean", False)])
+    @patch(_AUTH, return_value=("tok", None))
+    def test_new_refusal_publishes_again_at_the_same_head_but_its_retry_does_not(
+        self, _name: str, posted: bool, _auth: MagicMock
+    ) -> None:
+        report_id = self._report()
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
+            published_heads_by_mode={"full": "sha1"}, published_head_shas={"1": "sha1"}, run_count=1
+        )
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=report_id,
+            content=TurnMarkerArtefact(
+                head_sha="sha1",
+                run_index=2,
+                review_mode="full",
+                reviewhog_version="test",
+                reviewhog_fingerprint="test",
+                stamphog_review_run_id="refusal",
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        if posted:
+            ReviewReportArtefact.append_finding(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=ReviewIssueFinding(
+                    issue_key="r2:missing-guard",
+                    run_index=2,
+                    title="Missing guard",
+                    file="handler.py",
+                    body="An absent value reaches the handler.",
+                    suggestion="Check the value first.",
+                    priority=IssuePriority.SHOULD_FIX,
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+            ReviewReportArtefact.append_verdict(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=ValidationVerdict(
+                    issue_key="r2:missing-guard", is_valid=True, argumentation="The absent value reaches the handler."
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+        request = PublishInput(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            run_index=2,
+            owner="PostHog",
+            repo="posthog",
+            pr_number=1,
+        )
+
+        old_reviews = [
+            {"body": _review_marker(report_id, "sha1", mode), "user": {"type": "Bot", "login": "posthog[bot]"}}
+            for mode in (None, "full")
+        ]
+        with (
+            patch("products.review_hog.backend.reviewer.tools.publish_review.github_api_request") as github,
+            patch(_PAGINATED, side_effect=lambda *args, **kwargs: iter(old_reviews)),
+            patch("products.review_hog.backend.reviewer.tools.publish_review.remove_own_pr_reactions"),
+        ):
+            github.return_value.json.return_value = {"html_url": "https://github.com/PostHog/posthog/pull/1#review-2"}
+            assert _publish(request).posted is posted
+            assert _publish(request).posted is False
+
+        posts = [call.kwargs["json"] for call in github.call_args_list if call.args[0] == "POST"]
+        assert len(posts) == int(posted)
+        if posts:
+            assert _review_marker(report_id, "sha1", "full", "refusal") in posts[0]["body"]
+
     def _report(self, *, published_head_sha: str | None = None) -> str:
         report_id = upsert_review_report(
             team_id=self.team.id,

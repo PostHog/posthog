@@ -3054,42 +3054,44 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
     else:
         assert label_removals == []
 
-    # Neither mode hands off to ReviewHog: this PR has a human author who reads the refusal, so a
-    # second unrequested bot review is not stamphog's call to make. Only self-driving runs hand off
-    # (test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving).
+    # The repository has not opted into Deep reviews on refusal.
     assert _external_review_requests(handoff) == []
 
 
 @pytest.mark.parametrize(
-    "review_mode,inbox_review,expect_handoff",
+    "review_mode,inbox_review,deep_review_on_refusal,expect_handoff",
     [
-        (ReviewMode.ALL, {"trigger": "inbox"}, True),
-        (ReviewMode.LABEL, {"trigger": "inbox"}, True),
-        (ReviewMode.ALL, None, False),
-        (ReviewMode.LABEL, None, False),
+        (ReviewMode.ALL, {"trigger": "inbox"}, False, True),
+        (ReviewMode.LABEL, {"trigger": "inbox"}, False, True),
+        (ReviewMode.ALL, None, False, False),
+        (ReviewMode.LABEL, None, False, False),
+        (ReviewMode.ALL, None, True, True),
+        (ReviewMode.LABEL, None, True, True),
+        (ReviewMode.LABEL, {"trigger": "inbox"}, True, True),
     ],
     ids=[
         "self_driving_in_all_mode_hands_off",
         "self_driving_in_label_mode_hands_off",
         "human_pr_in_all_mode_does_not",
         "human_pr_in_label_mode_does_not",
+        "opted_in_all_mode_hands_off",
+        "opted_in_label_mode_hands_off",
+        "opted_in_self_driving_asks_for_deep",
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
+def test_refused_verdict_hands_off_when_self_driving_or_repo_opted_in(
     team,
     stamphog_chain: StamphogChain,
     handoff: MagicMock,
     review_mode: ReviewMode,
     inbox_review: dict | None,
+    deep_review_on_refusal: bool,
     expect_handoff: bool,
 ) -> None:
-    # A self-driving PR has no author to read the refusal, so ReviewHog's deeper review is the next
-    # step; a human PR's author decides that for themselves. Inbox provenance outranks the repo's
-    # review mode both ways, which is why the mode is crossed with it here: an ALL-mode repo must
-    # still hand off its self-driving PRs, and must not hand off the human ones it reviews by default.
     repo_config = _repo_config(team.id)
     repo_config.review_mode = review_mode
+    repo_config.deep_review_on_refusal = deep_review_on_refusal
     repo_config.save()
     head_sha = "sha-refused-handoff-trigger"
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
@@ -3113,6 +3115,50 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
     assert run.verdict == ReviewVerdict.REFUSED
     requests = [(r.repository, r.pr_number, r.head_sha) for r in _external_review_requests(handoff)]
     assert requests == ([(REPO, 101, head_sha)] if expect_handoff else [])
+    assert [r.request_deep_review for r in _external_review_requests(handoff)] == (
+        [deep_review_on_refusal] if expect_handoff else []
+    )
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "verdict,blocked_gate,expected",
+    [
+        ("REFUSED", "size", True),
+        ("REFUSED", "restricted_paths", True),
+        ("ESCALATE", None, True),
+        ("WAIT", None, False),
+        ("ERROR", None, False),
+    ],
+)
+def test_deep_fallback_only_follows_final_refusals(
+    team, stamphog_chain: StamphogChain, handoff: MagicMock, verdict: str, blocked_gate: str | None, expected: bool
+) -> None:
+    config = _repo_config(team.id)
+    config.deep_review_on_refusal = True
+    config.save()
+    head_sha = "refused-head"
+    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=config, pr_number=101, author_login="devex-dev"
+    )
+    payload = json.loads(_refused_engine_output())
+    payload["final_verdict"] = verdict
+    if blocked_gate:
+        payload["gates"] = [{"name": blocked_gate, "passed": False}]
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"reviewer_raw": json.dumps(payload)},
+    )
+
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    requests = _external_review_requests(handoff)
+    assert [request.run_id for request in requests] == ([run.id] if expected else [])
+    assert all(request.request_deep_review for request in requests)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -3147,8 +3193,9 @@ def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize("deep_review_on_refusal", [False, True])
 def test_superseded_refusal_does_not_hand_off_to_reviewhog(
-    team, stamphog_chain: StamphogChain, handoff: MagicMock
+    team, stamphog_chain: StamphogChain, handoff: MagicMock, deep_review_on_refusal: bool
 ) -> None:
     # The ReviewHog handoff runs AFTER the conditional terminal save, so a refusal that loses the save
     # to a supersession (a synchronize/re-review delivery landing between the head guard and the save)
@@ -3157,6 +3204,8 @@ def test_superseded_refusal_does_not_hand_off_to_reviewhog(
     # provenance so the supersession is what blocks the handoff, not the self-driving-only condition.
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-superseded"
+    repo_config.deep_review_on_refusal = deep_review_on_refusal
+    repo_config.save()
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"

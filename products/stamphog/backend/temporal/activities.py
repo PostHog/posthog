@@ -2115,16 +2115,13 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Right after the save wins: the GitHub steps below can still fail the activity, and the
     # outcome must not wait on them. Running it before the save would hand a stale refusal to
     # ReviewHog after a superseding delivery overrode it (a newer run might approve the same head).
-    #
-    # Only a self-driving refusal asks for an external review. A human PR has an author who reads the
-    # refusal and decides what to do about it, and in ALL mode the handoff would fire on PRs nobody
-    # asked stamphog to look at. A self-driving PR has no such author — the refusal sits unread until
-    # Inbox triage — so ReviewHog's deeper review is the next step rather than a second unrequested opinion.
     _notify_finished_review(
         run,
         input.team_id,
         ReviewRunStatus(run.status),
-        request_external_review=is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value,
+        request_external_review=is_refusal
+        and (repo_config.deep_review_on_refusal or trigger == ReviewTrigger.SELF_DRIVING.value),
+        request_deep_review=is_refusal and repo_config.deep_review_on_refusal,
     )
 
     # Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
@@ -2168,7 +2165,12 @@ def poll_pending_attestations(input: StamphogReviewInput) -> dict:
 
 
 def _notify_finished_review(
-    run: ReviewRun, team_id: int, status: ReviewRunStatus, *, request_external_review: bool = False
+    run: ReviewRun,
+    team_id: int,
+    status: ReviewRunStatus,
+    *,
+    request_external_review: bool = False,
+    request_deep_review: bool = False,
 ) -> None:
     """Tell the registered callbacks the outcome the run just saved. Called after the terminal save."""
     pull_request = run.pull_request
@@ -2183,6 +2185,7 @@ def _notify_finished_review(
         author_login=pull_request.author_login,
         head_branch=pull_request.head_branch,
         request_external_review=request_external_review,
+        request_deep_review=request_deep_review,
     )
     for hook in get_finished_review_hooks():
         # A callback belongs to another product, and the outcome is already saved and posted.

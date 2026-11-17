@@ -407,6 +407,7 @@ def persist_perspective_results(
     results: dict[tuple[int, int], IssuesReview],
     review_arm: ReviewArm,
     fallback_for: ReviewArm | None = None,
+    stamphog_review_run_id: str | None = None,
 ) -> None:
     """Append one `perspective_result` artefact per (pass, chunk), stamped with its reviewer configuration.
 
@@ -421,6 +422,7 @@ def persist_perspective_results(
                 report_id=report_id,
                 content=PerspectiveResultArtefact(
                     head_sha=head_sha,
+                    stamphog_review_run_id=stamphog_review_run_id,
                     pass_number=pass_number,
                     chunk_id=chunk_id,
                     review=review,
@@ -432,7 +434,13 @@ def persist_perspective_results(
 
 
 def load_perspective_results(
-    *, team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm, review_design: str
+    *,
+    team_id: int,
+    report_id: str,
+    head_sha: str,
+    review_arm: ReviewArm,
+    review_design: str,
+    stamphog_review_run_id: str | None = None,
 ) -> dict[  # nosemgrep: tuple-return-prefer-dataclass -- Shared (pass, chunk) cache keys.
     tuple[int, int], IssuesReview
 ]:
@@ -449,6 +457,8 @@ def load_perspective_results(
         team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
     ):
         assert isinstance(content, PerspectiveResultArtefact)
+        if stamphog_review_run_id is not None and content.stamphog_review_run_id != stamphog_review_run_id:
+            continue
         if content.review_config != review_config or is_single_agent_pass(content.pass_number) != single_agent:
             continue
         out[(content.pass_number, content.chunk_id)] = content.review

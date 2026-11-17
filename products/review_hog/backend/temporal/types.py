@@ -80,6 +80,9 @@ class ReviewPRWorkflowInputs:
     # payloads from before the field still deserialize as full reviews.
     review_mode: str = REVIEW_MODE_FULL
     requested_head_sha: str | None = None
+    # An opted-in repository requests a fresh Deep turn for each Stamphog refusal. Retried delivery
+    # of the same refusal must not start another turn after it completes.
+    stamphog_review_run_id: str | None = None
     # The GitHub `pull_request` action (`opened`, `ready_for_review`, `synchronize`) that asked for an
     # automatic review of `requested_head_sha`. None for every other trigger.
     trigger_action: str | None = None

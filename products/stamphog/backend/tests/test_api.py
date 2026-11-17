@@ -100,6 +100,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("routing_mode", {"routing_mode": RoutingMode.FALLBACK}),
             ("routing_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
             ("review_on_clean_external_review", {"review_on_clean_external_review": True}),
+            ("deep_review_on_refusal", {"deep_review_on_refusal": True}),
         ]
     )
     def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -138,6 +139,8 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("turns_reviews_off", None, {"enabled": False}, status.HTTP_403_FORBIDDEN),
             ("turns_reviews_on", None, {"enabled": True}, status.HTTP_201_CREATED),
             ("leaves_the_defaults", None, {}, status.HTTP_201_CREATED),
+            ("requests_deep_fallback", None, {"deep_review_on_refusal": True}, status.HTTP_403_FORBIDDEN),
+            ("manager_requests_deep_fallback", "manager", {"deep_review_on_refusal": True}, status.HTTP_201_CREATED),
             ("names_the_routing_mode", None, {"routing_mode": RoutingMode.FALLBACK}, status.HTTP_403_FORBIDDEN),
             (
                 "manager_names_the_routing_mode",
@@ -179,6 +182,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("turns_reviewer_requests_on", {"routing_mode": RoutingMode.FALLBACK}),
             ("sets_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
             ("turns_clean_review_trigger_on", {"review_on_clean_external_review": True}),
+            ("turns_deep_fallback_on", {"deep_review_on_refusal": True}),
         ]
     )
     def test_member_granted_manager_can_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -324,6 +328,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert body["repository"] == "PostHog/posthog"
         assert body["enabled"] is True
         assert body["provider"] == "github"
+        assert body["deep_review_on_refusal"] is False
         assert body["installation_id"] == ""
         config = StamphogRepoConfig.objects.unscoped().get(id=body["id"])
         assert config.team_id == self.team.id
@@ -1150,6 +1155,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             routing_mode=RoutingMode.ALWAYS,
             routing_fork_labels={"team-alpha": "area: alpha"},
             review_on_clean_external_review=True,
+            deep_review_on_refusal=True,
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -1168,6 +1174,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.routing_mode == RoutingMode.OFF
         assert manual.routing_fork_labels == {}
         assert manual.review_on_clean_external_review is False
+        assert manual.deep_review_on_refusal is False
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)

@@ -1,6 +1,4 @@
-"""The Stamphog handoff: Stamphog refused or escalated a self-driving pull request, so PostHog Review
-reviews the head Stamphog judged. The review is Standard, or Deep once the pull request has a published
-Deep review.
+"""The Stamphog handoff: review a refusal using the repository's opt-in or the self-driving policy.
 
 Stamphog calls the finished-review callback `receivers.py` registers, after the refusal wins its terminal
 save. The callback queues a Celery task, and the task starts the review here.
@@ -9,7 +7,8 @@ save. The callback queues a Celery task, and the task starts the review here.
   project and GitHub App installation play no part.
 - It runs as the pull request owner (`pr_owner.py`). Without an owner it runs as the person who
   connected the installation, with default settings and no resolution.
-- A head that already has a pending or completed review is not reviewed again.
+- Opted-in repositories request Deep even after a completed review. The queue joins an active Deep turn.
+- Other self-driving handoffs keep their existing mode and skip pending or completed reviews.
 """
 
 import logging
@@ -64,6 +63,7 @@ class StamphogHandoff:
     author_login: str
     # Stamphog reviews only same-repository pull requests, so the head branch is in the base repository.
     head_branch: str
+    stamphog_review_run_id: str | None = None
 
     def start(self) -> None:
         # The temporal package registers the activities, which pull in the sandbox runtime.
@@ -86,10 +86,11 @@ class StamphogHandoff:
             _observe("integration_missing")
             return
         # A lookup that fails raises, so the task retries instead of reading an outage as "no review".
-        status = HeadReviewStatusLookup(team_id, self.repository, self.pr_number, self.head_sha).status()
-        if status is not None and status.state in (HeadReviewState.PENDING, HeadReviewState.COMPLETED):
-            _observe("head_already_reviewed")
-            return
+        if self.stamphog_review_run_id is None:
+            status = HeadReviewStatusLookup(team_id, self.repository, self.pr_number, self.head_sha).status()
+            if status is not None and status.state in (HeadReviewState.PENDING, HeadReviewState.COMPLETED):
+                _observe("head_already_reviewed")
+                return
         pr_owner = PullRequestOwnerResolver.resolve(
             team_id, repository=self.repository, author_login=self.author_login, head_branch=self.head_branch
         )
@@ -99,7 +100,7 @@ class StamphogHandoff:
             return
         github_owner, _, github_repo = self.repository.partition("/")
         # The busy-guard (CONTEXT.md): a review waits until this PR's resolution run is done.
-        if workflow_running(
+        if self.stamphog_review_run_id is None and workflow_running(
             resolve_pr_workflow_id(team_id=team_id, owner=github_owner, repo=github_repo, pr_number=self.pr_number)
         ):
             _observe("resolution_running")
@@ -109,7 +110,11 @@ class StamphogHandoff:
         joins_running_review = workflow_running(
             review_pr_workflow_id(team_id=team_id, owner=github_owner, repo=github_repo, pr_number=self.pr_number)
         )
-        review_mode = trigger_review_mode(team_id, self.repository, self.pr_number)
+        review_mode = (
+            REVIEW_MODE_FULL
+            if self.stamphog_review_run_id is not None
+            else trigger_review_mode(team_id, self.repository, self.pr_number)
+        )
         start_review_pr_workflow(
             pr_url=f"https://github.com/{self.repository}/pull/{self.pr_number}",
             team_id=team_id,
@@ -118,6 +123,7 @@ class StamphogHandoff:
             trigger_source=TRIGGER_STAMPHOG,
             review_mode=review_mode,
             requested_head_sha=self.head_sha,
+            stamphog_review_run_id=self.stamphog_review_run_id,
         )
         # Standard is excluded for the same reason as on the comment path: the lift rewrites the
         # persisted arm, so the cheaper review must not raise what later turns cost.

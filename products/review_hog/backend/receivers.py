@@ -93,6 +93,7 @@ def queue_stamphog_handoff(finished: FinishedReviewRun) -> None:
         head_sha=finished.head_sha,
         author_login=finished.author_login,
         head_branch=finished.head_branch,
+        stamphog_review_run_id=str(finished.run_id) if finished.request_deep_review else None,
     )
 
 

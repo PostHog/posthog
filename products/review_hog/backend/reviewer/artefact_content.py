@@ -286,6 +286,9 @@ class PerspectiveResultArtefact(BaseModel):
     """
 
     head_sha: str = Field(description="PR head commit this review was computed for.")
+    stamphog_review_run_id: str | None = Field(
+        default=None, description="The refusal whose review can reuse this result."
+    )
     pass_number: int = Field(description="The review perspective (1=Logic, 2=Contracts, 3=Performance).")
     chunk_id: int = Field(description="The chunk this perspective reviewed.")
     review: IssuesReview = Field(description="The issues this perspective found in this chunk.")
@@ -334,6 +337,12 @@ class TurnMarkerArtefact(BaseModel):
     """
 
     head_sha: str = Field(description="PR head commit this turn reviews (the turn key).")
+    stamphog_review_run_id: str | None = Field(
+        default=None, description="The Stamphog refusal that requested this Deep turn."
+    )
+    stamphog_review_completed: bool = Field(
+        default=False, description="Whether the refusal review finished publishing, including a clean result."
+    )
     run_index: int = Field(description="The review turn (1-based) this marker belongs to.")
     review_mode: str = Field(description="What the turn ran on (full or flash).")
     reviewhog_version: str = Field(description="The version id of the turn's review mode, e.g. reviewhog-flash-1-0.")

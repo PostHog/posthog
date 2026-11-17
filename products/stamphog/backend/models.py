@@ -74,6 +74,7 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     routing_fork_labels = models.JSONField(default=dict, db_default={})
     # Off by default: a clean external review starts a review outside review_mode, which widens when stamphog runs.
     review_on_clean_external_review = models.BooleanField(default=False, db_default=False)
+    deep_review_on_refusal = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

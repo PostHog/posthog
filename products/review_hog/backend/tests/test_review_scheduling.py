@@ -34,8 +34,10 @@ class ScheduledReviewStub:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fail_first", [False, True])
-async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(fail_first: bool) -> None:
+@pytest.mark.parametrize("fail_first,request_id", [(False, None), (True, None), (False, "refusal")])
+async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
+    fail_first: bool, request_id: str | None
+) -> None:
     entered = asyncio.Event()
     release = asyncio.Event()
     reviews: list[ReviewPRWorkflowInputs] = []
@@ -89,7 +91,14 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
                 first,
                 replace(first, requested_head_sha="b", trigger_action="synchronize"),
                 replace(first, requested_head_sha="c", trigger_action="ready_for_review"),
-                replace(first, review_mode="full", trigger_source="ui", requested_head_sha="c", trigger_action=None),
+                replace(
+                    first,
+                    review_mode="full",
+                    trigger_source="stamphog" if request_id else "ui",
+                    requested_head_sha="c",
+                    trigger_action=None,
+                    stamphog_review_run_id=request_id,
+                ),
             ):
                 await env.client.start_workflow(
                     ReviewPRQueueWorkflow.run,
@@ -231,9 +240,11 @@ async def test_automatic_review_waits_for_resolution_before_starting() -> None:
     assert probes == 2
 
 
-@pytest.mark.parametrize("resolve_comments,expect_pending", [(False, False), (None, True)])
+@pytest.mark.parametrize(
+    "resolve_comments,request_id,expect_pending", [(False, None, False), (None, None, True), (None, "refusal", False)]
+)
 def test_a_repeated_full_request_waits_when_it_changes_comment_resolution(
-    resolve_comments: bool | None, expect_pending: bool
+    resolve_comments: bool | None, request_id: str | None, expect_pending: bool
 ) -> None:
     active = ReviewPRWorkflowInputs(
         team_id=1,
@@ -248,7 +259,7 @@ def test_a_repeated_full_request_waits_when_it_changes_comment_resolution(
         acting_user_id=1,
         resolve_comments=False,
     )
-    request = replace(active, resolve_comments=resolve_comments)
+    request = replace(active, resolve_comments=resolve_comments, stamphog_review_run_id=request_id)
     queue = ReviewRequestQueue(active=active)
 
     queue.add(request)
@@ -276,3 +287,26 @@ def test_a_later_request_for_the_same_waiting_head_keeps_the_pr_ready() -> None:
     queue.add(same_head_push)
 
     assert queue.pending == {"automatic": replace(same_head_push, marks_ready=True)}
+
+
+def test_a_manual_request_preserves_a_waiting_refusals_fresh_review() -> None:
+    refusal = ReviewPRWorkflowInputs(
+        team_id=1,
+        user_id=1,
+        owner="PostHog",
+        repo="posthog",
+        pr_number=7,
+        review_mode="full",
+        trigger_source="stamphog",
+        requested_head_sha="a",
+        publish=True,
+        stamphog_review_run_id="refusal",
+    )
+    queue = ReviewRequestQueue(active=replace(refusal, review_mode="flash", stamphog_review_run_id=None))
+    manual = replace(refusal, trigger_source="ui", stamphog_review_run_id=None)
+
+    queue.add(refusal)
+    queue.add(manual)
+
+    assert queue.take() == replace(manual, stamphog_review_run_id="refusal")
+    assert queue.pending == {}

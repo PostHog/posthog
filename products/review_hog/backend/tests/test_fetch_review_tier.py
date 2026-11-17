@@ -7,7 +7,8 @@ from parameterized import parameterized
 
 from posthog.ownership.paths import PathOwnership
 
-from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact
 from products.review_hog.backend.reviewer.constants import (
     CONTROL_ARM_SET,
     DEFAULT_REVIEW_ARM,
@@ -19,6 +20,7 @@ from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, l
 from products.review_hog.backend.reviewer.tools.github_meta import FetchedPR
 from products.review_hog.backend.temporal.activities import FetchPRDataInput, _fetch_and_persist
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_UI
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.signals.backend.models import SignalReport
 
 _MODULE = "products.review_hog.backend.temporal.activities"
@@ -44,6 +46,62 @@ def _pr_metadata() -> PRMetadata:
 
 
 class TestFetchDecidesTheTier(BaseTest):
+    @parameterized.expand(
+        [
+            ("new_refusal", "new", 1, True, False),
+            ("completed_refusal_retry", "old", 1, True, True),
+            ("unfinished_refusal_retry", "old", 0, False, False),
+            ("failed_publish_retry", "old", 1, False, False),
+            ("ordinary_review", None, 1, True, True),
+        ]
+    )
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
+    @patch(f"{_MODULE}.PRFetcher")
+    def test_refusal_can_repeat_a_completed_deep_review_once(
+        self,
+        _name: str,
+        request_id: str | None,
+        completed_turns: int,
+        published: bool,
+        expected_skip: bool,
+        fetcher: MagicMock,
+        _auth: MagicMock,
+    ) -> None:
+        fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
+            pr_metadata=_pr_metadata(), pr_comments=[], pr_files=[], diff=""
+        )
+        request = FetchPRDataInput(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            repository="o/r",
+            owner="o",
+            repo="r",
+            pr_number=9,
+            trigger_source="stamphog",
+        )
+        first = _fetch_and_persist(request)
+        ReviewReport.objects.for_team(self.team.id).filter(id=first.report_id).update(
+            published_heads_by_mode={"full": "sha1"}, run_count=completed_turns
+        )
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=first.report_id,
+            content=TurnMarkerArtefact(
+                head_sha="sha1",
+                run_index=1,
+                review_mode="full",
+                reviewhog_version="test",
+                reviewhog_fingerprint="test",
+                stamphog_review_run_id="old",
+                stamphog_review_completed=published,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        result = _fetch_and_persist(replace(request, stamphog_review_run_id=request_id))
+
+        assert result.already_published is expected_skip
+
     @parameterized.expand(
         [
             (None, "open", [], False, False),

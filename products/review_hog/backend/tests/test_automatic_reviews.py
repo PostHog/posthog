@@ -536,7 +536,9 @@ class TestStamphogHandoffTask(BaseTest):
         self.enterContext(patch(_HEAD_STATUS, return_value=None))
         self.start = self.enterContext(patch(_START))
 
-    def _finished(self, author_login: str, *, request_external_review: bool = True) -> FinishedReviewRun:
+    def _finished(
+        self, author_login: str, *, request_external_review: bool = True, request_deep_review: bool = False
+    ) -> FinishedReviewRun:
         return FinishedReviewRun(
             run_id=uuid4(),
             team_id=self.team.id + 1000,
@@ -548,6 +550,7 @@ class TestStamphogHandoffTask(BaseTest):
             author_login=author_login,
             head_branch="feature",
             request_external_review=request_external_review,
+            request_deep_review=request_deep_review,
         )
 
     def _queued_handoff(self, author_login: str) -> Mapping[str, object]:
@@ -573,6 +576,7 @@ class TestStamphogHandoffTask(BaseTest):
             trigger_source="stamphog",
             review_mode="flash",
             requested_head_sha=_HEAD_SHA,
+            stamphog_review_run_id=None,
         )
 
     def test_a_finished_run_that_asks_for_no_review_queues_nothing(self) -> None:
@@ -580,6 +584,42 @@ class TestStamphogHandoffTask(BaseTest):
             queue_stamphog_handoff(self._finished("octocat", request_external_review=False))
 
         enqueue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("unreviewed", None, False),
+            ("pending", HeadReviewState.PENDING, False),
+            ("completed", HeadReviewState.COMPLETED, False),
+            ("resolution_running", None, True),
+        ]
+    )
+    def test_opted_in_refusal_requests_deep_despite_previous_review(
+        self, _name: str, state: HeadReviewState | None, busy: bool
+    ) -> None:
+        finished = self._finished("octocat", request_deep_review=True)
+        existing = (
+            HeadReviewStatus(state=state, review_kind="Deep", findings_count=0, published=True, head_sha=_HEAD_SHA)
+            if state
+            else None
+        )
+        with (
+            patch(_HANDOFF_QUEUE) as enqueue,
+            patch(_HEAD_STATUS, return_value=existing),
+            patch(_BUSY, return_value=busy),
+        ):
+            queue_stamphog_handoff(finished)
+            process_stamphog_handoff.run(**enqueue.call_args.kwargs)
+
+        self.start.assert_called_once_with(
+            pr_url="https://github.com/PostHog/posthog/pull/42",
+            team_id=self.team.id,
+            user_id=self.user.id,
+            publish=True,
+            trigger_source="stamphog",
+            review_mode="full",
+            requested_head_sha=_HEAD_SHA,
+            stamphog_review_run_id=str(finished.run_id),
+        )
 
     def test_a_handoff_after_a_published_deep_review_runs_deep(self) -> None:
         # A Standard request after a published Deep review is dropped, so the handoff would do nothing.

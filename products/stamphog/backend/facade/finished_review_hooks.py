@@ -35,6 +35,7 @@ class FinishedReviewRun:
     head_branch: str
     # Not read off `verdict`, because a gate-blocked refusal stores WAIT.
     request_external_review: bool
+    request_deep_review: bool = False
 
 
 FinishedReviewHook = Callable[[FinishedReviewRun], None]

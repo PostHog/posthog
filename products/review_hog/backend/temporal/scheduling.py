@@ -58,6 +58,8 @@ class ReviewRequestQueue:
                 or request.head_branch != self.active.head_branch
             ):
                 return
+            if request.stamphog_review_run_id is not None and self.active.review_mode == REVIEW_MODE_FULL:
+                return
             if (
                 request.review_mode == self.active.review_mode
                 and request.requested_head_sha == self.active.requested_head_sha
@@ -72,6 +74,12 @@ class ReviewRequestQueue:
                 return
         key = TRIGGER_AUTOMATIC if request.trigger_source == TRIGGER_AUTOMATIC else request.review_mode
         waiting = self.pending.get(key)
+        if (
+            waiting is not None
+            and waiting.stamphog_review_run_id is not None
+            and request.stamphog_review_run_id is None
+        ):
+            request = replace(request, stamphog_review_run_id=waiting.stamphog_review_run_id)
         # A later request for the same head replaces the waiting one, but the PR stays ready for review.
         if waiting is not None and waiting.requested_head_sha == request.requested_head_sha and waiting.marks_ready:
             request = replace(request, marks_ready=True)
