@@ -1,7 +1,10 @@
+import { useValues } from 'kea'
+
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AgentConfigSnippet } from './AgentConfigSnippet'
 import { ConnectAgentAdminSteps } from './ConnectAgentAdminSteps'
@@ -12,12 +15,21 @@ export function ConnectAgentSetting(): JSX.Element {
         scope: RestrictionScope.Project,
     })
 
+    const { currentTeam } = useValues(teamLogic)
+    // The keys endpoint refuses a child environment, because business knowledge belongs to the project.
+    const isChildEnvironment = !!currentTeam && currentTeam.id !== currentTeam.project_id
+    const keyStep = restrictionReason
+        ? 'Ask a project admin to create a key here. Only admins can create keys.'
+        : isChildEnvironment
+          ? "Switch to this project's main environment to create a key. Business knowledge keys belong to the project."
+          : null
+
     return (
         <div className="flex flex-col gap-3 max-w-xl">
-            {restrictionReason ? (
+            {keyStep ? (
                 <>
                     <ol className="m-0 pl-5 flex flex-col gap-2 list-decimal">
-                        <li>Ask a project admin to create a key here. Only admins can create keys.</li>
+                        <li>{keyStep}</li>
                         <li>
                             Add the PostHog MCP server to your agent, and replace the placeholder with the key. Most
                             agents accept this format:

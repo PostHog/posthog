@@ -89,7 +89,7 @@ describe('connectAgentLogic', () => {
 
         expect(businessKnowledgeKeysCreate).toHaveBeenCalledWith('1', { label: 'Docs agent', library_id: LIBRARY.id })
         expect(logic.values.createdKey?.value).toBe('phs_new_key_value')
-        expect(logic.values.keys).toEqual([{ ...NEW_KEY, value: null }, EXISTING_KEY])
+        expect(logic.values.listedKeys).toEqual([{ ...NEW_KEY, value: null }, EXISTING_KEY])
         expect(logic.values.createDisabledReason).toBe('Choose a library')
     })
 
@@ -105,6 +105,24 @@ describe('connectAgentLogic', () => {
         expect(lemonToast.error).toHaveBeenCalledWith('A key with this name already exists.')
         expect(logic.values.createdKey).toBeNull()
         expect(logic.values.createDisabledReason).toBeUndefined()
-        expect(logic.values.keys).toEqual([EXISTING_KEY])
+        expect(logic.values.listedKeys).toEqual([EXISTING_KEY])
+    })
+
+    it('keeps a new key listed when an older list request answers after the create', async () => {
+        let resolveList!: (keys: (typeof EXISTING_KEY)[]) => void
+        ;(businessKnowledgeKeysList as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolveList = resolve
+            })
+        )
+        ;(businessKnowledgeKeysCreate as jest.Mock).mockResolvedValue(NEW_KEY)
+        logic.actions.loadKeys()
+
+        logic.actions.createKey()
+        await expectLogic(logic).toDispatchActions(['createKeySuccess'])
+        resolveList([EXISTING_KEY])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.listedKeys).toEqual([{ ...NEW_KEY, value: null }, EXISTING_KEY])
     })
 })

@@ -29,6 +29,8 @@ export function AgentConfigSnippet({ apiKey }: { apiKey?: string }): JSX.Element
             language={Language.JSON}
             thing="agent configuration"
             wrap
+            // Keeps a newly created key out of session recordings.
+            className="ph-no-capture"
             // pinned: analytics event name. Renaming it breaks insights built on it.
             onCopy={() => posthog.capture('business knowledge agent config copied')}
         >

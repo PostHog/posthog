@@ -21,7 +21,7 @@ function KeyReads({ apiKey }: { apiKey: KnowledgeKeyApi }): JSX.Element {
 }
 
 export function ConnectAgentKeysTable(): JSX.Element | null {
-    const { keys, keysLoading } = useValues(connectAgentLogic)
+    const { listedKeys: keys, keysLoading } = useValues(connectAgentLogic)
     const { loadKeys } = useActions(connectAgentLogic)
 
     if (!keys) {
