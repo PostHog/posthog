@@ -3,7 +3,7 @@ from urllib.parse import parse_qsl, urlparse, urlunparse
 from oauth2_provider.oauth2_backends import OAuthLibCore
 from oauthlib.common import urlencode
 
-from posthog.scopes import translate_renamed_scopes
+from posthog.scopes.catalog import translate_renamed_scopes
 
 
 def translate_scope_param(value: str) -> str:

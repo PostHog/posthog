@@ -43,7 +43,7 @@ from posthog.models.workload_trust_policy import (
     workload_trust_policy_version,
 )
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import translate_renamed_scopes
+from posthog.scopes.catalog import translate_renamed_scopes
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 from posthog.utils import get_trusted_client_ip
 from posthog.workload_identity.providers import (

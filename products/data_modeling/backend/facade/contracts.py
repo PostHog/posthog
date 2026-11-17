@@ -441,6 +441,7 @@ class IncrementalState:
     last_full_refresh_at: Optional[str] = None
     last_run_mode: Optional[str] = None
     has_incremental_history: bool = False
+    table_uri: Optional[str] = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)

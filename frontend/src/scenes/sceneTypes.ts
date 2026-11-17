@@ -45,6 +45,7 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DashboardTemplateCopy = 'DashboardTemplateCopy',
+    DataDeletionRequestNew = 'DataDeletionRequestNew',
     DataManagement = 'DataManagement',
     DataPipelinesNew = 'DataPipelinesNew',
     DataOps = 'DataOps',
@@ -106,6 +107,7 @@ export enum Scene {
     BusinessKnowledgePlayground = 'BusinessKnowledgePlayground',
     BusinessKnowledgeSettings = 'BusinessKnowledgeSettings',
     BusinessKnowledgeSource = 'BusinessKnowledgeSource',
+    BusinessKnowledgeUsage = 'BusinessKnowledgeUsage',
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
@@ -232,6 +234,7 @@ export enum Scene {
     WorkflowsEmailDomain = 'WorkflowsEmailDomain',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
+    ReleaseAll = 'ReleaseAll',
     ReleaseCalendar = 'ReleaseCalendar',
     Releases = 'Releases',
     Release = 'Release',
@@ -281,6 +284,7 @@ export enum Scene {
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
     SupportTicketDetail = 'SupportTicketDetail',
     SupportSettings = 'SupportSettings',
+    SupportOverview = 'SupportOverview',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
@@ -453,6 +457,7 @@ export const sceneToAccessControlResourceType: Partial<
 
     // Support (conversations)
     [Scene.SupportTickets]: AccessControlResourceType.Ticket,
+    [Scene.SupportOverview]: AccessControlResourceType.Ticket,
     [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
 
     // Business knowledge
@@ -460,6 +465,7 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeUsage]: AccessControlResourceType.BusinessKnowledge,
 
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,

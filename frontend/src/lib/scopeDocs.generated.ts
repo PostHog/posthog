@@ -9,7 +9,7 @@ export type ScopeObjectDoc = {
     actions: ('read' | 'write')[]
     docsUrl?: string
     organizationWide?: true
-    // Only an admin-driven path grants it (PRIVILEGED_SCOPES in posthog/scopes.py).
+    // Only an admin-driven path grants it (PRIVILEGED_SCOPES in posthog/scopes/exposure.py).
     privileged?: true
     // A scope that writing this object also needs, and why.
     writeRequires?: { scope: string; reason: string }

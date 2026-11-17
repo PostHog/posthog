@@ -25,9 +25,11 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
     EnabledNativeConfiguration,
     HandbackRefusal,
+    HeldAlertSearchMatch,
     HeldDeliveryAddress,
     NativeConfigurationMatch,
     NewAlertDestination,
+    OwnedCopyKey,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationPage,
@@ -256,12 +258,11 @@ def native_configuration_keys(
     )
 
 
-def owned_copy_ids(*, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None) -> tuple[UUID, ...]:
-    """The source row id of every copy of a kind the platform owns, for a source that lists those
-    alerts from the platform. With `created_by_uuid`, only the ones that user created."""
-    return platform_reads.owned_copy_ids(
-        team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
-    )
+def owned_copy_keys(*, team_id: int, source_kind: SourceKind) -> tuple[OwnedCopyKey, ...]:
+    """Every copy of a kind the platform owns, newest first, for a source that lists those alerts
+    from the platform. A copy carries its source row's `created_at` and creator. A caller that needs
+    a subset filters this one read, so a handover between two reads cannot drop an alert."""
+    return platform_reads.owned_copy_keys(team_id=team_id, source_kind=source_kind.value)
 
 
 def owned_copies(
@@ -275,12 +276,45 @@ def owned_copies(
 
 
 def native_configuration_matches(
-    *, team_id: int, source_kind: SourceKind, search: str | None = None
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    search: str | None = None,
+    owned_copies: bool = False,
+    source_config_contains: Mapping[str, Any] | None = None,
+    created_by_id: int | None = None,
 ) -> tuple[NativeConfigurationMatch, ...]:
     """Every alert of a kind with no source row, with what a source's list filters, sorts and pages
-    them on beside its own rows. With `search`, only the ones whose name matches it, exact and
-    similar alike: the source keeps only the exact tier when any row of either kind is exact."""
-    return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
+    them on beside its own rows. With `owned_copies`, also the copies the platform owns, so a source
+    lists such an alert from its copy's settings. With `search`, only the ones whose name matches it,
+    exact and similar alike: the source keeps only the exact tier when any row of either kind is exact.
+    With `source_config_contains` or `created_by_id`, only the ones whose `source_config` holds that
+    object or that user created, filtered in the database before anything is read."""
+    return platform_reads.native_configuration_matches(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        search=search,
+        owned_copies=owned_copies,
+        source_config_contains=source_config_contains,
+        created_by_id=created_by_id,
+    )
+
+
+def search_held_configurations(
+    *, team_ids: Collection[int], source_kind: SourceKind, query: str | None
+) -> tuple[HeldAlertSearchMatch, ...]:
+    """The alerts of a kind whose settings the platform holds in these teams, for a source's search
+    beside its own rows: every alert with no source row, and every copy the platform owns. Ranked by
+    how well the name matches `query` on core search's scale, or in name order without one. Every
+    match comes back, so the source can apply its own read gates before it pages. Runtime state stays
+    out: read it for the page with `runtime_by_public_id`."""
+    return platform_reads.search_held_configurations(team_ids=team_ids, source_kind=source_kind.value, query=query)
+
+
+def held_configuration_ids(*, team_id: int, source_kind: SourceKind) -> list[UUID]:
+    """The ids of a team's alerts of a kind whose settings the platform holds: every alert with no source row,
+    and every copy the platform owns."""
+    return platform_reads.held_configuration_ids(team_id=team_id, source_kind=source_kind.value)
 
 
 def enabled_native_configurations(
@@ -550,13 +584,15 @@ def update_configuration(
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
     source_checked: bool = False,
+    check_interval_minutes: int | None = None,
 ) -> PlatformAlertConfigurationView | None:
     """Applies an edit to a configuration the platform owns, or None when the caller cannot read it.
     With `snooze_changed`, `snooze_until` becomes the whole alert's mute, and None clears it.
 
     For an alert with no source row, `cadence` and `rescheduled` write its schedule as
     `update_owned_copy` writes a copy's. Its kind's `native_edit_guard` refuses what only the
-    source's API may change, unless `source_checked` says the source's API made the edit.
+    source's API may change, unless `source_checked` says the source's API made the edit. Such an
+    alert can instead take `check_interval_minutes`, one of the cadences its kind offers a create.
 
     Raises `PlatformAlertNotEditable` for a configuration its source owns, and
     `InvalidPlatformAlertEdit` for an edit its source kind rejects.
@@ -571,6 +607,7 @@ def update_configuration(
         cadence=cadence,
         rescheduled=rescheduled,
         source_checked=source_checked,
+        check_interval_minutes=check_interval_minutes,
     )
 
 
@@ -728,6 +765,20 @@ def match_first_enabled_at(
     )
 
 
+def match_created_at(
+    *,
+    source_kind: SourceKind,
+    team_id: int,
+    created_at_of: Callable[[Collection[UUID]], Mapping[UUID, datetime]],
+    dry_run: bool,
+) -> int:
+    """Sets `created_at` on the team's copies of `source_kind` to their source rows', where the two
+    differ, and returns the count. `created_at_of` maps the given source row ids to when each was created."""
+    return platform_writes.match_created_at(
+        source_kind=source_kind, team_id=team_id, created_at_of=created_at_of, dry_run=dry_run
+    )
+
+
 def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> None:
     """Ends the firings of a copy the platform owns and sends their incident resolves before returning,
     for a delete that is about to remove the destinations."""
@@ -751,10 +802,13 @@ def record_source_destination(
     event_kinds: Collection[AlertEventKind],
     hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool = True,
+    keeps_legacy_webhook_body: bool = False,
 ) -> StoredAlertDestination | None:
     """Adds the `AlertDestination` row for a destination a source has just written as HogFunctions, in the
     caller's transaction. `hog_function_groups` are the alert's HogFunction destinations, from the source. Raises `AlertDestinationValidationError` when the alert already sends there.
-    None when the platform has no alert under `public_id`."""
+    None when the platform has no alert under `public_id`. With `keeps_legacy_webhook_body`, a webhook row
+    sends its source's legacy body whatever the team's webhook body flags say."""
     return alert_destinations.record_source_destination(
         team_id=team_id,
         public_id=public_id,
@@ -762,6 +816,8 @@ def record_source_destination(
         event_kinds=event_kinds,
         hog_function_ids=hog_function_ids,
         hog_function_groups=hog_function_groups,
+        enabled=enabled,
+        keeps_legacy_webhook_body=keeps_legacy_webhook_body,
     )
 
 
@@ -774,12 +830,31 @@ def list_source_destinations(
     )
 
 
+def source_destinations_without_hog_functions(*, team_id: int, public_id: UUID) -> tuple[StoredAlertDestination, ...]:
+    """The alert's non-subscriber rows that copy no live HogFunction, which its source cannot send to."""
+    return alert_destinations.source_destinations_without_hog_functions(team_id=team_id, public_id=public_id)
+
+
+def link_source_destination(*, team_id: int, destination_id: UUID, hog_function_ids: Collection[UUID]) -> None:
+    """Records that the row copies these HogFunctions, so delivery skips it while any of them exists."""
+    alert_destinations.link_source_destination(
+        team_id=team_id, destination_id=destination_id, hog_function_ids=hog_function_ids
+    )
+
+
 def delete_source_destination_rows(
     *, team_id: int, public_id: UUID, destination_ids: Collection[UUID], hog_function_ids: Collection[UUID]
 ) -> DeletedSourceDestinations:
     """Deletes the alert's rows named or copying `hog_function_ids`, and returns what went."""
     return alert_destinations.delete_source_destination_rows(
         team_id=team_id, public_id=public_id, destination_ids=destination_ids, hog_function_ids=hog_function_ids
+    )
+
+
+def copied_by_source_rows(*, team_id: int, public_id: UUID, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The ids among `hog_function_ids` that one of the alert's rows copies, deleted HogFunctions included."""
+    return alert_destinations.copied_by_source_rows(
+        team_id=team_id, public_id=public_id, hog_function_ids=hog_function_ids
     )
 
 
@@ -828,6 +903,48 @@ def destination_types_by_configuration(
     return alert_destinations.destination_types_by_configuration(team_id=team_id, configuration_ids=configuration_ids)
 
 
+def lock_source_configuration(*, team_id: int, public_id: UUID) -> None:
+    """Locks the alert's platform copy in the caller's transaction, before its destinations change."""
+    alert_destinations.lock_source_configuration(team_id=team_id, public_id=public_id)
+
+
+def has_firing_instance(*, team_id: int, public_id: UUID) -> bool:
+    """Whether any instance of the alert is inside a firing, even when its last check errored."""
+    return alert_destinations.has_firing_instance(team_id=team_id, public_id=public_id)
+
+
+def take_source_destination_row(
+    *, team_id: int, public_id: UUID, destination_id: UUID
+) -> StoredAlertDestination | None:
+    """Deletes one of the alert's rows and returns what it held. None when another request took it first."""
+    return alert_destinations.take_source_destination_row(
+        team_id=team_id, public_id=public_id, destination_id=destination_id
+    )
+
+
+def restore_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    enabled: bool,
+    retired_hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+) -> StoredAlertDestination:
+    """Adds the row that sends a destination's standard message once the caller has retired its
+    HogFunctions. Raises `AlertDestinationValidationError` when the platform does not evaluate the alert."""
+    return alert_destinations.restore_source_destination(
+        team_id=team_id,
+        public_id=public_id,
+        data=data,
+        event_kinds=event_kinds,
+        enabled=enabled,
+        retired_hog_function_ids=retired_hog_function_ids,
+        hog_function_groups=hog_function_groups,
+    )
+
+
 def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
     """Deletes the `AlertDestination` rows that copy any of these HogFunctions, and returns how many."""
     return alert_destinations.delete_rows_copying(team_id=team_id, hog_function_ids=hog_function_ids)
@@ -874,8 +991,9 @@ def recent_destination_sends(
     return destination_sends.recent_destination_sends(team_id=team_id, destination_ids=destination_ids, limit=limit)
 
 
-def list_alert_receivers(*, team_id: int) -> tuple[StoredAlertReceiver, ...]:
-    return alert_routing.list_receivers(team_id=team_id)
+def list_alert_receivers(*, team_id: int, ids: Collection[UUID] | None = None) -> tuple[StoredAlertReceiver, ...]:
+    """Every receiver on the team, or only those with these ids."""
+    return alert_routing.list_receivers(team_id=team_id, ids=ids)
 
 
 def create_alert_receiver(*, team_id: int, edit: AlertReceiverEdit) -> StoredAlertReceiver:
@@ -895,6 +1013,11 @@ def delete_alert_receiver(*, team_id: int, receiver_id: UUID) -> None:
 
 def list_alert_routes(*, team_id: int) -> tuple[StoredAlertRoute, ...]:
     return alert_routing.list_routes(team_id=team_id)
+
+
+def matching_alert_routes(*, team_id: int, labels: Mapping[str, str]) -> tuple[StoredAlertRoute, ...]:
+    """The routes delivery would send an alert with these labels through, in the order it reads them."""
+    return alert_routing.matching_routes(team_id=team_id, labels=labels)
 
 
 def create_alert_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:

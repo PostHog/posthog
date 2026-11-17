@@ -6,4 +6,5 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class BoldDeskSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str

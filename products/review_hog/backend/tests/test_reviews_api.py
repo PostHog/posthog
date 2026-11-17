@@ -6,7 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.db import connection
+from django.db import connection, models
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -15,8 +15,14 @@ from social_django.models import UserSocialAuth
 
 from posthog.models import Team, User
 
+from products.review_hog.backend.facade.contracts import FindingOutcome, FindingOutcomeMethod, FindingReactionSentiment
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
-from products.review_hog.backend.presentation.views.reviews import ReviewDropDisposition
+from products.review_hog.backend.presentation.views.reviews import (
+    ReviewDropDisposition,
+    ReviewFindingOutcomeKind,
+    ReviewFindingOutcomeMethod,
+    ReviewFindingReactionSentiment,
+)
 from products.review_hog.backend.reviewer.artefact_content import (
     DroppedFindingArtefact,
     FindingOutcomeArtefact,
@@ -98,8 +104,16 @@ def _issues_review(count: int) -> IssuesReview:
     )
 
 
-def test_drop_disposition_choices_cover_every_pipeline_disposition() -> None:
-    assert set(ReviewDropDisposition.values) == set(get_args(DropDisposition))
+@parameterized.expand(
+    [
+        (ReviewDropDisposition, DropDisposition),
+        (ReviewFindingOutcomeKind, FindingOutcome),
+        (ReviewFindingOutcomeMethod, FindingOutcomeMethod),
+        (ReviewFindingReactionSentiment, FindingReactionSentiment),
+    ]
+)
+def test_api_choices_cover_every_stored_value(choices: type[models.TextChoices], stored: Any) -> None:
+    assert set(choices.values) == set(get_args(stored))
 
 
 class TestRecentReviewsAPI(APIBaseTest):
@@ -577,6 +591,22 @@ class TestRecentReviewsAPI(APIBaseTest):
         self._finding(report, "1-high", priority=IssuePriority.MUST_FIX, adjusted=IssuePriority.SHOULD_FIX)
         self._finding(report, "1-noise", priority=IssuePriority.SHOULD_FIX, is_valid=False)
         self._finding(report, "1-unjudged", priority=IssuePriority.MUST_FIX, judged=False)
+        ReviewReportArtefact.add_finding_outcome(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=FindingOutcomeArtefact(
+                issue_key="1-high",
+                run_index=1,
+                outcome="addressed",
+                method="judge_confirmed",
+                reviewed_head="base_sha",
+                final_head="merge_sha",
+                reaction_sentiment="positive",
+                reply_excerpt="Fixed in abc123",
+                comment_outdated=True,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
 
         res = self.client.get(f"{self.url}{report.id}/")
 
@@ -589,6 +619,17 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert (high["effective_priority"], high["reviewer_priority"]) == ("should_fix", "must_fix")
         assert high["lines"] == [{"start": 10, "end": 20}]
         assert high["validator_note"] == "a"
+        assert high["issue_key"] == "1-high"
+        assert high["outcome"] == {
+            "outcome": "addressed",
+            "method": "judge_confirmed",
+            "reviewed_head": "base_sha",
+            "final_head": "merge_sha",
+            "reaction_sentiment": "positive",
+            "reply_excerpt": "Fixed in abc123",
+            "comment_outdated": True,
+        }
+        assert detail["findings"][1]["outcome"] is None
         assert [f["title"] for f in detail["dismissed_findings"]] == ["title 1-noise"]
         assert detail["perspective_selection"] is None  # no selection artefact → the drawer tab shows its empty state
 

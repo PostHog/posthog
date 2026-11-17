@@ -117,7 +117,8 @@ export type JobRow = Pick<
     | 'parentRunId'
     | 'state'
     | 'cancelRequestedAt'
->
+> &
+    Partial<Pick<CyclotronV2DequeuedJob, 'lockId'>>
 
 export function v2JobToInvocation(job: JobRow): CyclotronJobInvocation {
     const parsed = decodeJobState(job)
@@ -135,6 +136,7 @@ export function v2JobToInvocation(job: JobRow): CyclotronJobInvocation {
         queueParameters: parsed.queueParameters ?? undefined,
         state: parsed.state,
         queueSource: 'postgres-v2',
+        queueLockId: job.lockId,
     }
 
     if (job.parentRunId) {

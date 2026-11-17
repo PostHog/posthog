@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
+import { LiveAudienceControl } from '@/features/live/LiveAudienceControl'
 import type { PostHogStatus } from '@/features/status/usePostHogStatus'
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
@@ -125,6 +126,7 @@ export function TabsHeader({
                 </Pressable44>
             ) : (
                 <PillControl height={HEADER_ROW_HEIGHT}>
+                    {slot?.liveAudience ? <LiveAudienceControl /> : null}
                     {filter ? (
                         <Pressable44
                             onPress={filter.onPress}
@@ -182,6 +184,7 @@ const useStyles = createStyles(({ colors }) => ({
         height: HEADER_ROW_HEIGHT,
     },
     titleGroup: {
+        marginLeft: 7.5,
         height: HEADER_ROW_HEIGHT,
         flexDirection: 'row',
         alignItems: 'center',

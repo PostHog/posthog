@@ -48,23 +48,26 @@ class TestScoreFacade:
 
 class TestSealState:
     @pytest.mark.parametrize(
-        "facade_leaks, unapproved_wiring, expected_token, expected_state",
+        "facade_leaks, unapproved_wiring, skip_withheld_reason, expected_token, expected_state",
         [
-            ((), (), "ready", "READY"),
-            ((FacadeClassImport("models.py", "Thing", "backend/models.py"),), (), "cls:1", "BLOCKED"),
+            ((), (), None, "ready", "READY"),
+            ((FacadeClassImport("models.py", "Thing", "backend/models.py"),), (), None, "cls:1", "BLOCKED"),
             (
                 (),
                 (UnapprovedWiringClass("tasks.py", "Job", "backend/tasks.py", WiringVerdict.UNAPPROVED),),
+                None,
                 "cls:1",
                 "BLOCKED",
             ),
+            ((), (), "core enforces its decisions", "held", "WITHHELD"),
         ],
-        ids=["clean_facade", "facade_hands_out_model", "unapproved_wiring_class"],
+        ids=["clean_facade", "facade_hands_out_model", "unapproved_wiring_class", "skip_withheld_by_decision"],
     )
     def test_sealed_product_is_ready_only_without_blocking_classes(
         self,
         facade_leaks: tuple[FacadeClassImport, ...],
         unapproved_wiring: tuple[UnapprovedWiringClass, ...],
+        skip_withheld_reason: str | None,
         expected_token: str,
         expected_state: str,
     ) -> None:
@@ -79,6 +82,7 @@ class TestSealState:
             has_narrowed_turbo=False,
             facade_leaks=facade_leaks,
             unapproved_wiring=unapproved_wiring,
+            skip_withheld_reason=skip_withheld_reason,
         )
 
         assert _seal_token(status) == expected_token

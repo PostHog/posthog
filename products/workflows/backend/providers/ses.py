@@ -399,6 +399,16 @@ def _is_throttling(error: Exception) -> bool:
     return isinstance(error, ClientError) and error.response["Error"]["Code"] in ("Throttling", "ThrottlingException")
 
 
+# SES answers AccessDenied when the account's permissions block a write to this identity.
+# A retry gets the same answer, so the user needs a next step instead of a server error.
+def _raise_if_domain_setup_denied(error: ClientError, domain: str) -> None:
+    if error.response["Error"]["Code"] in ("AccessDenied", "AccessDeniedException"):
+        logger.warning("SES denied setting up email domain '%s'", domain, exc_info=error)
+        raise exceptions.ValidationError(
+            "Our email provider refused to set up this domain. Contact support for help."
+        ) from error
+
+
 class SESProvider:
     ses_client: "SESClient"
     ses_v2_client: "SESV2Client"
@@ -648,10 +658,13 @@ class SESProvider:
         team_id: int,
         org_team_ids: Iterable[int] | None = None,
         *,
+        unverified_claimant_team_ids: Iterable[int] = (),
         keep_existing_mail_from: bool = False,
     ):
         expected_tenant = self._tenant_name_for_team(team_id)
-        friendly_tenants = {self._tenant_name_for_team(t) for t in (org_team_ids or [team_id])}
+        friendly_tenants = {
+            self._tenant_name_for_team(t) for t in [*(org_team_ids or [team_id]), *unverified_claimant_team_ids]
+        }
         foreign_tenants = self._list_identity_tenants(domain) - friendly_tenants
         if foreign_tenants:
             raise exceptions.ValidationError(
@@ -694,6 +707,17 @@ class SESProvider:
                     "Failed to associate configuration set '%s' with tenant '%s'", config_set, expected_tenant
                 )
 
+    def remove_tenant_associations(self, domain: str, *, team_ids: Iterable[int]) -> None:
+        arn = self._identity_arn(domain)
+        for team_id in team_ids:
+            try:
+                self.ses_v2_client.delete_tenant_resource_association(
+                    TenantName=self._tenant_name_for_team(team_id), ResourceArn=arn
+                )
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "NotFoundException":
+                    raise
+
     def disable_feedback_forwarding(self, domain: str) -> None:
         """
         Stop SES from emailing bounce and complaint notices to the sender address.
@@ -716,6 +740,7 @@ class SESProvider:
             verify_resp = self.ses_client.verify_domain_identity(Domain=domain)
             verification_token = verify_resp["VerificationToken"]
         except ClientError as e:
+            _raise_if_domain_setup_denied(e, domain)
             # If already requested/exists, carry on; SES v1 is idempotent-ish here
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                 raise
@@ -726,6 +751,7 @@ class SESProvider:
             dkim_resp = self.ses_client.verify_domain_dkim(Domain=domain)
             dkim_tokens = dkim_resp["DkimTokens"]
         except ClientError as e:
+            _raise_if_domain_setup_denied(e, domain)
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                 raise
 
@@ -743,28 +769,27 @@ class SESProvider:
                     BehaviorOnMXFailure="UseDefaultValue",
                 )
             except ClientError as e:
+                _raise_if_domain_setup_denied(e, domain)
                 if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                     raise
 
         # DMARC is in the list too: AWS SES has no method to check its presence, so we do a direct
         # DNS lookup further below and include the result in the overall status.
-        dns_records = [
-            _legacy_dns_record(record)
-            for record in build_email_domain_records(
-                domain=domain,
-                mail_from_subdomain=mail_from_subdomain,
-                verification_token=verification_token,
-                dkim_tokens=dkim_tokens,
-                ses_region=self._ses_region,
-            )
-        ]
+        records = build_email_domain_records(
+            domain=domain,
+            mail_from_subdomain=mail_from_subdomain,
+            verification_token=verification_token,
+            dkim_tokens=dkim_tokens,
+            ses_region=self._ses_region,
+        )
+        dns_records = [_legacy_dns_record(record) for record in records]
 
         identity = self._read_identity_state_or_unknown(domain)
         verification_status = identity.verification_status
         dkim_status = identity.dkim_status
         mail_from_status = identity.mail_from_status
 
-        # One flag for both lookups below, so the DMARC and DKIM statuses stay pending together.
+        # One flag for every lookup below, so the SPF, DMARC and DKIM statuses stay pending together.
         refuses_lookups = is_cloud() and matched_oob_domain(domain) is not None
         if refuses_lookups:
             logger.info("security.oob_domain_seen guard=ses_domain_status")
@@ -809,8 +834,14 @@ class SESProvider:
         # - Domain verification TXT is considered verified when VerificationStatus == Success
         # - DKIM CNAMEs considered verified when DkimVerificationStatus == Success
         if verification_status == "Success":
-            for r in dns_records:
-                if r["type"] == "verification":
+            for record, r in zip(records, dns_records):
+                if record.kind == EmailDomainSetupRecordKind.VERIFICATION:
+                    r["status"] = "success"
+        # SES checks only the _amazonses token, so its success says nothing about the apex SPF record.
+        apex_spf = [record for record in records if record.kind == EmailDomainSetupRecordKind.SPF]
+        if not refuses_lookups and find_published_records(domain, apex_spf).records:
+            for record, r in zip(records, dns_records):
+                if record.kind == EmailDomainSetupRecordKind.SPF:
                     r["status"] = "success"
         if dkim_status == "Success":
             for r in dns_records:
@@ -952,6 +983,8 @@ class SESProvider:
             )
             logger.info(f"MAIL FROM domain for {domain} updated to {mail_from_subdomain}.{domain}")
         except (ClientError, BotoCoreError) as e:
+            if isinstance(e, ClientError):
+                _raise_if_domain_setup_denied(e, domain)
             logger.exception(f"SES API error updating MAIL FROM domain: {e}")
             raise
 
@@ -973,6 +1006,23 @@ class SESProvider:
         except (ClientError, BotoCoreError) as e:
             logger.exception(f"SES API error deleting identity: {e}")
             raise
+
+    def list_failed_domain_identities(self) -> list[str]:
+        """The domain identities of this region whose verification failed."""
+        failed: list[str] = []
+        next_token: str | None = None
+        while True:
+            response = self.ses_v2_client.list_email_identities(
+                PageSize=1000, **({"NextToken": next_token} if next_token else {})
+            )
+            failed.extend(
+                identity["IdentityName"]
+                for identity in response["EmailIdentities"]
+                if identity.get("IdentityType") == "DOMAIN" and identity.get("VerificationStatus") == "FAILED"
+            )
+            next_token = response.get("NextToken")
+            if not next_token:
+                return failed
 
     def list_bounce_suppressions(self) -> Iterator[list[str]]:
         """Yield the email addresses on the account-level suppression list for a bounce, one page at a time."""

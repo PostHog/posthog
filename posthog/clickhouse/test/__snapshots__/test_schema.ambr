@@ -2030,7 +2030,7 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32),
       properties_null_keys Array(LowCardinality(String)),
       temporary_properties_null_keys Array(LowCardinality(String)),
@@ -2140,7 +2140,7 @@
   SELECT
   uuid,
   event,
-  ifNull(accurateCastOrNull(cleaned.properties, 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)'), CAST(concat('{"$unparseable_properties":', toJSONString(source.properties), '}'), 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)')) AS properties,
+  ifNull(accurateCastOrNull(cleaned.properties, 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)'), CAST(concat('{"$unparseable_properties":', toJSONString(source.properties), '}'), 'JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String)')) AS properties,
   ifNull(accurateCastOrNull(cleaned.temporary_properties, 'JSON(max_dynamic_paths = 32)'), CAST('{}', 'JSON(max_dynamic_paths = 32)')) AS temporary_properties,
   cleaned.properties_null_keys AS properties_null_keys,
   cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
@@ -2309,7 +2309,16 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      -- inserted_at is always NULL, which makes the sweep delete every row of the person. A row has
+      -- no stable insert time: each rebuild writes it again with a new computed_at, and a rebuild
+      -- between the deletion request and the sweep would otherwise keep the row.
+      timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time,
+      uuid UUID ALIAS exposure_event_uuid,
+      inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_experiment_exposures_preaggregated', cityHash64(entity_id))
   
   '''
@@ -2346,7 +2355,16 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      -- The sweep also reads `timestamp`, which this table already has.
+      -- inserted_at is always NULL, which makes the sweep delete every row of the person. A row has
+      -- no stable insert time: each rebuild writes it again with a new computed_at, and a rebuild
+      -- between the deletion request and the sweep would otherwise keep the row.
+      uuid UUID ALIAS event_uuid,
+      inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
   ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_experiment_metric_events_preaggregated', cityHash64(entity_id))
   
   '''
@@ -8434,7 +8452,7 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
       properties_null_keys Array(LowCardinality(String)),
       temporary_properties_null_keys Array(LowCardinality(String)) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
@@ -8565,7 +8583,16 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      -- inserted_at is always NULL, which makes the sweep delete every row of the person. A row has
+      -- no stable insert time: each rebuild writes it again with a new computed_at, and a rebuild
+      -- between the deletion request and the sweep would otherwise keep the row.
+      timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time,
+      uuid UUID ALIAS exposure_event_uuid,
+      inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
@@ -8607,7 +8634,16 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      -- The sweep also reads `timestamp`, which this table already has.
+      -- inserted_at is always NULL, which makes the sweep delete every row of the person. A row has
+      -- no stable insert time: each rebuild writes it again with a new computed_at, and a rebuild
+      -- between the deletion request and the sweep would otherwise keep the row.
+      uuid UUID ALIAS event_uuid,
+      inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.experiment_metric_events_preaggregated', '{replica}-{shard}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
@@ -11190,7 +11226,7 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32),
       properties_null_keys Array(LowCardinality(String)),
       temporary_properties_null_keys Array(LowCardinality(String)),
@@ -14521,7 +14557,7 @@
   (
       uuid UUID,
       event String,
-      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths = 0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+      properties JSON(max_dynamic_paths = 1024, `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
       temporary_properties JSON(max_dynamic_paths = 32) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
       properties_null_keys Array(LowCardinality(String)),
       temporary_properties_null_keys Array(LowCardinality(String)) TTL toDateTime(inserted_at) + INTERVAL 60 DAY,
@@ -14652,7 +14688,16 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      -- inserted_at is always NULL, which makes the sweep delete every row of the person. A row has
+      -- no stable insert time: each rebuild writes it again with a new computed_at, and a rebuild
+      -- between the deletion request and the sweep would otherwise keep the row.
+      timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time,
+      uuid UUID ALIAS exposure_event_uuid,
+      inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)
@@ -14694,7 +14739,16 @@
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
   
       -- TTL: rows are automatically deleted after expires_at
-      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY,
+  
+      -- The names the deletion sweep in posthog/dags/deletes.py matches on. Each one reads an
+      -- existing column, so the table can be a deletion target without storing anything twice.
+      -- The sweep also reads `timestamp`, which this table already has.
+      -- inserted_at is always NULL, which makes the sweep delete every row of the person. A row has
+      -- no stable insert time: each rebuild writes it again with a new computed_at, and a rebuild
+      -- between the deletion request and the sweep would otherwise keep the row.
+      uuid UUID ALIAS event_uuid,
+      inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.experiment_metric_events_preaggregated', '{replica}-{shard}', computed_at)
   
   PARTITION BY toYYYYMMDD(expires_at)

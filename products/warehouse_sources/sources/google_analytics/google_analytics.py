@@ -54,6 +54,11 @@ PAGE_LIMIT = 50000  # runReport allows up to 250k rows/request; keep payloads mo
 RUNREPORT_MAX_RETRIES = 5
 RUNREPORT_BACKOFF_BASE_SECONDS = 5.0
 
+# Stable prefixes of the errors `_run_report` raises once its inline retries run out.
+# `GoogleAnalyticsSource.get_retry_exhausted_errors` keys on them.
+QUOTA_EXHAUSTED_ERROR_PREFIX = "Google Analytics Data API quota for property"
+SERVER_ERROR_PREFIX = "Google Analytics Data API returned"
+
 _INTEGER_METRIC_TYPES = frozenset({"TYPE_INTEGER"})
 
 
@@ -67,6 +72,17 @@ class GoogleAnalyticsQuotaExceededError(Exception):
     the run ends early instead, so the next run continues from the promoted watermark.
     Tagged `(retryable)` so `GoogleAnalyticsSource.get_retryable_errors` can
     keep this self-recovering failure out of error tracking.
+    """
+
+
+class GoogleAnalyticsServerError(Exception):
+    """Raised when runReport's own 5xx or 409 response never clears within the in-line retry budget.
+
+    Deliberately NOT matched by `get_non_retryable_errors`, so Temporal retries the activity
+    later and the resumable source picks up from the last saved chunk — the right recovery for
+    a transient outage on Google's side, not a PostHog or customer defect. Tagged `(retryable)`
+    so `GoogleAnalyticsSource.get_retryable_errors` keeps this self-recovering failure out of
+    error tracking, the same way `GoogleSearchConsoleServerError` classifies the same shape.
     """
 
 
@@ -281,13 +297,17 @@ def _run_report(
             if is_quota:
                 logger.warning("ga4_runreport_quota_exhausted", property_id=pid)
                 raise GoogleAnalyticsQuotaExceededError(
-                    f"Google Analytics Data API quota for property '{pid}' is used up. PostHog will retry "
+                    f"{QUOTA_EXHAUSTED_ERROR_PREFIX} '{pid}' is used up. PostHog will retry "
                     "when the quota refills. If this keeps happening, set a lower 'Days of history to sync "
                     "initially' value on the source, or remove high-cardinality dimensions from your custom "
                     "reports (retryable)"
                 )
-            # A transient 5xx or 409 that never cleared — surface the HTTPError so Temporal retries the activity.
-            response.raise_for_status()
+            # A transient 5xx or 409 that never cleared — raise a retryable error so Temporal
+            # retries the activity without paging error tracking for an outage on Google's side.
+            raise GoogleAnalyticsServerError(
+                f"{SERVER_ERROR_PREFIX} {response.status_code} for property '{pid}' "
+                "after retries. PostHog will retry automatically (retryable)"
+            )
 
         wait = _runreport_backoff_seconds(response, attempt)
         logger.warning("GA4 runReport failed, backing off", property_id=pid, attempt=attempt, wait_seconds=wait)

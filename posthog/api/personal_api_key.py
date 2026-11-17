@@ -21,7 +21,8 @@ from posthog.models.personal_api_key import LEGACY_HASH_PREFIX, max_personal_api
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.personal_api_key_minting import mint_personal_api_key
-from posthog.scopes import API_SCOPE_ACTIONS, GRANTABLE_API_SCOPE_OBJECTS, translate_renamed_scopes
+from posthog.scopes.catalog import API_SCOPE_ACTIONS, translate_renamed_scopes
+from posthog.scopes.exposure import GRANTABLE_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
 
 SCOPED_TEAMS_ACCESS_ERROR = "You must be a member of all teams that you are scoping the key to."

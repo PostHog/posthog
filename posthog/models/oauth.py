@@ -36,7 +36,7 @@ from posthog.models.utils import (
     hash_key_value,
     mask_key_value,
 )
-from posthog.scopes import translate_renamed_scopes
+from posthog.scopes.catalog import translate_renamed_scopes
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User

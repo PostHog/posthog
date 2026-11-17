@@ -34,7 +34,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import UserAccessControl
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.user_permissions import UserPermissions
 
 from products.security.backend.facade.api import access_refused

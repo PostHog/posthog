@@ -16,7 +16,7 @@ from django.utils.dateparse import parse_datetime
 from rest_framework import serializers
 
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
-from posthog.scopes import translate_renamed_scopes
+from posthog.scopes.catalog import translate_renamed_scopes
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.credentials import validate_label_prefix

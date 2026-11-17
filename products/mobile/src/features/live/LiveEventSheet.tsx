@@ -1,7 +1,8 @@
 import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
-import type { ReactElement } from 'react'
-import { Linking, Text, View } from 'react-native'
+import { type ReactElement, useMemo } from 'react'
+import { Linking, ScrollView, Text, View } from 'react-native'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 
 import type { ProjectScope } from '@/api/reports'
 import { sessionWebUrl } from '@/features/replay/replayLinks'
@@ -21,6 +22,7 @@ import { createStyles, useColors } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
 
 import { trackLiveEventActionTaken } from './analytics'
+import { LiveEventProperties } from './LiveEventProperties'
 import { agoText } from './liveFormat'
 
 interface LiveEventSheetProps {
@@ -43,9 +45,11 @@ export function LiveEventSheet({
     onNotice,
 }: LiveEventSheetProps): ReactElement {
     const colors = useColors()
+    const scrollGesture = useMemo(() => Gesture.Native(), [])
     return (
         <BottomSheet
             visible={visible && event !== null}
+            scrollGesture={scrollGesture}
             onClose={onClose}
             backgroundColor={colors.background}
             accessibilityLabel="Event details"
@@ -54,6 +58,7 @@ export function LiveEventSheet({
             {event ? (
                 <EventDetails
                     event={event}
+                    scrollGesture={scrollGesture}
                     scope={scope}
                     onClose={onClose}
                     onNotice={onNotice}
@@ -66,12 +71,14 @@ export function LiveEventSheet({
 
 function EventDetails({
     event,
+    scrollGesture,
     scope,
     active,
     onClose,
     onNotice,
 }: {
     event: LiveEventRow
+    scrollGesture: ReturnType<typeof Gesture.Native>
     active: boolean
     scope: ProjectScope | null
     onClose: () => void
@@ -126,75 +133,85 @@ function EventDetails({
 
     const demo = scope === null
     return (
-        <View>
+        <View style={styles.body}>
             <SheetTitle title={event.label} subtitle={subtitle} onDone={onClose} />
-            <View style={styles.card}>
-                <View style={styles.row}>
-                    <Text style={styles.key}>Person</Text>
-                    <MonoText style={styles.value} numberOfLines={1} ellipsizeMode="middle">
-                        {event.distinctId || '–'}
-                    </MonoText>
-                    {event.distinctId ? (
-                        <Pressable44
-                            onPress={copyDistinctId}
-                            accessibilityLabel="Copy distinct ID"
-                            pressedBackground={colors.pressed}
-                            style={styles.action}
-                            testID="live-event-copy"
-                        >
-                            <Text style={styles.actionText}>Copy</Text>
-                        </Pressable44>
-                    ) : null}
-                </View>
-                {event.url || event.place ? (
-                    <View style={[styles.row, styles.divided]}>
-                        <Text style={styles.key}>{event.kind === 'screen' ? 'Screen' : 'URL'}</Text>
-                        <Text style={styles.text} numberOfLines={2} selectable>
-                            {event.url ?? event.place}
-                        </Text>
+            <GestureDetector gesture={scrollGesture}>
+                <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+                    <View style={styles.card}>
+                        <View style={styles.row}>
+                            <Text style={styles.key}>Person</Text>
+                            <MonoText style={styles.value} numberOfLines={1} ellipsizeMode="middle">
+                                {event.distinctId || '–'}
+                            </MonoText>
+                            {event.distinctId ? (
+                                <Pressable44
+                                    onPress={copyDistinctId}
+                                    accessibilityLabel="Copy distinct ID"
+                                    pressedBackground={colors.pressed}
+                                    style={styles.action}
+                                    testID="live-event-copy"
+                                >
+                                    <Text style={styles.actionText}>Copy</Text>
+                                </Pressable44>
+                            ) : null}
+                        </View>
+                        {event.url || event.place ? (
+                            <View style={[styles.row, styles.divided]}>
+                                <Text style={styles.key}>{event.kind === 'screen' ? 'Screen' : 'URL'}</Text>
+                                <Text style={styles.text} numberOfLines={2} selectable>
+                                    {event.url ?? event.place}
+                                </Text>
+                            </View>
+                        ) : null}
+                        {sessionId ? (
+                            <View style={[styles.row, styles.divided]}>
+                                <Text style={styles.key}>Session</Text>
+                                <MonoText style={styles.value} numberOfLines={1} ellipsizeMode="middle">
+                                    {sessionId}
+                                </MonoText>
+                                <Pressable44
+                                    onPress={watchRecording}
+                                    disabled={demo}
+                                    accessibilityLabel="Watch recording"
+                                    accessibilityState={{ disabled: demo }}
+                                    pressedBackground={colors.pressed}
+                                    style={styles.action}
+                                    testID="live-event-recording"
+                                >
+                                    <PlayIcon size={10} color={demo ? colors.disabled : colors.blue} />
+                                    <Text style={[styles.actionText, demo && styles.disabled]}>Watch recording</Text>
+                                </Pressable44>
+                            </View>
+                        ) : null}
                     </View>
-                ) : null}
-                {sessionId ? (
-                    <View style={[styles.row, styles.divided]}>
-                        <Text style={styles.key}>Session</Text>
-                        <MonoText style={styles.value} numberOfLines={1} ellipsizeMode="middle">
-                            {sessionId}
-                        </MonoText>
-                        <Pressable44
-                            onPress={watchRecording}
-                            disabled={demo}
-                            accessibilityLabel="Watch recording"
-                            accessibilityState={{ disabled: demo }}
-                            pressedBackground={colors.pressed}
-                            style={styles.action}
-                            testID="live-event-recording"
-                        >
-                            <PlayIcon size={10} color={demo ? colors.disabled : colors.blue} />
-                            <Text style={[styles.actionText, demo && styles.disabled]}>Watch recording</Text>
-                        </Pressable44>
-                    </View>
-                ) : null}
-            </View>
-            <Pressable44
-                onPress={viewPerson}
-                disabled={!safePersonUrl}
-                accessibilityLabel="View person on web"
-                accessibilityState={{ disabled: !safePersonUrl }}
-                pressedBackground={colors.pressed}
-                style={[styles.card, styles.link]}
-                testID="live-event-person"
-            >
-                <View style={styles.linkText}>
-                    <Text style={[styles.linkLabel, !safePersonUrl && styles.disabled]}>View person on web</Text>
-                    {demo ? <Text style={styles.sub}>Not available in the demo</Text> : null}
-                </View>
-                <ExternalLinkIcon size={18} color={safePersonUrl ? colors.secondary : colors.disabled} />
-            </Pressable44>
+                    <Pressable44
+                        onPress={viewPerson}
+                        disabled={!safePersonUrl}
+                        accessibilityLabel="View person on web"
+                        accessibilityState={{ disabled: !safePersonUrl }}
+                        pressedBackground={colors.pressed}
+                        style={[styles.card, styles.link]}
+                        testID="live-event-person"
+                    >
+                        <View style={styles.linkText}>
+                            <Text style={[styles.linkLabel, !safePersonUrl && styles.disabled]}>
+                                View person on web
+                            </Text>
+                            {demo ? <Text style={styles.sub}>Not available in the demo</Text> : null}
+                        </View>
+                        <ExternalLinkIcon size={18} color={safePersonUrl ? colors.secondary : colors.disabled} />
+                    </Pressable44>
+                    <LiveEventProperties event={event} scope={scope} active={active} />
+                </ScrollView>
+            </GestureDetector>
         </View>
     )
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    body: { flexShrink: 1 },
+    scroll: { flexShrink: 1 },
+    content: { paddingBottom: 8 },
     card: {
         marginTop: 8,
         paddingHorizontal: 14,

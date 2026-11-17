@@ -13,6 +13,17 @@ from posthog.dataclasses import frozen
 logger = structlog.get_logger(__name__)
 
 FEATURE_FLAG = "llm-analytics-eval-suggestions"
+# Runs for these organizations work when staff start them, but nothing reaches their users: the API, the evals page
+# and the weekly plan read only FEATURE_FLAG. Staff use it to check the cards on real traffic before a rollout.
+SHADOW_FEATURE_FLAG = "llm-analytics-eval-suggestions-shadow"
+# Tags the paid model calls in the gateway's analytics.
+AI_PRODUCT = "aio_eval_suggestions"
+# The review's text budget grows with its calls. Below MIN_REVIEW_CALLS, the call types' system prompts could fill it
+# alone and leave no room for calls, and above MAX_REVIEW_CALLS it nears the review model's context. More calls give
+# each card more judged passes to calibrate on, which keeps cards that fewer calls drop for lack of passes.
+REVIEW_CALLS = 120
+MIN_REVIEW_CALLS = 70
+MAX_REVIEW_CALLS = 200
 
 
 @frozen
@@ -22,6 +33,7 @@ class SuggestionSettings:
     llm_budget_usd_per_run: float = 20.0
     max_teams_per_run: int = 2000
     max_concurrent_teams: int = 4
+    review_calls: int = REVIEW_CALLS
 
 
 def parse_settings(payload: Any) -> SuggestionSettings:
@@ -55,6 +67,7 @@ def parse_settings(payload: Any) -> SuggestionSettings:
         llm_budget_usd_per_run=float(positive("llm_budget_usd_per_run", defaults.llm_budget_usd_per_run)),
         max_teams_per_run=count("max_teams_per_run", defaults.max_teams_per_run),
         max_concurrent_teams=count("max_concurrent_teams", defaults.max_concurrent_teams),
+        review_calls=min(max(count("review_calls", defaults.review_calls), MIN_REVIEW_CALLS), MAX_REVIEW_CALLS),
     )
 
 
@@ -76,11 +89,21 @@ def load_settings() -> SuggestionSettings:
 
 
 def is_enabled_for_organization(organization_id: str) -> bool:
+    """Whether the organization's users get suggestions."""
+    return _flag_on(FEATURE_FLAG, organization_id)
+
+
+def runs_for_organization(organization_id: str) -> bool:
+    """Whether a run may measure and publish for the organization, which includes shadow runs nobody there sees."""
+    return is_enabled_for_organization(organization_id) or _flag_on(SHADOW_FEATURE_FLAG, organization_id)
+
+
+def _flag_on(flag: str, organization_id: str) -> bool:
     if settings.DEBUG or settings.E2E_TESTING:
         return True
     return (
         posthoganalytics.feature_enabled(
-            FEATURE_FLAG,
+            flag,
             organization_id,
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
