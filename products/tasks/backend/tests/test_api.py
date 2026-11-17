@@ -8750,6 +8750,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
         trial_context = {"version": 1, "launch_id": "synthetic-launch"}
         trial_private = {"reports": {"synthetic-report": {"title": "Saved finding"}}}
+        egress_probe = {
+            "execution_id": "synthetic-execution",
+            "sandbox_id": "sb-egress",
+            "workflow_run_id": "wf-egress",
+        }
         credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
         system_prompt = {"type": "preset", "preset": "claude_code", "append": "Server-owned instructions"}
@@ -8783,6 +8788,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "claude_subscription_user_id": self.user.id,
                 "pr_authorship_mode": "user",
                 "sandbox_id": "sb-real",
+                "agent_egress_probe": egress_probe,
                 "sandbox_cpu_cores": 2,
                 "sandbox_memory_gb": 8,
                 "sandbox_ttl_seconds": 1800,
@@ -8864,6 +8870,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "claude_subscription_user_id": self.user.id + 1,
                     "pr_authorship_mode": "bot",
                     "sandbox_id": "sb-attacker",
+                    "agent_egress_probe": {"sandbox_id": "sb-attacker"},
                     "sandbox_cpu_cores": 128,
                     "sandbox_memory_gb": 512,
                     "sandbox_ttl_seconds": 86400,
@@ -8952,6 +8959,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pr_authorship_mode"] == "user"
         assert "dev_stack_preview" not in run.state
         assert run.state["sandbox_id"] == "sb-real"
+        assert run.state["agent_egress_probe"] == egress_probe
         assert run.state["sandbox_cpu_cores"] == 2
         assert run.state["sandbox_memory_gb"] == 8
         assert run.state["sandbox_ttl_seconds"] == 1800
@@ -9038,6 +9046,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "stream_presence_gated",
                     "stream_thin_tail",
                     "sandbox_id",
+                    "agent_egress_probe",
                     "use_modal_vm_sandbox",
                     "custom_image_id",
                     "snapshot_external_id",
@@ -9091,6 +9100,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["stream_presence_gated"] is True  # protected key survives removal
         assert run.state["stream_thin_tail"] is True  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
+        assert run.state["agent_egress_probe"] == egress_probe
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
         assert run.state["custom_image_id"] == "img-server"
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
@@ -9141,6 +9151,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
                 "state_append": {
+                    "agent_egress_probe": {"sandbox_id": "sb-attacker"},
                     "include_live_context": True,
                     "analytics_query_context": [{"kind": "private"}],
                     "sandbox_oauth_token_ids": ["forged-token-id"],
@@ -9170,6 +9181,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["task_management_ci_wait_checks"] == 10
         assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
+        assert run.state["agent_egress_probe"] == egress_probe
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):

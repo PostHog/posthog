@@ -20,6 +20,7 @@ import posthog from 'posthog-js'
 import { z } from 'zod'
 
 import api, { ApiError } from 'lib/api'
+import { imageSizeError } from 'lib/components/ImageSize/imageSizeUtils'
 import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
 import { dayjs } from 'lib/dayjs'
 import { getInsightId } from 'lib/insights/getInsightId'
@@ -760,6 +761,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     dashboardTiles: DashboardTile[] | undefined,
                     storedTeamsWebhookHost: string | null
                 ) => ({
+                    delivery_config: {
+                        image_size:
+                            subscription.resource_type === SubscriptionResourceTypes.AiPrompt
+                                ? undefined
+                                : imageSizeError(subscription.delivery_config?.image_size),
+                    },
                     frequency: validateFrequency(subscription),
                     title: !subscription.title ? 'You need to give your subscription a name' : undefined,
                     interval: !subscription.interval ? 'You need to set an interval' : undefined,
@@ -1118,6 +1125,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             try {
                 const insightId =
                     subscription.insight ??
+                    subscription.dashboard_export_insights?.[0] ??
                     (props.insightShortId ? await getInsightId(props.insightShortId) : undefined)
                 const dashboardId = subscription.dashboard ?? props.dashboardId
 
@@ -1127,6 +1135,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     ...(dashboardId ? { dashboard: dashboardId } : {}),
                     export_context: {
                         path: '',
+                        image_size: subscription.delivery_config?.image_size,
                     },
                 }
 

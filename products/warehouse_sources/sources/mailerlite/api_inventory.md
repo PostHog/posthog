@@ -17,19 +17,21 @@ conservative (follow `links.next`, yield rows verbatim, merge on `id`).
 
 ## Endpoints implemented
 
-| Schema          | Path             | Pagination  | Primary key | Partition key |
-| --------------- | ---------------- | ----------- | ----------- | ------------- |
-| subscribers     | /subscribers     | cursor      | id          | created_at    |
-| campaigns       | /campaigns       | page number | id          | created_at    |
-| groups          | /groups          | page number | id          | created_at    |
-| segments        | /segments        | page number | id          | created_at    |
-| fields          | /fields          | page number | id          | (none)        |
-| automations     | /automations     | page number | id          | created_at    |
-| forms_popup     | /forms/popup     | page number | id          | created_at    |
-| forms_embedded  | /forms/embedded  | page number | id          | created_at    |
-| forms_promotion | /forms/promotion | page number | id          | created_at    |
-| webhooks        | /webhooks        | page number | id          | created_at    |
-| ecommerce_shops | /ecommerce/shops | page number | id          | created_at    |
+| Schema             | Path                 | Pagination  | Primary key | Partition key |
+| ------------------ | -------------------- | ----------- | ----------- | ------------- |
+| subscribers        | /subscribers         | cursor      | id          | created_at    |
+| campaigns          | /campaigns           | page number | id          | created_at    |
+| groups             | /groups              | page number | id          | created_at    |
+| segments           | /segments            | page number | id          | created_at    |
+| fields             | /fields              | page number | id          | (none)        |
+| automations        | /automations         | page number | id          | created_at    |
+| forms_popup        | /forms/popup         | page number | id          | created_at    |
+| forms_embedded     | /forms/embedded      | page number | id          | created_at    |
+| forms_promotion    | /forms/promotion     | page number | id          | created_at    |
+| webhooks           | /webhooks            | page number | id          | created_at    |
+| ecommerce_shops    | /ecommerce/shops     | page number | id          | created_at    |
+| timezones          | /timezones           | none        | id          | (none)        |
+| campaign_languages | /campaigns/languages | none        | id          | (none)        |
 
 ### Fan-out endpoints
 
@@ -45,13 +47,22 @@ primary key. A 404 on a child (parent deleted mid-sync) is skipped.
 | ecommerce_orders             | /ecommerce/shops/{shop_id}/orders                    | ecommerce_shops           | page number | shop_id, id       | created_at    |
 | ecommerce_products           | /ecommerce/shops/{shop_id}/products                  | ecommerce_shops           | page number | shop_id, id       | (none)        |
 | ecommerce_categories         | /ecommerce/shops/{shop_id}/categories                | ecommerce_shops           | page number | shop_id, id       | created_at    |
+| ecommerce_customers          | /ecommerce/shops/{shop_id}/customers                 | ecommerce_shops           | page number | shop_id, id       | created_at    |
+| forms_popup_subscribers      | /forms/{form_id}/subscribers                         | forms_popup               | cursor      | form_id, id       | created_at    |
+| forms_embedded_subscribers   | /forms/{form_id}/subscribers                         | forms_embedded            | cursor      | form_id, id       | created_at    |
+| forms_promotion_subscribers  | /forms/{form_id}/subscribers                         | forms_promotion           | cursor      | form_id, id       | created_at    |
 
 - `campaign_subscriber_activity` sends `include=subscriber`; without it a row carries only its
   counts. Reports exist only for sent campaigns, so the parent list is filtered to `sent`.
 - The e-commerce children fan out over every connected shop. Shop-scoped ids aren't documented as
   globally unique, so the shop id is part of each key. Products carry no creation timestamp, so
   that table is not partitioned. An account with no connected shop syncs empty tables.
-- The membership endpoints default `filter[status]` to `active`, so they hold active members only.
+- The membership endpoints (groups, segments, forms) default `filter[status]` to `active`, so they
+  hold active members only. The forms list is split by type, so each form type has its own
+  signup table, fanned out over that type's form table.
+- `timezones` and `campaign_languages` are lookup lists that return everything in one response and
+  document no `limit` param, so they send none. The docs page for campaign languages is
+  `/api/campaign-languages`, but the endpoint itself is `GET /campaigns/languages`.
 - `automation_activity` requires `filter[status]` and takes one value per request, so each
   automation is fetched four times (`active`, `completed`, `canceled`, `failed`). Its `date`
   field moves as a run progresses, so the table is not partitioned.

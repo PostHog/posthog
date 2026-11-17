@@ -7,14 +7,19 @@ import {
   PostHogAPIClient,
 } from "./posthog-client";
 
-function makeClient(fetch: ReturnType<typeof vi.fn>): PostHogAPIClient {
-  return new PostHogAPIClient(
+function makeClient(
+  fetch: ReturnType<typeof vi.fn>,
+  organizationId: string | null = "org-1",
+): PostHogAPIClient {
+  const client = new PostHogAPIClient(
     "https://app.posthog.test",
     async () => "token",
     async () => "token",
     42,
     { fetch: fetch as unknown as FetchImplementation },
   );
+  client.setOrganizationId(organizationId);
+  return client;
 }
 
 const PAGE_INPUT = {
@@ -24,6 +29,34 @@ const PAGE_INPUT = {
 };
 
 describe("context wiki client", () => {
+  it.each([
+    { source: "auth state", organizationId: "org-1", lookups: [] },
+    {
+      source: "project",
+      organizationId: null,
+      lookups: ["https://app.posthog.test/api/projects/42/"],
+    },
+  ])(
+    "addresses the organization from the $source, not @current",
+    async ({ organizationId, lookups }) => {
+      const fetch = vi.fn(async (url: string | URL) =>
+        String(url).includes("/api/projects/42/")
+          ? Response.json({ id: 42, organization: "org-1" })
+          : Response.json({ results: [], next: null }),
+      );
+      const client = makeClient(fetch, organizationId);
+
+      await client.getContextWikiTree();
+      await client.listOrganizationMembers();
+
+      expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+        ...lookups,
+        "https://app.posthog.test/api/organizations/org-1/context_layer/tree/",
+        "https://app.posthog.test/api/organizations/org-1/members/?limit=200",
+      ]);
+    },
+  );
+
   it.each([
     { method: "list", response: {} },
     { method: "list", response: [{ id: "proposal-1", content: "New text" }] },

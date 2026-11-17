@@ -131,7 +131,7 @@
             "subject_kinds": ["pull_request"],
             "refuses_forks": true,
             "access": {
-                "resource": "review_hog",
+                "resource": "code_review",
                 "level": "editor"
             },
             "usage": "@posthog review [--deep] [--no-resolve]"
@@ -146,7 +146,7 @@
             "subject_kinds": ["pull_request"],
             "refuses_forks": true,
             "access": {
-                "resource": "stamphog",
+                "resource": "code_review_approval",
                 "level": "editor"
             },
             "usage": "@posthog stamp"
