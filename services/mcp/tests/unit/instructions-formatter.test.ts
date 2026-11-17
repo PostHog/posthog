@@ -366,6 +366,26 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('endpoints routing guidance', () => {
+        it.each([
+            { name: 'endpoint-create', extra: ['endpoint-create'], expected: true },
+            { name: 'no endpoint tools', extra: [], expected: false },
+        ])('routes code use cases to endpoints only when the roster carries $name', ({ extra, expected }) => {
+            const tools = [
+                ...realisticTools.filter(({ name }) => name !== 'endpoint-create'),
+                ...extra.map((name) => ({ name, category: 'Endpoints' })),
+            ]
+            const formatter = new InstructionsFormatter()
+            for (const rendered of [
+                formatter.buildToolsInstructions({ ...fullCtx, tools }),
+                formatter.buildExecCommandReference({ ...fullCtx, tools }),
+            ]) {
+                expect(rendered.includes('Create it with `endpoint-create` only after they agree')).toBe(expected)
+                expect(rendered.includes('{endpoints_routing}')).toBe(false)
+            }
+        })
+    })
+
     describe('inbox-first guidance', () => {
         it.each([
             { name: 'tools mode', exec: false, claim: true, list: 'the `inbox-reports-list` tool' },

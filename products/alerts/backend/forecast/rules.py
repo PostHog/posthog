@@ -14,8 +14,8 @@ UPPER_QUANTILES = tuple(sorted(level for level in QUANTILE_LEVELS if level > EXP
 LOWER_QUANTILES = tuple(sorted(level for level in QUANTILE_LEVELS if level < EXPECTED_QUANTILE))
 
 # The range shown for a side with no quantile, and the fire range of each side when neither side is set.
-DEFAULT_UPPER_QUANTILE = 0.95
-DEFAULT_LOWER_QUANTILE = 0.05
+DEFAULT_UPPER_QUANTILE = 0.99
+DEFAULT_LOWER_QUANTILE = 0.01
 
 _CONFIG_FIELDS = frozenset({"type", "above", "below"})
 _SIDE_FIELDS = ("quantile", "min_relative_change", "min_absolute_change")
