@@ -16,7 +16,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.filter_catalog import SignalFilterSourceDefinition
 from products.signals.backend.filter_catalog_seeds import LINEAR_ISSUE_SEED
 from products.signals.backend.models import SignalSourceConfig
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_synced_table_from_rows
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -89,13 +89,13 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
 
-    def _linear_issues(self, rows: list[list[object]]) -> None:
+    def _linear_issues(self, rows: list[list[object]], columns: dict[str, dict[str, str | bool]] = _COLUMNS) -> None:
         create_synced_table_from_rows(
             self.team,
             source_type=ExternalDataSourceType.LINEAR,
             schema_name="issues",
             table_name="linear_issues",
-            columns=_COLUMNS,
+            columns=columns,
             rows=rows,
             descriptions={},
             test_bucket="test_signal_source_filter_preview",
@@ -163,11 +163,28 @@ class TestSourceFilterPreview(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_field", "category = 'Core'", "invalid_expression"),
-            ("no_linear_import", "project_name = 'Core'", "not_connected"),
+            ("unknown_field", "category = 'Core'", None, "invalid_expression"),
+            ("no_linear_import", "project_name = 'Core'", None, "not_connected"),
+            ("first_sync_pending", "project_name = 'Core'", "no_table", "not_synced"),
+            ("import_lacks_a_bound_column", "project_name = 'Core'", "no_labels_column", "incompatible_table"),
         ]
     )
-    def test_preview_reports_why_it_has_no_records(self, _name: str, expression: str, expected_status: str) -> None:
+    def test_preview_reports_why_it_has_no_records(
+        self, _name: str, expression: str, linear_import: str | None, expected_status: str
+    ) -> None:
+        if linear_import == "no_table":
+            source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="linear_source",
+                connection_id="linear_connection",
+                status=ExternalDataSource.Status.RUNNING,
+                source_type=ExternalDataSourceType.LINEAR,
+            )
+            ExternalDataSchema.objects.create(team=self.team, name="issues", source=source, should_sync=True)
+        elif linear_import == "no_labels_column":
+            columns = {name: column for name, column in _COLUMNS.items() if name != "labels"}
+            self._linear_issues([_issue("passes")[:-1]], columns=columns)
+
         preview = self._preview(expression)
 
         assert preview["status"] == expected_status
