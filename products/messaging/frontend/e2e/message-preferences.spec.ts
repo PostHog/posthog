@@ -275,6 +275,8 @@ test.describe('Message preferences page', () => {
                     { times: 1 }
                 )
                 await recipientPage.route(isPageRead, () => read.open(), { times: 1 })
+                // Safari before 16 has no AbortSignal.timeout
+                await recipientPage.evaluate(() => Reflect.deleteProperty(AbortSignal, 'timeout'))
                 await allMarketing.click()
                 await read.opened
                 await expect(allMarketing).not.toBeChecked()
