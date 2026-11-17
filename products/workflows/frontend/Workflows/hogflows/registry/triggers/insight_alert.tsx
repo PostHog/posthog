@@ -59,7 +59,11 @@ function StepTriggerConfigurationInsightAlert({ node }: { node: any }): JSX.Elem
         return alertsLoading ? (
             <p className="mb-0 text-sm text-muted-alt">Loading alerts…</p>
         ) : (
-            <LemonBanner type="error" className="w-full" action={{ children: 'Try again', onClick: () => loadAlerts() }}>
+            <LemonBanner
+                type="error"
+                className="w-full"
+                action={{ children: 'Try again', onClick: () => loadAlerts() }}
+            >
                 Couldn't load your alerts. Try again, and if it keeps happening contact support.
             </LemonBanner>
         )
