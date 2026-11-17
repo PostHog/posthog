@@ -188,7 +188,7 @@ Note: Parsed the embedded OpenAPI spec for the 2.4.7 admin reference, including 
 
 ## AdRoll — gaps
 
-Today (10): `accounts`, `ad_reports`, `adgroups`, `ads`, `advertisable_reports`, `advertisables`, `campaign_reports`, `campaigns`, `organization`, `segments`
+Today (14): `accounts`, `ad_reports`, `adgroups`, `ads`, `advertisable_reports`, `advertisables`, `campaign_reports`, `campaigns`, `contextual_categories`, `organization`, `pixels`, `rules`, `segments`, `users`
 
 Diffed against: <https://apidocs.nextroll.com/crud-api/reference.html>
 
@@ -198,11 +198,11 @@ Diffed against: <https://apidocs.nextroll.com/crud-api/reference.html>
 - [x] `organization (GET /api/v1/organization/get, get_accounts)` — lookup resolving the org/account EIDs that advertisables hang off (medium). `get_advertisables` already backs the `advertisables` table.
 - [x] `pixel (GET /api/v1/advertisable/get_pixel, /api/v1/pixel/get)` — conversion tracking pixel per advertisable (medium)
 - [x] `rules (GET /api/v1/pixel/get_rules, /api/v1/rule/get)` — conversion and retargeting rule definitions that decode segment membership (medium)
-- [ ] `invoice (GET /api/v1/invoice/get)` — billed spend reconciliation against reported campaign spend (medium)
+- [ ] `invoice (GET /api/v1/invoice/get)` — billed spend reconciliation against reported campaign spend (medium). Skipped: `invoice/get` fetches one invoice by a required `invoice` ID, and no CRUD endpoint lists invoice IDs to fan out over.
 - [x] `organization users (GET /api/v1/organization/get_users)` — lookup for who owns/changed campaigns (low)
-- [ ] `product_feeds/get_products` — catalog products behind dynamic creative (low)
-- [ ] `marketplace_deals (GET /api/v1/marketplace_deals/get)` — programmatic deal terms for spend analysis (low)
-- [ ] `contextual_categories` — lookup decoding contextual targeting categories on adgroups (low)
+- [ ] `product_feeds/get_products` — catalog products behind dynamic creative (low). Skipped: a paged search endpoint that needs a feed EID and a search `query`, with an undocumented product shape; a catalog walk would use up the 100-requests-per-day default quota.
+- [ ] `marketplace_deals (GET /api/v1/marketplace_deals/get)` — programmatic deal terms for spend analysis (low). Skipped: it lists the approved, active marketplace deals an advertisable can browse and buy, not deals it bought or spent on, and the reference does not document the Deal object, so no primary key can be verified.
+- [x] `contextual_categories (GET /api/v1/contextual_categories/get_all_contextual_categories)` — lookup decoding contextual targeting categories on adgroups (low)
 - [ ] `dynamic_template/get_all_for_advertisable` — creative template lookup for dynamic ads (low)
 
 Note: NextRoll splits reporting into a separate GraphQL Reporting API (https://apidocs.nextroll.com/graphql-reporting-api/index.html) that supersedes the legacy CRUD /api/v1/report/\* endpoints - delivery and attribution metrics by advertisable, campaign, adgroup, ad, plus granular conversions. The synced report tables use the CRUD API's `entity` data format, the only shape that reference documents: one row per entity with its delivery metrics. Per-day breakdowns and attribution remain a GraphQL Reporting API follow-up. The developers.nextroll.com URL in the payload is an Angular shell with no content; the real reference is apidocs.nextroll.com.
