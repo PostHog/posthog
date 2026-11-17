@@ -69,7 +69,7 @@ def routes_reach_incident_receiver(*, team_id: int) -> bool:
 
 
 def _routing_may_be_enabled(team: Team) -> bool:
-    """Fails open, unlike `routing_is_enabled`, for the reason `routes_reach_incident_receiver` gives."""
+    """Fails open, as delivery does for incident actions, for the reason `routes_reach_incident_receiver` gives."""
     try:
         return team_flag_enabled(ROUTING_FLAG, team) is not False
     except Exception:
