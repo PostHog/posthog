@@ -7,7 +7,7 @@ import dataclasses
 from collections.abc import Callable, Collection
 from contextlib import suppress
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -188,6 +188,24 @@ class TestBuildDatabaseRootNode(TestCase):
 
         assert second == ["person", "id"]
         assert parser.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("plain_field", "person.id", ["person", "id"]),
+            ("call_wrapping_field", "JSONExtractString(metadata, 'id')", ["metadata"]),
+            (
+                "if_with_field_in_true_branch",
+                "if(event = 'SaveProduct', properties.merchant_domain, NULL)",
+                ["properties", "merchant_domain"],
+            ),
+            ("comparison_without_field", "'a' = 'b'", None),
+        ]
+    )
+    def test_get_join_field_chain_handles_conditional_calls(
+        self, _name: str, join_key: str, expected_chain: Optional[list[str]]
+    ):
+        _cached_join_field_chain.cache_clear()
+        assert get_join_field_chain(join_key) == expected_chain
 
     def test_slim_pickle_state_falls_back_when_private_or_extra_present(self):
         # Slim path: a plain field round-trips its values.

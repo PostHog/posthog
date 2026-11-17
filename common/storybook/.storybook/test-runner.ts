@@ -395,22 +395,6 @@ async function expectStoryToMatchSnapshot(
         ;(window as Window & { __iframeObserver?: MutationObserver }).__iframeObserver = observer
     })
 
-    await page.evaluate(() => {
-        // Force all content-visibility:auto elements to render fully for deterministic snapshots.
-        // content-visibility:auto skips rendering offscreen content, which causes non-deterministic
-        // page heights depending on timing. We override it and trigger a synchronous reflow.
-        document.querySelectorAll('*').forEach((el) => {
-            if (el instanceof HTMLElement) {
-                const style = getComputedStyle(el)
-                if (style.contentVisibility === 'auto') {
-                    el.style.contentVisibility = 'visible'
-                }
-            }
-        })
-        // Force synchronous reflow so the browser recalculates layout
-        void document.body.offsetHeight
-    })
-
     // Trigger ResizeObserver callbacks to ensure layout-dependent state (e.g. CardMeta's
     // showControlsLabels) has settled before taking snapshots. ResizeObserver fires
     // asynchronously after render, so without this nudge the observer may not have reported
@@ -931,6 +915,7 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
             Promise.all(
                 ['400', '500', '700', '800'].flatMap((weight) => [
                     document.fonts.load(`${weight} 16px RoundHog`),
+                    document.fonts.load(`italic ${weight} 16px RoundHog`),
                     document.fonts.load(`${weight} 16px Inter`),
                 ])
             ).then(() => document.fonts.ready)

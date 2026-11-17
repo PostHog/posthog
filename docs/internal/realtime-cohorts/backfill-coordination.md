@@ -127,10 +127,13 @@ From there the seeder takes over.
 
 A cohort carries a realtime switch, `realtime_enabled_at`, which is null while realtime is off.
 The save path, both run creators, the team runs and `realtime_cohort_team_access enable` skip a cohort that is off, and the finalizer refuses to stamp it.
+The processor does not load it, and the shuffler forwards no event for a team whose cohorts are all off.
 `products/cohorts/backend/cohort_enablement.py` turns the switch on and off.
 
 - **On.** It refuses a team the pipeline does not process, and a cohort that can never be ready.
   It also turns on every realtime cohort the cohort includes as criteria.
+  It refuses the turn-on when the project's plan doesn't allow it: each cohort it turns on needs a slot, and the criteria of each have to fit the plan's history limit ([plan limits](definitions-and-eligibility.md#plan-limits)).
+  The team's advisory lock covers the count and the save, and the cohort API's edit check takes it too, so two turn-ons, or a turn-on and an edit, cannot both take the last slot.
   For each cohort it turns on, it fills the shape hashes, clears the stamps, and queues one `cohort_created` build per kind through the debounce above.
   The seeder parses trigger kinds, so a new kind would need a seeder deploy first.
 - **Off.** It clears the stamps and, on commit, supersedes the cohort's active runs of both kinds.
