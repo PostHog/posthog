@@ -667,7 +667,7 @@ class TestUpdateHogFunctionCode(BaseTest):
                 )
                 for hog in (STRIPE_STALE_PARSING, STRIPE_HAND_EDITED_PARSING)
             )
-        assert _run_stripe_delivery(stale.bytecode) == {"httpResponse": {"status": 400, "body": "Bad signature"}}
+        assert _run_stripe_delivery(stale) == {"httpResponse": {"status": 400, "body": "Bad signature"}}
 
         for expected in ("Updated: 1", "Updated: 0"):
             out = StringIO()
@@ -676,17 +676,18 @@ class TestUpdateHogFunctionCode(BaseTest):
 
         stale.refresh_from_db()
         hand_edited.refresh_from_db()
-        assert _run_stripe_delivery(stale.bytecode) is None
-        assert _run_stripe_delivery(stale.bytecode, signed_with="whsec_forged") == {
+        assert _run_stripe_delivery(stale) is None
+        assert _run_stripe_delivery(stale, signed_with="whsec_forged") == {
             "httpResponse": {"status": 400, "body": "Bad signature"}
         }
         assert hand_edited.hog == STRIPE_HAND_EDITED_PARSING
 
 
-def _run_stripe_delivery(bytecode: list, signed_with: str = "whsec_test") -> object:
+def _run_stripe_delivery(function: HogFunction, signed_with: str = "whsec_test") -> object:
     body = '{"type": "invoice.paid"}'
     timestamp = "1700000000"
     signature = hmac.new(signed_with.encode(), f"{timestamp}.{body}".encode(), hashlib.sha256).hexdigest()
     header = f"t={timestamp},v1={signature},v1={'f' * 64},secret=whsec_test,destination=we_test,payload=a1b2c3d4"
     request = {"headers": {"stripe-signature": header}, "stringBody": body}
-    return execute_bytecode(bytecode, {"request": request, "inputs": {"signing_secret": "whsec_test"}}).result
+    assert function.bytecode is not None
+    return execute_bytecode(function.bytecode, {"request": request, "inputs": {"signing_secret": "whsec_test"}}).result
