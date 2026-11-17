@@ -90,7 +90,7 @@ class TestDropBatchIndexColumn:
         writer = RedshiftDestinationWriter(_ctx())
         client = _FakeClient(columns=["id", BATCH_INDEX_COLUMN])
 
-        await writer._drop_batch_index_column(client, "staging")  # ty: ignore[invalid-argument-type]
+        await writer._drop_batch_index_column(client, "staging")
 
         statement = client.cursor.statements[-1]
         assert "DROP COLUMN" in statement
@@ -104,6 +104,6 @@ class TestDropBatchIndexColumn:
         writer = RedshiftDestinationWriter(_ctx())
         client = _FakeClient(columns=["id"])
 
-        await writer._drop_batch_index_column(client, "staging")  # ty: ignore[invalid-argument-type]
+        await writer._drop_batch_index_column(client, "staging")
 
         assert client.cursor.statements == []
