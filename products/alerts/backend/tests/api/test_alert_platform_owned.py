@@ -703,12 +703,14 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
             format="json",
         ).json()["hog_function_ids"]
+        (stock,) = self.client.get(destinations_url).json()
 
         with patch("products.alerts.backend.presentation.views.alert.posthoganalytics.capture") as capture:
             reset = self.client.post(f"{destinations_url}reset/", {"hog_function_ids": hog_function_ids}, format="json")
             assert reset.status_code == status.HTTP_200_OK, reset.json()
             (row_only,) = self.client.get(destinations_url).json()
             assert (row_only["id"], row_only["hog_function_ids"]) == (reset.json()["id"], [])
+            assert row_only["id"] == stock["id"]
 
             customized = self.client.post(
                 f"{destinations_url}customize/", {"destination_id": row_only["id"]}, format="json"
@@ -716,7 +718,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert customized.status_code == status.HTTP_200_OK, customized.json()
         (listed,) = self.client.get(destinations_url).json()
-        assert (listed["id"], listed["hog_function_ids"]) == (None, customized.json()["hog_function_ids"])
+        assert (listed["id"], listed["hog_function_ids"]) == (row_only["id"], customized.json()["hog_function_ids"])
         (hog_function_id,) = listed["hog_function_ids"]
         assert HogFunction.objects.get(id=hog_function_id).encrypted_inputs["webhookUrl"]["value"] == (
             "https://discord.com/api/webhooks/1/secret"
