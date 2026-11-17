@@ -103,6 +103,7 @@ describe('HogFunctionHandler', () => {
             {
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
+                fetchTimeoutMs: hub.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,

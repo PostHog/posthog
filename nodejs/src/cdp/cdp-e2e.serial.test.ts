@@ -260,7 +260,9 @@ describe('CDP Consumer loop', () => {
                         level: 'info',
                         log_source: 'hog_function',
                         log_source_id: fnFetchNoFilters.id.toString(),
-                        message: `Fetch response:, {"status":200,"body":{"success":true}}`,
+                        message: expect.stringMatching(
+                            /^Fetch response:, \{"status":200,"body":\{"success":true\},"duration_ms":\d+\}$/
+                        ),
                         team_id: 2,
                     },
                 },
@@ -722,7 +724,9 @@ describe('CDP Consumer loop', () => {
                         .sort()
                 )
             ).toEqual([
-                'Fetch response:, {"status":500,"body":{"error":"Server error"}}',
+                expect.stringMatching(
+                    /^Fetch response:, \{"status":500,"body":\{"error":"Server error"\},"duration_ms":\d+\}$/
+                ),
                 expect.stringContaining('Function completed in '),
                 expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Retrying.'),
                 // CDP_FETCH_RETRIES is 2 here, so attempt 2 is the last one and no retry follows it.

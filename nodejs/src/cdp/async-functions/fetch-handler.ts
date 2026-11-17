@@ -36,6 +36,9 @@ registerAsyncFunction('fetch', {
             headers: pickBy(headers, (v) => typeof v == 'string'),
             ...(fetchOptions?.aws_sigv4 ? { aws_sigv4: fetchOptions.aws_sigv4 } : {}),
             ...(fetchOptions?.secret_headers_input ? { secret_headers_input: fetchOptions.secret_headers_input } : {}),
+            ...(typeof fetchOptions?.timeout_ms === 'number' ? { timeout_ms: fetchOptions.timeout_ms } : {}),
+            ...(typeof fetchOptions?.max_tries === 'number' ? { max_tries: fetchOptions.max_tries } : {}),
+            ...(fetchOptions?.fail_on_error === false ? { fail_on_error: false } : {}),
             // Mint the webhook id here, once per fetch call, rather than in the
             // executor: it has to survive every retry of this call (the receiver
             // dedupes on it) and it must not be shared with another fetch from the

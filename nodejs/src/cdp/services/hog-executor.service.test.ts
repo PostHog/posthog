@@ -103,6 +103,7 @@ describe('Hog Executor', () => {
             {
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
+                fetchTimeoutMs: hub.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
@@ -1614,11 +1615,12 @@ describe('Hog Executor', () => {
                 {
                     status: 200,
                     body: 'Hello, world!',
+                    duration_ms: expect.any(Number),
                 },
             ])
 
             // Now also exposed on the execResult for callers of execute()
-            expect(result.execResult).toEqual({ status: 200, body: 'Hello, world!' })
+            expect(result.execResult).toEqual({ status: 200, body: 'Hello, world!', duration_ms: expect.any(Number) })
         })
 
         it('handles failure status and retries', async () => {
@@ -1630,7 +1632,6 @@ describe('Hog Executor', () => {
             const invocation = await createFetchInvocation({
                 url: `${baseUrl}/test`,
                 method: 'GET',
-                max_tries: 2,
             })
 
             const vmStateStackLength = invocation.state.vmState!.stack.length
@@ -1667,12 +1668,7 @@ describe('Hog Executor', () => {
             // Should now be complete with failure response
             expect(result.invocation.state.vmState!.stack.length).toBe(vmStateStackLength + 1)
             const response = result.invocation.state.vmState!.stack.slice(-1)[0]
-            expect(response).toMatchInlineSnapshot(`
-                {
-                  "body": "test server error body",
-                  "status": 500,
-                }
-            `)
+            expect(response).toEqual({ status: 500, body: 'test server error body', duration_ms: expect.any(Number) })
             expect(result.invocation.queue).toBe('hog')
         })
 
@@ -1701,6 +1697,62 @@ describe('Hog Executor', () => {
             expect(result.error.message).toContain(`HTTP fetch failed on attempt ${maxRetries}`)
             expect(result.error.message).toContain('with status code 500')
             expect(result.invocation.queueScheduledAt).toBeUndefined()
+        })
+
+        it.each([
+            [
+                'an error status',
+                (_req: any, res: any) => {
+                    res.writeHead(503, { 'Content-Type': 'text/plain' })
+                    res.end('down')
+                },
+                { status: 503, body: 'down' },
+            ],
+            ['a dropped connection', (req: any) => req.socket.destroy(), { status: 500, error: expect.any(String) }],
+            // The handler never answers, so only timeout_ms ends the request.
+            ['a timeout', () => {}, { status: 500, error: expect.stringContaining('Timeout') }],
+        ])(
+            'returns %s to Hog without failing or retrying when fail_on_error is false',
+            async (_name, handler, expected) => {
+                mockRequest.mockImplementation(handler)
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/test`,
+                    method: 'GET',
+                    max_tries: 1,
+                    fail_on_error: false,
+                    timeout_ms: 100,
+                })
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toMatchObject({
+                    ...expected,
+                    duration_ms: expect.any(Number),
+                })
+            }
+        )
+
+        it('caps a longer timeout_ms at the server request timeout', async () => {
+            mockRequest.mockImplementation(() => {})
+            hub.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS = 100
+            executor = createExecutor(hub.encryptedFields)
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+                max_tries: 1,
+                fail_on_error: false,
+                timeout_ms: 60_000,
+            })
+            const result = await executor.executeFetch(invocation)
+
+            expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toMatchObject({
+                status: 500,
+                error: expect.stringContaining('Timeout'),
+            })
         })
 
         describe('aws_sigv4', () => {
@@ -2234,12 +2286,7 @@ describe('Hog Executor', () => {
             const response = result.invocation.state.vmState!.stack.slice(-1)[0]
 
             expect(result.invocation.queue).toBe('hog')
-            expect(response).toMatchInlineSnapshot(`
-                {
-                  "body": "Hello, world!",
-                  "status": 200,
-                }
-            `)
+            expect(response).toEqual({ status: 200, body: 'Hello, world!', duration_ms: expect.any(Number) })
         })
 
         it('completes fetch with body', async () => {
@@ -2265,12 +2312,7 @@ describe('Hog Executor', () => {
             const response = result.invocation.state.vmState!.stack.slice(-1)[0]
 
             expect(result.invocation.queue).toBe('hog')
-            expect(response).toMatchInlineSnapshot(`
-                {
-                  "body": "Hello, world!",
-                  "status": 200,
-                }
-            `)
+            expect(response).toEqual({ status: 200, body: 'Hello, world!', duration_ms: expect.any(Number) })
         })
 
         it('handles minimum parameters', async () => {
@@ -2289,12 +2331,7 @@ describe('Hog Executor', () => {
             const response = result.invocation.state.vmState!.stack.slice(-1)[0]
 
             expect(result.invocation.queue).toBe('hog')
-            expect(response).toMatchInlineSnapshot(`
-                {
-                  "body": "Hello, world!",
-                  "status": 200,
-                }
-            `)
+            expect(response).toEqual({ status: 200, body: 'Hello, world!', duration_ms: expect.any(Number) })
         })
 
         it('adds secret headers for certain endpoints', async () => {
@@ -2487,6 +2524,7 @@ describe('Hog Executor', () => {
                 expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({
                     status: 400,
                     body: 'backdated consent',
+                    duration_ms: expect.any(Number),
                 })
                 expect(result.logs.map((l) => ({ level: l.level, message: l.message }))).toEqual([
                     {
@@ -2514,6 +2552,7 @@ describe('Hog Executor', () => {
                 expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({
                     status: 404,
                     body: 'not found',
+                    duration_ms: expect.any(Number),
                 })
             })
 
@@ -2568,6 +2607,7 @@ describe('Hog Executor', () => {
                 expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({
                     status: 500,
                     body: 'server error',
+                    duration_ms: expect.any(Number),
                 })
                 expect(result.logs.every((l) => l.level === 'info')).toBe(true)
             })
@@ -2582,7 +2622,11 @@ describe('Hog Executor', () => {
 
                 let result = await executor.executeFetch(invocation)
                 expect(result.error).toBeUndefined()
-                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({ status: 404, body: 'a' })
+                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({
+                    status: 404,
+                    body: 'a',
+                    duration_ms: expect.any(Number),
+                })
 
                 mockRequest.mockImplementation((req: any, res: any) => {
                     res.writeHead(500, { 'Content-Type': 'text/plain' })
@@ -2598,7 +2642,11 @@ describe('Hog Executor', () => {
                     result = await executor.executeFetch(result.invocation)
                 }
                 expect(result.error).toBeUndefined()
-                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({ status: 500, body: 'b' })
+                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({
+                    status: 500,
+                    body: 'b',
+                    duration_ms: expect.any(Number),
+                })
             })
 
             it('does not ignore a 502 when config is [4xx, 500]', async () => {
@@ -2628,7 +2676,11 @@ describe('Hog Executor', () => {
 
                 const result = await executor.executeFetch(invocation)
                 expect(result.error).toBeUndefined()
-                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({ status: 200, body: 'ok' })
+                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({
+                    status: 200,
+                    body: 'ok',
+                    duration_ms: expect.any(Number),
+                })
             })
 
             it('is a no-op when ignore config is empty', async () => {
