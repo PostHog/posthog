@@ -14086,7 +14086,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Where the table's files are. Use a path relative to the source's files URL, such as `exports/events/`, `exports/events/2026/*.parquet` or `data/file.csv`, or a full URL into the same bucket. A folder reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole files URL.
+         * Where the table's files are. Use a path inside the folder of the source's files URL, such as `events/`, `events/2026/*.parquet` or `data/file.csv`, or a full URL inside that folder. A folder reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole folder. A source whose files URL names one file or a pattern can't add tables.
          * @maxLength 2048
          */
       path: string;
@@ -52997,10 +52997,10 @@ export namespace Schemas {
       readonly webhook_not_registered: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
-      /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources. */
+      /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern. */
       readonly supports_adding_tables: boolean;
       /**
-         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<prefix>/`, such as `my-bucket/exports/`. Null for other sources, or when the source's files URL can't be read.
+         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
          * @nullable
          */
       readonly table_root: string | null;
@@ -90513,10 +90513,10 @@ export namespace Schemas {
       readonly webhook_not_registered?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
-      /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources. */
+      /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern. */
       readonly supports_adding_tables?: boolean;
       /**
-         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<prefix>/`, such as `my-bucket/exports/`. Null for other sources, or when the source's files URL can't be read.
+         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
          * @nullable
          */
       readonly table_root?: string | null;

@@ -718,7 +718,7 @@ export const ExternalDataSourcesAddTableCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .max(externalDataSourcesAddTableCreateBodyPathMax)
         .describe(
-            "Where the table's files are. Use a path relative to the source's files URL, such as `exports\/events\/`, `exports\/events\/2026\/\*.parquet` or `data\/file.csv`, or a full URL into the same bucket. A folder reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole files URL."
+            "Where the table's files are. Use a path inside the folder of the source's files URL, such as `events\/`, `events\/2026\/\*.parquet` or `data\/file.csv`, or a full URL inside that folder. A folder reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole folder. A source whose files URL names one file or a pattern can't add tables."
         ),
     file_format: zod
         .enum(['infer', 'csv', 'csv_no_header', 'jsonl', 'parquet', 'delta'])

@@ -12312,11 +12312,11 @@ export namespace Schemas {
          */
         supports_column_selection: boolean;
         /**
-         * Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources.
+         * Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern.
          */
         supports_adding_tables: boolean;
         /**
-         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<prefix>/`, such as `my-bucket/exports/`. Null for other sources, or when the source's files URL can't be read.
+         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
          */
         table_root: string | null;
         /**
