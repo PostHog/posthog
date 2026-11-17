@@ -9,6 +9,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError
 from posthog.hogql.parser import parse_select
 
+from products.data_modeling.backend.logic.model_references import qualify_model_references
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
@@ -19,6 +20,7 @@ from products.data_modeling.backend.models.modeling import (
     ResolutionTimeoutError,
     get_parents_from_model_query,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 GET_PARENTS_TEST_CASES = [
     ("select events.*, persons.* from events, persons", {"events", "persons"}),
@@ -164,6 +166,57 @@ class TestGetParentsFromModelQuery(BaseTest):
         """Test that referencing a non-existent table raises QueryError."""
         with pytest.raises(QueryError, match="Unknown table"):
             get_parents_from_model_query(self.team, "test_model", "select * from some_random_view")
+
+
+class TestQualifyModelReferences(BaseTest):
+    def setUp(self):
+        super().setUp()
+        for name, origin in [
+            ("revenue", None),
+            ("marts.orders", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
+            ("wrapper", None),
+            ("shared", None),
+            ("ep_view", DataWarehouseSavedQuery.Origin.ENDPOINT),
+        ]:
+            body = "select * from revenue" if name == "wrapper" else "select 1 as id"
+            DataWarehouseSavedQuery.objects.create(team=self.team, name=name, origin=origin, query={"query": body})
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="shared",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+    @parameterized.expand(
+        [
+            ("bare", "select * from revenue -- keep me", "select * from models.revenue AS revenue -- keep me"),
+            ("backticks", "select * from `revenue`", "select * from models.`revenue` AS revenue"),
+            ("dotted", "select * from marts.orders", "select * from models.marts.orders AS marts__orders"),
+            ("already_qualified", "select * from models.revenue", "select * from models.revenue"),
+            ("alias_and_column", "select r.revenue from revenue as r", "select r.revenue from models.revenue as r"),
+            (
+                "implicit_alias_kept",
+                "select revenue.id, marts.orders.id from revenue join marts.orders on 1 = 1",
+                "select revenue.id, marts.orders.id from models.revenue AS revenue join models.marts.orders AS marts__orders on 1 = 1",
+            ),
+            (
+                "join_and_subqueries",
+                "select * from events join (select id from revenue) as r on 1 = 1\nwhere 1 in (SELECT 1 FROM marts.orders)",
+                "select * from events join (select id from models.revenue AS revenue) as r on 1 = 1\nwhere 1 in (SELECT 1 FROM models.marts.orders AS marts__orders)",
+            ),
+            ("view_body_untouched", "select * from wrapper", "select * from models.wrapper AS wrapper"),
+            ("cte", "with revenue as (select 1 as id) select * from revenue", None),
+            ("warehouse_table_holds_the_name", "select * from shared", None),
+            ("endpoint_view", "select * from ep_view", None),
+            ("unparseable", "select * from revenue where", None),
+        ]
+    )
+    def test_qualify_model_references(self, _case: str, query: str, expected: str | None):
+        database = Database.create_for(team=self.team)
+        assert qualify_model_references(query, database) == (expected if expected is not None else query)
 
 
 class TestBoundedResolver(BaseTest):

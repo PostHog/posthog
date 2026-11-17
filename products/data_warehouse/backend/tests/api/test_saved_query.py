@@ -186,6 +186,30 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertIsNotNone(saved_query["latest_history_id"])
 
+    @parameterized.expand([("create",), ("update",)])
+    def test_saving_a_model_qualifies_its_model_references(self, action: str) -> None:
+        revenue = DataWarehouseSavedQuery(team=self.team, name="revenue", query={"query": "select 1 as id"})
+        revenue.set_columns({"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}})
+        revenue.save()
+        body = {
+            "name": "child",
+            "query": {"kind": "HogQLQuery", "query": "select revenue.id from revenue -- keep me"},
+            "types": [["id", "Int64"]],
+        }
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/"
+        if action == "create":
+            response = self.client.post(url, body)
+        else:
+            child = self.client.post(url, {**body, "query": {"kind": "HogQLQuery", "query": "select 1 as id"}}).json()
+            response = self.client.patch(
+                f"{url}{child['id']}", {**body, "edited_history_id": child["latest_history_id"]}
+            )
+
+        assert response.status_code in (200, 201), response.content
+        assert response.json()["query"]["query"] == "select revenue.id from models.revenue AS revenue -- keep me"
+        stored = DataWarehouseSavedQuery.objects.get(team=self.team, name="child")
+        assert stored.query["query"] == "select revenue.id from models.revenue AS revenue -- keep me"
+
     def test_create_raw_managed_trino_view(self) -> None:
         trino_sql = 'SELECT * FROM "warehouse_catalog".production.hub_occupancy'
         with patch("posthoganalytics.feature_enabled", return_value=True):
