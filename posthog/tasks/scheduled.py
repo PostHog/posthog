@@ -73,6 +73,7 @@ from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_p
 from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_projection
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
+from posthog.tasks.user_analytics_deletion import process_user_analytics_deletions
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
@@ -1190,6 +1191,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     if settings.CLOUD_DEPLOYMENT:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="3-59/10"),
+            process_user_analytics_deletions.s(),
+            name="process user analytics deletions",
+        )
         add_periodic_task_with_expiry(
             sender,
             crontab(hour="3", minute="17"),

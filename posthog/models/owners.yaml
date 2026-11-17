@@ -1,6 +1,8 @@
 version: 1
 owners: []
 rules:
+    - match: ['/user_analytics_deletion.py', '/test/test_user_analytics_deletion.py']
+      owners: team-platform-features
     - match: '/action/'
       owners: team-product-analytics
     - match: '/activity_logging/'
