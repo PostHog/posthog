@@ -11,6 +11,7 @@ from hogli_commands.product import gh as gh_module
 from hogli_commands.product.checks import (
     BackendPackageMarkerCheck,
     CheckContext,
+    ContractCheckTaskCheck,
     FileFolderConflictsCheck,
     OrphanedTestFilesCheck,
     PackageJsonScriptsCheck,
@@ -285,10 +286,7 @@ class TestCombinedScenarios:
     def test_fully_valid_isolated_product(self, tmp_path: Path) -> None:
         ctx = _make_product(
             tmp_path,
-            scripts={
-                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
-                "backend:contract-check": "echo 'Contract files unchanged'",
-            },
+            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"},
             strict=True,
             test_files=["tests/test_api.py"],
         )
@@ -312,14 +310,43 @@ class TestCombinedScenarios:
         ctx = _make_product(
             tmp_path,
             scripts={
-                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/nonexistent -v --tb=short || true",
-                "backend:contract-check": "echo 'Contract files unchanged'",
+                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/nonexistent -v --tb=short || true"
             },
             strict=False,
         )
         result = check.run(ctx)
         # Should report: || true, nonexistent path
         assert len(result.issues) >= 2
+
+
+# ---------------------------------------------------------------------------
+# ContractCheckTaskCheck
+# ---------------------------------------------------------------------------
+
+
+class TestContractCheckTaskCheck:
+    @pytest.mark.parametrize(
+        "files,leftover",
+        [
+            ({"package.json": '{"scripts": {"backend:contract-check": "true"}}'}, "package.json"),
+            ({"turbo.json": '{"tasks": {"backend:contract-check": {"inputs": []}}}'}, "turbo.json"),
+            ({"package.json": '{"scripts": {"backend:test": "pytest"}}', "turbo.json": '{"tasks": {}}'}, None),
+        ],
+    )
+    def test_names_a_leftover_task(self, tmp_path: Path, files: dict[str, str], leftover: str | None) -> None:
+        product_dir = tmp_path / "test_product"
+        product_dir.mkdir()
+        for name, text in files.items():
+            (product_dir / name).write_text(text)
+        ctx = CheckContext(
+            name="test_product",
+            product_dir=product_dir,
+            backend_dir=product_dir / "backend",
+            has_facade_contracts=False,
+            structure={},
+        )
+        issues = ContractCheckTaskCheck().run(ctx).issues
+        assert [issue.split(" ", 1)[0] for issue in issues] == ([leftover] if leftover else [])
 
 
 # ---------------------------------------------------------------------------
