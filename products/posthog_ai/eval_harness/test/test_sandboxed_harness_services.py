@@ -337,6 +337,27 @@ def test_gateway_provisioning_requires_test_credits(requests_mock: requests_mock
     assert credits.last_request.headers["Idempotency-Key"] != credits.last_request.headers["Authorization"]
 
 
+def test_gateway_provisioning_credits_the_organization_when_the_team_route_is_gone(
+    requests_mock: requests_mock.Mocker,
+) -> None:
+    base_url = "http://localhost:18080"
+    org_id = "0190b3a1-1111-7000-8000-000000000001"
+    team_credits = requests_mock.post(f"{base_url}/internal/teams/42/credits", status_code=404, json={})
+    org_credits = requests_mock.post(f"{base_url}/internal/accounts/{org_id}/credits", json={})
+    requests_mock.get(f"{base_url}/v1/models", json={"data": [{"id": "test-model"}]})
+    requests_mock.post(f"{base_url}/v1/tokens", json={"token": "phe_test"})
+
+    with (
+        patch("products.posthog_ai.eval_harness.harness.services.call_command"),
+        patch("products.posthog_ai.eval_harness.harness.services._team_organization_id", return_value=org_id),
+    ):
+        assert provision_ai_gateway_mint_key(42, agent_model="test-model").startswith("phs_")
+
+    assert team_credits.last_request is not None and org_credits.last_request is not None
+    assert org_credits.last_request.json() == {"amount_usd": "10000", "reason": "Local eval test credits"}
+    assert org_credits.last_request.headers["Idempotency-Key"] == team_credits.last_request.headers["Idempotency-Key"]
+
+
 @pytest.mark.parametrize("relative_path", ["gateway", "./gateway"])
 def test_gateway_build_from_relative_clone_creates_the_binary_used_at_startup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative_path: str

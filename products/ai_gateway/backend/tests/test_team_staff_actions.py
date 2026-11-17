@@ -69,7 +69,7 @@ class TestTeamCredit(BaseTest):
             self._credit(amount="10")
             self._credit(amount="20")
 
-        keys = [call.args[3] for call in add_credit.call_args_list]
+        keys = [call.args[4] for call in add_credit.call_args_list]
         assert keys[0] == keys[1]
         assert keys[2] != keys[0]
 
