@@ -54,6 +54,11 @@ class TestEventsTableSwitch(SimpleTestCase):
         self.assertIsNone(modifiers.useNewEventsSchema)
         self.assertEqual(modifiers.bounceRateDurationSeconds, 30)
 
+    def test_a_person_pinned_to_legacy_reads_legacy_on_an_allowlisted_project(self) -> None:
+        self.instance_settings["CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS"] = str(self.team.pk)
+        with new_events_schema_for_request(False):
+            self.assertFalse(use_new_events_schema(self.team.pk))
+
     @parameterized.expand([(False, None, False), (True, None, True), (False, True, True), (True, False, False)])
     def test_nested_reads_inherit_the_querys_events_table(
         self, parent_schema: bool, child_schema: bool | None, expected: bool
@@ -82,14 +87,24 @@ class TestEventsTableSwitchThroughTheApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("staff", True, False, {}, True),
-            ("staff_query_pinned_to_legacy", True, False, {"useNewEventsSchema": False}, False),
-            ("staff_impersonating_a_customer", True, True, {}, True),
-            ("not_staff", False, False, {}, False),
+            ("staff", True, False, "1", None, {}, True),
+            ("staff_query_pinned_to_legacy", True, False, "1", None, {"useNewEventsSchema": False}, False),
+            ("staff_impersonating_a_customer", True, True, "1", None, {}, True),
+            ("not_staff", False, False, "1", None, {}, False),
+            ("staff_tab_on_without_the_cookie", True, False, None, "1", {}, True),
+            ("staff_tab_off_beside_the_cookie", True, False, "1", "0", {}, False),
+            ("not_staff_tab_on", False, False, None, "1", {}, False),
         ]
     )
-    def test_the_cookie_switches_a_staff_persons_requests_to_events_json(
-        self, _name: str, staff: bool, impersonating: bool, modifiers: dict[str, bool], events_json: bool
+    def test_a_staff_persons_switch_routes_their_requests(
+        self,
+        _name: str,
+        staff: bool,
+        impersonating: bool,
+        cookie: str | None,
+        tab_header: str | None,
+        modifiers: dict[str, bool],
+        events_json: bool,
     ) -> None:
         self.user.is_staff = staff
         self.user.save()
@@ -103,7 +118,10 @@ class TestEventsTableSwitchThroughTheApi(APIBaseTest):
                 follow=True,
             )
             self.assertEqual(self.client.get("/api/users/@me").json()["email"], customer.email)
-        self.client.cookies[NEW_EVENTS_SCHEMA_COOKIE] = "1"
+        if cookie is not None:
+            self.client.cookies[NEW_EVENTS_SCHEMA_COOKIE] = cookie
+        if tab_header is not None:
+            self.client.credentials(HTTP_X_POSTHOG_NEW_EVENTS_SCHEMA=tab_header)
 
         execute = self._post_query(SQL_ON_EVENTS, modifiers)
         self.assertEqual("events_json" in execute.call_args.args[0], events_json)

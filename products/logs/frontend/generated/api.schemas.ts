@@ -785,9 +785,10 @@ export const PagerDutyRegionEnumApi = {
 } as const
 
 export interface LogsAlertDestinationConfigApi {
+    /** The HogFunction IDs that delete this destination as a group. A destination moved off HogFunctions keeps the IDs it had, though those HogFunctions are deleted. */
     hog_function_ids: string[]
     /**
-     * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an empty `hog_function_ids`, and is deleted by this ID.
+     * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination added with no HogFunctions has an empty `hog_function_ids`, and is deleted by this ID.
      * @nullable
      */
     id: string | null

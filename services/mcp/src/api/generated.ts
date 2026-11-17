@@ -117,6 +117,17 @@ export namespace Schemas {
       aliases?: string[];
     }
 
+    export interface AEOBrandSentimentSentence {
+      /** Offset of the sentence's first character in 'answer_text', counted in Unicode code points. */
+      start: number;
+      /** Offset just past the sentence's last character, counted in Unicode code points. */
+      end: number;
+      /** Sentiment of this sentence: 'positive', 'neutral' or 'negative'. */
+      label: string;
+      /** Classifier confidence (0-1) in 'label'. */
+      score: number;
+    }
+
     export interface AEOCompetitorCandidate {
       /** Brand id. Confirm the brand as a competitor or ignore it with aeo_brands_partial_update. */
       brand_id: string;
@@ -538,6 +549,8 @@ export namespace Schemas {
     }
 
     export interface AEOPromptCheck {
+      /** The sentences of 'answer_text' that name the brand, each with its own sentiment, in answer order. 'brand_sentiment' is their average. Empty when 'brand_sentiment' is null, and on checks scored before sentences were stored. */
+      brand_sentiment_sentences: AEOBrandSentimentSentence[];
       /** Check id. */
       id: string;
       /** Groups the checks of one daily run across prompts and engines. */
@@ -598,6 +611,8 @@ export namespace Schemas {
     }
 
     export interface AEOPromptCitation {
+      /** The sentences of 'answer_text' that name the brand, each with its own sentiment, in answer order. 'brand_sentiment' is their average. Empty when 'brand_sentiment' is null, and on checks scored before sentences were stored. */
+      brand_sentiment_sentences: AEOBrandSentimentSentence[];
       /** Check id. */
       id: string;
       /** Groups the checks of one daily run across prompts and engines. */
@@ -16387,6 +16402,18 @@ export namespace Schemas {
       Recent: 'recent',
     } as const;
 
+    export interface AnomalySeriesPoint {
+      /** The start of the scored bucket, in the project timezone. */
+      bucket_start: string;
+      /**
+         * The series value of the bucket at scoring time.
+         * @nullable
+         */
+      value: number | null;
+      /** Whether the detector flagged the bucket. */
+      flag: boolean;
+    }
+
     export interface AnomalySeries {
       /** The numeric id of the insight. */
       insight_id: number;
@@ -16454,6 +16481,8 @@ export namespace Schemas {
       last_flagged_bucket: string | null;
       /** Up to 5 flagged buckets in the range, newest first. */
       flagged_points: AnomalyFlaggedPoint[];
+      /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
+      points?: AnomalySeriesPoint[];
     }
 
     export interface AnomalySearchResponse {
@@ -29215,13 +29244,13 @@ export namespace Schemas {
       ready_at: string | null;
       /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
       build: CohortHistoryBuild | null;
-      /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+      /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
        *
        * * `history_over_limit` - History over limit
        * * `too_large_to_build` - Too large to build */
       reason: CohortRealtimeUnavailableReasonEnum | null;
       /**
-         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
          * @nullable
          */
       history_limit_days: number | null;
@@ -29463,7 +29492,7 @@ export namespace Schemas {
     }
 
     export interface CohortRealtimeRequest {
-      /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
+      /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
       enabled: boolean;
     }
 
@@ -54902,6 +54931,11 @@ export namespace Schemas {
       readonly notebook: string | null;
     }
 
+    export interface FirehydrantAlertsIncidentSignalExtra {
+      status: string | null;
+      starts_at: string | null;
+    }
+
     export interface FirehydrantIncidentSignalExtra {
       severity: string | null;
       priority: string | null;
@@ -56339,6 +56373,13 @@ export namespace Schemas {
       channel: string | null;
       tags: unknown[];
       created_datetime: string | null;
+    }
+
+    export interface GrafanaIrmAlertGroupsIncidentSignalExtra {
+      state: string | null;
+      alerts_count: string | null;
+      integration_id: string | null;
+      created_at: string | null;
     }
 
     export interface GrafanaIrmIncidentSignalExtra {
@@ -63467,6 +63508,14 @@ export namespace Schemas {
      * * `statuspage` - Statuspage
      * * `cronitor` - Cronitor
      * * `instatus` - Instatus
+     * * `rootly` - Rootly
+     * * `zenduty` - Zenduty
+     * * `splunk_observability_cloud` - Splunk Observability Cloud
+     * * `uptimerobot` - UptimeRobot
+     * * `rootly_alerts` - Rootly alerts
+     * * `incident_io_alerts` - incident.io alerts
+     * * `firehydrant_alerts` - FireHydrant alerts
+     * * `grafana_irm_alert_groups` - Grafana IRM alert groups
      * * `asana` - Asana
      * * `monday` - monday.com
      * * `plane` - Plane
@@ -63617,6 +63666,14 @@ export namespace Schemas {
       Statuspage: 'statuspage',
       Cronitor: 'cronitor',
       Instatus: 'instatus',
+      Rootly: 'rootly',
+      Zenduty: 'zenduty',
+      SplunkObservabilityCloud: 'splunk_observability_cloud',
+      Uptimerobot: 'uptimerobot',
+      RootlyAlerts: 'rootly_alerts',
+      IncidentIoAlerts: 'incident_io_alerts',
+      FirehydrantAlerts: 'firehydrant_alerts',
+      GrafanaIrmAlertGroups: 'grafana_irm_alert_groups',
       Asana: 'asana',
       Monday: 'monday',
       Plane: 'plane',
@@ -63817,6 +63874,14 @@ export namespace Schemas {
        * * `statuspage` - Statuspage
        * * `cronitor` - Cronitor
        * * `instatus` - Instatus
+       * * `rootly` - Rootly
+       * * `zenduty` - Zenduty
+       * * `splunk_observability_cloud` - Splunk Observability Cloud
+       * * `uptimerobot` - UptimeRobot
+       * * `rootly_alerts` - Rootly alerts
+       * * `incident_io_alerts` - incident.io alerts
+       * * `firehydrant_alerts` - FireHydrant alerts
+       * * `grafana_irm_alert_groups` - Grafana IRM alert groups
        * * `asana` - Asana
        * * `monday` - monday.com
        * * `plane` - Plane
@@ -64107,6 +64172,12 @@ export namespace Schemas {
          * @nullable
          */
       people: InboxSummaryPerson[] | null;
+    }
+
+    export interface IncidentIoAlertsIncidentSignalExtra {
+      status: string | null;
+      alert_source_id: string | null;
+      created_at: string | null;
     }
 
     export interface IncidentIoIncidentSignalExtra {
@@ -64758,15 +64829,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**
@@ -68279,9 +68350,10 @@ export namespace Schemas {
     export type LogsAlertConfigurationDetailAnnotations = {[key: string]: string};
 
     export interface LogsAlertDestinationConfig {
+      /** The HogFunction IDs that delete this destination as a group. A destination moved off HogFunctions keeps the IDs it had, though those HogFunctions are deleted. */
       hog_function_ids: string[];
       /**
-         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an empty `hog_function_ids`, and is deleted by this ID.
+         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination added with no HogFunctions has an empty `hog_function_ids`, and is deleted by this ID.
          * @nullable
          */
       id: string | null;
@@ -69500,15 +69572,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -69563,15 +69635,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**
@@ -70414,6 +70486,21 @@ export namespace Schemas {
       readonly self_retries: readonly MCPClusterSelfRetry[];
     }
 
+    export interface MCPIntentClusterLongTail {
+      /** Number of intents whose clusters fell below the minimum cluster size. */
+      readonly intent_count: number;
+      /** Sessions represented by the long-tail intents. */
+      readonly session_count: number;
+      /** Tool calls across all long-tail intents. */
+      readonly call_count: number;
+      /** Error responses across all long-tail intents. */
+      readonly error_count: number;
+      /** Error rate across long-tail tool calls, from 0 to 100. */
+      readonly error_rate_pct: number;
+      /** Up to ten long-tail intent strings, by call volume desc. Empty when intent text is redacted. */
+      readonly sample_intents: readonly string[];
+    }
+
     /**
      * * `idle` - Idle
      * * `computing` - Computing
@@ -70427,6 +70514,19 @@ export namespace Schemas {
       Computing: 'computing',
       Error: 'error',
     } as const;
+
+    export interface MCPRecurringIntent {
+      /** The intent text repeated verbatim across sessions. Empty when intent text is redacted. */
+      readonly intent_text: string;
+      /** Sessions in the window that opened with this intent. */
+      readonly session_count: number;
+      /** Tool calls across those sessions. */
+      readonly call_count: number;
+      /** Error responses across those sessions. */
+      readonly error_count: number;
+      /** Error rate across those sessions' tool calls, from 0 to 100. */
+      readonly error_rate_pct: number;
+    }
 
     export interface MCPToolPivotCompetitor {
       /** The other tool with the largest share of this cluster's calls. */
@@ -70594,8 +70694,14 @@ export namespace Schemas {
       readonly last_computed_at: string | null;
       /** Email of the user who triggered the latest recompute, empty for system-triggered runs. */
       readonly last_computed_by_email: string;
-      /** All clusters in the snapshot. */
+      /** Clusters that met the minimum member count, by call volume desc. */
       readonly clusters: readonly MCPIntentCluster[];
+      /** Aggregate of intents whose clusters fell below the minimum member count. Null when every cluster met it, on older snapshots, and on tool-scoped responses. */
+      readonly long_tail: MCPIntentClusterLongTail | null;
+      /** Intent texts that open three or more sessions verbatim, which is automated traffic such as scheduled agents and cron runs. Kept out of the clusters and ranked by session count desc. Empty on older snapshots and on tool-scoped responses. */
+      readonly recurring: readonly MCPRecurringIntent[];
+      /** True when property access control hides $mcp_intent from the requesting user. Every intent string in the response is then empty. */
+      readonly intent_text_redacted: boolean;
       /** Tool-centric pivot of the clusters: per tool, the intents it serves, capture per cluster, contested score, discovery rate, and description fit. Empty on snapshots computed before the per-call pipeline; recompute to populate. */
       readonly tools: readonly MCPToolPivot[];
       /** Tool pairs competing for the same intent clusters, by contested call volume desc, capped at 50. */
@@ -72606,6 +72712,11 @@ export namespace Schemas {
       Auto: 'auto',
     } as const;
 
+    export interface MetricAvailability {
+      /** Whether the project has any live metric, counted before per-table access checks. */
+      has_metrics: boolean;
+    }
+
     /**
      * * `precise` - Precise
      * * `coarse` - Coarse
@@ -73044,15 +73155,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -73065,6 +73176,11 @@ export namespace Schemas {
       labels?: MetricsPlatformAlertConfigurationCreateLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: MetricsPlatformAlertConfigurationCreateAnnotations;
+      /**
+         * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+         * @minimum 1
+         */
+      check_interval_minutes?: number;
     }
 
     /**
@@ -73107,15 +73223,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**
@@ -73128,6 +73244,11 @@ export namespace Schemas {
       labels?: MetricsPlatformAlertConfigurationEditLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: MetricsPlatformAlertConfigurationEditAnnotations;
+      /**
+         * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+         * @minimum 1
+         */
+      check_interval_minutes?: number;
     }
 
     export interface MetricsRecordingRule {
@@ -91218,15 +91339,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -91673,15 +91794,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -92039,15 +92160,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -92060,6 +92181,11 @@ export namespace Schemas {
       labels?: PatchedMetricsPlatformAlertConfigurationEditLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: PatchedMetricsPlatformAlertConfigurationEditAnnotations;
+      /**
+         * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+         * @minimum 1
+         */
+      check_interval_minutes?: number;
     }
 
     export interface PatchedMetricsRecordingRuleUpdate {
@@ -92667,15 +92793,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -92740,15 +92866,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -92825,15 +92951,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -92971,6 +93097,16 @@ export namespace Schemas {
        * * `off` - Off
        * * `serving` - Serving */
       access: RealtimeCohortsAccessEnum;
+      /**
+         * How many cohorts in this project have realtime on. Null when `access` is `off`.
+         * @nullable
+         */
+      cohorts_used: number | null;
+      /**
+         * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+         * @nullable
+         */
+      max_cohorts: number | null;
     }
 
     export interface TeamRevenueAnalyticsConfig {
@@ -93961,6 +94097,8 @@ export namespace Schemas {
       readonly realtime_cohorts?: TeamRealtimeCohorts;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
+      /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+      readonly flag_calls_only_in_flag_evaluations?: boolean;
       /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
       readonly api_host?: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
@@ -98486,15 +98624,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -98549,15 +98687,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -98612,15 +98750,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods?: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm?: number;
       /**
@@ -98677,15 +98815,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**
@@ -98740,15 +98878,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**
@@ -98803,15 +98941,15 @@ export namespace Schemas {
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
-         * Number of recent checks considered when deciding to fire.
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 60.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       evaluation_periods: number;
       /**
          * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
          * @minimum 1
-         * @maximum 10
+         * @maximum 60
          */
       datapoints_to_alarm: number;
       /**
@@ -100443,6 +100581,8 @@ export namespace Schemas {
       readonly realtime_cohorts: TeamRealtimeCohorts;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+      readonly flag_calls_only_in_flag_evaluations: boolean;
       /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
       readonly api_host: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
@@ -108155,6 +108295,14 @@ export namespace Schemas {
      * * `statuspage` - statuspage
      * * `cronitor` - cronitor
      * * `instatus` - instatus
+     * * `rootly` - rootly
+     * * `zenduty` - zenduty
+     * * `splunk_observability_cloud` - splunk_observability_cloud
+     * * `uptimerobot` - uptimerobot
+     * * `rootly_alerts` - rootly_alerts
+     * * `incident_io_alerts` - incident_io_alerts
+     * * `firehydrant_alerts` - firehydrant_alerts
+     * * `grafana_irm_alert_groups` - grafana_irm_alert_groups
      * * `asana` - asana
      * * `monday` - monday
      * * `plane` - plane
@@ -108305,6 +108453,14 @@ export namespace Schemas {
       Statuspage: 'statuspage',
       Cronitor: 'cronitor',
       Instatus: 'instatus',
+      Rootly: 'rootly',
+      Zenduty: 'zenduty',
+      SplunkObservabilityCloud: 'splunk_observability_cloud',
+      Uptimerobot: 'uptimerobot',
+      RootlyAlerts: 'rootly_alerts',
+      IncidentIoAlerts: 'incident_io_alerts',
+      FirehydrantAlerts: 'firehydrant_alerts',
+      GrafanaIrmAlertGroups: 'grafana_irm_alert_groups',
       Asana: 'asana',
       Monday: 'monday',
       Plane: 'plane',
@@ -108652,6 +108808,40 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface RootlyIncidentSignalExtra {
+      status: string | null;
+      severity_name: string | null;
+      kind: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
+    export interface ZendutyIncidentSignalExtra {
+      incident_number: string | null;
+      status: string | null;
+      urgency: string | null;
+      creation_date: string | null;
+    }
+
+    export interface SplunkObservabilityCloudIncidentSignalExtra {
+      severity: string | null;
+      anomaly_state: string | null;
+      triggered_at: string | null;
+    }
+
+    export interface UptimerobotIncidentSignalExtra {
+      status: string | null;
+      type: string | null;
+      started_at: string | null;
+    }
+
+    export interface RootlyAlertsIncidentSignalExtra {
+      status: string | null;
+      source: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
     export interface SonarcloudScannerFindingSignalExtra {
       severity: string | null;
       type: string | null;
@@ -108772,7 +108962,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | RootlyIncidentSignalExtra | ZendutyIncidentSignalExtra | SplunkObservabilityCloudIncidentSignalExtra | UptimerobotIncidentSignalExtra | RootlyAlertsIncidentSignalExtra | IncidentIoAlertsIncidentSignalExtra | FirehydrantAlertsIncidentSignalExtra | GrafanaIrmAlertGroupsIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -108882,6 +109072,14 @@ export namespace Schemas {
        * * `statuspage` - statuspage
        * * `cronitor` - cronitor
        * * `instatus` - instatus
+       * * `rootly` - rootly
+       * * `zenduty` - zenduty
+       * * `splunk_observability_cloud` - splunk_observability_cloud
+       * * `uptimerobot` - uptimerobot
+       * * `rootly_alerts` - rootly_alerts
+       * * `incident_io_alerts` - incident_io_alerts
+       * * `firehydrant_alerts` - firehydrant_alerts
+       * * `grafana_irm_alert_groups` - grafana_irm_alert_groups
        * * `asana` - asana
        * * `monday` - monday
        * * `plane` - plane
@@ -110095,7 +110293,101 @@ export namespace Schemas {
       Compatibility: 'compatibility',
     } as const;
 
+    /**
+     * * `addressed` - Addressed
+     * * `reacted` - Reacted
+     * * `ignored` - Ignored
+     */
+    export type ReviewFindingOutcomeKindEnum = typeof ReviewFindingOutcomeKindEnum[keyof typeof ReviewFindingOutcomeKindEnum];
+
+
+    export const ReviewFindingOutcomeKindEnum = {
+      Addressed: 'addressed',
+      Reacted: 'reacted',
+      Ignored: 'ignored',
+    } as const;
+
+    /**
+     * * `judge_confirmed` - A judge confirmed the fix
+     * * `judge_rejected` - A judge found no fix
+     * * `comment_reply` - A person replied
+     * * `comment_reply_agent` - An agent replied
+     * * `comment_reaction` - A person reacted
+     * * `no_signal` - No signal
+     * * `judge_budget_exhausted` - Not judged
+     * * `judge_failed` - The judge failed
+     */
+    export type ReviewFindingOutcomeMethodEnum = typeof ReviewFindingOutcomeMethodEnum[keyof typeof ReviewFindingOutcomeMethodEnum];
+
+
+    export const ReviewFindingOutcomeMethodEnum = {
+      JudgeConfirmed: 'judge_confirmed',
+      JudgeRejected: 'judge_rejected',
+      CommentReply: 'comment_reply',
+      CommentReplyAgent: 'comment_reply_agent',
+      CommentReaction: 'comment_reaction',
+      NoSignal: 'no_signal',
+      JudgeBudgetExhausted: 'judge_budget_exhausted',
+      JudgeFailed: 'judge_failed',
+    } as const;
+
+    /**
+     * * `positive` - Positive
+     * * `negative` - Negative
+     * * `mixed` - Mixed
+     */
+    export type ReviewFindingReactionSentimentEnum = typeof ReviewFindingReactionSentimentEnum[keyof typeof ReviewFindingReactionSentimentEnum];
+
+
+    export const ReviewFindingReactionSentimentEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+      Mixed: 'mixed',
+    } as const;
+
+    export interface ReviewFindingOutcome {
+      /** What happened to the published finding by the time its pull request merged. `reacted`: a person or another agent replied to or reacted on its comment. `addressed`: a later commit changed the finding's lines and a judge confirmed that the change fixes it. `ignored`: neither.
+       *
+       * * `addressed` - Addressed
+       * * `reacted` - Reacted
+       * * `ignored` - Ignored */
+      outcome: ReviewFindingOutcomeKindEnum;
+      /** The signal that decided `outcome`. `judge_confirmed` gives `addressed`. `comment_reply`, `comment_reply_agent` and `comment_reaction` give `reacted`. `judge_rejected` (the lines changed but the judge found no fix), `no_signal` (nothing touched the lines), `judge_budget_exhausted` and `judge_failed` (the judge did not rule) give `ignored`.
+       *
+       * * `judge_confirmed` - A judge confirmed the fix
+       * * `judge_rejected` - A judge found no fix
+       * * `comment_reply` - A person replied
+       * * `comment_reply_agent` - An agent replied
+       * * `comment_reaction` - A person reacted
+       * * `no_signal` - No signal
+       * * `judge_budget_exhausted` - Not judged
+       * * `judge_failed` - The judge failed */
+      method: ReviewFindingOutcomeMethodEnum;
+      /** The commit the finding was published at, the base of the diff the outcome was judged on. */
+      reviewed_head: string;
+      /** The pull request's head commit when it merged. */
+      final_head: string;
+      /** The tone of the reactions on the finding's comment, without PostHog Review's own. `positive`: 👍, ❤️, 🎉 or 🚀. `negative`: 👎 or 😕. `mixed`: both. Null when no reaction carries a tone.
+       *
+       * * `positive` - Positive
+       * * `negative` - Negative
+       * * `mixed` - Mixed */
+      reaction_sentiment: ReviewFindingReactionSentimentEnum | null;
+      /**
+         * The start of the first reply to the finding's comment that PostHog Review did not write, such as 'Fixed in <sha>' or 'Leaving this as is'. Null without a reply.
+         * @nullable
+         */
+      reply_excerpt: string | null;
+      /**
+         * Whether GitHub showed the finding's comment as outdated at merge, because a push changed the code under it. Null when the comment was not found on the pull request.
+         * @nullable
+         */
+      comment_outdated: boolean | null;
+    }
+
     export interface ReviewFinding {
+      /** The finding's id, unique within the review: it starts with the turn that raised it. */
+      issue_key: string;
       /** One-line summary of the finding. */
       title: string;
       /** Repository-relative path of the affected file. */
@@ -110137,6 +110429,8 @@ export namespace Schemas {
       validator_category: ValidatorCategoryEnum | null;
       /** The validator's argumentation for keeping or dismissing the finding. */
       validator_note: string;
+      /** What the pull request did about the finding, decided once after it merged. Null while the pull request is open, when it closed without merging, for a dismissed finding, and until the hourly outcome sweep reaches it. The sweep finds merges through the project's GitHub data warehouse source, so a project without one gets no outcomes. */
+      outcome: ReviewFindingOutcome | null;
     }
 
     /**
@@ -117003,6 +117297,28 @@ export namespace Schemas {
       Ready: 'ready',
     } as const;
 
+    export interface SiteStyle {
+      /** Hex color of the page surface behind its main content. */
+      background_color: string;
+      /** Hex color of the page's main text. */
+      text_color: string;
+      /**
+         * Hex background color of the page's most prominent button. Null when none was found.
+         * @nullable
+         */
+      button_color: string | null;
+      /**
+         * Hex text color of that button. Null when no button was found.
+         * @nullable
+         */
+      button_text_color: string | null;
+      /**
+         * Corner radius of that button in CSS pixels. Null when no button was found.
+         * @nullable
+         */
+      button_border_radius: number | null;
+    }
+
     export interface SiteSnapshot {
       /** `ready` when the snapshot image can be loaded, `rendering` while it is being created, `unavailable` when no recent session recording matches the survey or the user cannot view recordings.
        *
@@ -117025,6 +117341,8 @@ export namespace Schemas {
          * @nullable
          */
       viewport_width: number | null;
+      /** Colors read from the snapshot's page, to suggest a survey appearance that matches the site. Null until the snapshot is ready, or when the page's colors could not be read. */
+      site_style: SiteStyle | null;
     }
 
     export interface SlackAppChannelJoinResult {
@@ -118026,7 +118344,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -118038,7 +118356,7 @@ export namespace Schemas {
          * @maxItems 50
          */
       team_ids: number[];
-      /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2. */
+      /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams. The events table keeps a gap for those teams for the time the organization spent on 2. */
       allow_downgrade?: boolean;
       /** Report what the write would change, and write nothing. */
       dry_run?: boolean;
@@ -118063,8 +118381,8 @@ export namespace Schemas {
       organization_name: string;
       /** Teams of the organization. They all read the organization's mode. */
       team_count: number;
-      /** Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures. */
-      running_experiments_on_feature_flag_called: number;
+      /** Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes, so those reads find no new calls. */
+      running_experiments_needing_flag_calls_in_events: number;
       /** True when the write moved the organization to the target mode, or would on a dry run. */
       changed: boolean;
       /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
@@ -118108,7 +118426,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -144988,6 +145306,10 @@ export namespace Schemas {
      */
     group_by?: SignalsAnomaliesSearchRetrieveGroupBy;
     /**
+     * Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. Costs one more query. Has no effect with `group_by: insight`.
+     */
+    include_points?: boolean;
+    /**
      * Only the series of this insight, by numeric id.
      */
     insight_id?: number;
@@ -146304,6 +146626,22 @@ export namespace Schemas {
      * @minLength 1
      */
     device: SurveysSiteSnapshotRetrieveDevice;
+    /**
+     * URL condition to use instead of the survey's saved one, for an editor with unsaved targeting. Empty means every page. Leave out to use the saved targeting.
+     */
+    url?: string;
+    /**
+     * How `url` matches a page URL. Defaults to `icontains`. Ignored without `url`.
+     *
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * @minLength 1
+     */
+    url_match_type?: SurveysSiteSnapshotRetrieveUrlMatchType;
     };
 
     export type SurveysSiteSnapshotRetrieveDevice = typeof SurveysSiteSnapshotRetrieveDevice[keyof typeof SurveysSiteSnapshotRetrieveDevice];
@@ -146312,6 +146650,18 @@ export namespace Schemas {
     export const SurveysSiteSnapshotRetrieveDevice = {
       Desktop: 'desktop',
       Mobile: 'mobile',
+    } as const;
+
+    export type SurveysSiteSnapshotRetrieveUrlMatchType = typeof SurveysSiteSnapshotRetrieveUrlMatchType[keyof typeof SurveysSiteSnapshotRetrieveUrlMatchType];
+
+
+    export const SurveysSiteSnapshotRetrieveUrlMatchType = {
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
     } as const;
 
     export type SurveysStatsRetrieveParams = {

@@ -148,5 +148,11 @@ describe('heatmapCaptureLogic', () => {
             expectedMessage,
             expect.objectContaining({ toastId: 'heatmap-saved-hm123' })
         )
+
+        const openSpy = jest.spyOn(window, 'open').mockReturnValue(null)
+        const [, { button }] = (lemonToast[expectedToast] as jest.Mock).mock.calls[0]
+        button.action()
+        expect(openSpy).toHaveBeenCalledWith(`${toolbarConfigLogic.values.uiHost}/project/2/heatmaps/hm123`, '_blank')
+        openSpy.mockRestore()
     })
 })
