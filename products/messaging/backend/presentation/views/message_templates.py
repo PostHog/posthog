@@ -1168,6 +1168,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                 "transactional email api send",
                 {
                     "mcp_intent": sanitize_header_value(request.headers.get(ACTIVITY_LOG_INTENT_HEADER)),
+                    "migrated_from": sanitize_header_value(request.headers.get("X-PostHog-Migrated-From")),
                     "team_id": self.team_id,
                     "auth_method": "project_secret_api_key"
                     if is_authenticated_via_project_secret_api_key(request)

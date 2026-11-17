@@ -368,9 +368,9 @@ class TestTransactionalEmail(APIBaseTest):
                 "user_agent",
                 "send_email",
                 {},
-                {"User-Agent": "PostHog-Node/5.9.1 (node v22)"},
+                {"User-Agent": "PostHog-Node/5.9.1 (node v22)", "X-PostHog-Migrated-From": "resend"},
                 202,
-                {"client": "posthog-node", "source": "api"},
+                {"client": "posthog-node", "source": "api", "migrated_from": "resend"},
             ),
             (
                 "header_over_user_agent",
