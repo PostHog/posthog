@@ -1,5 +1,8 @@
+import { logger } from '~/common/utils/logger'
+
 import {
     FakeSesEndpoint,
+    SES_ACCESS_DENIED,
     SES_REJECTED,
     SES_SENDING_RATE,
     SES_SERVER_ERROR,
@@ -116,6 +119,21 @@ describe('SandboxSesClient', () => {
         await expect(client.send(message, tags)).resolves.toEqual(expected)
         expect(ses.attempts).toBe(1)
         expect(ses.delivered).toEqual([])
+    })
+
+    it('logs the reason SES gives for refusing a send', async () => {
+        const warn = jest.spyOn(logger, 'warn')
+        ses.replyAlways(SES_ACCESS_DENIED)
+
+        await expect(client.send(message, tags)).resolves.toEqual({ status: 'failed', reason: 'ses_rejected' })
+        expect(warn).toHaveBeenCalledWith(
+            'Sandbox SES send failed',
+            expect.objectContaining({
+                error: 'AccessDeniedException',
+                httpStatusCode: 403,
+                message: SES_ACCESS_DENIED.message,
+            })
+        )
     })
 
     it('gives up on a send SES never answers and retries it later', async () => {

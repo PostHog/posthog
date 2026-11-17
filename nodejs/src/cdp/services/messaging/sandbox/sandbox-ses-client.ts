@@ -63,6 +63,7 @@ export class SandboxSesClient {
             const metadata = (error as { $metadata?: { httpStatusCode?: number; requestId?: string } })?.$metadata
             logger.warn('Sandbox SES send failed', {
                 error: error instanceof Error ? error.name : String(error),
+                message: error instanceof Error ? error.message : undefined,
                 httpStatusCode: metadata?.httpStatusCode,
                 requestId: metadata?.requestId,
                 teamId: tags.teamId,
