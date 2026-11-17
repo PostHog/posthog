@@ -77,6 +77,30 @@ describe('TransactionalEmailsTable', () => {
         }
     )
 
+    it('tells a team with emails that transactional emails never wait for the sending allowance', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/': { results: [] },
+                '/api/projects/:team_id/transactional_code_emails/': [
+                    codeEmail('password-reset', AccessControlLevel.Editor),
+                ],
+                '/api/projects/:team_id/tags': [],
+            },
+        })
+        initKeaTests()
+        render(
+            <Provider>
+                <TransactionalEmailsTable />
+            </Provider>
+        )
+
+        expect(await screen.findByText(/sent even when your daily sending allowance is used up/)).toBeInTheDocument()
+        expect(screen.getByRole('link', { name: /How sending allowances work/ })).toHaveAttribute(
+            'href',
+            'https://posthog.com/docs/workflows/sending-reputation#do-transactional-emails-count-against-the-allowance'
+        )
+    })
+
     it('says the emails failed to load instead of showing the first-run intro, and loads them on retry', async () => {
         let templatesLoad: 'fails' | 'succeeds' = 'fails'
         useMocks({

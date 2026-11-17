@@ -36,6 +36,9 @@ import { TransactionalTemplatesLoadError } from './TransactionalTemplatesLoadErr
 // Below this width the table keeps only the name and the sparkline, so it fits beside an open side panel.
 const COLUMN_BREAKPOINTS = { 0: 'narrow', 760: 'wide' } as const
 
+const SENDING_ALLOWANCE_DOCS_URL =
+    'https://posthog.com/docs/workflows/sending-reputation#do-transactional-emails-count-against-the-allowance'
+
 export function TransactionalEmailsTable(): JSX.Element {
     const {
         hasNoEmails,
@@ -307,6 +310,12 @@ export function TransactionalEmailsTable(): JSX.Element {
                           : 'No transactional emails'
                 }
             />
+            <p className="text-xs text-secondary mb-0">
+                Transactional emails are sent even when your daily sending allowance is used up.{' '}
+                <Link to={SENDING_ALLOWANCE_DOCS_URL} target="_blank">
+                    How sending allowances work
+                </Link>
+            </p>
         </div>
     )
 }
