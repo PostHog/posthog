@@ -4,7 +4,9 @@ import { useMemo } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { experimentLogic, getSectionMetricUuids } from 'scenes/experiments/experimentLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -86,6 +88,7 @@ export function SummarizeExperimentButton({ iconOnly = false }: { iconOnly?: boo
     const { openMax } = useExperimentSummaryMaxTool()
     const { experiment, hasMinimumExposureForResults, exposures } = useValues(experimentLogic)
     const { reportExperimentAiSummaryRequested } = useActions(experimentLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     if (!openMax) {
         return null
     }
@@ -112,6 +115,23 @@ export function SummarizeExperimentButton({ iconOnly = false }: { iconOnly?: boo
     }
 
     const totalExposures = getTotalExposures(exposures)
+    const disabledReason = hasMinimumExposureForResults
+        ? undefined
+        : `Summaries need at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures. This experiment has ${totalExposures}.`
+
+    if (todayRailNav) {
+        return (
+            <Button
+                variant="outline"
+                data-attr="experiment-summarize-results"
+                disabledReason={disabledReason}
+                onClick={summarize}
+            >
+                <IconSparkles />
+                Summarize with PostHog AI
+            </Button>
+        )
+    }
 
     return (
         <LemonButton
@@ -119,11 +139,7 @@ export function SummarizeExperimentButton({ iconOnly = false }: { iconOnly?: boo
             size="small"
             icon={<IconSparkles className="text-ai" />}
             data-attr="experiment-summarize-results"
-            disabledReason={
-                hasMinimumExposureForResults
-                    ? undefined
-                    : `Summaries need at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures. This experiment has ${totalExposures}.`
-            }
+            disabledReason={disabledReason}
             onClick={summarize}
         >
             Summarize with PostHog AI
