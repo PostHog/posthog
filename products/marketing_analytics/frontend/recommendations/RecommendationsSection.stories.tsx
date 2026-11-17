@@ -389,6 +389,11 @@ export const ModalInstructions: Story = {
 
 export const ConversionActionsInModal: Story = {
     parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATION_CONVERSION_ACTIONS,
+        ],
         msw: {
             mocks: {
                 ...MOCKS,

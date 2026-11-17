@@ -43,7 +43,7 @@ export function MarketingAnalyticsSettings({
             <SceneDivider />
             <AttributionSettings />
             <SceneDivider />
-            <FlaggedFeature flag={FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS}>
+            <FlaggedFeature flag={FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATION_CONVERSION_ACTIONS}>
                 <>
                     <ConversionActionsSettings />
                     <SceneDivider />

@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 
 import { LemonButton, LemonSkeleton, Popover } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { RecommendationsShownState } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -31,6 +32,7 @@ export function RecommendationsSection(): JSX.Element {
         shownState,
         hasAdsSource,
     } = useValues(recommendationsLogic)
+    const canChooseConversionActions = useFeatureFlag('MARKETING_ANALYTICS_RECOMMENDATION_CONVERSION_ACTIONS')
     const { openRecommendations, dismissIntro, reportRecommendationsShown, loadData } = useActions(recommendationsLogic)
     // Hands the current query to the node, which runs it again when the sources or dates change.
     useMountedLogic(dataNodeLogic(dataNodeProps))
@@ -118,7 +120,7 @@ export function RecommendationsSection(): JSX.Element {
                 />
             ) : null}
             <RecommendationsModal />
-            {hasAdsSource && <ConversionActionsModal />}
+            {hasAdsSource && canChooseConversionActions && <ConversionActionsModal />}
         </div>
     )
 }
