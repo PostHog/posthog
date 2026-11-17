@@ -48,7 +48,6 @@ from products.managed_warehouse.backend.facade.api import (
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeCompiledQuery,
     DuckLakeS3Secret,
-    StoredColumnType,
     TrinoIncrementalWrite,
 )
 from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
@@ -174,7 +173,7 @@ def _is_managed_warehouse_shadow_flag_enabled(team: Team) -> bool:
         return False
 
 
-def _is_managed_warehouse_shadow_enabled(team: Team) -> bool:
+def is_managed_warehouse_shadow_enabled(team: Team) -> bool:
     if not _is_managed_warehouse_shadow_flag_enabled(team):
         return False
 
@@ -221,7 +220,7 @@ def _get_shadow_input_objects(inputs: ManagedWarehouseShadowInputs) -> _ManagedW
 @database_sync_to_async_pool
 def _check_managed_warehouse_shadow_eligibility(inputs: ManagedWarehouseShadowEligibilityInputs) -> bool:
     objects = _load_shadow_objects(team_id=inputs.team_id, dag_id=inputs.dag_id, node_id=inputs.node_id)
-    return _is_managed_warehouse_shadow_enabled(objects.team)
+    return is_managed_warehouse_shadow_enabled(objects.team)
 
 
 async def _check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
@@ -237,7 +236,7 @@ async def check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
 
 @database_sync_to_async_pool
 def _check_team_managed_warehouse_shadow_eligibility(team_id: int) -> bool:
-    return _is_managed_warehouse_shadow_enabled(Team.objects.get(id=team_id))
+    return is_managed_warehouse_shadow_enabled(Team.objects.get(id=team_id))
 
 
 @activity.defn
@@ -332,7 +331,6 @@ async def _materialize_view_managed_warehouse(
                 saved_query_id=saved_query.id,
                 source_query=saved_query.query,
                 incremental=_trino_incremental_write(plan),
-                stored_column_types=_stored_column_types(saved_query.columns),
                 on_processed_bytes=processed_bytes.append,
                 on_cpu_milliseconds=cpu_milliseconds.append,
             )
@@ -477,18 +475,6 @@ def _total_read_bytes(processed_bytes: list[int]) -> int | None:
 
 def _total_cpu_microseconds(cpu_milliseconds: list[int]) -> int | None:
     return sum(cpu_milliseconds) * 1_000 if cpu_milliseconds else None
-
-
-def _stored_column_types(columns: object) -> tuple[StoredColumnType, ...]:
-    """The ClickHouse type stored for each output column of a saved query, from ``saved_query.columns``."""
-    if not isinstance(columns, dict):
-        return ()
-    stored: list[StoredColumnType] = []
-    for name, column in columns.items():
-        clickhouse_type = column.get("clickhouse") if isinstance(column, dict) else column
-        if isinstance(clickhouse_type, str) and clickhouse_type:
-            stored.append(StoredColumnType(name=str(name), clickhouse_type=clickhouse_type))
-    return tuple(stored)
 
 
 def _trino_incremental_write(plan: WritePlan) -> TrinoIncrementalWrite | None:
