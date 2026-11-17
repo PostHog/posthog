@@ -235,6 +235,7 @@ class SandboxConfig(BaseModel):
     cpu_request_cores: float = BURSTABLE_REQUEST_CPU_CORES
     memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
+    agent_egress_probe: bool = False
     outbound_domain_allowlist: list[str] | None = None
     network_policy_fingerprint: str | None = None
     # gVisor only. An empty domain allowlist means unrestricted network in
@@ -251,6 +252,28 @@ class SandboxConfig(BaseModel):
     # guest RAM up to the cap) instead of the fixed-size default golden. Set from the
     # tasks-hogland-hotplug-golden flag at context time; ignored by other providers.
     use_hotplug_golden: bool = False
+
+    @model_validator(mode="after")
+    def validate_agent_egress_probe(self) -> Self:
+        if self.agent_egress_probe and (
+            not (settings.DEBUG or settings.TEST)
+            or not self.vm_runtime
+            or self.template != SandboxTemplate.SLIM_BASE
+            or self.memory_gb < 2
+            or self.burstable_resources
+            or self.environment_variables
+            or self.base_image_reference
+            or self.snapshot_id
+            or self.snapshot_external_id
+            or self.resume_snapshot_external_id
+            or self.snapshot_mount_path
+            or self.require_snapshot
+            or self.custom_image_name
+            or self.outbound_domain_allowlist is not None
+            or self.block_network
+        ):
+            raise ValueError("Egress probes require a fresh, credential-free development VM")
+        return self
 
     @model_validator(mode="before")
     @classmethod
