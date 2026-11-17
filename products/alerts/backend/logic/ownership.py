@@ -4,6 +4,8 @@ from uuid import UUID
 from django.db import DatabaseError, transaction
 from django.utils import timezone
 
+from posthog.schema import NodeKind
+
 from posthog.api.query_access_check import denied_query_resources
 from posthog.constants import AvailableFeature
 from posthog.event_usage import AnalyticsProps
@@ -16,7 +18,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.alerts.backend.activity_logging import AlertConfigurationContext
-from products.alerts.backend.facade.contracts import AlertInsightSnapshot, AlertWriteRefused, PlatformCannotOwn
+from products.alerts.backend.facade.contracts import AlertWriteRefused, PlatformCannotOwn
 from products.alerts.backend.facade.platform import follow_insight_alert
 from products.alerts.backend.insight_alert_state_machine import apply_enable, apply_threshold_change
 from products.alerts.backend.llm_detector_limits import (
@@ -210,7 +212,7 @@ def take_alert_ownership(
     owner: User,
     was_impersonated: bool,
     analytics_props: AnalyticsProps | None = None,
-    expected_insight: AlertInsightSnapshot | None = None,
+    has_metrics_scope: bool = True,
 ) -> AlertConfiguration:
     insight_id = _load_alert(team_id, alert_id).insight_id
     with transaction.atomic(), ActingUserContext(actor):
@@ -219,16 +221,10 @@ def take_alert_ownership(
         locked = _load_alert(team_id, alert_id, lock=True)
         if locked.insight_id != insight_id:
             raise AlertWriteRefused("The alert's insight changed. Retry the ownership transfer.", status_code=409)
-        if expected_insight is not None:
-            with upgrade_insight(locked.insight):
-                if (locked.insight_id, locked.insight.query, locked.insight.filters) != (
-                    expected_insight.id,
-                    expected_insight.query,
-                    expected_insight.filters,
-                ):
-                    raise AlertWriteRefused(
-                        "The alert or insight changed. Retry the ownership transfer.", status_code=409
-                    )
+        if not has_metrics_scope and locked.insight.alertable_query_kind == NodeKind.METRICS_QUERY:
+            raise AlertWriteRefused(
+                "API key missing required scope 'metrics:read'", code="metrics_scope_required", status_code=403
+            )
         _validate_owner(locked, actor, owner)
         previous_owner = locked.created_by
         previous = AlertConfiguration(

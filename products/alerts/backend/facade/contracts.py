@@ -299,13 +299,6 @@ class AlertWriteRefused(Exception):
 
 
 @frozen
-class AlertInsightSnapshot:
-    id: int | None
-    query: dict[str, Any] | None
-    filters: dict[str, Any]
-
-
-@frozen
 class AlertValidationState:
     id: UUID
     enabled: bool

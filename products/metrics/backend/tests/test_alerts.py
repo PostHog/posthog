@@ -669,12 +669,16 @@ class TestMetricsInsightAlertOwnership(APIBaseTest):
         if not owner_enabled:
             assert "metrics" in response.json()["detail"]
 
-    def test_take_ownership_rejects_insight_changed_after_token_scope_check(self) -> None:
+    @parameterized.expand([False, True])
+    def test_take_ownership_checks_token_scope_on_locked_insight(self, has_metrics_scope: bool) -> None:
         alert = self._disabled_alert_of_a_former_member()
         previous_owner = alert.created_by
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="transfer", user=self.user, secure_value=hash_key_value(token), scopes=["alert:write"]
+            label="transfer",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["alert:write", "metrics:read"] if has_metrics_scope else ["alert:write"],
         )
         self.client.logout()
         edited = False
@@ -704,7 +708,11 @@ class TestMetricsInsightAlertOwnership(APIBaseTest):
             )
 
         assert edited
-        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        assert response.status_code == (status.HTTP_200_OK if has_metrics_scope else status.HTTP_403_FORBIDDEN), (
+            response.content
+        )
+        if not has_metrics_scope:
+            assert response.json()["detail"] == "API key missing required scope 'metrics:read'"
         alert.refresh_from_db()
-        assert alert.created_by == previous_owner
-        assert alert.enabled is False
+        assert alert.created_by == (self.user if has_metrics_scope else previous_owner)
+        assert alert.enabled is has_metrics_scope

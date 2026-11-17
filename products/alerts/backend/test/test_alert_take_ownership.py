@@ -298,8 +298,8 @@ class TestAlertTakeOwnership(APIBaseTest):
         else:
             assert not activities.exists()
 
-    @parameterized.expand([("alert", 400), ("insight", 409)])
-    def test_take_ownership_validates_locked_settings(self, changed: str, expected_status: int) -> None:
+    @parameterized.expand(["alert", "insight"])
+    def test_take_ownership_validates_locked_settings(self, changed: str) -> None:
         alert = self._disabled_alert_of_a_former_member()
         previous_owner = alert.created_by
         edited = False
@@ -320,7 +320,7 @@ class TestAlertTakeOwnership(APIBaseTest):
         with connection.execute_wrapper(edit_before_lock):
             response = self.client.post(url)
 
-        assert response.status_code == expected_status, response.content
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         alert.refresh_from_db()
         assert alert.created_by == previous_owner
         assert alert.enabled is False

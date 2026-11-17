@@ -114,7 +114,6 @@ from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_EVENT_IDS,
     INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
     INSIGHT_ALERT_URL_DESTINATION_TYPES,
-    AlertInsightSnapshot,
     AlertWriteRefused,
     MovedAlertCheck,
     MovedAlertCheckPage,
@@ -2538,13 +2537,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["POST"], required_scopes=["alert:write"])
     def take_ownership(self, request, *args, **kwargs):
         alert = self._alert_or_native()
-        _require_metrics_scope_for_programmatic_auth(self.get_serializer_context(), alert.insight)
         ownership = AlertTransferOwnershipSerializer(data=request.data, context=self.get_serializer_context())
         ownership.is_valid(raise_exception=True)
-        with upgrade_insight(alert.insight):
-            expected_insight = AlertInsightSnapshot(
-                id=alert.insight.pk, query=alert.insight.query, filters=alert.insight.filters
-            )
         try:
             take_alert_ownership(
                 team_id=alert.team_id,
@@ -2553,11 +2547,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 owner=ownership.validated_data["owner"],
                 was_impersonated=get_was_impersonated(),
                 analytics_props=get_request_analytics_properties(request),
-                expected_insight=expected_insight,
+                has_metrics_scope=not _token_lacks_metrics_scope(request),
             )
         except AlertConfiguration.DoesNotExist as error:
             raise Http404 from error
         except AlertWriteRefused as error:
+            if error.code == "metrics_scope_required":
+                raise InsufficientScope(["metrics:read"]) from error
             if error.status_code == 400:
                 raise ValidationError(error.detail, code=error.code) from error
             if error.status_code == 403:
