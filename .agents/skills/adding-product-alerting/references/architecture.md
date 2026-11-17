@@ -23,13 +23,13 @@ Logs and insight alerts both adapt their product state to the shared lifecycle e
 
 ## Boundary
 
-Consumers import `products.alerts.backend.facade.*`. The tach interface also exposes `presentation.views.*` and `routes.*`, which carry the DRF surface other products mount or reuse in process.
+Consumers import `products.alerts.backend.facade.*`. Core mounts the DRF surface through `routes.*`. Other products that still mount or reuse `presentation.views.*` in process reach past the facade, and `hoglint.ledger` holds those imports as debt.
 
 - Models, querysets and DRF objects never cross the facade in either direction.
 - Facade functions take and return contracts, ids, and plain values.
 - Consumers hold ids and come back to the facade for anything else.
 
-Core still runs the insight-alert pipeline itself, so its imports of the alert models, the insight evaluation, the insight lifecycle adapter, the investigation episode reader and the Max tool stay open. Those five are named in the legacy-leaks block for `products.alerts` in `tach.toml`, and the product stays non-isolated until the block is empty.
+Core still runs the insight-alert pipeline itself, so its imports of the alert models, the insight evaluation, the insight lifecycle adapter, the investigation episode reader and the Max tool stay open. Those imports are `public-surface` debt in `hoglint.ledger`, and the product stays non-isolated until that debt is gone.
 
 ## Frontend contract
 
