@@ -262,12 +262,12 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a
 # decision that erasure may lag by the retention window, not an oversight.
 #
-# sharded_events_recent is a transient mirror of the last few days of events, on a 7-day TTL keyed
-# on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
+# sharded_events_recent is a transient mirror of the last few days of events, on a 9-day TTL keyed
+# on inserted_at. Nine days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
 #
-# sharded_events_json_recent holds the same recent events in the events_json shape, on a 9-day TTL
-# keyed on inserted_at. It is accepted on the same terms.
+# sharded_events_json_recent holds the same recent events in the events_json shape, with the same
+# TTL. It is accepted on the same terms.
 TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), SHARDED_EVENTS_JSON_RECENT_TABLE})
 
 
