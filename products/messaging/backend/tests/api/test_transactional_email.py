@@ -362,25 +362,32 @@ class TestTransactionalEmail(APIBaseTest):
                 {},
                 {"X-PostHog-Integration": "django-anymail/13.1"},
                 202,
-                "django-anymail",
+                {"client": "django-anymail", "source": "api"},
             ),
-            ("user_agent", "send_email", {}, {"User-Agent": "PostHog-Node/5.9.1 (node v22)"}, 202, "posthog-node"),
+            (
+                "user_agent",
+                "send_email",
+                {},
+                {"User-Agent": "PostHog-Node/5.9.1 (node v22)"},
+                202,
+                {"client": "posthog-node", "source": "api"},
+            ),
             (
                 "header_over_user_agent",
                 "send_email",
                 {},
                 {"X-PostHog-Integration": "nodemailer/5.9.1", "User-Agent": "posthog-node/5.9.1"},
                 202,
-                "nodemailer",
+                {"client": "nodemailer", "source": "api"},
             ),
-            ("neither", "send_email", {}, {}, 202, "unknown"),
+            ("neither", "send_email", {}, {}, 202, {"client": "unknown", "source": "api"}),
             (
                 "malformed_header",
                 "send_email",
                 {},
                 {"X-PostHog-Integration": "Laravel 1.4", "User-Agent": "posthog-laravel/1.4.0"},
                 202,
-                "posthog-laravel",
+                {"client": "posthog-laravel", "source": "api"},
             ),
             (
                 "template_route",
@@ -388,7 +395,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {},
                 {"X-PostHog-Integration": "symfony-mailer/7.3.0"},
                 202,
-                "symfony-mailer",
+                {"client": "symfony-mailer", "source": "api"},
             ),
             (
                 "refused_send",
@@ -396,12 +403,32 @@ class TestTransactionalEmail(APIBaseTest):
                 {"to": "not-an-address"},
                 {"X-PostHog-Integration": "django-anymail/13.1"},
                 400,
-                "django-anymail",
+                {"client": "django-anymail", "source": "api"},
+            ),
+            (
+                "mcp_tool_call",
+                "send_email",
+                {},
+                {
+                    "User-Agent": "posthog/mcp-server; version: 1.0.0",
+                    "X-PostHog-Client": "mcp",
+                    "X-PostHog-Mcp-Client-Name": "Example Agent",
+                    "X-PostHog-Mcp-Client-Version": "2.1.0",
+                    "x-posthog-intent": "Send the welcome email to a new signup",
+                },
+                202,
+                {
+                    "client": "posthog",
+                    "source": "mcp",
+                    "mcp_client_name": "Example Agent",
+                    "mcp_client_version": "2.1.0",
+                    "mcp_intent": "Send the welcome email to a new signup",
+                },
             ),
         ]
     )
-    def test_records_the_client_that_made_the_send(
-        self, mock_post, _flag, capture, _name, route, extra_body, headers, expected_status, expected_client
+    def test_records_the_client_and_surface_that_made_the_send(
+        self, mock_post, _flag, capture, _name, route, extra_body, headers, expected_status, expected
     ):
         pipeline, analytics = FakeCdpApi(), FakeAnalytics()
         mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
@@ -411,9 +438,10 @@ class TestTransactionalEmail(APIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
-        assert [event["client"] for event in analytics.properties_of("transactional email api send")] == [
-            expected_client
-        ]
+        assert [
+            {key: event.get(key) for key in expected}
+            for event in analytics.properties_of("transactional email api send")
+        ] == [expected]
 
     def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)

@@ -41,9 +41,10 @@ from posthog.api.mixins import ResponseDeclaration, ValidatedRequest, validated_
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
-from posthog.event_usage import groups, report_user_action
+from posthog.event_usage import get_request_analytics_properties, groups, report_user_action, sanitize_header_value
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_INTENT_HEADER
 from posthog.models.file_system.constants import resolved_workflows_list_v2
 from posthog.models.file_system.file_system_mixin import file_system_sync
 from posthog.models.tag import tagify
@@ -1161,12 +1162,15 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
 
     def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
         self._send_reported = True
-        # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
+        # report_user_action drops the synthetic user behind a project secret API key, so capture directly,
+        # with the same request properties it adds: which surface (MCP, Wizard, CLI, web) made the send.
         try:
             posthoganalytics.capture(
                 distinct_id=request.user.distinct_id,
                 event="transactional email api send",
                 properties={
+                    **get_request_analytics_properties(request),
+                    "mcp_intent": sanitize_header_value(request.headers.get(ACTIVITY_LOG_INTENT_HEADER)),
                     "team_id": self.team_id,
                     "auth_method": "project_secret_api_key"
                     if is_authenticated_via_project_secret_api_key(request)
