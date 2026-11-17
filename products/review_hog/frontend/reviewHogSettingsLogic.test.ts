@@ -1,4 +1,3 @@
-import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -534,12 +533,21 @@ describe('reviewHogSettingsLogic', () => {
             .toNotHaveDispatchedActions(['loadAll'])
     })
 
-    it('loads review data once for a deep link to a review tab', () => {
+    it('loads review data once for a deep link to a review tab', async () => {
+        let settingsRequests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/code_review/settings/': () => {
+                    settingsRequests += 1
+                    return [200, { review_inbox_prs: false, resolve_comments: true, urgency_threshold: 'should_fix' }]
+                },
+            },
+        })
         router.actions.push(urls.codeReview(), { tab: 'settings' })
-        const dispatch = jest.spyOn(getContext().store, 'dispatch')
-        logic.mount()
-        const loads = dispatch.mock.calls.filter(([action]) => action.type === logic.actionTypes.loadAll)
-        expect(loads).toHaveLength(1)
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(settingsRequests).toBe(1)
     })
 
     it('opens Approval settings and loads no review data without the review-hog flag', async () => {

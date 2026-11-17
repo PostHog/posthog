@@ -747,9 +747,7 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 }
             }
         },
-        // Each row shows the owners.yaml state under its reviewer requests, so the rows on screen ask for it.
-        // Each check reads GitHub on the server, so only a few run at once. A finished check starts the
-        // next one, and a row that is no longer visible is never queued.
+        // A finished check starts the next one, so a row that is no longer visible is never queued.
         checkVisibleOwnersFiles: () => {
             let inFlight = Object.values(values.ownersFileChecks).filter((status) => status === 'checking').length
             for (const repo of values.visibleRepoConfigs) {
