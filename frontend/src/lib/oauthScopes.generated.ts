@@ -272,11 +272,14 @@ export const OAUTH_SCOPES_HIDDEN = [
     'wizard_session:write',
 ] as const
 
-// A new scope object mapped to the legacy one it split off (mirrors LEGACY_SCOPE_FALLBACKS
-// in posthog/scopes/checks.py). While old tokens carry only the legacy scope, a held
+// A new scope object mapped to the legacy one it split off or was renamed from (mirrors
+// LEGACY_SCOPE_FALLBACKS in posthog/scopes/checks.py plus RENAMED_OAUTH_SCOPE_OBJECTS in
+// posthog/scopes/catalog.py). While old tokens carry only the legacy scope, a held
 // `<legacy>:<action>` satisfies a required `<new>:<action>`.
 export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([
     ['account_note', 'account'],
+    ['code_review', 'review_hog'],
+    ['code_review_approval', 'stamphog'],
     ['inbox', 'task'],
     ['messaging_preference', 'hog_flow'],
     ['transactional_email', 'hog_flow'],

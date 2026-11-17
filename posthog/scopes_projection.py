@@ -20,8 +20,11 @@ Each carries four constants:
   The web app's scope pickers never show these objects, and scopes.test.ts
   exempts them from the picker rows and groups every other object needs.
 - LEGACY_SCOPE_FALLBACKS: a new scope object mapped to the legacy one it split
-  off. The MCP server applies it in `hasScope` (`src/lib/api.ts`), so a token
-  carrying only the legacy scope still sees and calls tools that require the new one.
+  off or was renamed from (RENAMED_OAUTH_SCOPE_OBJECTS, inverted). The MCP server
+  applies it in `hasScope` (`src/lib/api.ts`), so a token carrying only the legacy
+  scope still sees and calls tools that require the new one. Django translates a
+  renamed scope when it reads a token, but token introspection returns the stored
+  names, so the MCP server must treat the old name as the new one itself.
 - RISKY_SCOPE_WARNINGS: what each risky scope lets a token do. The web app's scope pickers show it
   next to the scope, so every picker uses the same wording as the workload trust policy screens.
 
@@ -78,7 +81,11 @@ def render_oauth_scopes() -> str:
     scopes = load_scopes_without_django()
     all_scopes: list[str] = list(scopes["oauth"].OAUTH_SCOPES_SUPPORTED)
     hidden_scopes: list[str] = sorted(scopes["exposure"].OAUTH_SCOPES_HIDDEN)
-    legacy_fallbacks: dict[str, str] = scopes["checks"].LEGACY_SCOPE_FALLBACKS
+    renamed_objects: dict[str, str] = scopes["catalog"].RENAMED_OAUTH_SCOPE_OBJECTS
+    legacy_fallbacks: dict[str, str] = {
+        **scopes["checks"].LEGACY_SCOPE_FALLBACKS,
+        **{new_object: old_object for old_object, new_object in renamed_objects.items()},
+    }
     risky_scope_warnings: dict[str, str] = scopes["exposure"].RISKY_SCOPE_WARNINGS
 
     body = ",\n".join(f"    {json.dumps(s)}" for s in all_scopes)
@@ -118,8 +125,9 @@ def render_oauth_scopes() -> str:
         f"{hidden_body},\n"
         "] as const\n"
         "\n"
-        "// A new scope object mapped to the legacy one it split off (mirrors LEGACY_SCOPE_FALLBACKS\n"
-        "// in posthog/scopes/checks.py). While old tokens carry only the legacy scope, a held\n"
+        "// A new scope object mapped to the legacy one it split off or was renamed from (mirrors\n"
+        "// LEGACY_SCOPE_FALLBACKS in posthog/scopes/checks.py plus RENAMED_OAUTH_SCOPE_OBJECTS in\n"
+        "// posthog/scopes/catalog.py). While old tokens carry only the legacy scope, a held\n"
         "// `<legacy>:<action>` satisfies a required `<new>:<action>`.\n"
         "export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([\n"
         f"{fallbacks_body}"

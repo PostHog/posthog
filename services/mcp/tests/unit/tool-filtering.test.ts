@@ -690,7 +690,9 @@ describe('server-minted scope matching', () => {
         expect(hasScope(['signal_scout_report:write'], 'signal_scout_internal:read')).toBe(false)
     })
 
-    // Keys and tokens issued before the inbox got its own scope carry only `task:*`.
+    // Keys and tokens issued before the inbox got its own scope carry only `task:*`. Tokens issued
+    // before the code review rename carry only `review_hog:*` and `stamphog:*`, and introspection
+    // returns them as stored.
     it.each([
         { held: ['task:read'], required: 'inbox:read', allowed: true },
         { held: ['task:write'], required: 'inbox:read', allowed: true },
@@ -698,7 +700,11 @@ describe('server-minted scope matching', () => {
         { held: ['task:read'], required: 'inbox:write', allowed: false },
         { held: ['inbox:read'], required: 'inbox:read', allowed: true },
         { held: ['task:write'], required: 'insight:read', allowed: false },
-    ])('lets a legacy task scope satisfy an inbox scope: $held -> $required', ({ held, required, allowed }) => {
+        { held: ['review_hog:read'], required: 'code_review:read', allowed: true },
+        { held: ['stamphog:write'], required: 'code_review_approval:write', allowed: true },
+        { held: ['stamphog:read'], required: 'code_review_approval:write', allowed: false },
+        { held: ['review_hog:write'], required: 'code_review_approval:read', allowed: false },
+    ])('lets a legacy scope satisfy the scope that replaced it: $held -> $required', ({ held, required, allowed }) => {
         expect(hasScope(held, required)).toBe(allowed)
     })
 
