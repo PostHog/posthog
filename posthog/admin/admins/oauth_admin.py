@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import base64
 import hashlib
 from urllib.parse import urlencode
@@ -15,7 +14,6 @@ from oauth2_provider.generators import generate_client_id, generate_client_secre
 from oauth2_provider.models import AbstractApplication
 
 from posthog.admin.console.moved import MovedToConsole
-from posthog.admin.console.oauth_application_panels import breaks_provisioning_signature
 from posthog.admin.console.oauth_tool import RevokeSessionsForm
 from posthog.api.oauth.cimd import is_cimd_client_id
 from posthog.models.oauth import OAuthApplication
@@ -83,10 +81,10 @@ class OAuthApplicationForm(forms.ModelForm):
         before = self.instance
         if before.pk is None:
             return
-        after = copy.copy(before)
-        after.client_type = cleaned.get("client_type", before.client_type)
-        after.jwks_uri = cleaned.get("jwks_uri", before.jwks_uri)
-        if breaks_provisioning_signature(before, after):
+        if before.edit_would_break_provisioning_signature(
+            client_type=cleaned.get("client_type", before.client_type),
+            jwks_uri=cleaned.get("jwks_uri", before.jwks_uri),
+        ):
             self.add_error(
                 "client_type",
                 "This provisioning partner can create accounts or pays for its customers, so it must sign its "

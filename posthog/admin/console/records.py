@@ -232,7 +232,7 @@ class OAuthApplicationRecord(RecordType):
     pk_converter = "uuid"
 
     def queryset(self) -> QuerySet:
-        return OAuthApplication.objects.select_related("organization")
+        return OAuthApplication.objects.select_related("organization", "provisioning_review")
 
     def title(self, obj: Model) -> str:
         assert isinstance(obj, OAuthApplication)

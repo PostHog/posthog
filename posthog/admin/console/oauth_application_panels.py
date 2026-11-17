@@ -1,4 +1,3 @@
-import copy
 import datetime
 from urllib.parse import urlencode
 
@@ -7,8 +6,9 @@ from django.contrib import messages
 from django.db import transaction
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
+from django.urls import reverse
 
-from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
+from posthog.admin.console.panels import Fact, Operation, OperationHandler, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
 from posthog.api.oauth.provisioning_review import decide_partner
@@ -22,7 +22,7 @@ from posthog.models.oauth_provisioning import (
 from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
 
 GROWTH = Owner(name="Growth", crest="growth")
-OAUTH_APPLICATIONS_TOOL_PATH = "/admin/console/tools/oauth-applications/"
+OAUTH_APPLICATIONS_TOOL_KEY = "oauth-applications"
 # `active` and `disabled` are the decision, which staff change with Accept and Block, not with the other capabilities.
 DECISION_FLAGS = frozenset({"active", "disabled"})
 CAPABILITIES = tuple(name for name in PROVISIONING_CAPABILITIES if name not in DECISION_FLAGS)
@@ -39,14 +39,8 @@ SIGNING_REQUIRED_MESSAGE = (
 
 
 def review_page_url(review: CIMDProvisioningReview) -> str:
-    return f"{OAUTH_APPLICATIONS_TOOL_PATH}?{urlencode({'review': str(review.pk)})}"
-
-
-def breaks_provisioning_signature(before: OAuthApplication, after: OAuthApplication) -> bool:
-    """Whether an edit leaves a partner that has to sign without a key to sign with, so provisioning auth would refuse
-    every request it makes. A partner already in that state, such as a CIMD client whose metadata dropped its key,
-    stays editable, so staff can still change its other settings."""
-    return after.cannot_meet_provisioning_signature and not before.cannot_meet_provisioning_signature
+    tool_url = reverse("admin_console_tool", kwargs={"tool_key": OAUTH_APPLICATIONS_TOOL_KEY})
+    return f"{tool_url}?{urlencode({'review': str(review.pk)})}"
 
 
 def _when(value: datetime.datetime | None) -> str:
@@ -57,12 +51,20 @@ def _label(name: str) -> str:
     return name.replace("_", " ").capitalize().replace(" api ", " API ")
 
 
-def _kind(app: OAuthApplication) -> str:
+KIND_LABELS = {
+    "cimd": "Registered itself with a metadata document (CIMD)",
+    "dcr": "Registered itself (DCR)",
+    "staff": "Created by staff",
+}
+
+
+def app_kind(app: OAuthApplication) -> str:
+    """How the app came to exist, as a key of ``KIND_LABELS``."""
     if app.is_cimd_client:
-        return "Registered itself with a metadata document (CIMD)"
+        return "cimd"
     if app.is_dcr_client:
-        return "Registered itself (DCR)"
-    return "Created by staff"
+        return "dcr"
+    return "staff"
 
 
 def _authentication(app: OAuthApplication) -> str:
@@ -165,16 +167,16 @@ def _rate_limits_form_class() -> type[RateLimitsForm]:
     return type("RateLimitsForm", (RateLimitsForm,), {**fields, "field_order": (*fields, "reason")})
 
 
-def accept_partner(request: HttpRequest, obj: Model, form: forms.Form | None) -> None:
-    assert isinstance(obj, OAuthApplication) and form is not None
-    decide_partner(obj, accept=True, reason=f"Staff: {form.cleaned_data['reason']}")
-    messages.success(request, f"Provisioning is on for {obj.name}.")
+def _decision_handler(*, accept: bool) -> OperationHandler:
+    def decide(request: HttpRequest, obj: Model, form: forms.Form | None) -> None:
+        assert isinstance(obj, OAuthApplication) and form is not None
+        decide_partner(obj, accept=accept, reason=f"Staff: {form.cleaned_data['reason']}")
+        if accept:
+            messages.success(request, f"Provisioning is on for {obj.name}.")
+        else:
+            messages.success(request, f"Blocked {obj.name} and signed out every connection it had.")
 
-
-def block_partner(request: HttpRequest, obj: Model, form: forms.Form | None) -> None:
-    assert isinstance(obj, OAuthApplication) and form is not None
-    decide_partner(obj, accept=False, reason=f"Staff: {form.cleaned_data['reason']}")
-    messages.success(request, f"Blocked {obj.name} and signed out every connection it had.")
+    return decide
 
 
 def change_capabilities(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
@@ -184,15 +186,13 @@ def change_capabilities(request: HttpRequest, obj: Model, form: forms.Form | Non
     with transaction.atomic():
         # Checked on the locked row, so a key removed in Django admin since the page loaded is seen.
         app = OAuthApplication.objects.select_for_update().get(pk=obj.pk)
-        after = copy.copy(app)
-        after.is_provisioning_partner = is_partner
-        after.provisioning = app.provisioning.model_copy(update=capabilities)
-        if breaks_provisioning_signature(app, after):
+        provisioning = app.provisioning.model_copy(update=capabilities)
+        if app.edit_would_break_provisioning_signature(is_provisioning_partner=is_partner, provisioning=provisioning):
             messages.error(request, SIGNING_REQUIRED_MESSAGE)
             return HttpResponse(status=400)
         app.is_provisioning_partner = is_partner
-        app.save(update_fields=["is_provisioning_partner"])
-        app.update_provisioning(**capabilities)
+        app.provisioning = provisioning
+        app.save(update_fields=["is_provisioning_partner", "_provisioning_config"])
     messages.success(request, f"Saved the capabilities of {obj.name}.")
     return None
 
@@ -224,7 +224,7 @@ class OAuthApplicationOverviewPanel(Panel):
         assert isinstance(obj, OAuthApplication)
         facts = [
             Fact(label="Client ID", value=obj.client_id, mono=True),
-            Fact(label="Kind", value=_kind(obj)),
+            Fact(label="Kind", value=KIND_LABELS[app_kind(obj)]),
             Fact(label="Authentication", value=_authentication(obj)),
             Fact(label="Created", value=_when(obj.created)),
         ]
@@ -272,7 +272,7 @@ class OAuthApplicationProvisioningPanel(Panel):
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, OAuthApplication)
-        review = CIMDProvisioningReview.objects.filter(application=obj).first()
+        review = getattr(obj, "provisioning_review", None)
         if not obj.is_provisioning_partner and review is None:
             return [Fact(label="Provisioning", value="Not a partner")]
         facts = [_provisioning_fact(obj, review)]
@@ -285,7 +285,8 @@ class OAuthApplicationProvisioningPanel(Panel):
                     href=review_page_url(review),
                 )
             )
-        granted = [_label(name) for name in CAPABILITIES if getattr(obj.provisioning, name)]
+        config = obj.provisioning
+        granted = [_label(name) for name in CAPABILITIES if getattr(config, name)]
         facts.append(Fact(label="Capabilities", value=", ".join(granted) if granted else "None"))
         facts.append(Fact(label="Tier", value=TIER_LABELS[obj.partner_tier]))
         facts.append(Fact(label="Rate limits", value=_rate_limits_summary(obj)))
@@ -311,7 +312,7 @@ class OAuthApplicationProvisioningPanel(Panel):
                 Operation(
                     key="accept",
                     label="Accept partner",
-                    handler=accept_partner,
+                    handler=_decision_handler(accept=True),
                     form_class=DecisionForm,
                     description=description,
                 )
@@ -321,7 +322,7 @@ class OAuthApplicationProvisioningPanel(Panel):
                 Operation(
                     key="block",
                     label="Block partner",
-                    handler=block_partner,
+                    handler=_decision_handler(accept=False),
                     danger=True,
                     form_class=DecisionForm,
                     description=(

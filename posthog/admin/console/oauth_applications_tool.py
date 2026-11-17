@@ -8,7 +8,14 @@ from django.core.paginator import Paginator
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpRequest
 
-from posthog.admin.console.oauth_application_panels import GROWTH, provisioning_status, review_page_url
+from posthog.admin.console.oauth_application_panels import (
+    GROWTH,
+    KIND_LABELS,
+    OAUTH_APPLICATIONS_TOOL_KEY,
+    app_kind,
+    provisioning_status,
+    review_page_url,
+)
 from posthog.admin.console.panels import Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
@@ -58,12 +65,7 @@ class ApplicationFilterForm(forms.Form):
     kind = forms.ChoiceField(
         required=False,
         label="Kind",
-        choices=[
-            ("", "Any kind"),
-            ("cimd", "Registered with a metadata document"),
-            ("dcr", "Registered itself (DCR)"),
-            ("staff", "Created by staff"),
-        ],
+        choices=[("", "Any kind"), *KIND_LABELS.items()],
     )
     provisioning = forms.ChoiceField(
         required=False,
@@ -86,12 +88,7 @@ def _status_cell(review: CIMDProvisioningReview) -> Cell:
     return Cell(text=status.label, tone=STATUS_TONES[status])
 
 
-def _kind(app: OAuthApplication) -> str:
-    if app.is_cimd_client:
-        return "CIMD"
-    if app.is_dcr_client:
-        return "DCR"
-    return "Staff"
+KIND_SHORT_LABELS = {"cimd": "CIMD", "dcr": "DCR", "staff": "Staff"}
 
 
 def _application_row(app: OAuthApplication) -> Row:
@@ -100,7 +97,7 @@ def _application_row(app: OAuthApplication) -> Row:
     return Row(
         cells=(
             Cell(text=app.name, href=RECORD_TYPES["oauth-application"].url(app), detail=app.client_id),
-            Cell(text=_kind(app)),
+            Cell(text=KIND_SHORT_LABELS[app_kind(app)]),
             Cell(text=status, tone=tone, muted=tone is None),
             _status_cell(review) if review is not None else Cell(text="-", muted=True),
             Cell(text="Run log", href=review_page_url(review)) if review is not None else Cell(text="-", muted=True),
@@ -177,6 +174,14 @@ def _log_table(review: CIMDProvisioningReview) -> Table:
     )
 
 
+def _run_log(review: CIMDProvisioningReview) -> Live:
+    return Live(
+        key="run-log",
+        block=_log_table(review),
+        refresh_seconds=REFRESH_SECONDS_WHILE_PENDING if review.status == ProvisioningReviewStatus.PENDING else None,
+    )
+
+
 def _evidence_text(review: CIMDProvisioningReview) -> str:
     sections = {
         "Jev judgment": review.research_judgment,
@@ -195,7 +200,7 @@ def _temporal_url(review: CIMDProvisioningReview) -> str:
 
 @console.register_tool
 class OAuthApplicationsTool(ConsoleTool):
-    key = "oauth-applications"
+    key = OAUTH_APPLICATIONS_TOOL_KEY
     title = "OAuth applications"
     owner = GROWTH
     group = "Access"
@@ -216,8 +221,7 @@ class OAuthApplicationsTool(ConsoleTool):
         review = self._review(request)
         if review is None:
             return self._list_page(request)
-        log = self.live(request, "run-log")
-        assert log is not None
+        log = _run_log(review)
         app = review.application
         evidence = _evidence_text(review)
         return Page(
@@ -313,10 +317,4 @@ class OAuthApplicationsTool(ConsoleTool):
         review = self._review(request)
         if key != "run-log" or review is None:
             return None
-        return Live(
-            key="run-log",
-            block=_log_table(review),
-            refresh_seconds=REFRESH_SECONDS_WHILE_PENDING
-            if review.status == ProvisioningReviewStatus.PENDING
-            else None,
-        )
+        return _run_log(review)

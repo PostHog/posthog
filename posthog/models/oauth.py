@@ -1,3 +1,4 @@
+import copy
 import enum
 import uuid
 from datetime import timedelta
@@ -409,6 +410,15 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         # Checked per request rather than stored, because a CIMD refresh demotes a partner to public once its
         # metadata drops its key.
         return self.requires_provisioning_signature and not self.uses_private_key_jwt_auth
+
+    def edit_would_break_provisioning_signature(self, **changes: object) -> bool:
+        """Whether applying ``changes`` leaves a partner that has to sign without a key to sign with, so provisioning
+        auth would refuse every request it makes. A partner already in that state, such as a CIMD client whose
+        metadata dropped its key, stays editable, so staff can still change its other settings."""
+        after = copy.copy(self)
+        for name, value in changes.items():
+            setattr(after, name, value)
+        return after.cannot_meet_provisioning_signature and not self.cannot_meet_provisioning_signature
 
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"
