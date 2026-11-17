@@ -16,7 +16,7 @@ bootstrap=$work/host-bootstrap.head.sh
 git -C "$repo" show HEAD:nodejs/tests/scenarios/cloud/host-bootstrap.sh >"$bootstrap"
 card_seconds=${SCENARIO_DRY_RUN_CARD_SECONDS:-900}
 source <(grep -E '^[A-Z0-9_]+=' "$bootstrap")
-node_version=$(cat "$repo/.nvmrc")
+node_version=$(git -C "$repo" show HEAD:.nvmrc)
 
 check_amd64_downloads() {
     local dir=$work/amd64
