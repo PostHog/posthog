@@ -197,7 +197,11 @@ impl PersonHogLeaderService {
         // Duplicate release: the death document already exists;
         // producing another would only bump the version. Gate
         // first — a refused release must leave the fence.
-        if current.as_ref().is_some_and(|p| p.is_deleted) {
+        // A death document at or below the seal predates a revival.
+        if current
+            .as_ref()
+            .is_some_and(|p| p.is_deleted && p.version > release.sealed_version)
+        {
             self.assert_authoritative(partition)?;
             self.fences.remove(&cache_key);
             return Ok(());
