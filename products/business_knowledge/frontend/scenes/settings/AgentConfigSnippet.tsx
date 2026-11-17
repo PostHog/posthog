@@ -9,7 +9,7 @@ function agentMcpConfig(key: string = KEY_PLACEHOLDER): string {
         {
             mcpServers: {
                 'business-knowledge': {
-                    url: 'https://mcp.posthog.com/business-knowledge',
+                    url: 'https://mcp.posthog.com/mcp/business-knowledge',
                     headers: { Authorization: `Bearer ${key}` },
                 },
             },

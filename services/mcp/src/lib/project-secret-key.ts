@@ -22,7 +22,7 @@ export function isProjectSecretKey(token: string | undefined): boolean {
     return token?.startsWith(PROJECT_SECRET_KEY_PREFIX) === true
 }
 
-export const BUSINESS_KNOWLEDGE_PATH = '/business-knowledge'
+export const BUSINESS_KNOWLEDGE_PATH = '/mcp/business-knowledge'
 
 // `@current` resolves to the key's own project, so the key is the only thing a caller sends.
 export const PROJECT_SECRET_KEY_ACCESS_PATH = '/api/projects/@current/business_knowledge/access/'

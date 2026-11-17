@@ -119,14 +119,14 @@ describe('MCP HTTP entry point (Cloudflare Workers)', () => {
             })
 
             expect(response.status).toBe(400)
-            expect(await response.text()).toContain('https://mcp.posthog.com/business-knowledge')
+            expect(await response.text()).toContain('https://mcp.posthog.com/mcp/business-knowledge')
         })
 
         it.each([
             ['no credential', undefined],
             ['a personal API key', 'Bearer phx_test_key'],
         ])('asks for a project secret API key on the business knowledge URL with %s', async (_, authorization) => {
-            const response = await SELF.fetch('https://mcp.posthog.com/business-knowledge', {
+            const response = await SELF.fetch('https://mcp.posthog.com/mcp/business-knowledge', {
                 method: 'POST',
                 headers: authorization ? { Authorization: authorization } : {},
             })

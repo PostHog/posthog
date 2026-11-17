@@ -381,7 +381,7 @@ describe('Hono App Routes', () => {
                 headers: { Authorization: 'Bearer phs_test_key' },
             })
             expect(res.status).toBe(400)
-            expect(await res.text()).toContain('/business-knowledge')
+            expect(await res.text()).toContain('/mcp/business-knowledge')
         })
 
         it.each([
@@ -389,7 +389,7 @@ describe('Hono App Routes', () => {
             ['a personal API key', 'Bearer phx_test_key'],
         ])('asks for a project secret API key on the business knowledge URL with %s', async (_, authorization) => {
             const { app } = createApp(mockRedis)
-            const res = await app.request('/business-knowledge', {
+            const res = await app.request('/mcp/business-knowledge', {
                 method: 'POST',
                 headers: authorization ? { Authorization: authorization } : {},
             })

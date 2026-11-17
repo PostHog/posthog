@@ -5,7 +5,7 @@ import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
-import { isBusinessKnowledgePath, isProjectSecretKey, validateCredentialForPath } from '@/lib/project-secret-key'
+import { isProjectSecretKey, validateCredentialForPath } from '@/lib/project-secret-key'
 import { RequestProperties } from '@/lib/request-properties'
 import { buildRedirectUrl, getPublicUrl, getRegionFromRequest, matchAuthServerRedirect } from '@/lib/routing'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -293,7 +293,7 @@ const handleRequest = async (
         Object.assign(ctx.props, { viaSseRedirect: true })
     }
 
-    if (url.pathname.startsWith('/mcp') || isBusinessKnowledgePath(url.pathname)) {
+    if (url.pathname.startsWith('/mcp')) {
         const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
         log.extend({ proxy: 'hono', region })
         const response = await proxyToHono(request, region)
