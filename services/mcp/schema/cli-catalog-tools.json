@@ -47001,6 +47001,98 @@
             "validators": []
         }
     },
+    "suppressions-list": {
+        "name": "suppressions-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/messaging_suppressions/suppressions/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "page",
+                    "key": "page",
+                    "csv": false
+                },
+                {
+                    "param": "page_size",
+                    "key": "page_size",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/workflows"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "suppressions-remove": {
+        "name": "suppressions-remove",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/messaging_suppressions/bulk_remove_suppressions/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "identifiers",
+                    "key": "identifiers"
+                },
+                {
+                    "param": "confirm_complaints",
+                    "key": "confirm_complaints"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "survey-create": {
         "name": "survey-create",
         "kind": "http",
