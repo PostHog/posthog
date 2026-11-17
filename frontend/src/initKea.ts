@@ -159,9 +159,6 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
-    // The Anomalies tab shows the first page's failure in place of the list and toasts a failed next page itself
-    loadAnomalies: 'products.product_analytics.frontend.insights.anomalies.anomaliesTabLogic',
-    loadMoreAnomalies: 'products.product_analytics.frontend.insights.anomalies.anomaliesTabLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
@@ -207,8 +204,6 @@ const NOT_FOUND_SELF_HANDLED = new Set([
 const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     // The workflow scene and the notebook node views that show the workflow render NotFound
     loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic',
-    // The anomaly search answers 404 while its feature flag is off, and the Anomalies tab says it is not available
-    loadAnomalies: 'products.product_analytics.frontend.insights.anomalies.anomaliesTabLogic',
 }
 
 function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {

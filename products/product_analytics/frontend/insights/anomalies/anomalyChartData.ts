@@ -15,22 +15,17 @@ export interface AnomalyChartData {
     firstUncheckedIndex: number | null
 }
 
-/**
- * Lays the scored points of a series on a grid of its buckets, so gaps and the unchecked tail show on the chart.
- *
- * The grid steps from the first point by the series interval. It reaches back to `dateFrom` unless the API capped the
- * points, and forward to the last bucket that ends by `dateTo`. Returns null when the series has no points to chart.
- */
-export function anomalyChartData(
-    series: Pick<AnomalySeriesApi, 'interval' | 'points' | 'scored_buckets' | 'scored_through'>,
+type ChartSeries = Pick<AnomalySeriesApi, 'interval' | 'points' | 'scored_buckets' | 'scored_through'>
+type SeriesPoint = NonNullable<AnomalySeriesApi['points']>[number]
+
+// The bucket starts of the chart, oldest first.
+function bucketGrid(
+    series: ChartSeries,
+    points: SeriesPoint[],
     dateFrom: string,
     dateTo: string,
     timezone: string
-): AnomalyChartData | null {
-    const points = series.points ?? []
-    if (points.length === 0) {
-        return null
-    }
+): Dayjs[] {
     const unit = series.interval
     const anchor = dayjs(points[0].bucket_start).tz(timezone)
     const rangeStart = dayjs(dateFrom)
@@ -52,35 +47,61 @@ export function anomalyChartData(
         // The API can return a bucket the grid does not reach, for example when the clocks moved. Keep it charted.
         starts.push(starts.length ? starts[starts.length - 1].add(1, unit) : anchor)
     }
-    const grid = starts.slice(-MAX_BUCKETS)
+    return starts.slice(-MAX_BUCKETS)
+}
 
-    const labels = grid.map((bucket) => bucket.format())
-    const values = grid.map(() => NaN)
-    const flaggedIndices: number[] = []
-    // Each point lands in the bucket that contains it. A daylight saving shift moves a bucket start by an hour,
-    // so matching on exact timestamps would drop points.
+// The grid index of each point, or -1 for a point older than the grid. A daylight saving shift moves a bucket start
+// by an hour, so each point lands in the bucket that contains it rather than matching on exact timestamps.
+function pointSlots(grid: Dayjs[], points: SeriesPoint[]): number[] {
     let slot = 0
-    for (const point of points) {
+    return points.map((point) => {
         const pointStart = dayjs(point.bucket_start)
         while (slot + 1 < grid.length && !grid[slot + 1].isAfter(pointStart)) {
             slot++
         }
-        if (grid[slot].isAfter(pointStart)) {
-            continue
+        return grid[slot].isAfter(pointStart) ? -1 : slot
+    })
+}
+
+function firstUncheckedIndex(grid: Dayjs[], scoredThrough: string | null): number | null {
+    if (!scoredThrough) {
+        return null
+    }
+    const index = grid.findIndex((bucket) => bucket.isAfter(dayjs(scoredThrough)))
+    return index === -1 ? null : index
+}
+
+/**
+ * Lays the scored points of a series on a grid of its buckets, so gaps and the unchecked tail show on the chart.
+ *
+ * The grid steps from the first point by the series interval. It reaches back to `dateFrom` unless the API capped the
+ * points, and forward to the last bucket that ends by `dateTo`. Returns null when the series has no points to chart.
+ */
+export function anomalyChartData(
+    series: ChartSeries,
+    dateFrom: string,
+    dateTo: string,
+    timezone: string
+): AnomalyChartData | null {
+    const points = series.points ?? []
+    if (points.length === 0) {
+        return null
+    }
+    const grid = bucketGrid(series, points, dateFrom, dateTo, timezone)
+    const labels = grid.map((bucket) => bucket.format())
+    const values = grid.map(() => NaN)
+    const flaggedIndices: number[] = []
+    pointSlots(grid, points).forEach((slot, index) => {
+        if (slot === -1) {
+            return
         }
+        const point = points[index]
         labels[slot] = point.bucket_start
         values[slot] = point.value ?? NaN
         if (point.flag && point.value != null) {
             flaggedIndices.push(slot)
         }
-    }
+    })
 
-    let firstUncheckedIndex: number | null = null
-    if (series.scored_through) {
-        const scoredThrough = dayjs(series.scored_through)
-        const index = grid.findIndex((bucket) => bucket.isAfter(scoredThrough))
-        firstUncheckedIndex = index === -1 ? null : index
-    }
-
-    return { labels, values, flaggedIndices, firstUncheckedIndex }
+    return { labels, values, flaggedIndices, firstUncheckedIndex: firstUncheckedIndex(grid, series.scored_through) }
 }
