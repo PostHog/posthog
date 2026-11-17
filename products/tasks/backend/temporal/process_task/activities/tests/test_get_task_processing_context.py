@@ -145,9 +145,8 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
         ("signal_report", "posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
         ("user_created", "workflows", "zai-org/glm-5.2", None),
         ("slack", "slack_app", "claude-opus-5-5", "claude-opus-5-5"),
-        # posthog_code keeps the model so its refusal can tell the user to pick another one.
+        # Outside posthog_code's own pin, so only the posthog_code exemption keeps it.
         ("user_created", "posthog_code", "gpt-6.1-terra", "gpt-6.1-terra"),
-        # Contexts serialized before gateway_ai_product existed keep the posthog_ai-origin rule.
         ("posthog_ai", None, "zai-org/glm-5.3", None),
         ("slack", None, "zai-org/glm-5.3", "zai-org/glm-5.3"),
     ],

@@ -121,7 +121,6 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
         [(key, profile) for key, profile in PROFILES if profile.billing_product == "background_agents"]
     )
     def test_background_agents_profile_can_mint_a_gateway_token(self, _key: str, profile: TaskProfile) -> None:
-        # A run that is refused a token cannot reach the AI gateway.
         refusal = mint_refusal(
             profile.billing_product,
             team_id=1,

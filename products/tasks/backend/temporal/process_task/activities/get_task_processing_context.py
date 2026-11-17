@@ -189,7 +189,7 @@ class TaskProcessingContext:
     dev_stack_preview_enabled: bool = False
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
     codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
-    # The ai_product this run mints its gateway token for. None in contexts serialized before it existed.
+    # None in contexts serialized by older workers; `model` then applies the posthog_ai-origin rule.
     gateway_ai_product: str | None = None
 
     @property
@@ -288,8 +288,8 @@ class TaskProcessingContext:
         product = self.gateway_ai_product
         if product is None and self.origin_product == Task.OriginProduct.POSTHOG_AI:
             product = "posthog_ai"
-        # The mint refuses a model outside the product's pin, so run on the default model instead. posthog_code
-        # keeps the model: its refusal tells the user to pick another one.
+        # The mint refuses a model outside the pin, so the run takes the default. posthog_code keeps the model:
+        # its refusal tells the user to pick another.
         if product and product != POSTHOG_CODE_PRODUCT and not model_allowed_by_product_pin(product, value):
             return None
         return value
