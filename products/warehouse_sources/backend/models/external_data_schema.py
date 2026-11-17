@@ -2051,6 +2051,7 @@ def persist_schema_metadata(
     keys (CDC positions, watermarks) at the same time. Scheduled discovery calls this for every
     table of a source, so a row whose stored values already match is not written.
     """
+    # Function-local because the `common.sql` package pulls dlt, temporalio and pyarrow into `django.setup()`.
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (  # noqa: PLC0415
         extract_available_column_names,
     )
