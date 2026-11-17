@@ -1195,6 +1195,11 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         a row whose older store is left in place would have the accepted scope replaced by the
         mirror and the request would return 200 without applying the edit. Clearing that store in
         the same save leaves the written scope as the only source.
+
+        For the experiment type that store is `scanner_config`, which is also where
+        `ExperimentScanner` reads its required `experiment_id`. Clearing it leaves a row that no
+        longer builds, so a scope write against an experiment-type scanner is only safe once that
+        field is optional and the scanner reads its experiment from `scope`.
         """
         scope = attrs.get("scope")
         if not scope or self.instance is None:
