@@ -340,6 +340,8 @@ Existing reports remain accessible through the Reports tab and the report list, 
 
 The report citation check in `posthog/temporal/ai_observability/eval_reports/inline_ids_cited.hog` scores accepted sections against successful citations.
 It checks IDs inspected by the report tools or cited successfully; unrelated payload UUIDs do not require citations.
+It supports Chat Completions, native Responses outputs, and LangChain callback captures.
+Callback results without IDs must form a complete, ordered batch; ambiguous batches remain unscored.
 Saved evaluations do not load this file automatically. Apply approved source through the evaluation editor.
 
 The report agent's `list_all_eval_results` and `sample_eval_results` tools cap each response at 30,000 characters.

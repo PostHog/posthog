@@ -18,60 +18,132 @@ fun json_array(value) {
     return []
 }
 
-for (let i, item in evaluation_events) {
-    if (item.event == '$ai_generation') {
-        for (let m, message in json_array(item.input)) {
-            if (typeof(message) == 'object' and message.role == 'tool'
-                and typeof(message.tool_call_id) == 'string' and typeof(message.content) == 'string') {
-                tool_results[message.tool_call_id] := message.content
-            } else if (typeof(message) == 'object' and message.type == 'function_call_output'
-                and typeof(message.call_id) == 'string' and typeof(message.output) == 'string') {
-                tool_results[message.call_id] := message.output
+fun message_calls(message) {
+    let calls := []
+    if (typeof(message) != 'object') { return calls }
+    if (message.type == 'function_call') {
+        if (typeof(message.call_id) == 'string' and message.call_id != '') {
+            // boffin: Responses call_id links tool results; id identifies the output item.
+            calls := arrayPushBack(calls, {'id': message.call_id, 'function': {'name': message.name, 'arguments': message.arguments}})
+        }
+    } else if (typeof(message.tool_calls) == 'array') {
+        for (let t, call in message.tool_calls) {
+            if (typeof(call) == 'object') {
+                if (typeof(call.id) == 'string' and call.id != '') {
+                    if (typeof(call.function) == 'object') {
+                        calls := arrayPushBack(calls, call)
+                    } else if (typeof(call.name) == 'string') {
+                        calls := arrayPushBack(calls, {'id': call.id, 'function': {'name': call.name, 'arguments': call.args}})
+                    }
+                }
             }
         }
+    }
+    return calls
+}
+
+fun output_calls(value) {
+    if (typeof(value) != 'string' or not isValidJSON(value)) { return [] }
+    let choices := jsonParse(value)
+    if (typeof(choices) == 'object') {
+        if (typeof(choices.output) == 'array') { choices := choices.output }
+    }
+    if (typeof(choices) != 'array') { return [] }
+    let calls := []
+    for (let c, choice in choices) {
+        for (let t, call in message_calls(choice)) { calls := arrayPushBack(calls, call) }
+    }
+    return calls
+}
+
+fun callback_results(results, calls, contents) {
+    // boffin: LangGraph merges results in call order, so only complete callback batches recover missing IDs.
+    if (length(calls) == 0 or length(calls) != length(contents)) { return results }
+    let ids := []
+    for (let t, call in calls) {
+        if (has(ids, call.id)) { return results }
+        ids := arrayPushBack(ids, call.id)
+    }
+    for (let t, id in ids) { results[id] := contents[t + 1] }
+    return results
+}
+
+for (let i, item in evaluation_events) {
+    if (item.event == '$ai_generation') {
+        let pending_calls := []
+        let pending_contents := []
+        for (let m, message in json_array(item.input)) {
+            if (typeof(message) == 'object') {
+                if (message.role == 'tool') {
+                    if (typeof(message.content) != 'string') {
+                        pending_calls := []
+                        pending_contents := []
+                    } else if (typeof(message.tool_call_id) == 'string') {
+                        tool_results[message.tool_call_id] := message.content
+                        pending_calls := []
+                        pending_contents := []
+                    } else {
+                        pending_contents := arrayPushBack(pending_contents, message.content)
+                    }
+                } else {
+                    tool_results := callback_results(tool_results, pending_calls, pending_contents)
+                    pending_calls := []
+                    pending_contents := []
+                    if (message.role == 'assistant' and typeof(message.tool_calls) == 'array') {
+                        let calls := message_calls(message)
+                        if (length(calls) == length(message.tool_calls)) { pending_calls := calls }
+                    }
+                    if (message.type == 'function_call_output' and typeof(message.call_id) == 'string'
+                        and typeof(message.output) == 'string') {
+                        tool_results[message.call_id] := message.output
+                    }
+                }
+            } else {
+                tool_results := callback_results(tool_results, pending_calls, pending_contents)
+                pending_calls := []
+                pending_contents := []
+            }
+        }
+        tool_results := callback_results(tool_results, pending_calls, pending_contents)
     }
 }
 
 for (let i, item in evaluation_events) {
     if (item.event == '$ai_generation') {
-        for (let c, choice in json_array(item.output)) {
-            if (typeof(choice) == 'object' and typeof(choice.tool_calls) == 'array') {
-                for (let t, call in choice.tool_calls) {
-                    if (typeof(call) == 'object' and typeof(call.function) == 'object') {
-                        let name := call.function.name
-                        let args := call.function.arguments
-                        if (typeof(args) == 'string' and isValidJSON(args)) { args := jsonParse(args) }
-                        if (typeof(args) == 'object') {
-                            let result := tool_results[call.id]
-                            if (typeof(result) != 'string') { result := '' }
+        for (let t, call in output_calls(item.output)) {
+            let name := call.function.name
+            let args := call.function.arguments
+            if (typeof(args) == 'string') {
+                if (isValidJSON(args)) { args := jsonParse(args) }
+            }
+            if (typeof(args) == 'object') {
+                let result := tool_results[call.id]
+                if (typeof(result) != 'string') { result := '' }
 
-                            if (name == 'sample_generation_details' and typeof(args.generation_ids) == 'array') {
-                                for (let k, id in args.generation_ids) { known := remember(known, id) }
-                            } else if (name == 'sample_trace_details' and typeof(args.trace_ids) == 'array') {
-                                for (let k, id in args.trace_ids) { known := remember(known, id) }
-                            } else if (name == 'sample_session_details' and typeof(args.session_ids) == 'array') {
-                                for (let k, id in args.session_ids) { known := remember(known, id) }
-                            } else if (name == 'get_generation_detail' or name == 'get_generation_text_repr') {
-                                known := remember(known, args.generation_id)
-                            } else if (name == 'get_trace_detail') {
-                                known := remember(known, args.trace_id)
-                            } else if (name == 'get_session_detail') {
-                                known := remember(known, args.session_id)
-                            } else if (name == 'add_citation' and match(result, '^Citation [0-9]+ added:')) {
-                                if (args.session_id != null and args.session_id != '') {
-                                    cited := remember(cited, args.session_id)
-                                } else if (args.generation_id != null and args.generation_id != '') {
-                                    cited := remember(cited, args.generation_id)
-                                } else {
-                                    cited := remember(cited, args.trace_id)
-                                }
-                            // boffin: Rejected sections never reach the report, so they cannot fail its citation check.
-                            } else if (name == 'add_section' and match(result, '^Section [0-9]+/[0-9]+ added:')
-                                and typeof(args.content) == 'string') {
-                                sections := arrayPushBack(sections, args.content)
-                            }
-                        }
+                if (name == 'sample_generation_details' and typeof(args.generation_ids) == 'array') {
+                    for (let k, id in args.generation_ids) { known := remember(known, id) }
+                } else if (name == 'sample_trace_details' and typeof(args.trace_ids) == 'array') {
+                    for (let k, id in args.trace_ids) { known := remember(known, id) }
+                } else if (name == 'sample_session_details' and typeof(args.session_ids) == 'array') {
+                    for (let k, id in args.session_ids) { known := remember(known, id) }
+                } else if (name == 'get_generation_detail' or name == 'get_generation_text_repr') {
+                    known := remember(known, args.generation_id)
+                } else if (name == 'get_trace_detail') {
+                    known := remember(known, args.trace_id)
+                } else if (name == 'get_session_detail') {
+                    known := remember(known, args.session_id)
+                } else if (name == 'add_citation' and match(result, '^Citation [0-9]+ added:')) {
+                    if (args.session_id != null and args.session_id != '') {
+                        cited := remember(cited, args.session_id)
+                    } else if (args.generation_id != null and args.generation_id != '') {
+                        cited := remember(cited, args.generation_id)
+                    } else {
+                        cited := remember(cited, args.trace_id)
                     }
+                // boffin: Rejected sections never reach the report, so they cannot fail its citation check.
+                } else if (name == 'add_section' and match(result, '^Section [0-9]+/[0-9]+ added:')
+                    and typeof(args.content) == 'string') {
+                    sections := arrayPushBack(sections, args.content)
                 }
             }
         }
