@@ -20,15 +20,10 @@ use std::sync::LazyLock;
 use serde::Deserialize;
 use serde_json::Value;
 
-/// The deepest nesting [`parse_json_value`] accepts. Postgres and
-/// `JSON.parse` store and read documents deeper than serde_json's built-in
-/// 128, so rows written by the Node pipeline can exceed that. Every pass
-/// over a parsed document recurses once per level, and
-/// `a_document_at_the_depth_cap_fits_a_worker_stack` holds this bound to
-/// what a 2 MiB thread stack can carry.
+/// Every pass over a parsed document recurses once per level, so this
+/// must stay within what a 2 MiB worker stack can carry.
 pub const MAX_JSON_DEPTH: usize = 1024;
 
-/// The deepest object or array nesting in `bytes`, counted without recursion.
 fn json_nesting_depth(bytes: &[u8]) -> usize {
     let mut depth = 0usize;
     let mut deepest = 0usize;
@@ -58,9 +53,7 @@ fn json_nesting_depth(bytes: &[u8]) -> usize {
     deepest
 }
 
-/// Parses a JSON document nested up to [`MAX_JSON_DEPTH`] levels. The
-/// ordinary parse runs first, so only a document it refuses pays for the
-/// depth count and the second parse.
+/// Accepts nesting past serde_json's 128 levels, up to [`MAX_JSON_DEPTH`].
 pub fn parse_json_value(bytes: &[u8]) -> serde_json::Result<Value> {
     let refused = match serde_json::from_slice(bytes) {
         Ok(value) => return Ok(value),
@@ -630,7 +623,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// `{"a":[{"a":[ ... 1 ... ]}]}` with `depth` containers.
     fn nested(depth: usize) -> String {
         let mut text = String::new();
         for level in 0..depth {
@@ -677,7 +669,6 @@ mod tests {
             r#"{{"custom":{},"email":"user@example.com"}}"#,
             nested(MAX_JSON_DEPTH - 1)
         );
-        // Tokio's default worker stack.
         std::thread::Builder::new()
             .stack_size(2 * 1024 * 1024)
             .spawn(move || {
