@@ -857,7 +857,21 @@ function exportedStyles(storedHtml: string | null | undefined): ExportedStyles {
 
 /** Markup only Outlook on Windows reads, such as the fixed-size copy of each image the old editor writes for it. */
 function withoutOutlookOnly(html: string): string {
-    return html.replace(/<!--\[if mso\]>[\s\S]*?<!\[endif\]-->/gi, '')
+    // A walk rather than a regex, so html with many unclosed comments can't take quadratic time.
+    const start = '<!--[if mso]>'
+    const end = '<![endif]-->'
+    const lower = html.toLowerCase()
+    let kept = ''
+    let from = 0
+    for (let open = lower.indexOf(start); open !== -1; open = lower.indexOf(start, from)) {
+        const close = lower.indexOf(end, open + start.length)
+        if (close === -1) {
+            break
+        }
+        kept += html.slice(from, open)
+        from = close + end.length
+    }
+    return kept + html.slice(from)
 }
 
 function exportedImageSize(image: string | undefined): ExportedImage | null {
