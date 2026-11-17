@@ -285,6 +285,8 @@ class TestCompileHogQLToTrinoSQL:
             ("SELECT toBool(1) AS flag", True),
             ("SELECT [1 > 0] AS flags", True),
             ("SELECT map('a', 1 = 1) AS flags", True),
+            ("SELECT JSONHas(properties, 'key') AS flag FROM events", True),
+            ("SELECT [JSONHas(properties, 'key')] AS flags FROM events", True),
         ],
     )
     def test_flags_output_columns_whose_types_the_build_reads_back(self, query: str, needs_probe: bool) -> None:

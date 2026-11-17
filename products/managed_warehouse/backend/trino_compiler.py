@@ -467,6 +467,26 @@ def compile_hogql_to_trino_sql(
     )
 
 
+_BOOLEAN_TRINO_FUNCTIONS = frozenset({"jsonhas", "multisearchanycaseinsensitive"})
+
+
+def _calls_boolean_function(expression: Any) -> bool:
+    """Whether the expression calls a function that HogQL types as an integer and Trino returns as a boolean."""
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415 -- keeps compiler imports off Django startup
+
+    class _Finder(TraversingVisitor):
+        found = False
+
+        def visit_call(self, node: Any) -> None:
+            if node.name.lower() in _BOOLEAN_TRINO_FUNCTIONS:
+                self.found = True
+            super().visit_call(node)
+
+    finder = _Finder()
+    finder.visit(expression)
+    return finder.found
+
+
 def _needs_output_type_probe(column: Any, context: Any) -> bool:
     """Whether the resolved type of an output column is, or contains, a tuple, a boolean or an unknown type."""
     from posthog.hogql import ast  # noqa: PLC0415 -- keeps compiler imports off Django startup
@@ -485,6 +505,9 @@ def _needs_output_type_probe(column: Any, context: Any) -> bool:
     if column.type is None:
         return True
     try:
+        # HogQL types these calls as integers, but the Trino printer emits a boolean for them.
+        if _calls_boolean_function(column):
+            return True
         return check(column.type.resolve_constant_type(context))
     except Exception:  # noqa: BLE001 -- a type that cannot be resolved is probed, which is always safe
         return True
