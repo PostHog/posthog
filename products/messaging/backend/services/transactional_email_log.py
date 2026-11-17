@@ -5,7 +5,7 @@ sending domain, and opens and clicks add rows of their own. The delivery status 
 delivery row, so an open never hides a bounce.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import Any, cast
@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
@@ -59,6 +59,9 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
+_CONVERSION_QUERY_BYTES = MAX_QUERY_SIZE_BYTES // 4
+_DISTINCT_ID_COPIES_IN_QUERY = 3
+_SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
 IMPACT_WINDOW_DAYS = 7
 
 # A message's rows sit together in the table's sort key, so grouping can finish each message as it reads on.
@@ -691,14 +694,41 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
     ]
 
 
-def _converted_sends(
-    team: Team,
-    user: User | None,
-    event: str,
-    sends: list[_FollowedSend],
-) -> set[str]:
-    if not sends:
-        return set()
+def _converted_sends(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
+    converted: set[str] = set()
+    for batch in _batches_by_query_size(sends):
+        converted |= _converted_in_batch(team, user, event, batch)
+    return converted
+
+
+def _batches_by_query_size(sends: list[_FollowedSend]) -> Iterator[list[_FollowedSend]]:
+    batch: list[_FollowedSend] = []
+    batch_bytes = 0
+    for send in sends:
+        send_bytes = _query_bytes_of(send)
+        if batch and batch_bytes + send_bytes > _CONVERSION_QUERY_BYTES:
+            yield batch
+            batch, batch_bytes = [], 0
+        batch.append(send)
+        batch_bytes += send_bytes
+    if batch:
+        yield batch
+
+
+def _query_bytes_of(send: _FollowedSend) -> int:
+    return (
+        _DISTINCT_ID_COPIES_IN_QUERY * _escaped_literal_bytes(send.distinct_id)
+        + _escaped_literal_bytes(send.recipient)
+        + _escaped_literal_bytes(send.message_id)
+        + _SINCE_MS_LITERAL_BYTES
+    )
+
+
+def _escaped_literal_bytes(value: str) -> int:
+    return 2 * len(value.encode()) + len("'', ")
+
+
+def _converted_in_batch(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     window = timedelta(days=IMPACT_WINDOW_DAYS)
     start = min(send.since for send in sends)
     end = max(send.since for send in sends) + window + timedelta(seconds=1)
