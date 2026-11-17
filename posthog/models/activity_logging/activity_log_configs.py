@@ -9,6 +9,11 @@ and having the activity log's owners review every product's registration would p
 path of every tuning change. `posthog/test/repo_invariants/test_activity_log_config_ownership.py`
 is what keeps the list honest: it fails when a module in the tree is missing from here, and when a
 module and its model resolve to different teams.
+
+Adding a scope is only ever two edits: the import above `MODULES`, and the entry in `MODULES`.
+The merge below and the four exports at the bottom are shared by every scope, so leave them alone:
+the repo invariant tests assume them, and a change that seems to need an edit there belongs in the
+scope's own module instead.
 """
 
 from types import ModuleType
@@ -20,6 +25,7 @@ from products.feature_flags.backend import activity_log_config as _feature_flag_
 
 # Register a scope's tuning module here. The convention for its path is `<app>.activity_log_config`;
 # a config that tunes a core model sits next to that model, like the OAuth one above.
+# Add your import and your entry, then stop: nothing below this tuple is edited per scope.
 MODULES: tuple[ModuleType, ...] = (
     _feature_flag_activity_log_config,
     _oauth_activity_log_config,

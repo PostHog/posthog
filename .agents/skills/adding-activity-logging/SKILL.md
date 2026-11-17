@@ -94,6 +94,7 @@ FIELD_EXCLUSIONS = {"Thing": ["bookkeeping_field"]}
 Put it at `products/<name>/backend/activity_log_config.py`, or next to a core model as `posthog/models/oauth_activity_log_config.py` (owned through that model's `owners.yaml` rule, which a flat module in a mixed-owner directory needs in its `match` list).
 Register it with one import and one entry in `MODULES` in `posthog/models/activity_logging/activity_log_configs.py`.
 That registry file has no owner on purpose, so registering your own tuning never waits on the activity log team.
+Change nothing else in it: the merge and the exports it builds are shared by every scope, and the repo invariant tests assume them.
 A config module holds no imports: `activity_log.py` merges it at `django.setup()`.
 Scopes whose model has no product owner keep their tuning in the registries in `activity_log.py`.
 `posthog/test/repo_invariants/test_activity_log_config_ownership.py` checks that every config module in the tree is merged and that it resolves to the same team as its model.
