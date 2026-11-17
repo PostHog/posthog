@@ -40,10 +40,10 @@ const UNSUGGESTED_COPY: Record<Exclude<SiteThemeOutcome, 'suggested'>, string> =
 }
 
 function readingCopy(siteSnapshot: SiteSnapshotApi | null, elapsedSeconds: number): string {
-    if (!siteSnapshot) {
-        return 'Finding a recent visit'
+    if (elapsedSeconds >= SLOW_RENDER_SECONDS) {
+        return 'Taking longer than usual'
     }
-    return elapsedSeconds < SLOW_RENDER_SECONDS ? "Reading your site's colors" : 'Taking longer than usual'
+    return siteSnapshot ? "Reading your site's colors" : 'Finding a recent visit'
 }
 
 function useElapsedSeconds(running: boolean): number {
@@ -105,8 +105,8 @@ function SiteCard({
             <div className="mb-1.5 flex h-14 w-full items-center justify-center rounded border text-2xl text-secondary">
                 {loading ? <Spinner /> : <IconBrowser />}
                 {elapsedSeconds !== undefined && (
-                    <span aria-hidden className="ml-2 text-xs tabular-nums">
-                        {elapsedSeconds}s
+                    <span aria-hidden translate="no" className="ml-2 text-xs tabular-nums">
+                        {`${elapsedSeconds}s`}
                     </span>
                 )}
             </div>
@@ -226,7 +226,11 @@ function SiteThemeCard(props: SiteThemeCardProps): JSX.Element {
             onBlur={(event) => (focusInside.current = event.currentTarget.contains(event.relatedTarget))}
         >
             {requested ? (
-                <LoadedSiteThemeCard {...props} focusInside={focusInside} />
+                <LoadedSiteThemeCard
+                    key={siteSnapshotUrlCondition(props.survey.conditions)}
+                    {...props}
+                    focusInside={focusInside}
+                />
             ) : (
                 <SiteCard
                     description="Use your site's colors"
