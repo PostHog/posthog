@@ -391,12 +391,13 @@ class TestSubscription(BaseTest):
         subscription = unsubscribe_using_token(token)
         assert subscription.deleted
 
-    def test_unsubscribe_endpoint_only_unsubscribes_on_post_without_csrf(self):
+    def test_unsubscribe_endpoint_redirects_get_and_unsubscribes_on_post_without_csrf(self):
         subscription = self._create_insight_subscription(target_value="test1@posthog.com,test2@posthog.com")
         token = get_unsubscribe_token(subscription, "test2@posthog.com")
         client = Client(enforce_csrf_checks=True)
 
-        assert client.get(f"/api/unsubscribe?token={token}").status_code == 405
+        redirect = client.get(f"/api/unsubscribe?token={token}")
+        assert (redirect.status_code, redirect["Location"]) == (302, f"/unsubscribe?token={token}")
         subscription.refresh_from_db()
         assert subscription.target_value == "test1@posthog.com,test2@posthog.com"
 
