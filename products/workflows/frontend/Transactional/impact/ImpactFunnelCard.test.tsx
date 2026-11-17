@@ -56,6 +56,30 @@ describe('ImpactFunnelCard', () => {
         expect(screen.getByText(/^3 sends in this period went out with tracking off/)).toBeInTheDocument()
     })
 
+    it('draws opens and clicks that arrived before their sends', async () => {
+        answer = [
+            200,
+            {
+                ...IMPACT,
+                sent: 0,
+                delivered: 0,
+                opened: 4,
+                clicked: 1,
+                not_clicked: 0,
+                after_click: { sends: 1, converted: 0 },
+                without_click: { sends: 0, converted: 0 },
+            },
+        ]
+        renderCard()
+
+        const funnel = await screen.findByTestId('email-impact-funnel')
+        const barHeights = Array.from(funnel.querySelectorAll('li'), (step) => {
+            const bar = step.firstElementChild?.firstElementChild as HTMLElement | null
+            return bar?.style.height ?? null
+        })
+        expect(barHeights.slice(0, 4)).toEqual([null, null, '100%', '25%'])
+    })
+
     it('shows a failed load once, in the card, and loads the funnel on Try again', async () => {
         answer = [500, { detail: 'Server error' }]
         renderCard()
