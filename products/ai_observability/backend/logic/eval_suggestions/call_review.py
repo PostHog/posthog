@@ -616,12 +616,14 @@ def review_request(rendering: Rendering) -> ModelRequest:
     )
 
 
-def build_client(team_id: int, run_id: str) -> Anthropic:
+def build_client(team_id: int, run_id: str, trigger: str) -> Anthropic:
     """Privacy mode keeps the team's traffic out of the generations the gateway captures. Raises
-    GatewayNotConfiguredError where the Go gateway is not set up, since the Python gateway has no privacy mode."""
+    GatewayNotConfiguredError where the Go gateway is not set up, since the Python gateway has no privacy mode.
+    The run's trigger tags each generation, so spend from runs staff start can be told from scheduled runs."""
     client = build_ai_gateway_anthropic_client(
         ai_product=AI_PRODUCT,
         trace_id=run_id,
+        properties={"trigger": trigger},
         distinct_id=team_distinct_id(team_id),
         team_id=team_id,
         privacy_mode=True,
