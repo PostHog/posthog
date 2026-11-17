@@ -17,6 +17,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { MCPIntentClusterApi } from '../generated/api.schemas'
 import { ClusterJourneySankey } from './ClusterJourneySankey'
+import { clusterLabel } from './clusterRanking'
 import { EntropyBadge } from './EntropyBadge'
 import { clusterCategories, mcpClusteringLogic } from './mcpClusteringLogic'
 
@@ -79,7 +80,7 @@ function ClusterDetailHeader({
         <header className="shrink-0 flex flex-col gap-2 border-b border-primary p-4" data-quill>
             <div className="flex flex-col gap-1">
                 <span className="text-xs uppercase text-muted font-medium">Selected intent group</span>
-                <h3 className="text-lg font-semibold leading-tight m-0">{cluster.label}</h3>
+                <h3 className="text-lg font-semibold leading-tight m-0">{clusterLabel(cluster)}</h3>
                 {categories.length > 0 ? (
                     <div className="flex flex-wrap items-center gap-1">
                         {categories.map((category) => (
@@ -115,11 +116,16 @@ function ClusterDetailHeader({
 }
 
 function IntentsSection({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Element {
+    const { intentTextRedacted } = useValues(mcpClusteringLogic)
     return (
         <section className="flex flex-col gap-2">
             <SectionLabel>What agents said they were doing</SectionLabel>
             {cluster.sample_intents.length === 0 ? (
-                <div className="text-sm text-muted">No representative intents recorded.</div>
+                <div className="text-sm text-muted">
+                    {intentTextRedacted
+                        ? 'Intent text is hidden by access control.'
+                        : 'No representative intents recorded.'}
+                </div>
             ) : (
                 <div className="flex flex-col gap-2">
                     {cluster.sample_intents.map((intent, idx) => (
