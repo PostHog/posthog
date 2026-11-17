@@ -11,6 +11,7 @@ from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import extend_schema_field
+from opentelemetry import trace
 from rest_framework import exceptions, serializers
 
 from posthog.schema import ExecutionTarget, HogQLQuery
@@ -70,6 +71,7 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 GENERIC_LINEAGE_SYNC_ERROR = (
     "Could not build this view's lineage. Check the query's tables and columns, then save again."
@@ -473,6 +475,7 @@ class DataWarehouseSavedQuerySerializer(
             raise exceptions.APIException(str(e))
         view.refresh_from_db()
 
+    @tracer.start_as_current_span("saved_query.validate_dependencies")
     def _validate_view_dependencies(self, team: Team, name: str, query: str) -> None:
         try:
             get_parents_from_model_query(team, name, query, database=self.context["database"])
@@ -520,6 +523,7 @@ class DataWarehouseSavedQuerySerializer(
                 seen_node_ids.add(id(node))
         return nodes
 
+    @tracer.start_as_current_span("saved_query.check_breaking_column_change")
     def _breaking_column_change(
         self,
         instance: DataWarehouseSavedQuery,
@@ -906,6 +910,7 @@ class DataWarehouseSavedQuerySerializer(
         )
         return view
 
+    @tracer.start_as_current_span("saved_query.validate_query")
     def validate_query(self, query):
         if not isinstance(query, dict):
             raise exceptions.ValidationError(

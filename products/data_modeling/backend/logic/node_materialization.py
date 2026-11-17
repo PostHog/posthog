@@ -10,6 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+from opentelemetry import trace
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.service import RPCError
@@ -57,6 +58,7 @@ from products.data_modeling.backend.temporal.workflows.execute_dag import (
 from products.data_modeling.backend.temporal.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this run."
@@ -82,6 +84,7 @@ BUILDING_LOOKUP_CONCURRENCY = 20
 BUILDING_LOOKUP_TIMEOUT = timedelta(seconds=5)
 
 
+@tracer.start_as_current_span("data_modeling.start_node_materialization")
 def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_id: int | None = None) -> None:
     """Start a one-off materialization workflow for a single node.
 

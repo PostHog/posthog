@@ -7,6 +7,7 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
+from opentelemetry import trace
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 SYSTEM_TABLE_ORIGIN = "posthog"
 MANAGED_VIEW_ORIGIN = "managed_view"
@@ -314,6 +316,7 @@ def lineage_database(team: "Team") -> Database:
     )
 
 
+@tracer.start_as_current_span("saved_query.sync_dag")
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill

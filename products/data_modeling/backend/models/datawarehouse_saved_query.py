@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 
 import structlog
+from opentelemetry import trace
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
@@ -59,6 +60,7 @@ from products.warehouse_sources.backend.facade.hogql import (
 from products.warehouse_sources.backend.facade.sources import NamingConvention
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
 
@@ -301,6 +303,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         # The list defers `query` and annotates its engine keys, so reading `query` there would load it once per row.
         return ViewEngine.from_annotated(self) or ViewEngine.from_query(self.query)
 
+    @tracer.start_as_current_span("saved_query.schedule_materialization")
     def schedule_materialization(
         self,
         *,
@@ -525,6 +528,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             raise Exception("Saved query is missing a query definition")
         return bind_window_start_sql(query["query"])
 
+    @tracer.start_as_current_span("saved_query.infer_columns")
     def get_columns(
         self, user: Optional["User"] = None, *, bypass_warehouse_access_control: bool = False
     ) -> dict[str, dict[str, Any]]:
@@ -581,6 +585,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     def s3_tables(self):
         return self.get_s3_tables()
 
+    @tracer.start_as_current_span("saved_query.resolve_source_tables")
     def get_s3_tables(self, database=None):
         from posthog.hogql.context import HogQLContext
         from posthog.hogql.database.database import Database

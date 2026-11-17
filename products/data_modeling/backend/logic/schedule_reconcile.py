@@ -21,6 +21,7 @@ from django.db import transaction
 
 import structlog
 from asgiref.sync import async_to_sync
+from opentelemetry import trace
 from temporalio.client import (
     Client,
     Schedule,
@@ -81,6 +82,7 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def maybe_reconcile_dag(dag: DAG) -> None:
@@ -311,6 +313,7 @@ def apply_saved_query_frequency_anchor(
     return written
 
 
+@tracer.start_as_current_span("data_modeling.reconcile_dag_schedules")
 def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) -> None:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 

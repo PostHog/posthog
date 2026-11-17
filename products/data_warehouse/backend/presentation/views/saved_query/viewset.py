@@ -9,6 +9,7 @@ from django.db.models.fields.json import KeyTransform
 import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
+from opentelemetry import trace
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -229,7 +230,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         self._include_columns = request.validated_query_data["include_columns"]
-        return super().list(request, *args, **kwargs)
+        listed = super().list(request, *args, **kwargs)
+        trace.get_current_span().set_attribute("saved_query_count", len(listed.data["results"]))
+        return listed
 
     def get_serializer_class(self):
         if self.action == "list":

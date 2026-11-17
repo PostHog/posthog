@@ -1602,6 +1602,7 @@ class Database(BaseModel):
         ]
         return sorted(selected, key=_serialization_order)
 
+    @tracer.start_as_current_span("serialize_hogql_database")
     def serialize(
         self,
         context: HogQLContext,
