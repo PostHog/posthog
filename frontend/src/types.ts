@@ -48,6 +48,7 @@ import type {
     SharingConfigurationApi,
     TeamFeatureFlagPolicyConfigApi,
     TeamRealtimeCohortsApi,
+    TeamWorkflowsConfigApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -953,30 +954,10 @@ export interface TeamType extends TeamBasicType {
     realtime_cohorts?: TeamRealtimeCohortsApi
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
-    workflows_config: WorkflowsConfig
+    workflows_config: TeamWorkflowsConfigApi
     // Optional so cached team objects from before this field shipped still typecheck.
     feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     business_model?: 'b2b' | 'b2c' | 'other' | null
-}
-
-export interface WorkflowsConfig {
-    capture_workflows_engagement_events: boolean
-    // Optional so cached team objects from before this field shipped still typecheck.
-    email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
-    // Null uses the product default.
-    workflow_task_rate_limit_per_day?: number | null
-    workflow_task_team_rate_limit_per_day?: number | null
-    // Optional so cached team objects from before these fields shipped still typecheck.
-    email_utm_tags_enabled?: boolean
-    email_utm_params?: Partial<Record<'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content', string>>
-    replay_vision_scan_rate_limit_per_day?: number | null
-    replay_vision_scan_team_rate_limit_per_day?: number | null
-    default_email_integration_id?: number | null
-    // Null on either disables the marketing frequency cap.
-    marketing_frequency_cap_max_messages?: number | null
-    marketing_frequency_cap_window_days?: number | null
-    // Null skips a capped marketing message at once instead of holding it for a free slot.
-    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface ProductIntentType {
