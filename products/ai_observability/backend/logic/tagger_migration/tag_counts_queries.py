@@ -16,6 +16,7 @@ WHERE event = '$ai_tag'
   AND timestamp >= now() - toIntervalDay({days})
   AND properties.$ai_tagger_id IN {tagger_ids}
 GROUP BY tagger_id
+LIMIT {limit}
 """
 
 
@@ -30,6 +31,8 @@ def load_recent_tag_counts(team: Team, tagger_ids: list[str]) -> dict[str, int]:
                 _QUERY,
                 placeholders={
                     "days": ast.Constant(value=RECENT_DAYS),
+                    # Without an explicit limit HogQL caps the rows, and a missing tagger would read as silent.
+                    "limit": ast.Constant(value=len(tagger_ids)),
                     "tagger_ids": ast.Tuple(exprs=[ast.Constant(value=tagger_id) for tagger_id in tagger_ids]),
                 },
             ),

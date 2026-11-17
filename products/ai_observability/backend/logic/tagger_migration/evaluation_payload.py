@@ -80,7 +80,8 @@ def llm_judge_payload(config: LLMTaggerConfig) -> dict[str, Any]:
     single = config.max_tags == 1
     return {
         "evaluation_type": EvaluationType.LLM_JUDGE.value,
-        "evaluation_config": {"prompt": judge_prompt(config)},
+        # Taggers sent the judge text only, so attachments in generations stay out of the provider request.
+        "evaluation_config": {"prompt": judge_prompt(config), "include_media": False},
         "output_type": OutputType.CATEGORICAL.value,
         "output_config": {
             "options": _options(config.tags),

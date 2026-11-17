@@ -90,7 +90,7 @@ class TestTaggerEvaluationPayload(SimpleTestCase):
         )
         if limit_line:
             expected_prompt += f"\n\n{limit_line}"
-        assert payload["evaluation_config"] == {"prompt": expected_prompt}
+        assert payload["evaluation_config"] == {"prompt": expected_prompt, "include_media": False}
 
     @parameterized.expand(
         [

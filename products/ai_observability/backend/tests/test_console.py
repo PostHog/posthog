@@ -12,6 +12,8 @@ from parameterized import parameterized
 
 from posthog.models.user import User
 
+from products.access_control.backend.facade.api import replace_object_access_rules
+from products.access_control.backend.facade.contracts import ObjectAccessRuleInput
 from products.ai_observability.backend.facade.admin import MigrationAction, migrate_taggers
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
@@ -196,6 +198,19 @@ class TestTaggersPanel(BaseTest):
                 team=self.team, provider="openai", model="gpt-5-mini", provider_key=broken_key
             ),
         )
+        self.private = Tagger.objects.create(team=self.team, name="Private", enabled=True, tagger_config=llm_config)
+        replace_object_access_rules(
+            team_id=self.team.pk,
+            resource="tagger",
+            resource_id=str(self.private.id),
+            rules=[ObjectAccessRuleInput(access_level="none")],
+        )
+        self.bounded = Tagger.objects.create(
+            team=self.team,
+            name="Bounded",
+            enabled=True,
+            tagger_config={**llm_config, "tags": [*llm_config["tags"], {"name": "Bug"}], "max_tags": 2},
+        )
         self.legacy = Tagger.objects.create(team=self.team, name="Legacy", enabled=True, tagger_config=llm_config)
         Tagger.objects.filter(pk=self.legacy.pk).update(tagger_config={**llm_config, "prompt": ""})
         self.url = f"/admin/console/teams/{self.team.pk}/ai-observability-taggers/migrate-taggers/"
@@ -211,6 +226,8 @@ class TestTaggersPanel(BaseTest):
             str(self.hog.id): 7,
             str(self.legacy.id): 3,
             str(self.broken_key.id): 5,
+            str(self.private.id): 9,
+            str(self.bounded.id): 11,
         }
 
         preview = self.client.post(self.url, {"reason": "Taggers are deprecated"})
@@ -249,8 +266,10 @@ class TestTaggersPanel(BaseTest):
             "Long answers": (False, hog_evaluation.id),
             "Legacy": (True, None),
             "On a broken key": (True, None),
+            "Private": (True, None),
+            "Bounded": (True, None),
         }
         assert sorted(call.kwargs["tagger_ids"][0] for call in reload_taggers.call_args_list) == sorted(
             [str(self.active.id), str(self.silent.id), str(self.hog.id)]
         )
-        assert [step.action for step in second_run] == [MigrationAction.SKIP] * 3
+        assert [step.action for step in second_run] == [MigrationAction.SKIP] * 5
