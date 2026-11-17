@@ -349,7 +349,9 @@ class TestMonthlyWindowRows:
             if request.path == "/oauth/token":
                 return _TOKEN
             if request.path == "/v2/users":
-                return ScriptedResponse(json={"users": users_by_status[request.param("status")], "next_page_token": ""})
+                return ScriptedResponse(
+                    json={"users": users_by_status[str(request.param("status"))], "next_page_token": ""}
+                )
             if request.path == "/v2/users/u2/recordings":
                 return ScriptedResponse(status=404, json={"code": 3301, "message": "There is no recording."})
             assert request.path == "/v2/users/u1/recordings", f"unexpected request {request.url}"
@@ -369,6 +371,10 @@ class TestMonthlyWindowRows:
         assert [(r.param("from"), r.param("to")) for r in u1_first_pages] == expected_u1_ranges
         assert result.rows == [recording, {**recording, "uuid": "rec2=="}]
         assert "/v2/users/u2/recordings" in result.paths
+        # The user list is read to its end before any recording request, so its page token cannot expire.
+        api_paths = [r.path for r in result.requests if r.path != "/oauth/token"]
+        assert api_paths[:2] == ["/v2/users", "/v2/users"]
+        assert "/v2/users" not in api_paths[2:]
         assert result.raised is None
 
     def test_recordings_fail_on_missing_scope_instead_of_returning_nothing(self) -> None:

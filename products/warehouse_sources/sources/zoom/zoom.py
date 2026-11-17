@@ -350,6 +350,9 @@ def _recordings_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     users = ZOOM_ENDPOINTS["users"]
     cursor = _as_date(last_value)
+    # Zoom's `next_page_token` expires after 15 minutes, and walking the recording history of one
+    # page of users can take longer, so the whole user list is read first.
+    user_starts: list[tuple[str, date]] = []
     for status in _RECORDING_USER_STATUSES:
         user_params = {"status": status, "page_size": users.page_size}
         for user_page in _pages(client, users.path, user_params, users.data_key):
@@ -361,15 +364,14 @@ def _recordings_rows(
                 start = _as_date(user.get("created_at")) or _EARLIEST_RECORDING_DATE
                 if cursor is not None:
                     start = max(start, cursor)
-                path = config.path.format(**{config.parent_param: quote(str(user_id), safe="")})
-                for window in month_windows(start, today):
-                    params = {
-                        "from": window.start.isoformat(),
-                        "to": window.end.isoformat(),
-                        "page_size": config.page_size,
-                    }
-                    for page in _pages(client, path, params, config.data_key, _RECORDING_RESPONSE_ACTIONS):
-                        yield [_without_secrets(row) for row in page]
+                user_starts.append((str(user_id), start))
+
+    for user_id, start in user_starts:
+        path = config.path.format(**{config.parent_param: quote(user_id, safe="")})
+        for window in month_windows(start, today):
+            params = {"from": window.start.isoformat(), "to": window.end.isoformat(), "page_size": config.page_size}
+            for page in _pages(client, path, params, config.data_key, _RECORDING_RESPONSE_ACTIONS):
+                yield [_without_secrets(row) for row in page]
 
 
 def _without_secrets(row: dict[str, Any]) -> dict[str, Any]:
@@ -393,7 +395,12 @@ def _windowed_rows(
     config: ZoomEndpointConfig,
     last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
-    client = RESTClient(base_url=ZOOM_API_BASE, auth=_oauth_auth(account_id, client_id, client_secret))
+    client = RESTClient(
+        base_url=ZOOM_API_BASE,
+        auth=_oauth_auth(account_id, client_id, client_secret),
+        # HTTP samples are stored before rows reach `_without_secrets`, so recording responses skip them.
+        capture=config.name != "recordings",
+    )
     today = datetime.now(UTC).date()
     yield from _WINDOWED_ITERATORS[config.name](client, config, today, last_value)
 
