@@ -801,6 +801,7 @@ def export_image(
                 # falling back to saved dashboard variables
                 export_context = exported_asset.export_context or {}
                 dashboard_variables = export_context.get("variables_override")
+                dashboard_filters = exported_asset.get_dashboard_filters()
                 if not dashboard_variables and exported_asset.dashboard.variables:
                     variables = insight_variables_for_team(exported_asset.team_id)
                     dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
@@ -825,6 +826,7 @@ def export_image(
                             user=exported_asset.created_by,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
+                            filters_override=dashboard_filters,
                             analytics_props=export_analytics_props,
                         )
                         if result.cache_key:

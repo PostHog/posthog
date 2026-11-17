@@ -39686,7 +39686,7 @@ export namespace Schemas {
          */
       goal: string;
       /**
-         * Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.
+         * Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.
          * @minimum 1
          * @maximum 100000000
          */
@@ -39699,23 +39699,9 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       experiment_id?: number;
-      /** A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions. */
+      /** A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling rate against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions. */
       query?: unknown;
     }
-
-    /**
-     * * `focused` - Focused
-     * * `balanced` - Balanced
-     * * `comprehensive` - Comprehensive
-     */
-    export type SamplingModeEnum = typeof SamplingModeEnum[keyof typeof SamplingModeEnum];
-
-
-    export const SamplingModeEnum = {
-      Focused: 'focused',
-      Balanced: 'balanced',
-      Comprehensive: 'comprehensive',
-    } as const;
 
     /**
      * An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted.
@@ -39741,14 +39727,8 @@ export namespace Schemas {
       query: unknown;
       /** When the request passed a `query`: the filters the draft ANDed onto it, which `query` already includes. Show them to the person as added by AI. Null when nothing was added or no `query` was passed. */
       query_additions: unknown;
-      /** The quality pre-filter the draft chose for the goal. Null when the costing estimate failed, in which case the wizard keeps its defaults.
-       *
-       * * `focused` - Focused
-       * * `balanced` - Balanced
-       * * `comprehensive` - Comprehensive */
-      sampling_mode: SamplingModeEnum | null;
       /**
-         * The random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
+         * The random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null when the costing estimate failed, in which case the wizard keeps its defaults.
          * @nullable
          */
       sampling_rate: number | null;
@@ -39766,7 +39746,7 @@ export namespace Schemas {
       /** Whether the draft runs only on the organization's free monthly credits. Pass it on to create. */
       free_only: boolean;
       /**
-         * Recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
+         * Recordings a month the drafted scanner is projected to watch under the solved rate. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_rate` is.
          * @nullable
          */
       estimated_monthly_observations: number | null;
@@ -44614,12 +44594,6 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
-      /** Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).
-       *
-       * * `focused` - Focused
-       * * `balanced` - Balanced
-       * * `comprehensive` - Comprehensive */
-      sampling_mode?: SamplingModeEnum;
       /**
          * The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
          * @nullable
@@ -44641,11 +44615,11 @@ export namespace Schemas {
      * Forward-looking volume and credit-cost estimate for a proposed scanner.
      */
     export interface EstimateResponse {
-      /** Distinct sessions matching the query within the scanned window (`window_days`), after the sampling_mode quality filter but before random sampling. */
+      /** Distinct sessions matching the query within the scanned window (`window_days`), before random sampling. */
       matched_sessions_in_window: number;
       /** Days of recordings the estimate scanned before scaling to 30. Up to a week (shorter when the query's operand rules out sampling); smaller when the team has fewer days of recordings. */
       window_days: number;
-      /** Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, times sampling_rate. */
+      /** Projected monthly observations: matched sessions scaled from `window_days` to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
       /** Credits one observation costs at the proposed `model` (1 credit = $0.01). */
       credits_per_observation: number;
@@ -61384,7 +61358,6 @@ export namespace Schemas {
       MouseActivityCount: 'mouse_activity_count',
       ActivityScore: 'activity_score',
       RecordingTtl: 'recording_ttl',
-      SurfacingScore: 'surfacing_score',
     } as const;
 
     export type RecordingOrderDirection = typeof RecordingOrderDirection[keyof typeof RecordingOrderDirection];
@@ -61557,8 +61530,6 @@ export namespace Schemas {
       order_direction?: RecordingOrderDirection | null;
       person_uuid?: string | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
-      /** Restrict results to recordings above the replay relevance threshold. */
-      recommended_only?: boolean | null;
       response?: RecordingsQueryResponse | null;
       session_ids?: string[] | null;
       /** If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters */
@@ -63377,13 +63348,31 @@ export namespace Schemas {
     }
 
     /**
+     * * `created` - Created
+     * * `skipped` - Left as it is
+     * * `failed` - Failed
+     * * `listed` - Listed
+     */
+    export type ImportItemStatusEnum = typeof ImportItemStatusEnum[keyof typeof ImportItemStatusEnum];
+
+
+    export const ImportItemStatusEnum = {
+      Created: 'created',
+      Skipped: 'skipped',
+      Failed: 'failed',
+      Listed: 'listed',
+    } as const;
+
+    /**
      * * `customerio` - Customer.io
+     * * `resend` - Resend
      */
     export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
 
 
     export const ImportProviderKeyEnum = {
       Customerio: 'customerio',
+      Resend: 'resend',
     } as const;
 
     export interface ImportStepOption {
@@ -63398,12 +63387,56 @@ export namespace Schemas {
     export interface ImportProviderOption {
       /** Provider key to send when starting an import.
        *
-       * * `customerio` - Customer.io */
+       * * `customerio` - Customer.io
+       * * `resend` - Resend */
       key: ImportProviderKeyEnum;
       /** Display name of the provider. */
       label: string;
       /** What the provider can import, in the order the steps run. */
       steps: ImportStepOption[];
+      /** Whether PostHog stores the API key for later imports. When false, PostHog deletes the key when the run ends, so each import needs it again. */
+      retains_credentials: boolean;
+      /** Display name of the API key this provider asks for. */
+      api_key_label: string;
+      /** What kind of key to create, and how PostHog handles it. */
+      api_key_help: string;
+      /**
+         * The page in the provider's app where the person can create the key.
+         * @nullable
+         */
+      api_key_url: string | null;
+      /** What the import can't bring over. Empty when there is nothing to say. */
+      not_imported: string;
+      /** What the person does once the import has finished, in order. */
+      next_steps: string[];
+    }
+
+    export interface ImportStepCount {
+      /** What the step counted, for example `complained`. */
+      key: string;
+      /** Display text for the count, including what it means for sends. */
+      label: string;
+      /** The count so far. */
+      value: number;
+    }
+
+    export interface ImportStepItem {
+      /** The object's name, for example a template name or a domain. */
+      label: string;
+      /** `created` when the step made it, `skipped` when it already existed and stayed as it was, `failed` when it could not be made, `listed` when the step only reports it.
+       *
+       * * `created` - Created
+       * * `skipped` - Left as it is
+       * * `failed` - Failed
+       * * `listed` - Listed */
+      status: ImportItemStatusEnum;
+      /**
+         * Where to open the object in PostHog, as an app path.
+         * @nullable
+         */
+      url: string | null;
+      /** What to review, or what did not carry over exactly. */
+      notes: string[];
     }
 
     /**
@@ -63445,6 +63478,14 @@ export namespace Schemas {
          * @nullable
          */
       last_error: string | null;
+      /** A breakdown of what the step did. Only counts above zero appear. */
+      counts: ImportStepCount[];
+      /** The objects the step handled, with anything to review. */
+      items: ImportStepItem[];
+      /** How many more warnings there were than `warnings` holds. */
+      warnings_omitted: number;
+      /** How many more objects there were than `items` holds. */
+      items_omitted: number;
     }
 
     /**
@@ -75352,11 +75393,6 @@ export namespace Schemas {
          * @nullable
          */
       sampling_rate: number | null;
-      /**
-         * The session-coverage pre-filter this version ran with.
-         * @nullable
-         */
-      sampling_mode: string | null;
       /** Thumbs-up ratings on this version's observations. */
       up: number;
       /** Thumbs-down ratings on this version's observations. */
@@ -80081,12 +80117,6 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
-      /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
-       *
-       * * `focused` - Focused
-       * * `balanced` - Balanced
-       * * `comprehensive` - Comprehensive */
-      sampling_mode?: SamplingModeEnum;
       /**
          * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
          * @minimum 1
@@ -94489,12 +94519,6 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
-      /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
-       *
-       * * `focused` - Focused
-       * * `balanced` - Balanced
-       * * `comprehensive` - Comprehensive */
-      sampling_mode?: SamplingModeEnum;
       /**
          * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
          * @minimum 1
@@ -102611,7 +102635,8 @@ export namespace Schemas {
       id: string;
       /** The provider the run imports from.
        *
-       * * `customerio` - Customer.io */
+       * * `customerio` - Customer.io
+       * * `resend` - Resend */
       provider: ImportProviderKeyEnum;
       /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
        *
@@ -115067,7 +115092,7 @@ export namespace Schemas {
          */
       template_key?: string;
       /**
-         * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+         * Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`.
          * @maxLength 400
          * @nullable
          */
@@ -115116,7 +115141,7 @@ export namespace Schemas {
 
     export interface TransactionalEmailIdentifiers {
       /**
-         * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+         * Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it. No events are captured when the project's engagement events setting is off, or when `tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read the person's properties, so pass everything it needs in `message_data`.
          * @maxLength 400
          * @nullable
          */
@@ -118929,7 +118954,8 @@ export namespace Schemas {
     export interface StartProviderImport {
       /** The provider to import from.
        *
-       * * `customerio` - Customer.io */
+       * * `customerio` - Customer.io
+       * * `resend` - Resend */
       provider: ImportProviderKeyEnum;
       /**
          * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -118937,7 +118963,10 @@ export namespace Schemas {
          * @items.maxLength 64
          */
       steps: string[];
-      /** The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key. */
+      /**
+         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.
+         * @maxLength 512
+         */
       api_key?: string;
     }
 
@@ -127657,11 +127686,21 @@ export namespace Schemas {
      */
     export type WorkflowImportRequestLayouts = {[key: string]: string};
 
+    /**
+     * * `customerio` - Customer.io
+     */
+    export type WorkflowImportSourceEnum = typeof WorkflowImportSourceEnum[keyof typeof WorkflowImportSourceEnum];
+
+
+    export const WorkflowImportSourceEnum = {
+      Customerio: 'customerio',
+    } as const;
+
     export interface WorkflowImportRequest {
       /** The tool the automations come from.
        *
        * * `customerio` - Customer.io */
-      source: ImportProviderKeyEnum;
+      source: WorkflowImportSourceEnum;
       /** The automations to import, at most 50. People are never read from these objects. */
       campaigns: CustomerioCampaign[];
       /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */
