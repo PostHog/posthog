@@ -1,18 +1,7 @@
-import { emptyResultRule, hasArg } from '../empty-result-rule'
-import type { GuidanceCall } from '../engine'
+import { emptyResultRule } from '../empty-result-rule'
 import type { GuidanceRule } from '../rule-schema'
 
 const QUERY_LOGS_TOOL = 'query-logs'
-
-// The tool takes every parameter inside `query`, so the cursor of a later page is there too.
-function isLaterPage(call: GuidanceCall): boolean {
-    const query = call.args?.query
-    return (
-        typeof query === 'object' &&
-        query !== null &&
-        hasArg({ ...call, args: query as Record<string, unknown> }, 'after')
-    )
-}
 
 function logsRule(rule: {
     id: string
@@ -27,7 +16,7 @@ function logsRule(rule: {
         needsEventData: false,
         requiresTool: [QUERY_LOGS_TOOL, ...(rule.requiresTool ?? [])],
         suppressIfCalled: rule.suppressIfCalled,
-        when: async ({ call, productState }) => !isLaterPage(call) && (await productState.hasLogs()) === rule.hasLogs,
+        when: async ({ productState }) => (await productState.hasLogs()) === rule.hasLogs,
         text: rule.text,
     })
 }

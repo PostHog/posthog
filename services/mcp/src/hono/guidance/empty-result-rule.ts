@@ -9,9 +9,13 @@ export function hasArg(call: GuidanceCall, name: string): boolean {
 }
 
 // An empty later page only means the agent read past the last row.
+// Some tools take every parameter inside `query`, so the cursor can be there.
 function isLaterPage(call: GuidanceCall): boolean {
-    const offset = call.args?.offset
-    return (typeof offset === 'number' && offset > 0) || hasArg(call, 'after')
+    const query = call.args?.query
+    const nested = typeof query === 'object' && query !== null ? (query as Record<string, unknown>) : {}
+    return [call.args ?? {}, nested].some(
+        (args) => (typeof args.offset === 'number' && args.offset > 0) || hasArg({ ...call, args }, 'after')
+    )
 }
 
 export function emptyResultRule(rule: {
