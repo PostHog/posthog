@@ -8,6 +8,7 @@ import {
     validateBearerToken,
 } from '@/lib/auth-errors'
 import { getPostHogClient } from '@/lib/posthog'
+import { validateProjectSecretKeyProject } from '@/lib/project-secret-key'
 import {
     type ClientInfo,
     parseRequestProperties,
@@ -131,6 +132,11 @@ export async function authenticateAndParse(
 
     const bodyText = await preserveBody(c)
     const props = parseRequestProperties(c.req.raw, parseClientInfo(bodyText), transport)
+    const missingProject = validateProjectSecretKeyProject(props.apiToken, props.projectId)
+    if (missingProject) {
+        authFailuresTotal.inc({ reason: 'invalid_token' })
+        return { error: missingProject }
+    }
 
     props.mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
     props.mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)

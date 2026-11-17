@@ -243,6 +243,12 @@ from products.signals.backend.report_metric_refresh import (
 )
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
+from products.signals.backend.report_note_mentions import (
+    note_text,
+    parse_note_mentions,
+    request_mention_author_id,
+    schedule_note_mention_notifications,
+)
 from products.signals.backend.report_plan import report_plan
 from products.signals.backend.report_priority import latest_priority_rank, update_report_priority
 from products.signals.backend.report_read_state import (
@@ -257,6 +263,7 @@ from products.signals.backend.report_search import (
 from products.signals.backend.report_task_actions import (
     AI_CONSENT_DISABLED_REASON,
     INBOX_REPORT_ACTION_EVENT,
+    PULL_REQUEST_ACTION_KINDS,
     PULL_REQUEST_RUN_ACTIVE_DETAIL,
     ReportActionState,
     ReportTaskActionContext,
@@ -1799,7 +1806,7 @@ _REPORT_LIST_PARAMETERS = [
             "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored "
             "when ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
             "the open, action or fix outcome of the served ranking model, highest score first, with "
-            "unscored and stale reports in priority order after the scored ones, or your stored personal "
+            "unscored reports in priority order after the scored ones, or your stored personal "
             "ranking, as personal gives it, then the priority order. The response's ranker "
             "field names the one used, and its ranking_pill field says whether to show score pills. "
             "personal puts the reports of a stored personal ranking first, by rank, then the reports it "
@@ -1832,8 +1839,8 @@ _REPORT_LIST_PARAMETERS = [
         description=(
             "Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served "
             "ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read "
-            "inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. "
-            "Needs staff or the inbox model sort rollout: other users get a 400."
+            "inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score "
+            "matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400."
         ),
     ),
     OpenApiParameter(
@@ -1844,8 +1851,8 @@ _REPORT_LIST_PARAMETERS = [
         description=(
             "Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served "
             "ranking probability is at least the value for every named outcome. Outcomes: open, action, "
-            "fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports "
-            "never match. "
+            "fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last "
+            "score matches on that score. Unscored reports never match. "
             "Needs staff or the inbox model sort rollout: other users get a 400."
         ),
     ),
@@ -4096,7 +4103,10 @@ class SignalReportViewSet(
         description=(
             "List the actions on this report that start an agent run, read from the report's current state. "
             "`get_it_merged` is available only while the report has an open, approved pull request. "
-            "`make_it_green` is available only while CI fails on the report's open pull request. "
+            "`make_it_green` is available only while CI fails on the report's open pull request, or while it "
+            "conflicts with its base branch. "
+            "`resolve_conflicts` is available only while the report's open pull request conflicts with its base "
+            "branch. "
             "`suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint."
         ),
         operation_id="signals_reports_actions_list",
@@ -4212,7 +4222,7 @@ class SignalReportViewSet(
             )
             return self._task_action_error("report_action_unavailable", report_action.disabled_reason, error_status)
 
-        if kind in (ReportTaskActionKind.GET_IT_MERGED, ReportTaskActionKind.MAKE_IT_GREEN) and (
+        if kind in PULL_REQUEST_ACTION_KINDS and (
             active := active_pull_request_run(team_id=self.team.id, report_id=str(report.id))
         ):
             capture("limited", "report_action_run_active")
@@ -5480,7 +5490,11 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="pr_checks", required_scopes=["inbox:read"])
     def pr_checks(self, request: Request, *args, **kwargs) -> Response:
         return self._pr_github_passthrough(
-            cast(SignalReport, self.get_object()), "get_pull_request_checks", "checks", "checks"
+            cast(SignalReport, self.get_object()),
+            "get_pull_request_checks",
+            ("checks", "has_conflict"),
+            "checks",
+            PullRequestChecksResponseSerializer,
         )
 
     @extend_schema(
@@ -5586,7 +5600,11 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="pr_comments", required_scopes=["inbox:read"])
     def pr_comments(self, request: Request, *args, **kwargs) -> Response:
         return self._pr_github_passthrough(
-            cast(SignalReport, self.get_object()), "get_pull_request_comments", "comments", "comments"
+            cast(SignalReport, self.get_object()),
+            "get_pull_request_comments",
+            ("comments",),
+            "comments",
+            PullRequestCommentsResponseSerializer,
         )
 
     @extend_schema(
@@ -5943,9 +5961,17 @@ class SignalReportViewSet(
             )
         return result
 
-    def _pr_github_passthrough(self, report: SignalReport, fetch_name: str, key: str, noun: str) -> Response:
+    def _pr_github_passthrough(
+        self,
+        report: SignalReport,
+        fetch_name: str,
+        keys: tuple[str, ...],
+        noun: str,
+        response_serializer: type[serializers.Serializer],
+    ) -> Response:
         """Shared body for the ``pr_checks`` / ``pr_comments`` actions: resolve the report's PR and the
-        GitHub integration that can read it, call ``fetch_name`` on the client, and return ``{key: ...}``.
+        GitHub integration that can read it, call ``fetch_name`` on the client, and render ``keys`` of its
+        result through ``response_serializer``, so the wire shape matches the declared schema.
         A missing PR/integration maps to 404, a rate limit to its response, and any other upstream GitHub
         failure to 502 — an upstream hiccup never 500s the endpoint."""
         reference = self._resolve_report_pr_reference(report)
@@ -5957,8 +5983,9 @@ class SignalReportViewSet(
         repository, pr_number = reference
         cache_key = f"signals:pr-github:{self.team.id}:{repository}:{pr_number}:{fetch_name}"
         cached_result = cache.get(cache_key)
-        if isinstance(cached_result, dict) and key in cached_result:
-            return Response({key: cached_result[key]})
+        # A cached result that lacks a key was written in an earlier format, so it reads as a miss.
+        if isinstance(cached_result, dict) and all(key in cached_result for key in keys):
+            return Response(response_serializer(cached_result).data)
 
         github, repository, pr_number, error = self._github_for_report_pr(report, reference=reference)
         if error is not None:
@@ -6005,7 +6032,7 @@ class SignalReportViewSet(
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         cache.set(cache_key, result, timeout=PR_GITHUB_CACHE_SECONDS)
-        return Response({key: result[key]})
+        return Response(response_serializer(result).data)
 
     def _github_for_report_pr(
         self,
@@ -7300,6 +7327,13 @@ class SignalReportArtefactViewSet(
                 )
             except ArtefactContentValidationError as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if isinstance(parsed_content, NoteArtefact):
+            schedule_note_mention_notifications(
+                team_id=self.team.id,
+                artefact_id=str(artefact.id),
+                author_id=request_mention_author_id(request, attribution),
+                mentions=parse_note_mentions(parsed_content.note),
+            )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
 
     def _capture_canonical_reviewer_state(self, report_id: str) -> None:
@@ -7373,6 +7407,13 @@ class SignalReportArtefactViewSet(
                 {"error": f"Artefact type '{artefact.type}' is read-only and cannot be edited through the API."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        previous_content = artefact.content
+        # Resolved before the edit is saved, so a bad task header fails the request without writing it.
+        mention_author_id = (
+            request_mention_author_id(request, resolve_request_attribution(request, self.team.id))
+            if artefact.type == SignalReportArtefact.ArtefactType.NOTE
+            else None
+        )
         try:
             parsed_content = parse_artefact_content(artefact.type, request.validated_data["content"])
             if isinstance(parsed_content, ChannelAssignment):
@@ -7382,6 +7423,16 @@ class SignalReportArtefactViewSet(
             return Response(
                 {"error": f"content does not match the '{artefact.type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        if isinstance(parsed_content, NoteArtefact):
+            # An edit pings only the people it adds, so fixing a typo does not ping everyone again.
+            schedule_note_mention_notifications(
+                team_id=self.team.id,
+                artefact_id=str(artefact.id),
+                author_id=mention_author_id,
+                mentions=parse_note_mentions(parsed_content.note).added_since(
+                    parse_note_mentions(note_text(artefact.type, previous_content) or "")
+                ),
             )
         if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             # Editing a reviewers row can change the report's canonical reviewer set in place.

@@ -147,6 +147,42 @@ function recordRequestOrigin(url: string): void {
     origins.add(new URL(url).origin)
 }
 
+// The path and query of a webhook URL (template-webhook, Discord, Teams, Zapier) are the credential for the
+// channel, and the inputs that hold them are stored as secrets. Worker logs get only the scheme, host and port.
+export function loggableOrigin(url: string): string | undefined {
+    return URL.canParse(url) ? new URL(url).origin : undefined
+}
+
+// Callers rethrow the fetch error (the legacy webhook service does), and the Kafka consumer then writes it to the
+// worker log and to error tracking. Replacing the URL in the error itself covers every one of those paths.
+function scrubUrlFromError(error: unknown, url: string, replacement: string): void {
+    const errors = error instanceof AggregateError ? error.errors : []
+    for (const e of [error, (error as { cause?: unknown } | null)?.cause, ...errors]) {
+        // Not `instanceof Error`, which is false for a DOMException created in another realm, such as under Jest.
+        if (typeof e === 'object' && e !== null) {
+            replaceInErrorProperty(e, 'message', url, replacement)
+            replaceInErrorProperty(e, 'stack', url, replacement)
+        }
+    }
+}
+
+// A DOMException, such as the TimeoutError from AbortSignal.timeout, has a getter-only `message`, so an assignment
+// throws and the fetch error escapes cdpTrackedFetch. Defining an own property on the instance shadows the getter.
+// If the error is frozen, the URL stays in it, because a failed scrub must not stop the caller from getting the error.
+function replaceInErrorProperty(error: object, key: 'message' | 'stack', url: string, replacement: string): void {
+    const value = (error as Partial<Record<typeof key, unknown>>)[key]
+    if (typeof value !== 'string' || !value.includes(url)) {
+        return
+    }
+    try {
+        Object.defineProperty(error, key, {
+            value: value.split(url).join(replacement),
+            writable: true,
+            configurable: true,
+        })
+    } catch {}
+}
+
 export async function cdpTrackedFetch({
     url,
     fetchParams,
@@ -167,10 +203,14 @@ export async function cdpTrackedFetch({
 
     // Attribution read by the URL-validation check logs and the egress proxy rollout in common/utils/request.ts,
     // which run inside undici's connect flow where no caller context is otherwise available.
-    const doFetch = () =>
-        fetchAttribution.run({ teamId, hogFunctionId, templateId }, () =>
+    const origin = loggableOrigin(url)
+    const doFetch = async () => {
+        const result = await fetchAttribution.run({ teamId, hogFunctionId, templateId }, () =>
             tryCatch(async () => await fetch(url, { maxResponseBytes: MAX_FETCH_RESPONSE_BYTES, ...fetchParams }))
         )
+        scrubUrlFromError(result[0], url, origin ?? '<url>')
+        return result
+    }
 
     let [fetchError, fetchResponse] = await doFetch()
 
@@ -180,8 +220,15 @@ export async function cdpTrackedFetch({
 
     if (fetchError && isConnectionLevelError(fetchError)) {
         logger.warn('🦔', '[cdpTrackedFetch] Connection-level error detected, immediately retrying fetch once', {
-            url,
-            error: fetchError,
+            origin,
+            error: {
+                name: fetchError.name,
+                code: (fetchError as { code?: string }).code,
+                message: fetchError.message,
+            },
+            templateId,
+            teamId,
+            hogFunctionId,
         })
         ;[fetchError, fetchResponse] = await doFetch()
         const retryDuration = performance.now() - start

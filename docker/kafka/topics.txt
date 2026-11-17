@@ -52,6 +52,7 @@ events_plugin_ingestion_ai
 events_plugin_ingestion_async
 events_plugin_ingestion_dlq
 events_plugin_ingestion_overflow
+flags_cache_invalidation
 heatmaps_ingestion
 ingestion-clientwarnings-main-1
 log_entries
