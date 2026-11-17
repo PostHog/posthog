@@ -64,6 +64,12 @@ from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
+from posthog.query_creator_access import (
+    CreatorLeftOrganizationError,
+    assert_creator_can_run,
+    describe_owner_unavailable,
+    owner_unavailable_code,
+)
 from posthog.rate_limit import (
     AlertLLMSimulationBurstThrottle,
     AlertLLMSimulationDailyThrottle,
@@ -83,7 +89,7 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.utils import relative_date_parse
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.facade.api import (
@@ -1409,17 +1415,34 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise serializers.ValidationError("Invalid schedule restriction.")
 
     def validate(self, attrs):
+        team = self.context["get_team"]()
+        actor = self.context["request"].user
         insight = attrs.get("insight") or (self.instance.insight if self.instance else None)
-        if insight is not None:
-            _require_metrics_scope_for_programmatic_auth(self.context, insight)
+        if insight is None:
+            raise ValidationError({"insight": ["Insight is required."]})
+        if insight.team_id != team.id:
+            raise ValidationError({"insight": ["This insight does not belong to your team."]})
+        _require_metrics_scope_for_programmatic_auth(self.context, insight)
+        owner = self.instance.created_by if self.instance else actor
+        if self.instance is not None and attrs.get("enabled") is True and not self.instance.enabled:
+            try:
+                assert_creator_can_run(owner, team, insight)
+            except (CreatorLeftOrganizationError, UserAccessControlError) as error:
+                raise ValidationError(
+                    {"enabled": [f"Can't enable this alert. {describe_owner_unavailable(owner, error)}"]},
+                    code=owner_unavailable_code(error),
+                ) from error
         try:
-            validated = validate_alert_write(
-                {key: value for key, value in attrs.items() if key != "insight"},
-                alert_id=self.instance.pk if self.instance else None,
-                insight_id=attrs["insight"].pk if attrs.get("insight") else None,
-                team=self.context["get_team"](),
-                actor=self.context["request"].user,
-            )
+            with upgrade_insight(insight):
+                validated = validate_alert_write(
+                    {key: value for key, value in attrs.items() if key != "insight"},
+                    instance=self.instance.validation_state() if self.instance else None,
+                    query=insight.query,
+                    insight_kind=insight.alertable_query_kind,
+                    team=team,
+                    actor=actor,
+                    owner=owner,
+                )
             return {**attrs, **validated}
         except AlertWriteRefused as error:
             raise ValidationError(error.detail, code=error.code) from error

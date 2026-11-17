@@ -5,29 +5,19 @@ import posthoganalytics
 from posthog.schema import AlertCalculationInterval, NodeKind
 
 from posthog.models import Organization, Team, User
-from posthog.query_creator_access import (
-    CreatorLeftOrganizationError,
-    assert_creator_can_run,
-    describe_owner_unavailable,
-    owner_unavailable_code,
-)
-from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
-from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.alerts.backend.evaluation.validation import (
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
     should_default_check_ongoing_interval,
     validate_alert_config,
     validate_alert_insight_query,
 )
-from products.alerts.backend.facade.contracts import AlertWriteRefused
+from products.alerts.backend.facade.contracts import AlertValidationState, AlertWriteRefused
 from products.alerts.backend.facade.evaluation import validate_evaluation_delay
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.facade.models import Insight
 
 
-def validate_insight_feature_access(insight: Insight, *, actor: User, organization: Organization) -> None:
-    kind = insight.alertable_query_kind
+def validate_insight_feature_access(kind: NodeKind | None, *, actor: User, organization: Organization) -> None:
     if kind is None:
         raise AlertWriteRefused("Alerts are not supported for this insight.")
     if kind == NodeKind.METRICS_QUERY and not posthoganalytics.feature_enabled(
@@ -48,40 +38,25 @@ def validate_interval_entitlement(
 def validate_alert_write(
     attrs: dict[str, Any],
     *,
-    instance: AlertConfiguration | None,
+    instance: AlertValidationState | None,
+    query: dict[str, Any] | None,
+    insight_kind: NodeKind | None,
+    owner: User | None,
     team: Team,
     organization: Organization,
     actor: User,
 ) -> dict[str, Any]:
-    if attrs.get("insight") and attrs["insight"].team.id != team.id:
-        raise AlertWriteRefused({"insight": ["This insight does not belong to your team."]})
-
     condition = attrs.get("condition", instance.condition if instance else None)
     config = attrs.get("config", instance.config if instance else None)
-    insight = attrs.get("insight") or (instance.insight if instance else None)
-    if insight is None:
-        raise AlertWriteRefused({"insight": ["Insight is required."]})
-    # Checks run as the owner, so an owner who cannot run them would only get the alert disabled again.
-    if instance is not None and attrs.get("enabled") is True and not instance.enabled:
-        try:
-            assert_creator_can_run(instance.created_by, instance.team, insight)
-        except (CreatorLeftOrganizationError, UserAccessControlError) as error:
-            raise AlertWriteRefused(
-                {"enabled": [f"Can't enable this alert. {describe_owner_unavailable(instance.created_by, error)}"]},
-                code=owner_unavailable_code(error),
-            )
-    # Check the effective insight on every write, including an edit that omits the insight field.
-    validate_insight_feature_access(insight, actor=actor, organization=organization)
-    with upgrade_insight(insight):
-        query = insight.query
-        if query is None:
-            raise AlertWriteRefused({"insight": ["Insight has no valid query."]})
+    validate_insight_feature_access(insight_kind, actor=actor, organization=organization)
+    if query is None:
+        raise AlertWriteRefused({"insight": ["Insight has no valid query."]})
 
     threshold_config = None
     if "threshold" in attrs and isinstance(attrs["threshold"], dict):
         threshold_config = attrs["threshold"].get("configuration")
-    elif instance and instance.threshold:
-        threshold_config = instance.threshold.configuration
+    elif instance:
+        threshold_config = instance.threshold_configuration
 
     calculation_interval = attrs.get(
         "calculation_interval",
@@ -113,8 +88,6 @@ def validate_alert_write(
             config = {**config, "check_ongoing_interval": True}
             attrs["config"] = config
 
-    request_user = actor
-    creating_user = request_user if isinstance(request_user, User) else None
     try:
         validate_evaluation_delay(query, config, evaluation_delay)
         validate_alert_insight_query(
@@ -122,7 +95,7 @@ def validate_alert_write(
             team=team,
             # The alert evaluates as its creator, so an update validates as that user rather
             # than as whoever is editing it.
-            user=instance.created_by if instance is not None else creating_user,
+            user=owner,
         )
         validate_alert_config(
             query,
@@ -157,7 +130,7 @@ def validate_alert_write(
             "detector_config",
             instance.detector_config if instance else None,
         )
-        if not detector_config and insight.alertable_query_kind != NodeKind.METRICS_QUERY:
+        if not detector_config and insight_kind != NodeKind.METRICS_QUERY:
             raise AlertWriteRefused(
                 {"investigation_agent_enabled": ["Investigation agent is only supported for anomaly detection alerts."]}
             )
@@ -185,7 +158,11 @@ def validate_alert_write(
         organization=organization,
         calculation_interval=calculation_interval,
         enabled=attrs.get("enabled", existing_enabled) is True,
-        existing=instance,
+        existing=AlertConfiguration(
+            id=instance.id, enabled=instance.enabled, calculation_interval=instance.calculation_interval
+        )
+        if instance
+        else None,
     ):
         posthoganalytics.capture(
             distinct_id=str(actor.distinct_id),

@@ -235,9 +235,17 @@ def take_alert_ownership(
             id=locked.id, enabled=locked.enabled, calculation_interval=locked.calculation_interval
         )
         locked.created_by = owner
-        attrs = validate_alert_write(
-            {"enabled": True}, instance=locked, team=locked.team, organization=locked.team.organization, actor=actor
-        )
+        with upgrade_insight(locked.insight):
+            attrs = validate_alert_write(
+                {"enabled": True},
+                instance=locked.validation_state(),
+                query=locked.insight.query,
+                insight_kind=locked.insight.alertable_query_kind,
+                team=locked.team,
+                organization=locked.team.organization,
+                actor=actor,
+                owner=owner,
+            )
         refusal = admit_llm_alert_write(
             LLMAlertWrite(
                 team_id=team_id,

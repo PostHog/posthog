@@ -24,7 +24,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.schema_enums import AlertState
+from posthog.schema_enums import AlertState, NodeKind
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
@@ -661,26 +661,25 @@ def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> l
 def validate_alert_write(
     attrs: dict[str, Any],
     *,
-    alert_id: uuid.UUID | None,
-    insight_id: int | None,
+    instance: contracts.AlertValidationState | None,
+    query: dict[str, Any] | None,
+    insight_kind: NodeKind | None,
     team: Team,
     actor: User,
+    owner: User | None,
 ) -> dict[str, Any]:
     from products.alerts.backend.logic.alert_validation import validate_alert_write as validate
-    from products.alerts.backend.logic.ownership import _load_alert
 
-    values = dict(attrs)
-    if insight_id is not None:
-        values["insight"] = Insight.objects.get(pk=insight_id, team_id=team.id)
-    validated = validate(
-        values,
-        instance=_load_alert(team.id, alert_id) if alert_id is not None else None,
+    return validate(
+        attrs,
+        instance=instance,
+        query=query,
+        insight_kind=insight_kind,
         team=team,
         organization=team.organization,
         actor=actor,
+        owner=owner,
     )
-    validated.pop("insight", None)
-    return validated
 
 
 def take_alert_ownership(

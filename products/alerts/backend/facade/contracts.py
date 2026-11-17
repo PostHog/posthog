@@ -303,3 +303,17 @@ class AlertInsightSnapshot:
     id: int | None
     query: dict[str, Any] | None
     filters: dict[str, Any]
+
+
+@frozen
+class AlertValidationState:
+    id: UUID
+    enabled: bool
+    condition: dict[str, Any] | None
+    config: dict[str, Any] | None
+    threshold_configuration: dict[str, Any] | None
+    calculation_interval: str
+    detector_config: dict[str, Any] | None
+    evaluation_delay_intervals: int
+    investigation_agent_enabled: bool
+    investigation_gates_notifications: bool
