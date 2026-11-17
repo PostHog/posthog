@@ -30,6 +30,7 @@ from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
     PendingOAuthFlow,
 )
+from posthog.inbox_providers import InboxProvider
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
@@ -94,6 +95,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
 
@@ -163,6 +165,7 @@ class TestSignupAPI(APIBaseTest):
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
+    @patch.dict("posthog.inbox_providers._INBOX_PROVIDERS_BY_DOMAIN", {"posthog.com": InboxProvider.GMAIL})
     def test_api_sign_up_requires_verification(self, mock_email_verifier, mock_is_email_available):
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
@@ -195,6 +198,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": "gmail",
             },
         )
 
@@ -246,6 +250,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
         mock_is_email_available.assert_called()
@@ -587,6 +592,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
 
@@ -849,6 +855,7 @@ class TestSignupAPI(APIBaseTest):
                 "is_email_verified": False,
                 "hedgehog_config": None,
                 "role_at_organization": "product",
+                "inbox_provider": None,
             },
         )
 

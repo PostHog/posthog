@@ -216,7 +216,7 @@ def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
 def alert_has_enabled_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> bool:
     """Whether an enabled function takes the alert's events, bound to it on any template or unbound.
 
-    Wider than `count_active_alert_destinations`, which counts only known templates bound to the alert.
+    Includes unbound functions that `count_active_alert_destinations` does not count.
     """
     bound = (
         owned_alert_destinations_qs(
@@ -319,7 +319,7 @@ def _hold_backs(
     # A secret input is not in `inputs` or in a snapshot, so it is read where it is stored.
     if template_id == WebhookDestination.template_id and input_value(function.encrypted_inputs or {}, "signing_secret"):
         found.append(DestinationHoldBack.WEBHOOK_SIGNING)
-    # Native delivery reads ordinary headers only, so a secret header such as a token never reaches the receiver.
+    # A secret header such as a token stays on the HogFunction path, the only path that has delivered one.
     if template_id == WebhookDestination.template_id and input_value(function.encrypted_inputs or {}, "secret_headers"):
         found.append(DestinationHoldBack.WEBHOOK_HEADERS)
     # A secret address, such as a PagerDuty routing key, is stored in `encrypted_inputs`.

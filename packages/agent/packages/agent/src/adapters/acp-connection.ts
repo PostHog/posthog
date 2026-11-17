@@ -33,6 +33,7 @@ export type AcpConnectionConfig = {
   /** Deployment environment - "local" for desktop, "cloud" for cloud sandbox */
   deviceType?: "local" | "cloud";
   logger?: Logger;
+  claudeAgentLogger?: Logger;
   processCallbacks?: ProcessSpawnedCallback;
   codexOptions?: CodexOptions;
   codexModels?: ReadonlyArray<ModelInfo>;
@@ -165,6 +166,7 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
   const agentConnection = new AgentSideConnection((client) => {
     agent = new ClaudeAcpAgent(client, {
       ...config.processCallbacks,
+      logger: config.claudeAgentLogger,
       startupLogger: logger.child("ClaudeInitialization"),
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),

@@ -5,6 +5,16 @@ held back to where the team's ingestion has reached. Each series the query retur
 condition. Under grouping by result labels, each distinct set of grouping label values is a group.
 Without grouping, the alert has one group that breaches when any series does.
 
+An alert that fires on N of its last M checks reads those M checks as one range query, at the check
+interval, ending at the same instant. Each group's earlier breaches come from the earlier steps, so the
+alert fires once the condition has held for the window, as `for:` does in Prometheus. A step where a
+group has no breaching series counts as clear, because Prometheus resets a pending alert whose series
+stops matching. A group missing now keeps its earlier breaches, so it is judged like a group that
+cleared now.
+
+Both queries send the check interval as the step. Snuffle sizes a MetricsQL rollup that names no window,
+such as `increase(x)`, from the step, so the same alert measures the same value whatever its window.
+
 A series the query no longer returns resolves its group, as in Prometheus, once the partition
 checkpoint shows every ingestion partition has passed the instant the check read. A team's samples
 spread over those partitions, so without the checkpoint a missing series could be one a lagging
@@ -56,7 +66,6 @@ from products.alerts_platform.backend.facade.grouping import (
     decide_groups,
     delivery_parts,
     muted_value,
-    not_breaching,
 )
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
@@ -116,6 +125,9 @@ ABSENT_RESOLVE_AFTER: Final = timedelta(hours=1)
 
 _UNEXPECTED_ERROR: Final = "Alert check failed unexpectedly. PostHog has been notified."
 _INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
+_TOO_MANY_SERIES: Final = (
+    f"The query returned more than {MAX_SERIES} series. Aggregate it, for example with sum by (...)."
+)
 
 _COMPARE: Final[dict[str, Callable[[float, float], bool]]] = {
     "gt": operator.gt,
@@ -265,7 +277,14 @@ def _evaluate(
         # Saved through the same model, so this is a config an older version accepted.
         return _failed(check, _INVALID_CONFIG, transient=False, now=now, muted=muted)
     try:
-        samples = _query(team, config.query, at=at, timeout_seconds=query_seconds)
+        steps = _query(
+            team,
+            config.query,
+            at=at,
+            periods=check.evaluation_periods,
+            interval=timedelta(minutes=check.check_interval_minutes),
+            timeout_seconds=query_seconds,
+        )
     except PromQLQueryError as error:
         return _failed(check, str(error), transient=error.transient, now=now, muted=muted)
     except Exception:
@@ -273,15 +292,16 @@ def _evaluate(
         return _failed(check, _UNEXPECTED_ERROR, transient=True, now=now, muted=muted)
     duration_ms = int((time.monotonic() - started_at) * 1000)
 
-    observations, unknown = _observations(check, config.condition, samples)
+    prior = _breaching_keys(check, config.condition, steps[1:])
+    observations, unknown = _observations(check, config.condition, steps[0], prior=prior)
     decision = decide_groups(
         check,
         observations,
-        snapshot_of=lambda instance, _prior: _snapshot(check, instance),
+        snapshot_of=lambda instance, prior: _snapshot(check, instance, prior),
         policy=POLICY,
         now=now,
         muted=muted,
-        absent=lambda key: _absent(check, key, unknown=unknown, now=now, reach=reach),
+        absent=lambda key: _absent(check, key, unknown=unknown, now=now, reach=reach, prior=prior),
     )
     for verdict in decision.verdicts:
         safe_record(increment_checks, SOURCE.value, verdict.outcome.notification.value)
@@ -303,18 +323,60 @@ def _evaluate(
     return recorded, _request(check, recorded, moves, sends_messages=sends_messages)
 
 
-def _query(team: Team, expr: str, *, at: datetime, timeout_seconds: float) -> list[_Sample]:
-    """The series one PromQL instant query returns at `at`."""
+def _query(
+    team: Team, expr: str, *, at: datetime, periods: int, interval: timedelta, timeout_seconds: float
+) -> list[list[_Sample]]:
+    """The series the query returns at `at` and at each of the `periods - 1` checks before it, newest first."""
+    if periods <= 1:
+        return [
+            _instant_samples(
+                _snuffle(
+                    team,
+                    "/api/v1/query",
+                    {"query": expr, "time": str(at.timestamp()), "step": f"{int(interval.total_seconds())}s"},
+                    timeout_seconds,
+                )
+            )
+        ]
+    step_seconds = int(interval.total_seconds())
+    start = at - interval * (periods - 1)
+    data = _snuffle(
+        team,
+        "/api/v1/query_range",
+        {"query": expr, "start": str(start.timestamp()), "end": str(at.timestamp()), "step": f"{step_seconds}s"},
+        timeout_seconds,
+    )
+    if data.get("resultType") != "matrix":
+        raise PromQLQueryError(
+            f"A metrics alert query must return an instant vector or a scalar, not a {data.get('resultType')}."
+        )
+    result: list[Any] = data.get("result") or []
+    if len(result) > MAX_SERIES:
+        raise PromQLQueryError(_TOO_MANY_SERIES)
+    steps: list[list[_Sample]] = [[] for _ in range(periods)]
+    for series in result:
+        labels = {str(key): str(value) for key, value in (series.get("metric") or {}).items()}
+        for timestamp, raw in series.get("values") or []:
+            # Snuffle aligns each point to a step that ends at `at`, so the offset is a whole number of steps.
+            index = round((at.timestamp() - float(timestamp)) / step_seconds)
+            if 0 <= index < periods:
+                steps[index].append(_Sample(labels=labels, value=_number(raw)))
+    return steps
+
+
+def _snuffle(team: Team, path: str, data: dict[str, str], timeout_seconds: float) -> dict[str, Any]:
     payload = snuffle_payload(
         team,
         "POST",
-        "/api/v1/query",
-        data={"query": expr, "time": str(at.timestamp()), "timeout": f"{int(timeout_seconds)}s"},
+        path,
+        data={**data, "timeout": f"{int(timeout_seconds)}s"},
         timeout=timeout_seconds,
         ch_user=ClickHouseUser.ALERTS_PLATFORM_METRICS,
     )
+    return payload.get("data") or {}
 
-    data = payload.get("data") or {}
+
+def _instant_samples(data: dict[str, Any]) -> list[_Sample]:
     result_type = data.get("resultType")
     result: Any = data.get("result")
     if result_type == "scalar":
@@ -322,9 +384,7 @@ def _query(team: Team, expr: str, *, at: datetime, timeout_seconds: float) -> li
     if result_type != "vector":
         raise PromQLQueryError(f"A metrics alert query must return an instant vector or a scalar, not a {result_type}.")
     if len(result or []) > MAX_SERIES:
-        raise PromQLQueryError(
-            f"The query returned more than {MAX_SERIES} series. Aggregate it, for example with sum by (...)."
-        )
+        raise PromQLQueryError(_TOO_MANY_SERIES)
     samples: list[_Sample] = []
     for series in result or []:
         # `__name__` stays, so an alert can group by it.
@@ -353,7 +413,13 @@ def _breached(condition: MetricsPlatformAlertCondition, value: float | None) -> 
 
 
 def _absent(
-    check: PlatformAlertCheckInput, key: str, *, unknown: frozenset[str], now: datetime, reach: IngestionReach
+    check: PlatformAlertCheckInput,
+    key: str,
+    *,
+    unknown: frozenset[str],
+    now: datetime,
+    reach: IngestionReach,
+    prior: Sequence[frozenset[str]] = (),
 ) -> GroupObservation | None:
     """A missing group's verdict, as the module docstring explains. None holds its state."""
     if key in unknown:
@@ -362,32 +428,41 @@ def _absent(
     held_long_enough = (
         reach.newest_point is not None and last_seen_at is not None and now - last_seen_at >= ABSENT_RESOLVE_AFTER
     )
-    return not_breaching(key) if reach.checkpoint is not None or held_long_enough else None
+    if reach.checkpoint is None and not held_long_enough:
+        return None
+    return GroupObservation(
+        grouping_key=key, current_breached=False, prior_breached=tuple(key in step for step in prior)
+    )
 
 
 def _observations(
-    check: PlatformAlertCheckInput, condition: MetricsPlatformAlertCondition, samples: Sequence[_Sample]
+    check: PlatformAlertCheckInput,
+    condition: MetricsPlatformAlertCondition,
+    samples: Sequence[_Sample],
+    *,
+    prior: Sequence[frozenset[str]] = (),
 ) -> tuple[list[GroupObservation], frozenset[str]]:
     """One observation per sample, leaving out the groups held without a verdict, and those groups' keys.
 
     A group with a sample that has no number is held, unless another of its samples breaches. A healthy
     sample beside it does not show that the unknown one recovered.
     """
-    by_labels = check.grouping.mode == GroupingMode.BY_RESULT_LABELS
     observations: list[GroupObservation] = []
     unknown: set[str] = set()
     for sample in samples:
-        if by_labels:
-            labels = {key: sample.labels.get(key, "") for key in check.grouping.keys}
-        else:
-            labels = {key: value for key, value in sample.labels.items() if key != "__name__"}
-        key = _grouping_key_of(labels) if by_labels else ""
+        key, labels = _group_of(check, sample)
         breached = _breached(condition, sample.value)
         if breached is None:
             unknown.add(key)
             continue
         observations.append(
-            GroupObservation(grouping_key=key, current_breached=breached, value=sample.value, labels=labels)
+            GroupObservation(
+                grouping_key=key,
+                current_breached=breached,
+                prior_breached=tuple(key in step for step in prior),
+                value=sample.value,
+                labels=labels,
+            )
         )
     breaching = {observation.grouping_key for observation in observations if observation.current_breached}
     held = frozenset(unknown - breaching)
@@ -395,8 +470,31 @@ def _observations(
     # An announced firing the query still returns is reported as still firing, which notifies nothing,
     # so the platform records it as seen and its absence hold counts from this check. An unannounced
     # one is left out, because a breach would announce it on a value that reached no verdict.
-    kept.extend(GroupObservation(grouping_key=key, current_breached=True) for key in held if _announced(check, key))
+    # A full window of breaches, so an alert that needs N of M breaches stays firing too.
+    kept.extend(
+        GroupObservation(grouping_key=key, current_breached=True, prior_breached=(True,) * len(prior))
+        for key in held
+        if _announced(check, key)
+    )
     return kept, held
+
+
+def _breaching_keys(
+    check: PlatformAlertCheckInput, condition: MetricsPlatformAlertCondition, steps: Sequence[Sequence[_Sample]]
+) -> list[frozenset[str]]:
+    """For each earlier step, newest first, the groups that had a breaching series."""
+    return [
+        frozenset(_group_of(check, sample)[0] for sample in step if _breached(condition, sample.value))
+        for step in steps
+    ]
+
+
+def _group_of(check: PlatformAlertCheckInput, sample: _Sample) -> tuple[str, dict[str, str]]:
+    """The instance key of the group a sample belongs to, and the labels the group reports."""
+    if check.grouping.mode == GroupingMode.BY_RESULT_LABELS:
+        labels = {key: sample.labels.get(key, "") for key in check.grouping.keys}
+        return _grouping_key_of(labels), labels
+    return "", {key: value for key, value in sample.labels.items() if key != "__name__"}
 
 
 def _announced(check: PlatformAlertCheckInput, key: str) -> bool:
@@ -419,13 +517,18 @@ def _evaluation_key(check: PlatformAlertCheckInput, now: datetime) -> str:
     return f"slot:{slot_of(check.next_check_at, now)}"
 
 
-def _snapshot(check: PlatformAlertCheckInput, instance: InstanceCheckState) -> AlertSnapshot:
+def _snapshot(
+    check: PlatformAlertCheckInput, instance: InstanceCheckState, prior: tuple[bool, ...] = ()
+) -> AlertSnapshot:
     return AlertSnapshot(
         state=AlertState(instance.state),
         cooldown=timedelta(minutes=check.cooldown_minutes),
         last_notified_at=instance.last_notified_at,
         snooze_until=instance.snooze_until,
         consecutive_failures=check.consecutive_failures,
+        evaluation_periods=check.evaluation_periods,
+        datapoints_to_alarm=check.datapoints_to_alarm,
+        recent_events_breached=prior,
         firing_started_at=instance.firing_started_at,
     )
 

@@ -22,7 +22,7 @@ from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 
 from posthog.dataclasses import frozen
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 _SUBJECT_NAMESPACE = "data-quality-posthog-table:"
 RESOURCE: APIScopeObject = "warehouse_table"

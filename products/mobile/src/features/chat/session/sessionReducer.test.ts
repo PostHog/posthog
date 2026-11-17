@@ -60,6 +60,8 @@ function row(state: SessionThreadState, item: SessionThreadItem): string {
             return `user: ${item.text}`
         case 'assistant':
             return `assistant${item.complete ? '' : '…'}: ${item.text}`
+        case 'visualization':
+            return `visualization: ${item.title ?? item.shortId ?? item.id}`
         case 'thought':
             return `thought${item.complete ? '' : '…'}: ${item.text}`
         case 'tool': {
