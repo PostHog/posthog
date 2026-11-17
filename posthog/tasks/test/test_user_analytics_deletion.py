@@ -1,6 +1,6 @@
 import json
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -30,7 +30,7 @@ class TestUserAnalyticsDeletionSignal(TestCase):
     @parameterized.expand([(None, "example-user", False), ("US", None, False), ("EU", "example-user", True)])
     @patch("kombu.Producer.publish")
     def test_queryset_deletion_queues_only_cloud_users_after_commit(
-        self, deployment: str | None, distinct_id: str | None, queued: bool, publish
+        self, deployment: str | None, distinct_id: str | None, queued: bool, publish: MagicMock
     ) -> None:
         user = User.objects.create(email="deleted@example.com", distinct_id=distinct_id)
         with override_settings(CLOUD_DEPLOYMENT=deployment), self.captureOnCommitCallbacks(execute=True):
@@ -42,7 +42,7 @@ class TestUserAnalyticsDeletionSignal(TestCase):
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("kombu.Producer.publish")
-    def test_rolled_back_deletion_does_not_publish(self, publish) -> None:
+    def test_rolled_back_deletion_does_not_publish(self, publish: MagicMock) -> None:
         user = User.objects.create(email="retained@example.com", distinct_id="retained-user")
         with self.captureOnCommitCallbacks(execute=True), transaction.atomic():
             User.objects.filter(pk=user.pk).delete()
