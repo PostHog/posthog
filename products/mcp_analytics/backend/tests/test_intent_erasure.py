@@ -38,6 +38,8 @@ from products.mcp_analytics.backend.tests.test_intent_assignments_table import _
 
 PROVIDER_PACKAGE = "products.mcp_analytics.backend"
 WRITERS_MODULE = f"{PROVIDER_PACKAGE}.intent_erasure_writers"
+STORAGE_MODULE = f"{PROVIDER_PACKAGE}.intent_erasure_storage"
+ROLLUPS_MODULE = f"{PROVIDER_PACKAGE}.intent_erasure_rollups"
 
 
 def _provider_module(module: str, function: str, implementation: Callable[..., None]) -> types.ModuleType:
@@ -63,10 +65,15 @@ class TestMCPIntentErasure(ClickhouseTestMixin, APIBaseTest):
             if self.drain_error is not None:
                 raise self.drain_error
 
+        # Upper stack layers ship real providers. A None entry hides them, so each test sees only what it injects.
         self.enterContext(
             patch.dict(
                 sys.modules,
-                {WRITERS_MODULE: _provider_module("intent_erasure_writers", "assert_writers_drained", drained)},
+                {
+                    WRITERS_MODULE: _provider_module("intent_erasure_writers", "assert_writers_drained", drained),
+                    STORAGE_MODULE: None,
+                    ROLLUPS_MODULE: None,
+                },
             )
         )
 
@@ -106,12 +113,8 @@ class TestMCPIntentErasure(ClickhouseTestMixin, APIBaseTest):
 
         return {
             WRITERS_MODULE: _provider_module("intent_erasure_writers", "assert_writers_drained", drained),
-            f"{PROVIDER_PACKAGE}.intent_erasure_storage": _provider_module(
-                "intent_erasure_storage", "purge_intent_storage", purge_storage
-            ),
-            f"{PROVIDER_PACKAGE}.intent_erasure_rollups": _provider_module(
-                "intent_erasure_rollups", "purge_rollups_and_caches", purge_rollups
-            ),
+            STORAGE_MODULE: _provider_module("intent_erasure_storage", "purge_intent_storage", purge_storage),
+            ROLLUPS_MODULE: _provider_module("intent_erasure_rollups", "purge_rollups_and_caches", purge_rollups),
         }
 
     def test_complete_drains_then_purges_every_environment_and_reopens_with_a_retained_generation(self) -> None:
