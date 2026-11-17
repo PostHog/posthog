@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 
 import { env } from '@/lib/env'
+import { BUSINESS_KNOWLEDGE_PATH } from '@/lib/project-secret-key'
 import { getPublicUrl } from '@/lib/routing'
 import { loadSigningKeyFromEnv, PayloadStash, type PayloadStashRedis, SignedStateCodec } from '@/lib/signed-state'
 import { setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
@@ -73,6 +74,8 @@ export function createApp(redis: RedisWithPing & Pick<PayloadStashRedis, 'incrby
 
     app.all('/mcp', streamable.fetch)
     app.all('/mcp/*', streamable.fetch)
+    app.all(BUSINESS_KNOWLEDGE_PATH, streamable.fetch)
+    app.all(`${BUSINESS_KNOWLEDGE_PATH}/*`, streamable.fetch)
 
     app.all('*', (c) => c.notFound())
 

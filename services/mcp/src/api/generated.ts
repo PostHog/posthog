@@ -66198,6 +66198,18 @@ export namespace Schemas {
       expansion: string[];
     }
 
+    export interface KnowledgeAccess {
+      /** ID of the project whose business knowledge the caller reads. */
+      project_id: number;
+      /** True when the caller reads one library. False when it reads all business knowledge in the project. */
+      is_limited: boolean;
+      /**
+         * The library a limited caller reads. Null when the caller is not limited.
+         * @nullable
+         */
+      library_id: string | null;
+    }
+
     export interface KnowledgeAvailability {
       /** True when the project has at least one business knowledge source. */
       readonly has_sources: boolean;

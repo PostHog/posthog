@@ -61,6 +61,8 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     apiKeyFetchedAt: number | undefined
+    /** The project a project secret API key belongs to. It never changes for a key. */
+    keyProjectId: string | undefined
     clientName: string | undefined
     oauthClientId: string | undefined
     mcpClientName: string | undefined

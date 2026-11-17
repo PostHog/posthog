@@ -378,20 +378,21 @@ That fragment is generated from the templates in `src/templates/sections/` by `s
 ### Business knowledge for your own agent
 
 Your own agent, with no PostHog user behind it, can search a project's business knowledge.
-Authenticate with a project secret API key (`phs_...`) that has the `business_knowledge:read` scope, and name the project in the URL:
+Connect to `/business-knowledge` with a project secret API key (`phs_...`) that has the `business_knowledge:read` scope:
 
 ```json
 {
   "mcpServers": {
     "business-knowledge": {
-      "url": "https://mcp.posthog.com/mcp?project_id=<project ID>",
+      "url": "https://mcp.posthog.com/business-knowledge",
       "headers": { "Authorization": "Bearer <your project secret API key>" }
     }
   }
 }
 ```
 
-- `project_id` is required, because the key has no user to take a default project from. The `x-posthog-project-id` header also works.
+- The key decides the project and the region, so the URL takes no project ID. A `project_id` or `organization_id` sent with the request is ignored.
+- `/business-knowledge` accepts only project secret API keys, and `/mcp` refuses them.
 - The connection lists six read-only tools: document search, document window, library list, library get, repository search, and repository file read. It reaches no other tool, whatever `features` or `tools` say.
 - These connections default to tools mode. Send `mode=cli` for the single `exec` tool.
 - Keep the key on your server. Anyone who has it can read all the business knowledge in the project, or one library when the key is limited to a library.
