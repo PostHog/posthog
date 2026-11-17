@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -10,6 +10,7 @@ import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.sch
 import { WorkflowInvocations } from '../../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../../Workflows/WorkflowMetrics'
+import { EmailImpactTab } from '../impact/EmailImpactTab'
 import { openEmailMetricSends } from '../log/emailMetricSends'
 import { TransactionalEmailLog } from '../log/TransactionalEmailLog'
 import { CodeEmailApiExample } from './CodeEmailApiExample'
@@ -22,6 +23,7 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
     const { originalWorkflow, workflowLoading } = useValues(workflowLogic(workflowProps))
     const { loadWorkflow } = useActions(workflowLogic(workflowProps))
     const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
+    const impact = useFeatureFlag('WORKFLOWS_EMAIL_IMPACT')
 
     // Metrics and sends name each step from the workflow, so without it they would show an empty workflow.
     const workflowFailed = !originalWorkflow && !workflowLoading
@@ -40,9 +42,25 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
         // The reused workflow tabs read workflowLogic without props, so bind it to this email's workflow.
         <BindLogic logic={workflowLogic} props={workflowProps}>
             <LemonTabs
-                activeKey={!sendLinks && tab === 'sends' ? 'runs' : tab}
+                activeKey={!sendLinks && tab === 'sends' ? 'runs' : !impact && tab === 'impact' ? 'metrics' : tab}
                 onChange={setTab}
                 tabs={[
+                    ...(impact
+                        ? [
+                              {
+                                  key: 'impact' as const,
+                                  label: (
+                                      <span className="flex items-center gap-1">
+                                          Impact
+                                          <LemonTag type="highlight" size="small">
+                                              New
+                                          </LemonTag>
+                                      </span>
+                                  ),
+                                  content: <EmailImpactTab workflowId={codeEmail.hog_flow_id} />,
+                              },
+                          ]
+                        : []),
                     {
                         key: 'metrics',
                         label: 'Metrics',

@@ -650,6 +650,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS: 'workflows-email-delivery-webhooks', // owner: @silthus #team-workflows, delivery webhooks for transactional email
     WORKFLOWS_EMAIL_FROM_CODE: 'workflows-email-from-code', // owner: #team-workflows, lets code send emails it rendered itself under a template key
     WORKFLOWS_EMAIL_HEADER: 'workflows-email-header', // owner: @mayteio #team-workflows, one-line sender summary in workflow and broadcast email steps
+    WORKFLOWS_EMAIL_IMPACT: 'workflows-email-impact', // owner: @silthus #team-workflows, the Impact tab on transactional email pages: how far each email's sends got and what they led to
     WORKFLOWS_EMAIL_SEND_LINKS: 'workflows-email-send-links', // owner: @silthus #team-workflows, links transactional emails and their sends: Open email for sends from code, Sends lists and metric clicks on email pages
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_GOAL_EVENT_ENTRIES: 'workflows-goal-event-entries', // owner: @silthus #team-workflows, shows and keeps every stored event entry in goal and wait step editors

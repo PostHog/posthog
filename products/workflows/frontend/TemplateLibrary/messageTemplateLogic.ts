@@ -40,7 +40,7 @@ import { omitNullDesign } from './omitNullDesign'
 import { TemplateSection, templateLibraryUrl, templateSectionFor, templateUrlInSection } from './templateSection'
 import { MessageTemplate } from './types'
 
-export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'runs' | 'versions' | 'api'
+export type TransactionalTemplateTab = 'design' | 'impact' | 'metrics' | 'sends' | 'runs' | 'versions' | 'api'
 
 const TEMPLATE_PAGE_ROUTES = [
     '/transactional/library/templates/:id',
@@ -50,6 +50,7 @@ const TEMPLATE_PAGE_ROUTES = [
 // pinned: values of the `tab` URL search param - renaming breaks shared links
 const TRANSACTIONAL_TEMPLATE_TABS: TransactionalTemplateTab[] = [
     'design',
+    'impact',
     'metrics',
     'sends',
     'runs',
