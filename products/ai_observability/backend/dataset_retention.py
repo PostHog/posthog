@@ -359,7 +359,7 @@ class DatasetRetention:
                 | Q(archived=True, last_used_at__lte=history_cutoff)
                 | Q(archived=False, last_used_at__lte=active_cutoff)
                 | Q(Exists(old_revisions.filter(dataset_id=OuterRef("id"))))
-                | Q(Exists(unused_versions.filter(dataset_id=OuterRef("id"))))
+                | Q(Exists(unused_versions.filter(dataset_id=OuterRef("id"), team_id=OuterRef("team_id"))))
                 | Q(Exists(empty_revisions.filter(dataset_id=OuterRef("id"))))
             )
             .order_by(F("retention_checked_at").asc(nulls_first=True), "id")
