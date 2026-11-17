@@ -38,7 +38,7 @@ def expire_datasets() -> None:
         }
         logger.info("dataset_retention_run", **properties)
         try:
-            with ph_scoped_capture(region=get_instance_region() or "US") as capture:
+            with ph_scoped_capture(region="US", event_region=get_instance_region() or "US") as capture:
                 capture(distinct_id="dataset-retention", event="dataset retention run", properties=properties)
         except Exception:
             logger.exception("dataset_retention_capture_failed")

@@ -39,7 +39,7 @@ def expire_offline_evaluation_payloads() -> None:
         }
         logger.info("offline_evaluation_payload_retention_run", **properties)
         try:
-            with ph_scoped_capture(region=get_instance_region() or "US") as capture:
+            with ph_scoped_capture(region="US", event_region=get_instance_region() or "US") as capture:
                 capture(
                     distinct_id="offline-evaluation-payload-retention",
                     event="offline evaluation payload retention run",

@@ -775,7 +775,9 @@ Both measure the byte length of PostgreSQL's JSON text representation immediatel
 SQL null fields contribute zero; JSON null values and empty objects include their serialized bytes.
 These totals exclude indexes, row overhead, and storage compression, and do not measure disk space reclaimed by vacuum.
 Byte telemetry starts when these properties are deployed; older events without the properties cannot be treated as zero-byte deletions.
-Cleanup events stay in their deployment region's analytics project, so US and EU monitoring must query their respective projects.
+Both cleanup events send aggregate run metrics to the US analytics project, retaining the deployment region in the `region` property.
+The events contain no customer payloads or customer identifiers. Filter by `region` for separate US and EU monitoring.
+EU history in the US project starts when centralized reporting is deployed; earlier EU events remain in the EU project.
 Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
 Opening those resources requires their own permissions.
 
