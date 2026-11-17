@@ -14961,6 +14961,14 @@ export namespace Schemas {
       type: EnsembleDetectorConfigType;
     }
 
+    export type LLMDetectorModel = typeof LLMDetectorModel[keyof typeof LLMDetectorModel];
+
+
+    export const LLMDetectorModel = {
+      ClaudeHaiku55: 'claude-haiku-5-5',
+      Gpt6Luna: 'gpt-6-luna',
+    } as const;
+
     export type LLMDetectorConfigType = typeof LLMDetectorConfigType[keyof typeof LLMDetectorConfigType];
 
 
@@ -14971,6 +14979,8 @@ export namespace Schemas {
     export interface LLMDetectorConfig {
       /** What counts as unusual or interesting for this metric, in your own words. Optional. */
       instructions?: string | null;
+      /** The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the alert uses claude-haiku-5-5. */
+      model?: LLMDetectorModel | null;
       type: LLMDetectorConfigType;
     }
 
