@@ -32,7 +32,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { EmailImpactTab } from '../Transactional/impact/EmailImpactTab'
+import { impactTab } from '../Transactional/impact/impactTab'
 import { openEmailMetricSends } from '../Transactional/log/emailMetricSends'
 import { TransactionalEmailLog } from '../Transactional/log/TransactionalEmailLog'
 import { transactionalEditorGlobals, variablesInEmail } from '../Transactional/wizard/emailVariables'
@@ -190,22 +190,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             tabs={[
                 // Unmounting the editor would drop a canvas edit it hasn't exported yet.
                 { key: 'design', label: 'Design', content: editor, keepMounted: true },
-                ...(transactionalHogFlowId && impact
-                    ? [
-                          {
-                              key: 'impact' as const,
-                              label: (
-                                  <span className="flex items-center gap-1">
-                                      Impact
-                                      <LemonTag type="highlight" size="small">
-                                          New
-                                      </LemonTag>
-                                  </span>
-                              ),
-                              content: <EmailImpactTab workflowId={transactionalHogFlowId} />,
-                          },
-                      ]
-                    : []),
+                impact && !!transactionalHogFlowId && impactTab(transactionalHogFlowId),
                 ...(transactionalHogFlowId
                     ? [
                           {

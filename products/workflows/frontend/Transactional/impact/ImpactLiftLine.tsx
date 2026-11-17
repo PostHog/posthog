@@ -6,44 +6,40 @@ import { percentage } from 'lib/utils/numbers'
 
 import { emailImpactLogic } from './emailImpactLogic'
 
+interface LiftSentence {
+    event: string
+    days: number
+    note: string | null
+}
+
 export function ImpactLiftLine(): JSX.Element | null {
     const { event, lift, impact, tracked, followedNote } = useValues(emailImpactLogic)
     if (!event || !lift || !impact) {
         return null
     }
-    const days = impact.window_days
+    const sentence = { event, days: impact.window_days, note: followedNote }
+    if (lift.clicked !== null && tracked) {
+        return <ClickedLift {...sentence} clicked={lift.clicked} notClicked={lift.notClicked} />
+    }
+    return lift.notClicked === null ? null : (
+        <NotClickedLift {...sentence} notClicked={lift.notClicked} tracked={tracked} clicks={impact.clicked} />
+    )
+}
 
-    if (!tracked) {
-        return lift.notClicked === null ? null : (
-            <p className="text-sm m-0">
-                <strong>{percentage(lift.notClicked, 1)}</strong> of delivered sends were followed by{' '}
-                <strong>{event}</strong> within <span>{days}</span> days of the send. Without click tracking, PostHog
-                can't tell whether the email led there.
-                {followedNote && <span className="text-secondary"> {followedNote}</span>}
-            </p>
-        )
-    }
-    if (lift.clicked === null) {
-        return lift.notClicked === null ? null : (
-            <p className="text-sm m-0">
-                <span>
-                    {impact.clicked === 0
-                        ? 'Nobody clicked in this period.'
-                        : "None of the clicks name a person, so PostHog can't follow them."}
-                </span>{' '}
-                <strong>{percentage(lift.notClicked, 1)}</strong> of sends nobody clicked were followed by{' '}
-                <strong>{event}</strong> within <span>{days}</span> days of the send.
-                {followedNote && <span className="text-secondary"> {followedNote}</span>}
-            </p>
-        )
-    }
+function ClickedLift({
+    event,
+    days,
+    note,
+    clicked,
+    notClicked,
+}: LiftSentence & { clicked: number; notClicked: number | null }): JSX.Element {
     return (
         <p className="text-sm m-0">
-            <strong>{percentage(lift.clicked, 1)}</strong> of clicked sends were followed by <strong>{event}</strong>{' '}
-            within <span>{days}</span> days of the click
-            {lift.notClicked !== null && (
+            <strong>{percentage(clicked, 1)}</strong> of clicked sends were followed by <strong>{event}</strong> within{' '}
+            <span>{days}</span> days of the click
+            {notClicked !== null && (
                 <span>
-                    , against <strong>{percentage(lift.notClicked, 1)}</strong> of sends nobody clicked
+                    , against <strong>{percentage(notClicked, 1)}</strong> of sends nobody clicked
                 </span>
             )}
             .{' '}
@@ -52,7 +48,42 @@ export function ImpactLiftLine(): JSX.Element | null {
                     How to read this
                 </span>
             </Tooltip>
-            {followedNote && <span className="text-secondary"> {followedNote}</span>}
+            <FollowedNote note={note} />
         </p>
     )
+}
+
+function NotClickedLift({
+    event,
+    days,
+    note,
+    notClicked,
+    tracked,
+    clicks,
+}: LiftSentence & { notClicked: number; tracked: boolean; clicks: number }): JSX.Element {
+    return (
+        <p className="text-sm m-0">
+            {tracked && <NoClickToFollow clicks={clicks} />}
+            <strong>{percentage(notClicked, 1)}</strong> of {tracked ? 'sends nobody clicked' : 'delivered sends'} were
+            followed by <strong>{event}</strong> within <span>{days}</span> days of the send.
+            {!tracked && " Without click tracking, PostHog can't tell whether the email led there."}
+            <FollowedNote note={note} />
+        </p>
+    )
+}
+
+function NoClickToFollow({ clicks }: { clicks: number }): JSX.Element {
+    return (
+        <>
+            <span>
+                {clicks === 0
+                    ? 'Nobody clicked in this period.'
+                    : "None of the clicks name a person, so PostHog can't follow them."}
+            </span>{' '}
+        </>
+    )
+}
+
+function FollowedNote({ note }: { note: string | null }): JSX.Element | null {
+    return note ? <span className="text-secondary"> {note}</span> : null
 }

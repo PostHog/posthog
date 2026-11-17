@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -10,7 +10,7 @@ import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.sch
 import { WorkflowInvocations } from '../../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../../Workflows/WorkflowMetrics'
-import { EmailImpactTab } from '../impact/EmailImpactTab'
+import { impactTab } from '../impact/impactTab'
 import { openEmailMetricSends } from '../log/emailMetricSends'
 import { TransactionalEmailLog } from '../log/TransactionalEmailLog'
 import { CodeEmailApiExample } from './CodeEmailApiExample'
@@ -45,22 +45,7 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
                 activeKey={!sendLinks && tab === 'sends' ? 'runs' : !impact && tab === 'impact' ? 'metrics' : tab}
                 onChange={setTab}
                 tabs={[
-                    ...(impact
-                        ? [
-                              {
-                                  key: 'impact' as const,
-                                  label: (
-                                      <span className="flex items-center gap-1">
-                                          Impact
-                                          <LemonTag type="highlight" size="small">
-                                              New
-                                          </LemonTag>
-                                      </span>
-                                  ),
-                                  content: <EmailImpactTab workflowId={codeEmail.hog_flow_id} />,
-                              },
-                          ]
-                        : []),
+                    impact && impactTab(codeEmail.hog_flow_id),
                     {
                         key: 'metrics',
                         label: 'Metrics',
