@@ -185,6 +185,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     unbracket_host,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import PointerPath
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.added_tables import (
+    table_root_of_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     AzureBlobConfig,
     DiscoveryOptions,
@@ -646,6 +649,7 @@ __all__ = [
     "strip_oauth2_permanent_marker",
     "submit_with_context",
     "suspend_adapter_retries",
+    "table_root_of_url",
     "text_field",
     "tracked_interceptors",
     "try_resolve_parent_table",

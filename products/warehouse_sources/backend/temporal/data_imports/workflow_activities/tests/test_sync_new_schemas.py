@@ -18,7 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 
-def _patch_common(source_mock, schemas_created=None, source_api_version=None, merge_error=None):
+def _patch_common(
+    source_mock, schemas_created=None, source_api_version=None, merge_error=None, self_managed_migration=False
+):
     """Patch DB + registry so the activity runs without a database or real source."""
     existing_source = mock.MagicMock(
         source_type="GoogleAds",
@@ -26,6 +28,7 @@ def _patch_common(source_mock, schemas_created=None, source_api_version=None, me
         credentials_integration_id=None,
         deleted=False,
         api_version=source_api_version,
+        is_self_managed_migration=self_managed_migration,
     )
     # The store asks the source class where its OAuth pointer is. A MagicMock answer is not an integration id.
     source_mock.in_use_oauth_slot.return_value = None
@@ -54,7 +57,12 @@ def _patch_db(source_type, *, source_exists=True):
     objects = mock.MagicMock()
     objects.filter.return_value.exclude.return_value.exists.return_value = source_exists
     objects.get.return_value = mock.MagicMock(
-        source_type=source_type, job_inputs={"k": "v"}, credentials_integration_id=None, deleted=False, api_version=None
+        source_type=source_type,
+        job_inputs={"k": "v"},
+        credentials_integration_id=None,
+        deleted=False,
+        api_version=None,
+        is_self_managed_migration=False,
     )
     return objects
 
@@ -98,9 +106,15 @@ def test_source_type_the_registry_does_not_know_is_skipped():
     delete_schedule.assert_not_called()
 
 
-def _run_activity(source_mock, schemas_created=None, source_api_version=None, merge_error=None):
+def _run_activity(
+    source_mock, schemas_created=None, source_api_version=None, merge_error=None, self_managed_migration=False
+):
     patches = _patch_common(
-        source_mock, schemas_created, source_api_version=source_api_version, merge_error=merge_error
+        source_mock,
+        schemas_created,
+        source_api_version=source_api_version,
+        merge_error=merge_error,
+        self_managed_migration=self_managed_migration,
     )
     with contextlib.ExitStack() as stack:
         entered = {name: stack.enter_context(patcher) for name, patcher in patches.items()}
@@ -275,6 +289,18 @@ def test_discovery_uses_source_pinned_api_version():
     _run_activity(source_mock, source_api_version="v-old")
 
     assert source_mock.get_schemas.call_args.kwargs["api_version"] == "v-old"
+
+
+@pytest.mark.parametrize("self_managed_migration, discovers", [(False, True), (True, False)])
+def test_discovery_skips_a_source_rooted_at_a_whole_bucket(self_managed_migration, discovers):
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.return_value = []
+
+    mocks = _run_activity(source_mock, self_managed_migration=self_managed_migration)
+
+    assert source_mock.get_schemas.called is discovers
+    assert mocks["sync_old_schemas_with_new_schemas"].called is discovers
 
 
 def test_unparseable_config_is_skipped():
