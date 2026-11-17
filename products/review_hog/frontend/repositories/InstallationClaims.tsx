@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton } from '@posthog/l
 
 import type { ReviewInstallationApi } from 'products/review_hog/frontend/generated/api.schemas'
 
+import { GitHubAccountCard } from './GitHubAccountCard'
 import { projectName } from './repositoryChoices'
 import { ClaimScopeChoice, reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
@@ -26,10 +27,9 @@ function InstallationClaim({ installation }: { installation: ReviewInstallationA
     const scope: ClaimScopeChoice = installation.scope ?? 'none'
 
     return (
-        <div className="flex flex-wrap items-center gap-3 rounded border border-primary bg-surface-primary px-4 py-2.5">
-            <IconGithub className="size-6 shrink-0" />
-            <div className="flex min-w-0 flex-1 basis-72 flex-col gap-0.5">
-                <div className="flex flex-wrap items-center gap-2">
+        <GitHubAccountCard
+            title={
+                <>
                     <span className="text-sm font-semibold">{installation.account_name}</span>
                     <LemonSelect<ClaimScopeChoice>
                         size="small"
@@ -50,10 +50,10 @@ function InstallationClaim({ installation }: { installation: ReviewInstallationA
                         disabledReason={claimSaving ? 'Saving…' : editDisabledReason}
                         data-attr="review-hog-installation-claim"
                     />
-                </div>
-                <span className="text-xs text-secondary">{claimHint(installation)}</span>
-            </div>
-        </div>
+                </>
+            }
+            hint={claimHint(installation)}
+        />
     )
 }
 
