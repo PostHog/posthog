@@ -1,3 +1,4 @@
+import { IconWarning } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -40,7 +41,13 @@ export function TileFace({ tile, count }: { tile: TileStep; count: number | unde
             )}
             {tile.invalid && (
                 <Tooltip title="This step needs attention. Open it to see what is missing.">
-                    <span className="absolute -left-1 -top-1 size-2.5 rounded-full border-2 border-primary bg-warning" />
+                    <span
+                        className="absolute -left-3 -top-3 z-[2] flex size-6 items-center justify-center rounded-full border-2 border-primary bg-warning text-black shadow-sm"
+                        role="img"
+                        aria-label="Needs attention"
+                    >
+                        <IconWarning className="size-4" />
+                    </span>
                 </Tooltip>
             )}
         </div>
