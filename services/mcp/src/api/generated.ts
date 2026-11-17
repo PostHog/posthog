@@ -45399,7 +45399,7 @@ export namespace Schemas {
     }
 
     /**
-     * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix.
+     * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule.
      */
     export type EvalSuggestionDraft = { [key: string]: unknown };
 
@@ -45407,6 +45407,7 @@ export namespace Schemas {
      * * `new_hog` - New Hog eval
      * * `new_llm_judge` - New LLM judge
      * * `fix_eval` - Fix an evaluation
+     * * `fix_prompt` - Fix a prompt
      */
     export type EvalSuggestionKindEnum = typeof EvalSuggestionKindEnum[keyof typeof EvalSuggestionKindEnum];
 
@@ -45415,6 +45416,7 @@ export namespace Schemas {
       NewHog: 'new_hog',
       NewLlmJudge: 'new_llm_judge',
       FixEval: 'fix_eval',
+      FixPrompt: 'fix_prompt',
     } as const;
 
     /**
@@ -45470,11 +45472,12 @@ export namespace Schemas {
     export interface EvalSuggestion {
       /** Suggestion identifier. */
       readonly id: string;
-      /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results.
+      /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results. fix_prompt: a rule the prompt sets that most sampled calls break, which a prompt change fixes and an evaluation cannot; it has no evaluation to accept.
        *
        * * `new_hog` - New Hog eval
        * * `new_llm_judge` - New LLM judge
-       * * `fix_eval` - Fix an evaluation */
+       * * `fix_eval` - Fix an evaluation
+       * * `fix_prompt` - Fix a prompt */
       readonly kind: EvalSuggestionKindEnum;
       /** proposed until someone accepts or dismisses it.
        *
@@ -45493,7 +45496,7 @@ export namespace Schemas {
       readonly outcome: string;
       /** How the problem was measured or found, for people who want the detail. */
       readonly reason: string;
-      /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. */
+      /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule. */
       readonly draft: EvalSuggestionDraft;
       /** Property filters the suggested evaluation runs on. Empty means all AI traffic. */
       readonly filters: readonly EvalSuggestionFilter[];
@@ -116340,6 +116343,32 @@ export namespace Schemas {
     }
 
     /**
+     * * `string` - string
+     * * `integer` - integer
+     * * `number` - number
+     * * `boolean` - boolean
+     * * `datetime` - datetime
+     * * `array<string>` - array<string>
+     * * `array<integer>` - array<integer>
+     * * `array<number>` - array<number>
+     * * `array<boolean>` - array<boolean>
+     */
+    export type SignalFilterFieldTypeEnum = typeof SignalFilterFieldTypeEnum[keyof typeof SignalFilterFieldTypeEnum];
+
+
+    export const SignalFilterFieldTypeEnum = {
+      String: 'string',
+      Integer: 'integer',
+      Number: 'number',
+      Boolean: 'boolean',
+      Datetime: 'datetime',
+      ArrayString: 'array<string>',
+      ArrayInteger: 'array<integer>',
+      ArrayNumber: 'array<number>',
+      ArrayBoolean: 'array<boolean>',
+    } as const;
+
+    /**
      * Body for appending an artefact to a report.
      *
      * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
@@ -118546,6 +118575,43 @@ export namespace Schemas {
          * @nullable
          */
       edit_index: number | null;
+    }
+
+    export interface SourceFilterCatalogField {
+      /** Name to use for this field in a filter expression. */
+      name: string;
+      /** Type of the field's value. Compare it with values of the same type.
+       *
+       * * `string` - string
+       * * `integer` - integer
+       * * `number` - number
+       * * `boolean` - boolean
+       * * `datetime` - datetime
+       * * `array<string>` - array<string>
+       * * `array<integer>` - array<integer>
+       * * `array<number>` - array<number>
+       * * `array<boolean>` - array<boolean> */
+      type: SignalFilterFieldTypeEnum;
+      /** What the field holds, and its value when the record has none (null, or an empty array). */
+      description: string;
+    }
+
+    export interface SourceFilterCatalog {
+      /** Source product the filter applies to, for example `linear`. */
+      source_product: string;
+      /** Source type the filter applies to, for example `issue`. */
+      source_type: string;
+      /** Catalog version a filter saved now is pinned to. A saved filter keeps the meaning of its version. */
+      catalog_version: number;
+      /** Fields a filter expression can use. */
+      filter_fields: SourceFilterCatalogField[];
+      /** Example expressions that are valid for this source. */
+      starter_expressions: string[];
+    }
+
+    export interface SourceFilterCatalogList {
+      /** One entry per source whose filter this project can set. A source that is missing does not take a filter. */
+      results: SourceFilterCatalog[];
     }
 
     export interface SourceMappingSuggestion {
