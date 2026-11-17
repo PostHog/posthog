@@ -133,18 +133,27 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
 
 
 @pytest.mark.parametrize(
-    "origin_product,model,expected",
+    "origin_product,gateway_ai_product,model,expected",
     [
-        ("posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
-        ("posthog_ai", "zai-org/glm-5.3", None),
-        ("posthog_ai", "claude-opus-5-5", "claude-opus-5-5"),
-        ("posthog_ai", "gpt-6-sol", "gpt-6-sol"),
-        ("user_created", "deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
-        ("posthog_ai", None, None),
+        ("posthog_ai", "posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("posthog_ai", "posthog_ai", "zai-org/glm-5.3", None),
+        ("posthog_ai", "posthog_ai", "claude-opus-5-5", "claude-opus-5-5"),
+        ("posthog_ai", "posthog_ai", "gpt-6-sol", "gpt-6-sol"),
+        ("posthog_ai", "posthog_ai", None, None),
+        ("slack", "slack_app", "zai-org/glm-5.3", None),
+        ("feature_flags", "posthog_ai", "zai-org/glm-5.3-flash", None),
+        ("signal_report", "posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("user_created", "workflows", "zai-org/glm-5.2", None),
+        ("slack", "slack_app", "claude-opus-5-5", "claude-opus-5-5"),
+        # posthog_code keeps the model so its refusal can tell the user to pick another one.
+        ("user_created", "posthog_code", "gpt-6.1-terra", "gpt-6.1-terra"),
+        # Contexts serialized before gateway_ai_product existed keep the posthog_ai-origin rule.
+        ("posthog_ai", None, "zai-org/glm-5.3", None),
+        ("slack", None, "zai-org/glm-5.3", "zai-org/glm-5.3"),
     ],
 )
-def test_posthog_ai_run_drops_a_model_outside_its_gateway_pin(
-    origin_product: str, model: str | None, expected: str | None
+def test_a_run_drops_a_model_outside_its_gateway_products_pin(
+    origin_product: str, gateway_ai_product: str | None, model: str | None, expected: str | None
 ):
     context = TaskProcessingContext(
         task_id="task-id",
@@ -157,6 +166,7 @@ def test_posthog_ai_run_drops_a_model_outside_its_gateway_pin(
         distinct_id="distinct-id",
         origin_product=origin_product,
         state={"model": model},
+        gateway_ai_product=gateway_ai_product,
     )
 
     assert context.model == expected
@@ -513,6 +523,29 @@ class TestGetTaskProcessingContextActivity:
         )
 
         assert result.create_pr is expected
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "stored_profile,expected_product,expected_model",
+        [
+            ("slack", "slack_app", None),
+            ("feature_flags.code", "posthog_ai", None),
+            ("workflow", "workflows", None),
+            (None, "posthog_code", "zai-org/glm-5.3"),
+        ],
+    )
+    def test_get_task_processing_context_drops_a_model_its_gateway_product_would_refuse(
+        self, activity_environment, test_task, stored_profile, expected_product, expected_model
+    ):
+        test_task.profile = stored_profile
+        test_task.save(update_fields=["profile"])
+        task_run = test_task.create_run(extra_state={"model": "zai-org/glm-5.3"})
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+        )
+
+        assert (result.gateway_ai_product, result.model) == (expected_product, expected_model)
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
