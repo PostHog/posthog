@@ -5,8 +5,9 @@ import { IconInfo, IconX } from '@posthog/icons'
 import { Button, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, cn } from '@posthog/quill'
 
 import { todayPaneIntroLogic } from './todayPaneIntroLogic'
-import { TODAY_PANE_INTROS, TodayIntroPane } from './todayPaneIntros'
+import { TODAY_PANE_INTROS } from './todayPaneIntros'
 import { TODAY_PANES } from './todayRailItems'
+import type { TodayRailPane } from './todayShellLogic'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -20,13 +21,14 @@ function focusNextAfter(button: HTMLElement): void {
     next?.focus()
 }
 
-export function TodayPaneIntro({ pane }: { pane: TodayIntroPane }): JSX.Element | null {
+export function TodayPaneIntro({ pane }: { pane: TodayRailPane }): JSX.Element | null {
     const { isIntroShown } = useValues(todayPaneIntroLogic)
     const { dismissIntro } = useActions(todayPaneIntroLogic)
     const [closing, setClosing] = useState(false)
     const titleId = useId()
 
-    if (!isIntroShown(pane)) {
+    // Home opens no sidebar, so it has no intro.
+    if (pane === 'home' || !isIntroShown(pane)) {
         return null
     }
 

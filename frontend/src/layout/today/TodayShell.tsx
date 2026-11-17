@@ -155,7 +155,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 actions={PaneAction && <PaneAction />}
             />
             {/* Keyed by pane, so a closing animation on one pane's intro never carries over to the next pane's. */}
-            {activePane !== 'home' && <TodayPaneIntro key={activePane} pane={activePane} />}
+            <TodayPaneIntro key={activePane} pane={activePane} />
             {paneContent}
         </div>
     )
