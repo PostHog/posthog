@@ -14,7 +14,6 @@ import {
     ImpactFunnelState,
     ImpactLift,
     ImpactStep,
-    clicksTracked,
     followedSendsNote,
     impactFunnelState,
     impactLift,
@@ -46,7 +45,6 @@ export interface emailImpactLogicValues {
     lift: ImpactLift | null
     replayEnabled: boolean
     steps: ImpactStep[] | null
-    tracked: boolean
     untrackedNote: string | null
 }
 
@@ -86,7 +84,6 @@ export interface emailImpactLogicActions {
 export interface emailImpactLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        tracked: (impact: TransactionalEmailImpactApi | null) => boolean
         funnelState: (
             impact: TransactionalEmailImpactApi | null,
             impactLoading: boolean,
@@ -159,10 +156,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         ],
     })),
     selectors({
-        tracked: [
-            (s) => [s.impact],
-            (impact: TransactionalEmailImpactApi | null): boolean => !impact || clicksTracked(impact),
-        ],
         funnelState: [
             (s) => [s.impact, s.impactLoading, s.impactError],
             (
@@ -207,7 +200,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                 posthog.capture('transactional email impact loaded', {
                     has_event: !!values.event,
                     days: values.days,
-                    clicks_tracked: values.tracked,
+                    has_untracked_sends: impact.untracked > 0,
                 })
             }
         },

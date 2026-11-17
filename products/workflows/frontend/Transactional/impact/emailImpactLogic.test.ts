@@ -68,8 +68,9 @@ describe('emailImpactLogic', () => {
         initKeaTests(true, null as unknown as TeamType)
         logic = emailImpactLogic({ workflowId: 'workflow-1' })
         logic.mount()
-        await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
-        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toDispatchActions([
+            (action) => action.type === logic.actionTypes.loadImpactSuccess && action.payload.impact !== null,
+        ])
 
         expect(requestedFrom).toEqual([String(teamLogic.values.currentTeamId)])
         expect(logic.values.impact).toEqual(IMPACT)

@@ -8,7 +8,7 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { IMPACT_DATE_RANGES, emailImpactLogic } from './emailImpactLogic'
 
 export function ConversionEventBar(): JSX.Element {
-    const { event, days, impact, tracked } = useValues(emailImpactLogic)
+    const { event, days, impact } = useValues(emailImpactLogic)
     const { setEvent, setDays } = useActions(emailImpactLogic)
 
     return (
@@ -27,7 +27,7 @@ export function ConversionEventBar(): JSX.Element {
             />
             {event && (
                 <span className="text-secondary text-sm">
-                    within <span>{impact?.window_days ?? 7}</span> days of the <span>{tracked ? 'click' : 'send'}</span>
+                    within <span>{impact?.window_days ?? 7}</span> days of the click
                 </span>
             )}
             <LemonSelect

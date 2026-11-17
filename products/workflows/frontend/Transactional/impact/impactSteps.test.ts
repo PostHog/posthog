@@ -1,13 +1,6 @@
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import {
-    clicksTracked,
-    followedSendsNote,
-    impactFunnelState,
-    impactLift,
-    impactSteps,
-    untrackedSendsNote,
-} from './impactSteps'
+import { followedSendsNote, impactFunnelState, impactLift, impactSteps, untrackedSendsNote } from './impactSteps'
 
 const impact: TransactionalEmailImpactApi = {
     sent: 100,
@@ -32,28 +25,21 @@ const untracked: TransactionalEmailImpactApi = {
 
 describe('impactSteps', () => {
     it.each([
-        ['every send went out tracked', impact, true],
-        ['every send went out untracked', untracked, false],
-        ['some sends went out untracked and the tracked rest recorded no opens', { ...untracked, untracked: 97 }, true],
-        ['some sends went out untracked and others recorded opens', { ...impact, untracked: 40 }, true],
-        [
-            'an untracked send counted in the period sits beside a recorded click',
-            { ...impact, sent: 1, delivered: 1, opened: 0, clicked: 1, untracked: 1 },
-            true,
-        ],
-        ['tracked sends nobody opened or clicked', { ...impact, opened: 0, clicked: 0 }, true],
-        ['nothing was sent', { ...impact, sent: 0 }, true],
-    ])('reads click tracking when %s', (_, data, expected) => {
-        expect(clicksTracked(data)).toBe(expected)
-    })
-
-    it.each([
         ['every send went out tracked', impact, null],
-        ['every send went out untracked', untracked, null],
+        [
+            'every send went out untracked',
+            untracked,
+            "100 sends in this period went out with tracking off, so their opens and clicks aren't counted.",
+        ],
         [
             'some sends went out untracked',
-            { ...untracked, untracked: 97 },
-            '97 sends in this period went out with open and click tracking off, so opens and clicks leave them out.',
+            { ...impact, untracked: 1200 },
+            "1,200 sends in this period went out with tracking off, so their opens and clicks aren't counted.",
+        ],
+        [
+            'one send went out untracked',
+            { ...impact, untracked: 1 },
+            "1 send in this period went out with tracking off, so its opens and clicks aren't counted.",
         ],
     ])('notes the untracked sends when %s', (_, data, expected) => {
         expect(untrackedSendsNote(data)).toBe(expected)
@@ -99,11 +85,17 @@ describe('impactSteps', () => {
         expect(steps[5]).toMatchObject({ label: 'Converted', value: null, missing: 'Pick an event' })
     })
 
-    it('counts conversions from the send against delivered when clicks are not tracked', () => {
-        const steps = impactSteps({ ...untracked, without_click: { sends: 90, converted: 1 } }, 'plan upgraded')
+    it('shows opens, clicks and conversions after a click as recorded when every send went out untracked', () => {
+        const steps = impactSteps(untracked, 'plan upgraded')
 
-        expect(steps.slice(2, 5).map((step) => step.missing)).toEqual(['Not tracked', 'Not tracked', 'Not tracked'])
-        expect(steps[5]).toMatchObject({ value: 1, share: 1 / 90, shareOf: 'delivered' })
+        expect(steps.map((step) => [step.label, step.value, step.missing])).toEqual([
+            ['Sent', 100, undefined],
+            ['Delivered', 90, undefined],
+            ['Opened', 0, undefined],
+            ['Clicked', 0, undefined],
+            ['Started a session', null, 'Needs link tagging'],
+            ['plan upgraded', 0, undefined],
+        ])
     })
 
     it.each([
@@ -119,9 +111,9 @@ describe('impactSteps', () => {
         ],
         ['both groups fall short', impact, 'Counted over 16 of 20 clicked sends and 50 of 72 sends nobody clicked:'],
         [
-            'untracked sends fall short',
+            'every send went out untracked and some unclicked sends fall short',
             { ...untracked, without_click: { sends: 50, converted: 1 } },
-            'Counted over 50 of 90 delivered sends:',
+            'Counted over 50 of 90 sends nobody clicked:',
         ],
     ])('names the sends the lift counts when %s', (_, data, start) => {
         const note = followedSendsNote(data)

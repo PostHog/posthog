@@ -13,16 +13,16 @@ interface LiftSentence {
 }
 
 export function ImpactLiftLine(): JSX.Element | null {
-    const { event, lift, impact, tracked, followedNote } = useValues(emailImpactLogic)
+    const { event, lift, impact, followedNote } = useValues(emailImpactLogic)
     if (!event || !lift || !impact) {
         return null
     }
     const sentence = { event, days: impact.window_days, note: followedNote }
-    if (lift.clicked !== null && tracked) {
+    if (lift.clicked !== null) {
         return <ClickedLift {...sentence} clicked={lift.clicked} notClicked={lift.notClicked} />
     }
     return lift.notClicked === null ? null : (
-        <NotClickedLift {...sentence} notClicked={lift.notClicked} tracked={tracked} clicks={impact.clicked} />
+        <NotClickedLift {...sentence} notClicked={lift.notClicked} clicks={impact.clicked} />
     )
 }
 
@@ -58,15 +58,13 @@ function NotClickedLift({
     days,
     note,
     notClicked,
-    tracked,
     clicks,
-}: LiftSentence & { notClicked: number; tracked: boolean; clicks: number }): JSX.Element {
+}: LiftSentence & { notClicked: number; clicks: number }): JSX.Element {
     return (
         <p className="text-sm m-0">
-            {tracked && <NoClickToFollow clicks={clicks} />}
-            <strong>{percentage(notClicked, 1)}</strong> of {tracked ? 'sends nobody clicked' : 'delivered sends'} were
-            followed by <strong>{event}</strong> within <span>{days}</span> days of the send.
-            {!tracked && " Without click tracking, PostHog can't tell whether the email led there."}
+            <NoClickToFollow clicks={clicks} />
+            <strong>{percentage(notClicked, 1)}</strong> of sends nobody clicked were followed by{' '}
+            <strong>{event}</strong> within <span>{days}</span> days of the send.
             <FollowedNote note={note} />
         </p>
     )

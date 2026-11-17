@@ -27,7 +27,7 @@ const tracked: TransactionalEmailImpactApi = {
     without_click: null,
 }
 
-const untracked: TransactionalEmailImpactApi = { ...tracked, opened: 0, clicked: 0, not_clicked: 4130, untracked: 4200 }
+const someUntracked: TransactionalEmailImpactApi = { ...tracked, untracked: 1200 }
 
 const meta: Meta = {
     title: 'Products/Workflows/EmailImpactTab',
@@ -80,8 +80,8 @@ WithConversionEvent.args = { impact: tracked, event: 'plan upgraded' }
 export const NoConversionEvent = Template.bind({})
 NoConversionEvent.args = { impact: tracked, event: null }
 
-export const ClicksNotTracked = Template.bind({})
-ClicksNotTracked.args = { impact: untracked, event: 'plan upgraded' }
+export const SomeSendsUntracked = Template.bind({})
+SomeSendsUntracked.args = { impact: someUntracked, event: 'plan upgraded' }
 
 export const NoSessionReplay = Template.bind({})
 NoSessionReplay.args = { impact: tracked, event: 'plan upgraded', replay: false }
