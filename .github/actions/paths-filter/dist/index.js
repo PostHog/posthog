@@ -43036,6 +43036,8 @@ const POSTHOG_HOST = 'https://us.i.posthog.com';
 const EVENT_NAME = 'posthog-ci-reuse-decision';
 const MERGE_QUEUE_BRANCH_PREFIX = 'trunk-merge/';
 const PASSING_CONCLUSIONS = ['success', 'skipped'];
+const DEFAULT_CHECK_APPS = ['github-actions'];
+const TREES_PER_QUERY = 100;
 class BudgetExceeded extends Error {
 }
 function listInput(name) {
@@ -43071,6 +43073,7 @@ function loadConfig(filter, filtersPath) {
     return {
         checks,
         proofChecks,
+        checkApps: listInput('reuse-check-apps').length > 0 ? listInput('reuse-check-apps') : DEFAULT_CHECK_APPS,
         filterSource: core.getInput('reuse-filter-source', { required: false }) || filtersPath || workflowPath(),
         keys: requested.length > 0 ? requested : known,
         blockingLabels: listInput('reuse-blocking-labels'),
@@ -43128,23 +43131,28 @@ async function headsToWalk(input, api) {
     }
     return commits.slice(Math.max(0, index - MAX_HEADS_WALKED + 1), index + 1).reverse();
 }
+async function checkRunsFrom(input, api, sha, names) {
+    const lists = await Promise.all(names.map(async (name) => api.checkRuns(sha, name)));
+    return lists.map(runs => runs.filter(run => run.app !== null && input.config.checkApps.includes(run.app)));
+}
+function earliestSuite(runs) {
+    const created = runs.flatMap(run => (run.suiteCreatedAt ? [run.suiteCreatedAt] : [])).sort();
+    return created.length === runs.length ? created[0] : null;
+}
 async function proveRun(input, api) {
     var _a;
     const { config } = input;
     for (const sha of await headsToWalk(input, api)) {
-        const starts = [];
-        let missing = 0;
-        for (const name of config.checks) {
-            const runs = await api.checkRuns(sha, name);
-            if (runs.length === 0) {
-                missing++;
-                continue;
-            }
+        const [gates, proofs] = await Promise.all([
+            checkRunsFrom(input, api, sha, config.checks),
+            checkRunsFrom(input, api, sha, config.proofChecks)
+        ]);
+        const missing = gates.filter(runs => runs.length === 0).length;
+        for (const [index, runs] of gates.entries()) {
             const notGreen = runs.find(run => { var _a; return !PASSING_CONCLUSIONS.includes((_a = run.conclusion) !== null && _a !== void 0 ? _a : ''); });
             if (notGreen) {
-                return miss('previous-not-green', `${sha} ${name}: ${(_a = notGreen.conclusion) !== null && _a !== void 0 ? _a : notGreen.status}`);
+                return miss('previous-not-green', `${sha} ${config.checks[index]}: ${(_a = notGreen.conclusion) !== null && _a !== void 0 ? _a : notGreen.status}`);
             }
-            starts.push(...runs.map(run => { var _a; return (_a = run.startedAt) !== null && _a !== void 0 ? _a : ''; }));
         }
         if (missing === config.checks.length && sha !== input.before) {
             continue;
@@ -43152,14 +43160,21 @@ async function proveRun(input, api) {
         if (missing > 0) {
             return miss('previous-not-green', `${sha}: no check run for ${missing} of ${config.checks.length} checks`);
         }
-        for (const name of config.proofChecks) {
-            const runs = await api.checkRuns(sha, name);
-            if (runs.some(run => run.conclusion === 'success')) {
-                return { sha, startedAt: starts.sort()[0] };
-            }
+        const proof = proofs.flat().find(run => run.conclusion === 'success');
+        if (proof) {
+            const startedAt = earliestSuite([...gates.flat(), proof]);
+            return startedAt ? { sha, startedAt } : miss('error', `${sha}: a check run has no check suite time`);
         }
     }
     return miss('no-proven-run');
+}
+async function changedModes(input, api, current, sha) {
+    const paths = [...current].filter(([, identity]) => identity !== file_1.ChangeStatus.Deleted).map(([path]) => path);
+    if (paths.length === 0) {
+        return [];
+    }
+    const [now, then] = await Promise.all([api.modes(input.pr.head.sha, paths), api.modes(sha, paths)]);
+    return paths.filter(path => { var _a, _b; return ((_a = now.get(path)) !== null && _a !== void 0 ? _a : null) !== ((_b = then.get(path)) !== null && _b !== void 0 ? _b : null); });
 }
 async function decide(input, api) {
     var _a, _b;
@@ -43213,6 +43228,13 @@ async function decide(input, api) {
         if (againstProven) {
             return againstProven;
         }
+    }
+    const modeChanges = await changedModes(input, api, current, proven.sha);
+    if (modeChanges.length > 0) {
+        return miss('inputs-changed', `mode of ${modeChanges.slice(0, DETAIL_SAMPLE).join(', ')}`);
+    }
+    if (Date.parse(proven.startedAt) > input.now) {
+        return miss('error', `${proven.sha} started in the future, at ${proven.startedAt}`);
     }
     if (input.now - Date.parse(proven.startedAt) > MAX_SOURCE_AGE_MS) {
         return miss('previous-too-old', `${proven.sha} started ${proven.startedAt}`);
@@ -43287,10 +43309,38 @@ function newest(nodes, types) {
         .sort()
         .pop()) !== null && _a !== void 0 ? _a : null);
 }
+function directoryOf(path) {
+    const slash = path.lastIndexOf('/');
+    return slash < 0 ? '' : path.slice(0, slash);
+}
+function baseNameOf(path) {
+    return path.slice(path.lastIndexOf('/') + 1);
+}
 function githubApi(token, signal) {
     const client = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
     const request = { signal };
+    const suites = new Map();
+    async function suiteCreatedAt(sha) {
+        let created = suites.get(sha);
+        if (!created) {
+            created = client
+                .paginate(client.rest.checks.listSuitesForRef, { owner, repo, ref: sha, per_page: 100, request })
+                .then(rows => new Map(rows.map(suite => { var _a; return [suite.id, (_a = suite.created_at) !== null && _a !== void 0 ? _a : '']; })));
+            suites.set(sha, created);
+        }
+        return created;
+    }
+    async function trees(sha, directories) {
+        const variables = { owner, name: repo, request };
+        const fields = directories.map((directory, index) => {
+            variables[`e${index}`] = `${sha}:${directory}`;
+            return `t${index}: object(expression: $e${index}) { ... on Tree { entries { name mode } } }`;
+        });
+        const declarations = directories.map((_, index) => `$e${index}: String!`).join(', ');
+        const response = await client.graphql(`query ($owner: String!, $name: String!, ${declarations}) { repository(owner: $owner, name: $name) { ${fields.join(' ')} } }`, variables);
+        return new Map(directories.map((directory, index) => { var _a, _b; return [directory, (_b = (_a = response.repository[`t${index}`]) === null || _a === void 0 ? void 0 : _a.entries) !== null && _b !== void 0 ? _b : []]; }));
+    }
     return {
         async filesAt(baseSha, headSha) {
             var _a;
@@ -43314,10 +43364,27 @@ function githubApi(token, signal) {
                 per_page: 100,
                 request
             });
-            return response.data.check_runs.map(run => ({
-                status: run.status,
-                conclusion: run.conclusion,
-                startedAt: run.started_at
+            const created = await suiteCreatedAt(sha);
+            return response.data.check_runs.map(run => {
+                var _a, _b;
+                return ({
+                    status: run.status,
+                    conclusion: run.conclusion,
+                    app: (_b = (_a = run.app) === null || _a === void 0 ? void 0 : _a.slug) !== null && _b !== void 0 ? _b : null,
+                    suiteCreatedAt: (run.check_suite && created.get(run.check_suite.id)) || null
+                });
+            });
+        },
+        async modes(sha, paths) {
+            const directories = [...new Set(paths.map(directoryOf))];
+            const chunks = Array.from({ length: Math.ceil(directories.length / TREES_PER_QUERY) }, (_, index) => directories.slice(index * TREES_PER_QUERY, (index + 1) * TREES_PER_QUERY));
+            const listings = new Map((await Promise.all(chunks.map(async (chunk) => trees(sha, chunk)))).flatMap(listing => [...listing]));
+            return new Map(paths.map(path => {
+                var _a, _b, _c;
+                return [
+                    path,
+                    (_c = (_b = (_a = listings.get(directoryOf(path))) === null || _a === void 0 ? void 0 : _a.find(entry => entry.name === baseNameOf(path))) === null || _b === void 0 ? void 0 : _b.mode) !== null && _c !== void 0 ? _c : null
+                ];
             }));
         },
         async pullCommits(pullNumber) {

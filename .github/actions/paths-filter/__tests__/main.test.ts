@@ -105,16 +105,30 @@ describe('reuse wiring', () => {
         },
         checks: {
           listForRef: async () => ({
-            data: {check_runs: [{status: 'completed', conclusion: 'success', started_at: new Date().toISOString()}]}
-          })
+            data: {
+              check_runs: [
+                {status: 'completed', conclusion: 'success', app: {slug: 'github-actions'}, check_suite: {id: 1}}
+              ]
+            }
+          }),
+          listSuitesForRef: 'listSuitesForRef'
         }
       },
-      paginate: Object.assign(async () => [{sha: previousHead}], {
-        iterator: async function* () {
-          yield {status: 200, data: rows}
+      paginate: Object.assign(
+        async (method: unknown) =>
+          method === 'listSuitesForRef'
+            ? [{id: 1, created_at: new Date(Date.now() - 60_000).toISOString()}]
+            : [{sha: previousHead}],
+        {
+          iterator: async function* () {
+            yield {status: 200, data: rows}
+          }
         }
-      }),
-      graphql: async () => ({repository: {pullRequest: {timelineItems: {nodes: []}}}})
+      ),
+      graphql: async (query: string) =>
+        query.includes('timelineItems')
+          ? {repository: {pullRequest: {timelineItems: {nodes: []}}}}
+          : {repository: {t0: {entries: [{name: 'app.ts', mode: 33188}]}}}
     } as unknown as ReturnType<typeof github.getOctokit>)
     jest.isolateModules(() => {
       require('../src/main')

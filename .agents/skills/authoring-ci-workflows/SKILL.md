@@ -518,6 +518,9 @@ The judgment calls when you adopt or change it:
   Pick a job gated by the scoped filters and by nothing else, such as a build or a selection job, not one that also runs on unrelated changes.
 - **Keep filters out of scope when a job they gate must post on every head.**
   Backend leaves its migration filters out, so `check-migrations` still runs on a migration PR and posts the `Migration risk` check that stamphog waits for.
+  The job also starts on `migrations_any`: a ClickHouse or async migration matches only `backend` among the filters that start it, and `backend` is cleared by a reuse.
+- **Bind the checks to the App that posts them with `reuse-check-apps`.**
+  It defaults to `github-actions`. Backend lists the three Depot apps, because Depot posts one check name from more than one of them.
 - **Labels that force a fuller run go in `reuse-blocking-labels`** (`run-ci-backend`, `run-ci-frontend`, `test-new-events-schema`), plus `ci-no-reuse` in every workflow.
 - **Anything that acts on a filter being `false` must also check `reused`.**
   After a reuse, `false` means "unchanged since a green run", not "nothing here".

@@ -79,7 +79,6 @@ The jobs they gate are skipped, the gate reads the skips as a pass, and the earl
     reuse-proof-checks: Frontend formatting
     reuse-filters: |
       frontend
-      frontend_code
     reuse-blocking-labels: |
       run-ci-frontend
       ci-no-reuse
@@ -93,6 +92,7 @@ The jobs they gate are skipped, the gate reads the skips as a pass, and the earl
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `reuse-checks`          | Check run names, one per line. Each must have concluded `success` or `skipped` on every head the action reads. Empty turns reuse off.         |
 | `reuse-proof-checks`    | Check run names of jobs that run only when the suite really runs. A head counts as tested when one of them concluded `success`. Required.     |
+| `reuse-check-apps`      | GitHub App slugs whose check runs count for the two inputs above. Runs from any other App are ignored. Defaults to `github-actions`.          |
 | `reuse-filter-source`   | The file that defines the filters. Defaults to the `filters` file, then to the workflow file. Set it where `GITHUB_WORKFLOW_REF` is not set.  |
 | `reuse-filters`         | The filters reuse applies to, one per line. Defaults to every filter in the step.                                                             |
 | `reuse-blocking-labels` | Labels that turn reuse off, for the labels that force a fuller run.                                                                           |
@@ -109,7 +109,10 @@ The action reuses a result only when every one of these holds, and runs the suit
   A gate that passed because the suite was skipped (a reused result, a superseded run, a bot push) is never the proven head.
 - The files the scoped filters match, plus the file that defines the filters, are the same set, with the same change status and the same content, on the previous head, the proven head and this one.
   The comparison uses each file's blob SHA from the API, so a formatting-only edit counts as a change.
+  Each file also keeps the same Git mode on the proven head and this one, so a lost executable bit counts as a change.
+- Every check run the action reads comes from an App in `reuse-check-apps`.
 - The proven run started less than 24 hours ago.
+  Its start is the creation time of the earliest check suite among the check runs it reads, which is no later than the moment its filters were evaluated.
 - On a pull request that is ready for review, the proven run started after it was marked ready, because a draft can run a narrower suite.
 - The pull request's base was not changed or force-pushed after the proven run started, and no commit on the base branch has changed the file that defines the filters since then.
 - Neither file list is truncated (3,000 files for this head, 300 for the others), and every API call succeeded within 20 seconds.

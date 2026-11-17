@@ -59,6 +59,11 @@ inputs:
             Check run names, one per line, of jobs that run only when the suite really runs.
             A head counts as tested when one of them concluded success there. Required when reuse-checks is set.
         required: false
+    reuse-check-apps:
+        description: |
+            GitHub App slugs, one per line, whose check runs count for reuse-checks and reuse-proof-checks.
+            A check run of the same name from any other App is ignored. Defaults to github-actions.
+        required: false
     reuse-filter-source:
         description: 'Path of the file that defines the filters. Defaults to the filters file, or to the workflow file.'
         required: false

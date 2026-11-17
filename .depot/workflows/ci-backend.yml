@@ -301,6 +301,10 @@ jobs:
                       test-new-events-schema
                       ci-no-reuse
                   reuse-proof-checks: Backend CI on Depot / Detect snapshot mode
+                  reuse-check-apps: |
+                      depot-checks
+                      depot-checks-2
+                      depot-code-access
                   reuse-filter-source: .depot/workflows/ci-backend.yml
                   reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
@@ -1783,7 +1787,7 @@ jobs:
         # products/db_routing.yaml is neither Python nor under a backend/ directory, and
         # a migration in a future top-level app matches none of them. Without it the
         # replay gate could be on while the job that runs it never starts.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.migration_replay == 'true') && github.event_name != 'schedule'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.migration_replay == 'true' || needs.changes.outputs.migrations_any == 'true') && github.event_name != 'schedule'
         # On master this job replays the full migration history from scratch to
         # produce the schema dump every PR job restores, and a merge queue batch that
         # changes a Django migration replays it a second time onto an empty database.

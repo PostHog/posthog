@@ -37,13 +37,19 @@ docs:
 const config: ReuseConfig = {
   checks: [GATE],
   proofChecks: [PROOF],
+  checkApps: ['github-actions'],
   filterSource: WORKFLOW,
   keys: ['frontend'],
   blockingLabels: ['run-ci-frontend'],
   disabled: false
 }
 
-const green: CheckRun = {status: 'completed', conclusion: 'success', startedAt: '2026-11-10T13:00:00Z'}
+const green: CheckRun = {
+  status: 'completed',
+  conclusion: 'success',
+  app: 'github-actions',
+  suiteCreatedAt: '2026-11-10T13:00:00Z'
+}
 const skipped: CheckRun = {...green, conclusion: 'skipped'}
 
 function runsByHead(heads: Record<string, Record<string, CheckRun[]>>): ReuseApi['checkRuns'] {
@@ -87,6 +93,7 @@ function api(overrides: Partial<ReuseApi> = {}): () => ReuseApi {
   return () => ({
     filesAt: async () => files(appFile),
     checkRuns: async () => [green],
+    modes: async (_, paths) => new Map(paths.map(path => [path, 33188])),
     pullCommits: async () => [EARLIER_HEAD, PREVIOUS_HEAD],
     timeline: async () => ({readyForReviewAt: READY_AT, baseChangedAt: null}),
     changedOnBranchSince: async () => false,
@@ -146,7 +153,7 @@ describe('reuse of an earlier passing result', () => {
     [
       'the previous gate is still running',
       {},
-      {checkRuns: async () => [{status: 'in_progress', conclusion: null, startedAt: green.startedAt}]},
+      {checkRuns: async () => [{...green, status: 'in_progress', conclusion: null}]},
       'previous-not-green'
     ],
     [
@@ -157,9 +164,29 @@ describe('reuse of an earlier passing result', () => {
     ],
     ['the previous head has no gate run', {}, {checkRuns: async () => []}, 'previous-not-green'],
     [
+      'the only green gate came from another App',
+      {},
+      {checkRuns: async () => [{...green, app: 'some-other-app'}]},
+      'previous-not-green'
+    ],
+    [
+      'a scoped input lost its executable bit',
+      {},
+      {
+        modes: async (sha, paths) => new Map(paths.map(path => [path, sha === PREVIOUS_HEAD ? 33261 : 33188]))
+      },
+      'inputs-changed'
+    ],
+    [
+      'the proven run claims to start in the future',
+      {},
+      {checkRuns: async () => [{...green, suiteCreatedAt: '2099-01-01T00:00:00Z'}]},
+      'error'
+    ],
+    [
       'the previous gate ran before the pull request was marked ready',
       {},
-      {checkRuns: async () => [{...green, startedAt: '2026-11-10T11:00:00Z'}]},
+      {checkRuns: async () => [{...green, suiteCreatedAt: '2026-11-10T11:00:00Z'}]},
       'previous-ran-as-draft'
     ],
     [
@@ -280,7 +307,7 @@ describe('reuse of an earlier passing result', () => {
   test('a draft reuses a gate that ran before any ready-for-review event', async () => {
     const decision = await evaluate(
       input({pr: pullRequest({draft: true})}),
-      api({checkRuns: async () => [{...green, startedAt: '2026-11-10T11:00:00Z'}]})
+      api({checkRuns: async () => [{...green, suiteCreatedAt: '2026-11-10T11:00:00Z'}]})
     )
 
     expect(decision).toMatchObject({reuse: true})
@@ -326,14 +353,36 @@ describe('reuse of an earlier passing result', () => {
             }),
             listCommits: record('commits', [{sha: 'x'}])
           },
-          checks: {listForRef: record('checks', {check_runs: []})},
+          checks: {
+            listForRef: record('checks', {
+              check_runs: [
+                {status: 'completed', conclusion: 'success', app: {slug: 'github-actions'}, check_suite: {id: 2}}
+              ]
+            }),
+            listSuitesForRef: 'listSuitesForRef'
+          },
           pulls: {listCommits: 'listCommits'}
         },
-        paginate: async (_: unknown, params: Record<string, unknown>) => {
-          requests.pullCommits = params
-          return [{sha: EARLIER_HEAD}, {sha: PREVIOUS_HEAD}]
+        paginate: async (method: string, params: Record<string, unknown>) => {
+          requests[method] = params
+          return method === 'listSuitesForRef'
+            ? [
+                {id: 1, created_at: '2026-11-10T12:00:00Z'},
+                {id: 2, created_at: '2026-11-10T13:00:00Z'}
+              ]
+            : [{sha: EARLIER_HEAD}, {sha: PREVIOUS_HEAD}]
         },
-        graphql: async () => ({repository: {pullRequest: {timelineItems: {nodes: timelineNodes}}}})
+        graphql: async (query: string, variables: Record<string, unknown>) => {
+          requests.graphql = variables
+          return query.includes('timelineItems')
+            ? {repository: {pullRequest: {timelineItems: {nodes: timelineNodes}}}}
+            : {
+                repository: {
+                  t0: {entries: [{name: 'ci-wait', mode: 33261}]},
+                  t1: {entries: [{name: 'package.json', mode: 33188}]}
+                }
+              }
+        }
       } as unknown as ReturnType<typeof github.getOctokit>)
       return githubApi('token', new AbortController().signal)
     }
@@ -344,10 +393,26 @@ describe('reuse of an earlier passing result', () => {
       expect(await adapter(300).filesAt(BASE, PREVIOUS_HEAD)).toBeNull()
     })
 
-    test('reads only the latest run of each check', async () => {
-      await adapter(0).checkRuns(PREVIOUS_HEAD, GATE)
+    test('reads only the latest run of each check, with its App and the creation time of its suite', async () => {
+      const runs = await adapter(0).checkRuns(PREVIOUS_HEAD, GATE)
 
       expect(requests.checks).toMatchObject({ref: PREVIOUS_HEAD, check_name: GATE, filter: 'latest'})
+      expect(runs).toEqual([
+        {status: 'completed', conclusion: 'success', app: 'github-actions', suiteCreatedAt: '2026-11-10T13:00:00Z'}
+      ])
+    })
+
+    test('reads the Git mode of each path from its directory listing', async () => {
+      const modes = await adapter(0).modes(PREVIOUS_HEAD, ['bin/ci-wait', 'package.json', 'bin/gone'])
+
+      expect(requests.graphql).toMatchObject({e0: `${PREVIOUS_HEAD}:bin`, e1: `${PREVIOUS_HEAD}:`})
+      expect(modes).toEqual(
+        new Map([
+          ['bin/ci-wait', 33261],
+          ['package.json', 33188],
+          ['bin/gone', null]
+        ])
+      )
     })
 
     test('takes the newest ready event and the newest base change of either kind', async () => {
@@ -362,8 +427,8 @@ describe('reuse of an earlier passing result', () => {
     })
 
     test('reports a filter change on the base branch since the run', async () => {
-      expect(await adapter(0).changedOnBranchSince('master', WORKFLOW, green.startedAt as string)).toBe(true)
-      expect(requests.commits).toMatchObject({sha: 'master', path: WORKFLOW, since: green.startedAt})
+      expect(await adapter(0).changedOnBranchSince('master', WORKFLOW, green.suiteCreatedAt as string)).toBe(true)
+      expect(requests.commits).toMatchObject({sha: 'master', path: WORKFLOW, since: green.suiteCreatedAt})
     })
   })
 })
