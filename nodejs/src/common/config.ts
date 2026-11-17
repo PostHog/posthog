@@ -137,6 +137,8 @@ export type CommonConfig = BaseServerConfig & {
     /** Host and port of the personhog identity server. */
     PERSONHOG_IDENTITY_ADDR: string
     PERSONHOG_ADDR: string
+    /** Host and port of a leader-mode router. CDP sends its consistent person reads there when it is set. */
+    PERSONHOG_LEADER_ADDR: string
     PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: number
@@ -229,6 +231,7 @@ export type CommonConfig = BaseServerConfig & {
     HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: number
+    HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: number
     // Despite the EXTERNAL_REQUEST_ prefix this one only reaches `internalFetch`, so it is the
     // budget for calls to our own services. Third-party hosts use the sibling below.
     EXTERNAL_REQUEST_TIMEOUT_MS: number
@@ -414,6 +417,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
+        PERSONHOG_LEADER_ADDR: '',
         PERSONS_STORE_MODE: 'pg',
         PERSONHOG_IDENTITY_ADDR: '',
         PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
@@ -507,6 +511,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
         HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
         HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,
+        HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: 30_000,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS,
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,
