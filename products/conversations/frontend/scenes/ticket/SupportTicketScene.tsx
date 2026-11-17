@@ -40,6 +40,7 @@ import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { MacroPicker } from '../../components/Macros/MacroPicker'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { SupportTicketSidebarWidgets } from '../../components/SupportTicketSidebarWidgets/SupportTicketSidebarWidgets'
+import { TicketBriefPanel } from '../../components/TicketBriefPanel/TicketBriefPanel'
 import { TicketTags } from '../../components/TicketTags'
 import {
     type Ticket,
@@ -52,7 +53,6 @@ import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { SupportTicketSceneMenuBar } from './SupportTicketSceneMenuBar'
 import { useDiscussionTimelineExtras } from './ThreadDiscussions'
 import { reportTimelineExtras } from './ThreadReports'
-import { TicketBriefPanel } from './TicketBriefPanel'
 
 // The list's filters / saved view ride along in the ticket page's query string
 // (the ticket row carries them through on navigation). Rebuild the list URL from

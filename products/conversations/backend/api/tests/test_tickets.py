@@ -135,7 +135,7 @@ class TestTicketBriefSerializer(SimpleTestCase):
             ("ask_missing", {"ask": None}, "ask"),
             ("ask_over_cap", {"ask": "x" * 401}, "ask"),
             ("area_over_cap", {"area": "x" * 81}, "area"),
-            ("too_many_questions", {"questions": [f"q{i}?" for i in range(7)]}, "questions"),
+            ("too_many_questions", {"questions": [f"q{i}?" for i in range(4)]}, "questions"),
             ("question_over_cap", {"questions": ["x" * 201]}, "questions"),
             (
                 "unknown_item_kind",
@@ -157,7 +157,10 @@ class TestTicketBriefSerializer(SimpleTestCase):
             ("purpose_over_cap", {"purpose": "x" * 301}, "purpose"),
             ("error_message_over_cap", {"error_message": "x" * 601}, "error_message"),
             ("too_many_tried", {"tried": [f"t{i}" for i in range(6)]}, "tried"),
-            ("too_many_facts", {"facts": [f"f{i}" for i in range(6)]}, "facts"),
+            ("too_many_facts", {"facts": [f"f{i}" for i in range(4)]}, "facts"),
+            ("already_answered_over_cap", {"already_answered": "x" * 301}, "already_answered"),
+            ("where_stopped_over_cap", {"where_stopped": "x" * 301}, "where_stopped"),
+            ("support_reason_over_cap", {"support_reason": "x" * 301}, "support_reason"),
             (
                 "too_many_screenshots",
                 {"screenshot_urls": [f"https://e.com/{i}.png" for i in range(6)]},

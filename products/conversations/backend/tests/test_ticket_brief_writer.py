@@ -15,6 +15,8 @@ from posthog.models.comment import Comment
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import TicketBriefItemKind
 from products.conversations.backend.ticket_brief.limits import (
+    MAX_AFFECTED_ITEMS,
+    MAX_ALREADY_ANSWERED,
     MAX_AREA,
     MAX_ASK,
     MAX_ERROR_MESSAGE,
@@ -24,8 +26,10 @@ from products.conversations.backend.ticket_brief.limits import (
     MAX_QUESTION,
     MAX_QUESTIONS,
     MAX_SCREENSHOTS,
+    MAX_SUPPORT_REASON,
     MAX_TRIED,
     MAX_URL_LENGTH,
+    MAX_WHERE_STOPPED,
 )
 from products.conversations.backend.ticket_brief.schema import TicketBriefSerializer
 from products.conversations.backend.ticket_brief.writer import (
@@ -35,7 +39,9 @@ from products.conversations.backend.ticket_brief.writer import (
     _affected_items_for,
     _bounded_context,
     _build_brief,
+    _keep_customer_quotes,
     _screenshot_urls_for,
+    _store_brief,
     write_brief,
 )
 
@@ -43,17 +49,26 @@ BASE = {"ask": "Explain why the export is empty.", "area": "Batch exports", "que
 
 MODULE = "products.conversations.backend.ticket_brief.writer"
 
+CUSTOMER_TEXTS = [
+    "Hi team. Why is the March export empty? We need it today.\nIt fails with:\n"
+    "ExportError: no rows matched\n    at run (export.py:212)",
+    "It was fine in February.",
+]
+
 
 class TestWriteBrief(SimpleTestCase):
     @parameterized.expand(
         [
             ("ask_over_cap", {"ask": "x" * 600}, "ask", 400),
             ("area_over_cap", {"area": "x" * 200}, "area", 80),
-            ("too_many_questions", {"questions": [f"q{i}?" for i in range(20)]}, "questions", 6),
-            ("too_many_facts", {"facts": [f"f{i}" for i in range(20)]}, "facts", 5),
+            ("too_many_questions", {"questions": [f"q{i}?" for i in range(20)]}, "questions", 3),
+            ("too_many_facts", {"facts": [f"f{i}" for i in range(20)]}, "facts", 3),
             ("too_many_tried", {"tried": [f"t{i}" for i in range(20)]}, "tried", 5),
             ("error_over_cap", {"error_message": "x" * 900}, "error_message", 600),
             ("purpose_over_cap", {"purpose": "x" * 500}, "purpose", 300),
+            ("already_answered_over_cap", {"already_answered": "x" * 500}, "already_answered", 300),
+            ("where_stopped_over_cap", {"where_stopped": "x" * 500}, "where_stopped", 300),
+            ("support_reason_over_cap", {"support_reason": "x" * 500}, "support_reason", 300),
         ]
     )
     def test_shaping_brings_an_over_long_response_inside_the_caps(
@@ -87,11 +102,46 @@ class TestWriteBrief(SimpleTestCase):
 
     def test_shaping_drops_blank_entries_before_it_caps_the_count(self) -> None:
         # A blank entry that spends one of the places pushes a real question out of the brief.
-        parsed = {**BASE, "questions": ["", "q1?", "", "q2?", "", "q3?", "", "q4?", "", "q5?", "", "q6?"]}
+        parsed = {**BASE, "questions": ["", "q1?", "", "q2?", "", "q3?"]}
         brief = _build_brief(parsed)
-        assert brief["questions"] == ["q1?", "q2?", "q3?", "q4?", "q5?", "q6?"]
+        assert brief["questions"] == ["q1?", "q2?", "q3?"]
 
-    @parameterized.expand([("purpose",), ("error_message",)])
+    @parameterized.expand(
+        [
+            ("copied_exactly", "Why is the March export empty?", True),
+            ("wrapped_in_quotation_marks", "“Why is the March export empty?”", True),
+            ("case_and_spacing_differ", "why is the  march export EMPTY", True),
+            ("cut_with_three_dots", "Why is the...export empty?", True),
+            ("paraphrased", "What causes the empty export?", False),
+            ("joined_from_two_messages", "Why is the March export empty? It was fine in February.", False),
+        ]
+    )
+    def test_a_question_is_kept_only_when_one_customer_message_contains_it(
+        self, _name: str, question: str, kept: bool
+    ) -> None:
+        # The panel shows each question as the customer's own words. A paraphrase, or a quote
+        # stitched from two messages, would put words in their mouth that the engineer then answers.
+        brief = _keep_customer_quotes(_build_brief({**BASE, "questions": [question]}), CUSTOMER_TEXTS)
+        assert (len(brief["questions"]) == 1) is kept
+
+    @parameterized.expand(
+        [
+            ("copied_with_its_line_breaks", "ExportError: no rows matched\n  at run (export.py:212)", True),
+            ("wrapped_in_backticks", "`ExportError: no rows matched`", True),
+            ("reworded", "The export matched no rows", False),
+        ]
+    )
+    def test_an_error_is_kept_only_when_the_customer_reported_it(
+        self, _name: str, error_message: str, kept: bool
+    ) -> None:
+        # An engineer searches the codebase for the error text, so a reworded error sends that
+        # search nowhere.
+        brief = _keep_customer_quotes(_build_brief({**BASE, "error_message": error_message}), CUSTOMER_TEXTS)
+        assert ("error_message" in brief) is kept
+
+    @parameterized.expand(
+        [("purpose",), ("already_answered",), ("where_stopped",), ("support_reason",), ("error_message",)]
+    )
     def test_an_empty_optional_field_is_omitted_rather_than_stored_blank(self, field: str) -> None:
         # The model returns "" for a purpose it could not find. Storing that renders an empty
         # labelled row in the sidebar, so it has to be absent instead.
@@ -190,6 +240,9 @@ class TestWriteBrief(SimpleTestCase):
                 "ask": "x" * MAX_ASK,
                 "area": "x" * MAX_AREA,
                 "purpose": "x" * MAX_PURPOSE,
+                "already_answered": "x" * MAX_ALREADY_ANSWERED,
+                "where_stopped": "x" * MAX_WHERE_STOPPED,
+                "support_reason": "x" * MAX_SUPPORT_REASON,
                 "error_message": "x" * MAX_ERROR_MESSAGE,
                 "questions": ["x" * MAX_QUESTION] * MAX_QUESTIONS,
                 "facts": ["x" * MAX_FACT] * MAX_FACTS,
@@ -210,26 +263,49 @@ class TestWriteBrief(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("feature_flag", "https://us.posthog.com/project/2/feature_flags/14", "feature_flag"),
-            ("experiment", "https://us.posthog.com/project/2/experiments/88", "experiment"),
-            ("insight", "https://us.posthog.com/project/2/insights/aB3xY", "insight"),
-            ("dashboard", "https://us.posthog.com/project/2/dashboard/7", "dashboard"),
-            ("survey", "https://us.posthog.com/project/2/surveys/5", "survey"),
-            ("replay", "https://us.posthog.com/project/2/replay/0199aaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "replay"),
-            ("project_page_with_no_object", "https://us.posthog.com/project/2/settings", "project"),
-            ("a_link_out", "https://example.com/status/incident-4", "external"),
+            ("feature_flag", "https://us.posthog.com/project/2/feature_flags/14", "feature_flag", "14"),
+            ("experiment", "https://us.posthog.com/project/2/experiments/88", "experiment", "88"),
+            ("insight", "https://us.posthog.com/project/2/insights/aB3xY", "insight", "aB3xY"),
+            ("dashboard", "https://us.posthog.com/project/2/dashboard/7", "dashboard", "7"),
+            ("survey", "https://us.posthog.com/project/2/surveys/5", "survey", "5"),
+            ("replay", "https://us.posthog.com/project/2/replay/0199aaaa-bbbb", "replay", "0199aaaa-bbbb"),
+            ("ai_task", "https://us.posthog.com/project/2/tasks/t-42", "ai_conversation", "t-42"),
+            ("ai_chat", "https://eu.posthog.com/project/2/ai?chat=c-7", "ai_conversation", "c-7"),
+            ("project_page_with_no_object", "https://us.posthog.com/project/2/settings", "project", "settings"),
+            ("a_link_out", "https://example.com/status/incident-4", "external", "example.com/status/incident-4"),
+            # The widget also runs on customers' own sites, where this path is their own page.
+            ("a_customer_site", "https://shop.example.com/dashboard/7", "external", "shop.example.com/dashboard/7"),
         ]
     )
     def test_the_page_the_customer_was_on_becomes_an_item_of_its_own_kind(
-        self, _name: str, url: str, expected_kind: str
+        self, _name: str, url: str, expected_kind: str, expected_label: str
     ) -> None:
-        # The panel labels the link by this kind, so a wrong one sends the engineer to the wrong
-        # product area. A kind outside the enum is worse: the serializer rejects the object and
-        # the ticket loses its whole brief.
+        # The panel labels the link by this kind and label, so a wrong one sends the engineer to
+        # the wrong product area. A kind outside the enum is worse: the serializer rejects the
+        # object and the ticket loses its whole brief.
         ticket = Ticket(session_context={"current_url": url})
         items = _affected_items_for(ticket)
-        assert [item["kind"] for item in items] == [expected_kind]
-        assert [item["url"] for item in items] == [url]
+        assert items == [{"kind": expected_kind, "url": url, "label": expected_label}]
+        assert TicketBriefSerializer(data={**BASE, "affected_items": items}).is_valid()
+
+    def test_links_the_customer_sent_follow_the_page_they_were_on(self) -> None:
+        # A ticket written after a PostHog AI conversation carries the links the agent resolved,
+        # and the engineer should not have to scroll the thread to find them. Punctuation after a
+        # link and markdown around it are not part of the URL, and the replay already has a row.
+        page = "https://us.posthog.com/project/2/insights/aB3xY"
+        flag = "https://us.posthog.com/project/2/feature_flags/14"
+        replay = "https://us.posthog.com/project/2/replay/r-1"
+        docs = "https://posthog.com/docs/feature-flags"
+        texts = [f"See {flag}, and the replay {replay}.", f"Same insight: {page} and [the docs]({docs})"]
+        items = _affected_items_for(Ticket(session_context={"current_url": page}), texts, skip={replay})
+        assert [item["url"] for item in items] == [page, flag, docs]
+
+    def test_more_links_than_the_cap_are_dropped(self) -> None:
+        # The links join the brief after the serializer has run, so nothing else keeps a thread
+        # full of links from turning the panel into a list nobody reads.
+        texts = [" ".join(f"https://example.com/{i}" for i in range(MAX_AFFECTED_ITEMS + 3))]
+        items = _affected_items_for(Ticket(session_context={}), texts)
+        assert len(items) == MAX_AFFECTED_ITEMS
         assert TicketBriefSerializer(data={**BASE, "affected_items": items}).is_valid()
 
     @parameterized.expand(
@@ -257,7 +333,7 @@ class TestWriteBrief(SimpleTestCase):
         assert kinds <= set(TicketBriefItemKind.values)
 
 
-class TestBriefScreenshots(BaseTest):
+class TestBriefEvidence(BaseTest):
     def _ticket(self) -> Ticket:
         return Ticket.objects.create(
             team=self.team,
@@ -266,18 +342,40 @@ class TestBriefScreenshots(BaseTest):
             distinct_id="brief-shots-d1",
         )
 
-    def _message(self, ticket: Ticket, *image_urls: str, context: dict[str, Any] | None = None) -> None:
+    def _message(
+        self, ticket: Ticket, *image_urls: str, context: dict[str, Any] | None = None, content: str = ""
+    ) -> None:
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(ticket.id),
             item_context={} if context is None else context,
-            content="",
+            content=content,
             rich_content={
                 "type": "doc",
                 "content": [{"type": "image", "attrs": {"src": url}} for url in image_urls],
             },
         )
+
+    def test_the_stored_brief_quotes_and_links_only_what_the_customer_wrote(self) -> None:
+        # A support reply and an AI assistant's reply are visible on the thread too. Reading
+        # them as the customer's words would show their questions and links as the customer's.
+        ticket = self._ticket()
+        insight = "https://us.posthog.com/project/2/insights/aB3xY"
+        self._message(ticket, context={"author_type": "customer"}, content=f"Why is the export empty? {insight}")
+        self._message(
+            ticket,
+            context={"author_type": "support"},
+            content="Did you check https://us.posthog.com/project/2/settings first?",
+        )
+        self._message(ticket, context={"author_type": "AI"}, content="Is the date range right?")
+        brief = {**BASE, "questions": ["Why is the export empty?", "Did you check", "Is the date range right?"]}
+
+        assert _store_brief(self.team.id, str(ticket.id), brief)
+
+        ticket.refresh_from_db()
+        assert ticket.ticket_brief["questions"] == ["Why is the export empty?"]
+        assert [item["url"] for item in ticket.ticket_brief["affected_items"]] == [insight]
 
     @parameterized.expand([("key_absent", {}), ("explicitly_public", {"is_private": False})])
     def test_a_public_message_keeps_its_screenshots_however_it_records_that(

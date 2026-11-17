@@ -47,6 +47,7 @@ class Priority(models.TextChoices):
 
 
 class TicketBriefItemKind(models.TextChoices):
+    AI_CONVERSATION = "ai_conversation", "PostHog AI conversation"
     DASHBOARD = "dashboard", "Dashboard"
     EXPERIMENT = "experiment", "Experiment"
     FEATURE_FLAG = "feature_flag", "Feature flag"

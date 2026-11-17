@@ -1,7 +1,9 @@
 """The shape of the structured brief a support engineer reads before the ticket itself.
 
-The field order is the order the brief is read in: the ask, why they want it, what they
-already tried, then the evidence.
+The field order is the order the brief is read in. It follows the sections of a ticket that
+`products/conversations/skills/writing-posthog-support-tickets` teaches an agent to write: what
+the customer wants and why, what they asked, what an assistant already answered, what they
+tried, where the assistant stopped, why it needs support, then the evidence.
 
 The serializer is the contract for both sides of the brief. It validates what the writer
 produces before the brief is stored, and it types the read-only `ticket_brief` field on the
@@ -13,6 +15,7 @@ from rest_framework import serializers
 from products.conversations.backend.models.constants import TicketBriefItemKind
 from products.conversations.backend.ticket_brief.limits import (
     MAX_AFFECTED_ITEMS,
+    MAX_ALREADY_ANSWERED,
     MAX_AREA,
     MAX_ASK,
     MAX_ERROR_MESSAGE,
@@ -23,23 +26,28 @@ from products.conversations.backend.ticket_brief.limits import (
     MAX_QUESTION,
     MAX_QUESTIONS,
     MAX_SCREENSHOTS,
+    MAX_SUPPORT_REASON,
     MAX_TRIED,
     MAX_URL_LENGTH,
+    MAX_WHERE_STOPPED,
 )
 
 
 class TicketBriefAffectedItemSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=TicketBriefItemKind.choices,
-        help_text="What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, external, or other.",
+        help_text=(
+            "What the link points at: ai_conversation, dashboard, experiment, feature_flag, insight, "
+            "project, replay, survey, external, or other."
+        ),
     )
     url = serializers.URLField(
         max_length=MAX_URL_LENGTH,
-        help_text="Link to the item in PostHog, so the engineer can open it without a search.",
+        help_text="Link the customer sent or was on, so the engineer can open it without a search.",
     )
     label = serializers.CharField(  # type: ignore[assignment]  # DRF Field.label collides with a field named label
         max_length=MAX_ITEM_LABEL,
-        help_text="Name of the item as the customer would recognize it.",
+        help_text="Short name for the link, such as the object id from its path or the page it points at.",
     )
 
 
@@ -68,7 +76,19 @@ class TicketBriefSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=MAX_QUESTION),
         max_length=MAX_QUESTIONS,
         allow_empty=True,
-        help_text="Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.",
+        help_text=(
+            "Each question the customer asks, quoted in their own words from one of their messages. "
+            "Empty when the customer asks nothing explicit."
+        ),
+    )
+    already_answered = serializers.CharField(
+        max_length=MAX_ALREADY_ANSWERED,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What an AI assistant already told the customer before they reached support. "
+            "Omitted when no assistant worked on the problem first."
+        ),
     )
     tried = serializers.ListField(
         child=serializers.CharField(max_length=MAX_FACT),
@@ -76,11 +96,29 @@ class TicketBriefSerializer(serializers.Serializer):
         required=False,
         help_text="The steps the customer says they already took to fix or diagnose the problem.",
     )
-    error_message = serializers.CharField(
-        max_length=MAX_ERROR_MESSAGE,
+    where_stopped = serializers.CharField(
+        max_length=MAX_WHERE_STOPPED,
         required=False,
         allow_null=True,
-        help_text="The error the customer reported, copied exactly. Omitted when the ticket reports no error.",
+        help_text=(
+            "The first thing an AI assistant could not determine, so the engineer starts there. "
+            "Omitted when no assistant worked on the problem first."
+        ),
+    )
+    support_reason = serializers.CharField(
+        max_length=MAX_SUPPORT_REASON,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What the customer cannot see or change from outside PostHog, which is why a person has to act. "
+            "Omitted when the ticket does not say."
+        ),
+    )
+    facts = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_FACT),
+        max_length=MAX_FACTS,
+        required=False,
+        help_text="Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.",
     )
     # A ListField rather than many=True, because the generated OpenAPI schema carries the cap
     # from a ListField and silently drops it from a nested many=True.
@@ -88,13 +126,7 @@ class TicketBriefSerializer(serializers.Serializer):
         child=TicketBriefAffectedItemSerializer(),
         max_length=MAX_AFFECTED_ITEMS,
         required=False,
-        help_text="The items the ticket is about, with a link to each one.",
-    )
-    screenshot_urls = serializers.ListField(
-        child=serializers.URLField(max_length=MAX_URL_LENGTH),
-        max_length=MAX_SCREENSHOTS,
-        required=False,
-        help_text="Images the customer attached, in the order they sent them.",
+        help_text="Links to what the ticket is about: the page the customer was on, then the links they sent.",
     )
     replay_url = serializers.URLField(
         max_length=MAX_URL_LENGTH,
@@ -102,9 +134,15 @@ class TicketBriefSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Replay of the session the ticket came from. Null when the ticket has no session.",
     )
-    facts = serializers.ListField(
-        child=serializers.CharField(max_length=MAX_FACT),
-        max_length=MAX_FACTS,
+    screenshot_urls = serializers.ListField(
+        child=serializers.URLField(max_length=MAX_URL_LENGTH),
+        max_length=MAX_SCREENSHOTS,
         required=False,
-        help_text="Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.",
+        help_text="Images the customer attached, in the order they sent them.",
+    )
+    error_message = serializers.CharField(
+        max_length=MAX_ERROR_MESSAGE,
+        required=False,
+        allow_null=True,
+        help_text="The error the customer reported, copied exactly. Omitted when the ticket reports no error.",
     )

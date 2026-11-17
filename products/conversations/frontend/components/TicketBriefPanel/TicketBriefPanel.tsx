@@ -3,6 +3,7 @@ import { LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
 import type { TicketBriefApi, TicketBriefItemKindEnumApi } from '../../generated/api.schemas'
 
 const ITEM_KIND_LABELS: Record<TicketBriefItemKindEnumApi, string> = {
+    ai_conversation: 'PostHog AI conversation',
     dashboard: 'Dashboard',
     experiment: 'Experiment',
     feature_flag: 'Feature flag',
@@ -22,7 +23,8 @@ interface TicketBriefPanelProps {
 
 // Support triage quotes identifiers and error text in backticks, so those spans render as code.
 // Split rather than rendered as markdown: the text is the customer's, relayed by an agent, so
-// nothing else in it may become markup.
+// nothing else in it may become markup. Each part gets its own element, because a bare text node
+// beside a sibling breaks when a page-translation extension replaces it and the brief is rewritten.
 function Inline({ text }: { text: string }): JSX.Element {
     const parts = text.split(/`([^`]+)`/)
     return (
@@ -33,7 +35,7 @@ function Inline({ text }: { text: string }): JSX.Element {
                         {part}
                     </code>
                 ) : (
-                    part
+                    <span key={index}>{part}</span>
                 )
             )}
         </>
@@ -131,14 +133,21 @@ function BriefLinks({ brief }: { brief: TicketBriefApi }): JSX.Element | null {
 
 // A brief is written by an agent, so a field the schema calls required can still be missing on
 // one already stored. Render what is there and keep the sidebar up.
+//
+// The sections follow the order of a ticket written with the writing-posthog-support-tickets
+// skill, so an engineer reads a brief and a ticket written by an agent in the same order.
 export function TicketBriefPanel({ brief }: TicketBriefPanelProps): JSX.Element | null {
-    const questions = brief.questions ?? []
+    // The writer copies each question from the customer's own message, so it reads as a quote.
+    const questions = (brief.questions ?? []).map((question) => `“${question}”`)
     const facts = brief.facts ?? []
     const tried = brief.tried ?? []
     const links = briefLinks(brief)
     const isEmpty =
         !brief.ask &&
         !brief.purpose &&
+        !brief.already_answered &&
+        !brief.where_stopped &&
+        !brief.support_reason &&
         !brief.error_message &&
         questions.length === 0 &&
         facts.length === 0 &&
@@ -167,13 +176,16 @@ export function TicketBriefPanel({ brief }: TicketBriefPanelProps): JSX.Element 
                     ),
                     content: (
                         <div className="space-y-2 text-xs min-w-0">
-                            <BriefText label="Wants" text={brief.ask} />
-                            <BriefText label="So they can" text={brief.purpose} />
-                            <BriefSection label="Asking" items={questions} />
-                            <BriefSection label="Tried" items={tried} />
-                            <BriefError error={brief.error_message} />
-                            <BriefSection label="Facts" items={facts} />
+                            <BriefText label="What they want" text={brief.ask} />
+                            <BriefText label="Why" text={brief.purpose} />
+                            <BriefSection label="They asked" items={questions} />
+                            <BriefText label="Already answered" text={brief.already_answered} />
+                            <BriefSection label="What they tried" items={tried} />
+                            <BriefText label="Where this stopped" text={brief.where_stopped} />
+                            <BriefText label="Why this needs support" text={brief.support_reason} />
+                            <BriefSection label="Details" items={facts} />
                             <BriefLinks brief={brief} />
+                            <BriefError error={brief.error_message} />
                         </div>
                     ),
                 },
