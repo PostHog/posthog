@@ -139,7 +139,9 @@ def _default_display_name(product_name: str) -> str:
 def _write_product_yaml(product_dir: Path, display_name: str, owners: list[str], *, dry_run: bool) -> None:
     yaml_path = product_dir / "product.yaml"
     owners_yaml = "\n".join(f"  - {o}" for o in owners)
-    content = f"name: {display_name}\nowners:\n{owners_yaml}\n"
+    # The claim of hoglint's Isolated level: CI tests the product alone while the diff leaves its
+    # watched files alone, and `hoglint check` fails if the product stops passing the level.
+    content = f"name: {display_name}\nowners:\n{owners_yaml}\nisolated: true\n"
     if dry_run:
         click.echo(f"\n  Would create product.yaml:\n{content}")
         return
