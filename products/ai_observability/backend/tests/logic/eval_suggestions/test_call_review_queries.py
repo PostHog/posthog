@@ -52,9 +52,11 @@ class TestCallReviewQueries(ClickhouseTestMixin, BaseTest):
         summarizer = "You summarize one trace for an engineer."
         # Another call type quotes the summarizer's prompt after a prompt of its own.
         reviewer = f"You review summaries. The summarizer was told: {summarizer}"
+        # ai_events holds two copies of each reviewer generation, which count once.
         bulk_create_ai_events(
             [
                 {
+                    "event_uuid": f"00000000-0000-0000-{kind:04d}-{index:012d}",
                     "event": "$ai_generation",
                     "distinct_id": "user-1",
                     "team_id": self.team.pk,
@@ -65,8 +67,9 @@ class TestCallReviewQueries(ClickhouseTestMixin, BaseTest):
                         "$ai_input": [{"role": "system", "content": system}, {"role": "user", "content": "A trace"}],
                     },
                 }
-                for system, count in ((summarizer, 3), (reviewer, 2))
+                for kind, (system, count, copies) in enumerate(((summarizer, 3, 1), (reviewer, 2, 2)))
                 for index in range(count)
+                for _ in range(copies)
             ]
         )
         window = ProfileWindow(start=end - timedelta(days=1), end=end)

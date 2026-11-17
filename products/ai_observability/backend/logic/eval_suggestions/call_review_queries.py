@@ -63,20 +63,25 @@ ORDER BY calls DESC, call_type
 LIMIT {{limit}}
 """
 
-# Per call type and snippet, the sampled generations whose input holds the snippet and how many of them are of the
-# call type. ILIKE matches the case-insensitive contains an evaluation condition runs.
+# Per call type and snippet, in the order of {names} and {patterns}: the sampled generations whose input holds the
+# snippet, and how many of them are of the call type. ILIKE matches the case-insensitive contains an evaluation
+# condition runs. ai_events can hold copies of a generation, so each counts once, as in the call type counts. The
+# arrays count every pair in one pass, so no input is copied once per pair.
 _SNIPPET_MATCHES_SQL = f"""
 SELECT
-    name,
-    pattern,
-    countIf(input ILIKE pattern) AS matched,
-    countIf(source = 'input' AND call_type = name AND input ILIKE pattern) AS in_call_type
+    sumForEach(arrayMap(pattern -> toInt(input ILIKE pattern), {{patterns}})) AS matched,
+    sumForEach(
+        arrayMap(
+            (name, pattern) -> toInt(source = 'input' AND call_type = name AND input ILIKE pattern),
+            {{names}},
+            {{patterns}}
+        )
+    ) AS in_call_type
 FROM (
-    SELECT {_CALL_TYPE_COLUMNS}, input
+    SELECT uuid, {_CALL_TYPE_COLUMNS}, input
     {_GENERATIONS}
+    LIMIT 1 BY uuid
 )
-ARRAY JOIN {{names}} AS name, {{patterns}} AS pattern
-GROUP BY name, pattern
 """
 
 # Candidates are chosen by a hash of their uuid, which spreads each call type's candidates over the day. The
@@ -238,12 +243,11 @@ def snippet_matches(
         },
         "EvalSuggestionsSnippetMatches",
     )
-    found = {(str(row[0]), str(row[1])): SnippetMatches(matched=int(row[2]), in_call_type=int(row[3])) for row in rows}
-    none = SnippetMatches(matched=0, in_call_type=0)
-    return {
-        name: [found.get((name, f"%{snippet}%"), none) for snippet in candidates]
-        for name, candidates in snippets.items()
-    }
+    matched, in_call_type = rows[0] if rows and rows[0][0] else ([0] * len(pairs), [0] * len(pairs))
+    counts = iter(
+        SnippetMatches(matched=int(found), in_call_type=int(own)) for found, own in zip(matched, in_call_type)
+    )
+    return {name: [next(counts) for _ in candidates] for name, candidates in snippets.items()}
 
 
 def load_review_calls(

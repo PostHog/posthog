@@ -806,3 +806,24 @@ def test_a_less_confident_match_that_covers_the_scope_still_drops_the_candidate(
     coverage = Coverage(evals=[narrow, wide], fixes=[], dismissed_dedupe_keys=frozenset())
 
     assert dedupe([AUTH_GAP], coverage, {AUTH_GAP.dedupe_key: [(narrow, 0.95), (wide, 0.7)]}, {}) == []
+
+
+def test_a_failed_snippet_count_leaves_unnamed_call_types_without_a_filter() -> None:
+    system = {"role": "system", "content": "You answer refund questions for Example Shop"}
+    call_type = CallTypeRow(source="input", name="1", calls=10, model="m", example_input=json.dumps([system]))
+    card = call_review.ReviewCard(
+        title="Refund dates",
+        checks="c",
+        why="w",
+        call_types=[call_type],
+        labels={},
+        failed=3,
+        of=10,
+        examples=[],
+        judge_prompt="j",
+    )
+
+    with patch.object(pipeline, "snippet_matches", side_effect=RuntimeError("Memory limit exceeded")):
+        snippets = pipeline._prompt_snippets(MagicMock(pk=1), MagicMock(), 1000, [call_type], [card], None)
+
+    assert snippets == {}

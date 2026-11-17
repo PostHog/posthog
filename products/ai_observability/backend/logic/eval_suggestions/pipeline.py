@@ -302,7 +302,8 @@ def _prompt_snippets(
 ) -> dict[str, str]:
     """The snippet that selects each input-named call type on the cards, keyed by call type. Each candidate is
     counted on the day's generations, and a call type whose candidates all match other generations gets none.
-    Without time left for the count, no call type gets one, and the run leaves their cards out."""
+    Without time left for the count, or when the count fails, no call type gets one, and the run leaves their cards
+    out while it keeps the cards that a prompt or span name scopes."""
     unnamed = {c.name: c for card in cards for c in card.call_types if c.source == "input"}
     candidates = {
         name: ranking.prompt_snippets(call_type, [c for c in call_types if c.key != call_type.key])
@@ -311,7 +312,11 @@ def _prompt_snippets(
     candidates = {name: texts for name, texts in candidates.items() if texts}
     if not candidates or _time_left(deadline) < MAX_EXECUTION_TIME_SECONDS:
         return {}
-    matches = snippet_matches(team, window, per_mille, candidates)
+    try:
+        matches = snippet_matches(team, window, per_mille, candidates)
+    except Exception as error:
+        logger.warning("eval_suggestions_snippet_count_failed", team_id=team.pk, error=str(error))
+        return {}
     chosen = {unnamed[name].key: ranking.choose_snippet(texts, matches[name]) for name, texts in candidates.items()}
     return {key: snippet for key, snippet in chosen.items() if snippet is not None}
 
