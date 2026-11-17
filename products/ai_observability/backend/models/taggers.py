@@ -190,4 +190,6 @@ def tagger_saved(sender, instance, created, **kwargs):
 
     # Defer the workers notification until the surrounding transaction commits.
     # Otherwise a rolled-back create would tell workers to reload a tagger that never existed.
-    transaction.on_commit(lambda: reload_taggers_on_workers(team_id=instance.team_id, tagger_ids=[str(instance.id)]))
+    transaction.on_commit(
+        lambda: reload_taggers_on_workers(team_id=instance.team_id, tagger_ids=[str(instance.id)]), robust=True
+    )

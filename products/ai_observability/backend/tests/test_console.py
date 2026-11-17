@@ -329,3 +329,19 @@ class TestTaggersPanel(BaseTest):
         steps = {step.tagger_name: step.action for step in plan_tagger_migration(self.team)}
 
         assert steps["User intent"] == expected
+
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.reload_taggers_on_workers")
+    @patch("posthog.plugins.plugin_server_api.reload_evaluations_on_workers", side_effect=RuntimeError("redis down"))
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.load_recent_tag_counts")
+    def test_a_failed_evaluation_reload_does_not_stop_the_migration(
+        self, load_counts: MagicMock, _reload_evaluations: MagicMock, reload_taggers: MagicMock
+    ) -> None:
+        load_counts.return_value = {str(self.active.id): 120, str(self.hog.id): 7}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            steps = migrate_taggers(self.team)
+
+        migrated = {step.tagger_name for step in steps if step.evaluation_id}
+        assert migrated == {"User intent", "Long answers"}
+        reloaded = {call.kwargs["tagger_ids"][0] for call in reload_taggers.call_args_list}
+        assert {str(self.active.id), str(self.hog.id)} <= reloaded
