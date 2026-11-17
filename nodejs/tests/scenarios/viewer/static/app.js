@@ -1011,7 +1011,7 @@ function shapeOf(node, { x, y, w, h }) {
     return g
 }
 
-function mapOf(topology, { onPart } = {}) {
+function mapOf(topology, { hold } = {}) {
     const graph = graphOf(topology)
     const { placed, height } = layoutOf(graph)
     const svg = s('svg', {
@@ -1058,15 +1058,12 @@ function mapOf(topology, { onPart } = {}) {
     const partEls = {}
     for (const node of graph.nodes) {
         partEls[node.id] = shapeOf(node, placed[node.id])
-        if (onPart) {
+        if (hold) {
             const part = partEls[node.id]
             part.setAttribute('tabindex', 0)
             part.setAttribute('role', 'img')
             part.setAttribute('aria-label', node.name)
-            part.addEventListener('mouseenter', () => onPart(node))
-            part.addEventListener('focus', () => onPart(node))
-            part.addEventListener('mouseleave', () => part.matches(':focus') || onPart(null))
-            part.addEventListener('blur', () => part.matches(':hover') || onPart(null))
+            hold(part, { part: node })
         }
         svg.append(partEls[node.id])
     }
@@ -1205,46 +1202,58 @@ async function mapPage(render) {
         wiring.recorded ? '' : ` ${wiringText(wiring)}`
     )
     const strip = h('div', { class: 'focus' }, resting)
-    let touchedLine = null
-    const showTouching = (node) => {
-        const touching = node ? loaded.filter((card) => partsOf(card).has(node.id)) : []
-        list.classList.toggle('narrowed', Boolean(node))
+    const findings = {}
+    const held = { hovered: null, focused: null }
+    const shown = () => held.hovered ?? held.focused ?? {}
+    const paint = () => {
+        const { part, card, meta } = shown()
+        const touching = part ? loaded.filter((each) => partsOf(each).has(part.id)) : []
+        list.classList.toggle('narrowed', Boolean(part))
         for (const [id, tile] of tiles) {
             tile.classList.toggle(
                 'touches',
-                touching.some((card) => card.id === id)
+                touching.some((each) => each.id === id)
             )
         }
-        touchedLine = node ? h('span', {}, touchText(touching.length, node)) : null
-        strip.replaceChildren(touchedLine ?? resting)
-    }
-    const map = mapOf(wiring.recorded?.topology ?? DECLARED_TOPOLOGY, { onPart: showTouching })
-    map.setCards(loaded)
-    const running = h('div', { class: 'panel running-now', hidden: 'hidden' })
-    const findings = {}
-    let selected = null
-    const showSelected = () => {
-        const card = selected?.card
         map.focus(card?.ok ? card : null)
         strip.replaceChildren(
-            ...(card
-                ? [
-                      h(
-                          'div',
-                          { class: 'focus-head', title: `${card.id}: ${scenarioLine(card)}, ${selected.meta}` },
-                          h('b', {}, card.id),
-                          h('span', {}, scenarioLine(card)),
-                          h('span', { class: 'muted' }, selected.meta)
-                      ),
-                      h('div', { class: 'focus-found' }, ...foundLines(findings[card.id])),
-                  ]
-                : [touchedLine ?? resting])
+            ...(part
+                ? [h('span', {}, touchText(touching.length, part))]
+                : card
+                  ? [
+                        h(
+                            'div',
+                            { class: 'focus-head', title: `${card.id}: ${scenarioLine(card)}, ${meta}` },
+                            h('b', {}, card.id),
+                            h('span', {}, scenarioLine(card)),
+                            h('span', { class: 'muted' }, meta)
+                        ),
+                        h('div', { class: 'focus-found' }, ...foundLines(findings[card.id])),
+                    ]
+                  : [resting])
         )
     }
-    const select = (card, meta) => {
-        selected = card ? { card, meta } : null
-        showSelected()
+    const hold = (el, item) => {
+        el.addEventListener('mouseenter', () => {
+            held.hovered = item
+            paint()
+        })
+        el.addEventListener('mouseleave', () => {
+            held.hovered = held.hovered === item ? null : held.hovered
+            paint()
+        })
+        el.addEventListener('focus', () => {
+            held.focused = item
+            paint()
+        })
+        el.addEventListener('blur', () => {
+            held.focused = held.focused === item ? null : held.focused
+            paint()
+        })
     }
+    const map = mapOf(wiring.recorded?.topology ?? DECLARED_TOPOLOGY, { hold })
+    map.setCards(loaded)
+    const running = h('div', { class: 'panel running-now', hidden: 'hidden' })
     const list = h(
         'div',
         { class: 'scenarios' },
@@ -1260,10 +1269,6 @@ async function mapPage(render) {
                 {
                     class: 'scenario',
                     href: `#/cards/${card.id}`,
-                    onmouseenter: () => select(card, meta),
-                    onfocus: () => select(card, meta),
-                    onmouseleave: (event) => event.currentTarget.matches(':focus') || select(null),
-                    onblur: (event) => event.currentTarget.matches(':hover') || select(null),
                 },
                 h(
                     'div',
@@ -1279,6 +1284,7 @@ async function mapPage(render) {
                 h('div', { class: 'line' }, scenarioLine(card)),
                 h('div', { class: 'meta muted' }, meta)
             )
+            hold(tile, { card, meta })
             tiles.set(card.id, tile)
             return tile
         })
@@ -1328,8 +1334,8 @@ async function mapPage(render) {
                       (error) => ({ problem: error.message })
                   )
                 : { lines: [] }
-            if (selected?.card.id === card.id) {
-                showSelected()
+            if (shown().card?.id === card.id) {
+                paint()
             }
         })
     )
