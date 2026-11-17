@@ -23876,7 +23876,7 @@ export namespace Schemas {
       active?: ActiveEnum;
       /** Filter to flags created by a specific user ID. */
       created_by_id?: number;
-      /** Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. */
+      /** Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags. */
       search?: string;
       /** Filter by flag type.
        *
@@ -66980,6 +66980,18 @@ export namespace Schemas {
       role: KeyClauseRoleEnum;
       /** Sentences from the report that explain the clause further. */
       expansion: string[];
+    }
+
+    export interface KnowledgeAccess {
+      /** ID of the project whose business knowledge the caller reads. */
+      project_id: number;
+      /** True when the caller reads one library. False when it reads all business knowledge in the project. */
+      is_limited: boolean;
+      /**
+         * The library a limited caller reads. Null when the caller is not limited.
+         * @nullable
+         */
+      library_id: string | null;
     }
 
     export interface KnowledgeAvailability {
@@ -140460,7 +140472,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.
+     * Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags.
      */
     search?: string;
     /**

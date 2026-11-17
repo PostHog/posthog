@@ -7523,9 +7523,9 @@ Diffed against: <https://docs.loopreturns.com/llms.txt>
 - [x] `Products (GET /api/v1/products)` — resolve product references on returned and exchanged items for catalog analysis (high)
 - [x] `Product variants (GET /api/v1/products/{productId}/product-variants)` — resolve variant references for return rates by SKU and product option (high)
 - [x] `Customers (GET /api/v1/customers)` — analyze repeat return behavior and customer cohorts beyond the email on a return (medium)
-- [ ] `Return notes (GET /api/v1/warehouse/return/{id}/notes)` — analyze support explanations and operational handling of returns (medium)
-- [ ] `Inventories (GET /api/v1/inventories)` — compare exchange demand with stock availability by variant and location (medium)
-- [ ] `Locations (GET /api/v1/locations)` — provide location names and metadata for inventory analysis (medium)
+- [ ] `Return notes (GET /api/v1/warehouse/return/{id}/notes)` — analyze support explanations and operational handling of returns (medium) Skipped: per-return lookup only, with no list or date filter, so every sync needs one request per return in the full history at a 300 requests/minute limit.
+- [x] `Inventories (GET /api/v1/inventories)` — compare exchange demand with stock availability by variant and location (medium)
+- [x] `Locations (GET /api/v1/locations)` — provide location names and metadata for inventory analysis (medium)
 
 Note: Fetched llms.txt, then parsed the linked Returns, Orders, Products, Customers, Inventories, Locations, and related OpenAPI specs. Return rows already include line items, exchanges, refunds, and labels, so these are not separate gaps. Variants and notes need parent fan-out; Commerce Data endpoints require matching scopes and account support. Listed paths use the documented v1 server; compatibility with the selectable 2026-07 version needs implementation checks.
 

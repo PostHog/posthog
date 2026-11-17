@@ -2890,12 +2890,12 @@ describe('CDP API', () => {
                 })
             })
 
-            it('inserts a sensitive send without producing it, so its secret stays off Kafka', async () => {
+            it('inserts a sensitive send and produces its shadow copy like any other send', async () => {
                 const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
 
                 expect(res.status).toEqual(202)
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(intakeMessages()).toEqual([])
+                expect(intakeMessages()).toHaveLength(1)
             })
 
             it('claims a run without a key on its own id, so the consumer replays the produced copy', async () => {
@@ -2931,6 +2931,7 @@ describe('CDP API', () => {
 
             afterEach(() => {
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = false
             })
 
             it('answers on the broker ack and leaves the insert and its rows to the consumer', async () => {
@@ -3005,12 +3006,21 @@ describe('CDP API', () => {
                 expect(producedTo('cdp_intake_transactional_email')).toHaveLength(2)
             })
 
-            it('inserts a sensitive send synchronously, so its secret never reaches Kafka', async () => {
-                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
+            it.each([
+                ['sealing is off', false, false, 1],
+                ['sealing is on and the send is keyed', true, true, 1],
+                ['sealing is on and the send has no key', true, false, 1],
+            ])('produces a sensitive send in async mode when %s', async (_name, sealing, keyed, produced) => {
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
+
+                const res = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    ...(keyed ? { idempotency_key: `key-${new UUIDT().toString()}` } : {}),
+                    send: { ...codeSend, sensitive: true },
+                })
 
                 expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(producedTo('cdp_intake_')).toEqual([])
+                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(produced)
             })
 
             it('produces a keyed send when its claim lookup does not answer in time', async () => {
