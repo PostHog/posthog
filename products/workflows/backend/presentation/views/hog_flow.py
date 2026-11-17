@@ -2587,12 +2587,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                     groups_already_stored = _branch_condition_already_stored(
                         data, condition, self.context, "stored_grouped_branch_conditions"
                     )
+                    # Refused on lenient web drafts too: a draft that kept the group would count as
+                    # already stored on activation and slip past the flag.
                     if uses_filter_groups and not (groups_already_stored or self._condition_filter_groups_enabled()):
-                        if strict:
-                            raise serializers.ValidationError(
-                                {"config": "Filter groups in branch conditions aren't available for this organization."}
-                            )
-                        continue
+                        raise serializers.ValidationError(
+                            {"config": "Filter groups in branch conditions aren't available for this organization."}
+                        )
                     filters_serializer_class = (
                         HogFlowConditionFiltersSerializer if uses_filter_groups else HogFunctionFiltersSerializer
                     )

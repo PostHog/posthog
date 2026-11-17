@@ -2599,8 +2599,12 @@ class TestHogFlowAPI(APIBaseTest):
 
         with patch(flag, return_value=False):
             refused = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+            refused_web_draft = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"}
+            )
         assert refused.status_code == 400, refused.json()
         assert "Filter groups in branch conditions aren't available" in refused.json()["detail"]
+        assert refused_web_draft.status_code == 400, refused_web_draft.json()
 
         with patch(flag, return_value=True):
             created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
