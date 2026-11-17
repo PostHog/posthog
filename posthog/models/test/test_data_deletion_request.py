@@ -1001,6 +1001,8 @@ def _staff_request(**fields) -> DataDeletionRequest:
     return obj
 
 
+# A criteria edit reads the database to refuse a property removal whose run started.
+@pytest.mark.django_db
 @override_settings(CACHES=LOCMEM_CACHE)
 @time_machine.travel("2026-11-06T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
