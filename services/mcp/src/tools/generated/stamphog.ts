@@ -12,6 +12,32 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const CodeReviewApprovalsDigestsListSchema = () => {
+    const CodeReviewApprovalsDigestsListQueryParams = orvalSchemas.CodeReviewApprovalsDigestsListQueryParams()
+    return CodeReviewApprovalsDigestsListQueryParams
+}
+
+const codeReviewApprovalsDigestsList = (): ToolBase<
+    ReturnType<typeof CodeReviewApprovalsDigestsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedDigestRunList>
+> => ({
+    name: 'code-review-approvals-digests-list',
+    schema: CodeReviewApprovalsDigestsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CodeReviewApprovalsDigestsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedDigestRunList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/code_review/approvals/digests/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                slack_channel_id: params.slack_channel_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/stamphog')
+    },
+})
+
 const CodeReviewApprovalsPullRequestsGetSchema = () => {
     const CodeReviewApprovalsPullRequestsRetrieveParams = orvalSchemas.CodeReviewApprovalsPullRequestsRetrieveParams()
     return CodeReviewApprovalsPullRequestsRetrieveParams.omit({ project_id: true })
@@ -348,6 +374,7 @@ const codeReviewApprovalsRunsList = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'code-review-approvals-digests-list': codeReviewApprovalsDigestsList,
     'code-review-approvals-pull-requests-get': codeReviewApprovalsPullRequestsGet,
     'code-review-approvals-pull-requests-list': codeReviewApprovalsPullRequestsList,
     'code-review-approvals-repositories-delete': codeReviewApprovalsRepositoriesDelete,

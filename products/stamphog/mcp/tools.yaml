@@ -7,6 +7,29 @@ feature: code_review
 url_prefix: /stamphog
 ui_apps: {}
 tools:
+    code-review-approvals-digests-list:
+        operation: code_review_approvals_digests_list
+        enabled: true
+        scopes:
+            - code_review_approval:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List auto-approval digest runs
+        description: >
+            List posted (or attempted) daily digest runs, newest first. Each run reports the audience it drained (a team
+            slug, or `repo:owner/name`), the Slack channel it went to and why routing chose that channel, its status,
+            how many merged PRs it summarized, the Slack message timestamp, and the digest content (`summary`: the
+            headline and each listed PR's number, title, URL, author, repository and one-line summary). Filter by
+            `slack_channel_id` to see one channel's history.
+        feature_flag: stamphog
+    code-review-approvals-digests-retrieve:
+        operation: code_review_approvals_digests_retrieve
+        enabled: false
+        disabled_reason: code-review-approvals-digests-list returns the same serializer fields for every run
+        feature_flag: stamphog
     code-review-approvals-pull-requests-get:
         operation: code_review_approvals_pull_requests_retrieve
         enabled: true

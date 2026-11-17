@@ -62,6 +62,7 @@ from .serializers import (
     CodeReviewApprovalRoutingRunsQuerySerializer,
     CodeReviewApprovalSyncInstallationRequestSerializer,
     CodeReviewApprovalSyncInstallationResponseSerializer,
+    DigestRunSerializer,
     PullRequestSerializer,
     ReviewRequestResponseSerializer,
     ReviewRequestSerializer,
@@ -748,6 +749,36 @@ class PullRequestViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
         pull_requests = self._pull_requests()
         page = self.paginate_queryset(pull_requests if pull_requests is not None else [])
         return self.get_paginated_response(self.get_serializer(page, many=True).data)
+
+
+class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
+    """Read-only history of posted (or attempted) digests, filterable by Slack channel."""
+
+    scope_object = "code_review_approval"
+    serializer_class = DigestRunSerializer
+
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
+        digest_run = facade_api.get_digest_run(self.canonical_team_id, str(pk))
+        if digest_run is None:
+            raise NotFound()
+        return Response(self.get_serializer(digest_run).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "slack_channel_id",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by the Slack channel the digest was posted to, e.g. 'C012AB3CD'.",
+            ),
+        ],
+        responses={200: DigestRunSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        slack_channel_id = request.query_params.get("slack_channel_id") or None
+        runs = facade_api.list_digest_runs(self.canonical_team_id, slack_channel_id=slack_channel_id)
+        return self.get_paginated_response(self.get_serializer(self.paginate_queryset(runs), many=True).data)
 
 
 class RoutingRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
