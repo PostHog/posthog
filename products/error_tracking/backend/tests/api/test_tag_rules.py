@@ -32,6 +32,8 @@ def _event_filter(key: str, value: Any, *, filter_type: str = "event", operator:
 
 ENTERPRISE_PLAN = _event_filter("plan", ["enterprise"])
 BIG_ORDER = _event_filter("revenue", 10, operator="gt")
+# No filter type, which the compiler reads as an event property.
+UNTYPED_PRO_PLAN = {"type": "AND", "values": [{"type": "AND", "values": [{"key": "plan", "value": ["pro"]}]}]}
 CHECKOUT_PAGE = _event_filter("$pathname", ["/checkout"])
 DISABLED = {"message": "Rule timed out"}
 
@@ -86,6 +88,7 @@ class TestIssueTagRuleAPI(APIBaseTest):
             ("oversized_filters", _event_filter("plan", ["x" * MAX_ISSUE_TAG_RULE_FILTERS_BYTES])),
             ("not_a_filter_group", {"not": "valid"}),
             ("no_filters", {"type": "AND", "values": [{"type": "AND", "values": []}]}),
+            ("empty_property_key", _event_filter("", "4", operator="icontains")),
         ]
     )
     def test_create_and_edit_reject_filters_a_rule_cannot_run(self, _name: str, filters: dict[str, Any]) -> None:
@@ -202,6 +205,9 @@ class TestIssueTagRuleAPI(APIBaseTest):
             "reorder": self.client.patch(
                 self._url("reorder"), data={"orders": {str(hidden.id): 0}}, format="json"
             ).status_code,
+            "create_untyped": self.client.post(
+                self._url(), data={"label": "Pro plan", "filters": UNTYPED_PRO_PLAN}, format="json"
+            ).status_code,
         }
 
         assert listed == [visible["id"]]
@@ -212,12 +218,15 @@ class TestIssueTagRuleAPI(APIBaseTest):
             "create": status.HTTP_400_BAD_REQUEST,
             "edit_into": status.HTTP_400_BAD_REQUEST,
             "reorder": status.HTTP_204_NO_CONTENT,
+            "create_untyped": status.HTTP_201_CREATED,
         }
         rules = ErrorTrackingIssueTagRule.objects.for_team(self.team.id)
         assert {(rule.label, rule.order_key, rule.filters == BIG_ORDER) for rule in rules} == {
             ("Big order", 5, True),
             ("Enterprise", 0, False),
+            ("Pro plan", 0, False),
         }
+        assert rules.get(label="Pro plan").filters["values"][0]["values"][0]["type"] == "event"
 
     @parameterized.expand([("get",), ("patch",), ("delete",)])
     def test_another_projects_rule_is_not_found(self, method: str) -> None:

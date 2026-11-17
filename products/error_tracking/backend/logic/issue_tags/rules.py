@@ -58,7 +58,7 @@ def create_issue_tag_rule(
     team_id: int, user: User, *, label: str, description: str, filters: dict, order_key: int = 0
 ) -> ErrorTrackingIssueTagRule:
     require_issue_tags(team_id)
-    bytecode = _compile(team_id, filters)
+    filters, bytecode = _normalize_and_compile(team_id, filters)
     if not _rule_visibility(team_id, user).shows(ErrorTrackingIssueTagRule(filters=filters)):
         raise IssueTagRuleFiltersError(RESTRICTED_PROPERTY_MESSAGE)
     canonical_team_id = resolve_effective_team_id(team_id)
@@ -109,10 +109,10 @@ def update_issue_tag_rule(
         if rule is None or not visibility.shows(rule):
             return None
         if filters is not None:
-            if filters != rule.filters:
+            normalized, rule.bytecode = _normalize_and_compile(team_id, filters)
+            if normalized != rule.filters:
                 rule.version += 1
-            rule.bytecode = _compile(team_id, filters)
-            rule.filters = filters
+            rule.filters = normalized
             rule.disabled_data = None
             if not visibility.shows(rule):
                 raise IssueTagRuleFiltersError(RESTRICTED_PROPERTY_MESSAGE)
@@ -154,14 +154,23 @@ def reorder_issue_tag_rules(team_id: int, orders: dict[str, int], user: User) ->
     _reorder_rules(rules, {rule_id: order for rule_id, order in canonical_orders.items() if rule_id in visible_ids})
 
 
-def _compile(team_id: int, filters: dict) -> list[Any]:
+def _normalize_and_compile(team_id: int, filters: dict) -> tuple[dict, list[Any]]:
+    """The filters in their stored form, and their bytecode. Raise IssueTagRuleFiltersError for filters a rule cannot run.
+
+    The compiler fills in defaults, such as a missing filter type meaning an event property. The access check, the
+    version comparison and the stored rule all read the normalized filters, so each of them sees what the bytecode does.
+    """
     if len(json.dumps(filters).encode()) > MAX_ISSUE_TAG_RULE_FILTERS_BYTES:
         raise IssueTagRuleFiltersError(f"A tag rule's filters cannot exceed {MAX_ISSUE_TAG_RULE_FILTERS_BYTES} bytes.")
-    _require_event_property_filters(filters)
-    if not has_filter_values(filters):
+    try:
+        group = PropertyGroupFilterValue(**filters)
+    except (ValueError, TypeError) as err:
+        raise IssueTagRuleFiltersError("Invalid filters payload.") from err
+    normalized = _normalized_group(group)
+    if not has_filter_values(normalized):
         raise IssueTagRuleFiltersError("A tag rule needs at least one event property filter.")
     try:
-        bytecode = compile_filter_bytecode(team_id, filters)
+        bytecode = compile_filter_bytecode(team_id, normalized)
     except (ErrorTrackingInvalidBytecodeError, BaseHogQLError, ValueError) as err:
         raise IssueTagRuleFiltersError(str(err)) from err
     # The tagger disables a rule above this limit, so reject it here instead.
@@ -169,20 +178,25 @@ def _compile(team_id: int, filters: dict) -> list[Any]:
         raise IssueTagRuleFiltersError(
             f"A tag rule's bytecode cannot exceed {MAX_SEVERITY_RULE_BYTECODE_OPS} operations."
         )
-    return bytecode
+    return normalized, bytecode
 
 
-def _require_event_property_filters(filters: dict) -> None:
-    # A rule reads only the properties of the issue's first event, so a person, cohort or HogQL filter can
-    # never match.
-    try:
-        group = PropertyGroupFilterValue(**filters)
-    except (ValueError, TypeError) as err:
-        raise IssueTagRuleFiltersError("Invalid filters payload.") from err
-    pending = list(group.values)
-    while pending:
-        value = pending.pop()
+def _normalized_group(group: PropertyGroupFilterValue) -> dict:
+    values: list[dict] = []
+    for value in group.values:
         if isinstance(value, PropertyGroupFilterValue):
-            pending.extend(value.values)
-        elif not isinstance(value, EventPropertyFilter | EmptyPropertyFilter):
+            values.append(_normalized_group(value))
+        elif isinstance(value, EmptyPropertyFilter):
+            # An empty filter matches every event, so dropping it keeps the result. The access check would count
+            # it as a restricted property.
+            continue
+        elif not isinstance(value, EventPropertyFilter):
+            # A rule reads only the properties of the issue's first event, so a person, cohort or HogQL filter can
+            # never match.
             raise IssueTagRuleFiltersError(f"Tag rules filter on event properties only, not {value.type} filters.")
+        elif not value.key.strip():
+            # The compiler reads an empty key as the whole properties object, which the access check cannot see.
+            raise IssueTagRuleFiltersError("Each tag rule filter needs a property name.")
+        else:
+            values.append(value.model_dump(mode="json", exclude_none=True))
+    return {"type": group.type.value, "values": values}
