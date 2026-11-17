@@ -1,0 +1,186 @@
+"""Shadow mode: score saved destinations and transformations with Jev and report each verdict. Nothing is blocked."""
+
+import json
+from collections.abc import Iterable
+
+from django.core.cache import cache
+from django.db import transaction
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+import structlog
+import posthoganalytics
+
+from posthog.dataclasses import frozen
+from posthog.event_usage import groups
+from posthog.models.team.team import Team
+from posthog.ph_client import ph_scoped_capture
+from posthog.utils import absolute_uri, get_instance_region
+
+from products.cdp.backend.abuse import metrics
+from products.cdp.backend.abuse.classifier import (
+    AbuseVerdict,
+    ClassificationFailed,
+    FailureReason,
+    HogFunctionContent,
+    Thresholds,
+    classify,
+    content_hash,
+    public_inputs,
+    public_mappings,
+    without_derived,
+)
+from products.cdp.backend.flag_gated_templates import gated_template_enabled
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType, _is_draft_only_save
+
+logger = structlog.get_logger(__name__)
+
+# Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9}.
+FLAG = "cdp-abuse-classifier"
+EVENT = "cdp abuse classification"
+CLASSIFIED_TYPES = frozenset({HogFunctionType.DESTINATION, HogFunctionType.TRANSFORMATION})
+_HASH_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+@frozen
+class ScoredHogFunction:
+    content_hash: str
+    code_modified_from_template: bool | None
+    verdict: AbuseVerdict | None
+    failure: FailureReason | None
+
+
+def content_of(hog_function: HogFunction, template: HogFunctionTemplate | None = None) -> HogFunctionContent:
+    return HogFunctionContent(
+        type=hog_function.type or "",
+        template_id=hog_function.template_id,
+        code_modified_from_template=None if template is None else hog_function.hog != template.code,
+        hog=hog_function.hog or "",
+        inputs_schema=hog_function.inputs_schema or [],
+        inputs=public_inputs(hog_function.inputs, hog_function.inputs_schema),
+        filters=without_derived(hog_function.filters),
+        mappings=public_mappings(hog_function.mappings),
+        masking=hog_function.masking,
+    )
+
+
+def thresholds_for(team: Team) -> Thresholds:
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(
+            FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id), "uuid": str(team.uuid)},
+            },
+            send_feature_flag_events=False,
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if isinstance(payload, dict):
+            return Thresholds(alert=float(payload["alert_threshold"]), block=float(payload["block_threshold"]))
+    except Exception:
+        logger.warning("cdp_abuse_classifier_thresholds_unreadable", team_id=team.id, exc_info=True)
+    return Thresholds()
+
+
+def _hash_key(hog_function_id: str) -> str:
+    return f"cdp:abuse_classifier:content_hash:{hog_function_id}"
+
+
+@receiver(post_save, sender=HogFunction, dispatch_uid="cdp.abuse.shadow_classify")
+def hog_function_saved(
+    sender: type[HogFunction], instance: HogFunction, update_fields: Iterable[str] | None = None, **kwargs: object
+) -> None:
+    if _is_draft_only_save(update_fields) or instance.deleted or instance.type not in CLASSIFIED_TYPES:
+        return
+    # Scoring is a side channel of every save, so a failure here must not fail the save.
+    try:
+        digest = content_hash(content_of(instance))
+    except Exception:
+        logger.exception("cdp_abuse_classifier_hash_failed", hog_function_id=str(instance.id))
+        return
+    transaction.on_commit(lambda: _queue_if_changed(instance, digest))
+
+
+def _queue_if_changed(hog_function: HogFunction, digest: str) -> None:
+    try:
+        if not gated_template_enabled(FLAG, hog_function.team):
+            return
+        if cache.get(_hash_key(str(hog_function.id))) == digest:
+            metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
+            return
+
+        from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse  # noqa: PLC0415
+
+        classify_hog_function_for_abuse.delay(team_id=hog_function.team_id, hog_function_id=str(hog_function.id))
+    except Exception:
+        logger.exception("cdp_abuse_classifier_queue_failed", hog_function_id=str(hog_function.id))
+
+
+def score(hog_function: HogFunction) -> ScoredHogFunction:
+    content = content_of(hog_function, hog_function.template)
+    verdict: AbuseVerdict | None = None
+    failure: FailureReason | None = None
+    try:
+        verdict = classify(content, team_id=hog_function.team_id, thresholds=thresholds_for(hog_function.team))
+    except ClassificationFailed as error:
+        failure = error.reason
+    return ScoredHogFunction(
+        content_hash=content_hash(content),
+        code_modified_from_template=content.code_modified_from_template,
+        verdict=verdict,
+        failure=failure,
+    )
+
+
+def report(hog_function: HogFunction, scored: ScoredHogFunction) -> None:
+    function_type = hog_function.type or ""
+    if scored.verdict is None:
+        reason = scored.failure or FailureReason.GATEWAY_ERROR
+        metrics.ERRORS.labels(reason.value).inc()
+        metrics.CLASSIFICATIONS.labels(function_type, "none", "error").inc()
+        _capture(hog_function, scored, {"error": reason.value})
+        return
+
+    verdict = scored.verdict
+    metrics.CLASSIFICATIONS.labels(function_type, verdict.label, "ok").inc()
+    metrics.RISK_SCORE.labels(function_type).observe(verdict.risk_score)
+    metrics.LATENCY.observe(verdict.latency_ms / 1000)
+    _capture(
+        hog_function,
+        scored,
+        {
+            **{f"score_{question}": probability for question, probability in verdict.scores.items()},
+            "risk_score": verdict.risk_score,
+            "would_alert": verdict.would_alert,
+            "would_block": verdict.would_block,
+            "state_truncated": verdict.state_truncated,
+            "model": verdict.model,
+            "latency_ms": verdict.latency_ms,
+        },
+    )
+    # Only a verdict is remembered, so a failed classification runs again on the next save.
+    cache.set(_hash_key(str(hog_function.id)), scored.content_hash, _HASH_TTL_SECONDS)
+
+
+def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object]) -> None:
+    team = hog_function.team
+    properties = {
+        "team_id": team.id,
+        "organization_id": str(team.organization_id),
+        "organization_created_at": team.organization.created_at.isoformat(),
+        "hog_function_id": str(hog_function.id),
+        "hog_function_type": hog_function.type,
+        "template_id": hog_function.template_id,
+        "code_modified_from_template": scored.code_modified_from_template,
+        "enabled": hog_function.enabled,
+        "content_hash": scored.content_hash,
+        "admin_url": absolute_uri(f"/admin/cdp/hogfunction/{hog_function.id}/change/"),
+        **outcome,
+    }
+    # Every region reports to PostHog's US project, so the region rides along as a property.
+    with ph_scoped_capture(event_region=get_instance_region()) as capture:
+        capture(distinct_id=str(team.uuid), event=EVENT, properties=properties, groups=groups(team=team))
