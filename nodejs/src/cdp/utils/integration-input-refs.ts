@@ -103,7 +103,7 @@ export function replaceIntegrationInputsWithRefs(
 
 const FLAG_KEY = 'cdp-integration-input-refs'
 // The flag gates the whole fleet at once, because a worker that runs older code cannot read a reference.
-const FLAG_DISTINCT_ID = 'cdp-cyclotron-job-queue'
+export const FLAG_DISTINCT_ID = 'cdp-cyclotron-job-queue'
 const FLAG_TTL_MS = 60_000
 
 /**

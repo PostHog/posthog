@@ -278,5 +278,6 @@ export function serializeInvocation(invocation: CyclotronJobInvocation): Cyclotr
         queueScheduledAt: invocation.queueScheduledAt,
         queueMetadata: invocation.queueMetadata,
         queueSource: invocation.queueSource,
+        sealed: invocation.sealed,
     }
 }

@@ -1,4 +1,4 @@
-import { set } from 'lodash'
+import { get, has, omit, set } from 'lodash'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -16,9 +16,38 @@ export type SerializedJobState = {
     queueParameters?: CyclotronJobInvocation['queueParameters']
     queueMetadata?: CyclotronJobInvocation['queueMetadata']
     sealed?: string
+    stateUnreadable?: true
 }
 
 export type StateOpener = Pick<EncryptedFields, 'tryDecrypt'>
+export type StateSealer = Pick<EncryptedFields, 'encrypt'>
+
+const SEALED_PATHS = [
+    ['state', 'variables'],
+    ['state', 'send'],
+    ['state', 'globals'],
+    ['state', 'vmState'],
+    ['state', 'event', 'properties'],
+    ['state', 'currentAction', 'hogFunctionState'],
+    ['queueParameters'],
+]
+
+/** Moves the content fields of an invocation into a `sealed` token, and leaves the invocation in memory unchanged. */
+export function sealInvocation(invocation: CyclotronJobInvocation, sealer: StateSealer): CyclotronJobInvocation {
+    const fields = SEALED_PATHS.filter((path) => has(invocation, path)).map((path): [string[], unknown] => [
+        path,
+        get(invocation, path),
+    ])
+    if (!fields.length) {
+        return invocation
+    }
+    const content: SealedContent = { teamId: invocation.teamId, id: invocation.id, fields }
+    return {
+        // lodash reads each element of one array argument as a deep path, which its types do not express.
+        ...omit(invocation, SEALED_PATHS as unknown as string[]),
+        sealed: sealer.encrypt(JSON.stringify(content)),
+    } as CyclotronJobInvocation
+}
 
 /**
  * The plaintext of a `sealed` token. Each field is a path from the top of the stored object, such as
@@ -26,12 +55,12 @@ export type StateOpener = Pick<EncryptedFields, 'tryDecrypt'>
  */
 type SealedContent = { teamId: number; id: string; fields: [string[], unknown][] }
 
-type Sealable = { state: Record<string, any> | null; sealed?: string }
+type Sealable = { state: Record<string, any> | null; sealed?: string; stateUnreadable?: true }
 
 /**
- * Puts the fields of a sensitive run's `sealed` token back into its state. A token that no key opens, or one
- * that was sealed for another team or job, gives a null state, so the run fails as corrupt state does and
- * never runs without its content.
+ * Puts the fields of a `sealed` token back into the state. A token that no key opens, or one that was sealed for
+ * another team or job, leaves only the plaintext fields and marks the state unreadable, so the worker fails the run
+ * and records it, and never runs it without its content.
  */
 export function openSealedState<T extends Sealable>(
     stored: T,
@@ -55,7 +84,7 @@ export function openSealedState<T extends Sealable>(
         // A reader with no keys throws, and so does content that is not a list of fields.
     }
     logger.error('Could not open sealed V2 job state', { jobId: job.id, teamId: job.teamId })
-    return { ...opened, state: null } as T
+    return { ...opened, stateUnreadable: true } as T
 }
 
 function serializeState(invocation: CyclotronJobInvocation): Buffer {
@@ -63,6 +92,7 @@ function serializeState(invocation: CyclotronJobInvocation): Buffer {
         state: invocation.state,
         queueParameters: invocation.queueParameters ?? undefined,
         queueMetadata: invocation.queueMetadata ?? undefined,
+        sealed: invocation.sealed,
     }
     return Buffer.from(JSON.stringify(blob))
 }
@@ -194,6 +224,10 @@ export function v2JobToInvocation(job: JobRow, opener?: StateOpener): CyclotronJ
 
     if (job.cancelRequestedAt) {
         invocation.cancelRequestedAt = job.cancelRequestedAt
+    }
+
+    if (parsed.stateUnreadable) {
+        invocation.stateUnreadable = true
     }
 
     return invocation

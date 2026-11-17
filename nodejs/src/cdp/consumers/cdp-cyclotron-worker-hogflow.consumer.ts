@@ -59,10 +59,11 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     return
                 }
 
-                // Corrupt JSON, or a sealed state that no key opens, leaves no state to run.
-                if (!item.state) {
+                // Corrupt JSON leaves no state, and a sealed state that no key opens leaves only its plaintext fields.
+                if (!item.state || item.stateUnreadable) {
                     logger.error('⚠️', 'Hog flow invocation has no readable state', { id: item.id })
                     failedInvocations.push(item)
+                    this.invocationResultsService.emailStatusService.queueUnavailableRun(item)
                     return
                 }
 

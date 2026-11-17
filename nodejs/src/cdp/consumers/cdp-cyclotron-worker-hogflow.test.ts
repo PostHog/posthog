@@ -606,7 +606,11 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 })
             )
 
-            const unreadableInvocation = { ...lateInvocation, id: new UUIDT().toString(), state: null }
+            const unreadableInvocation = {
+                ...lateInvocation,
+                id: new UUIDT().toString(),
+                stateUnreadable: true as const,
+            }
 
             const results = await processor.processInvocations([
                 lateInvocation,

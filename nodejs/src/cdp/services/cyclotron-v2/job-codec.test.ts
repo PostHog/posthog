@@ -159,7 +159,8 @@ describe('job codec', () => {
     ])('runs nothing from a code send sealed for %s', (_desc, sealed, opener = keys) => {
         const invocation = v2JobToInvocation(rowWith(codeSend, sealedCodeSend(sealed)), opener)
 
-        expect(invocation.state).toBeNull()
+        expect(invocation.stateUnreadable).toBe(true)
+        expect(invocation.state?.send).toBeUndefined()
         expect(invocation.queueParameters).toBeUndefined()
     })
 
