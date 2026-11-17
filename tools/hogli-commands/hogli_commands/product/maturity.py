@@ -5,7 +5,9 @@ Scores each product across two actionable dimensions:
   1. Models     — move models into products/
   2. Codegen    — schema annotations, generated TS client adoption
 
-The boundaries between products are hoglint's: `hoglint check` reports them.
+The boundaries between products are hoglint's: `hoglint check` reports them. The report also
+shows, without a score, whether a product claims and passes hoglint's Isolated level, and the
+debt hoglint attributes to it.
 
 Run from repo root:
     bin/hogli product:maturity          # single product detail
@@ -20,7 +22,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ast_helpers import get_model_names
-from .paths import PRODUCTS_DIR
+from .hoglint_status import HoglintDebt, IsolatedLevel, IsolatedPasses, PackageDebt
+from .paths import PRODUCTS_DIR, REPO_ROOT
 from .product_yaml import load_all_product_yamls, load_product_yaml
 from .ts_helpers import ManualCallSite, codegen_adoption, codegen_call_sites
 
@@ -97,6 +100,9 @@ class ProductScore:
     display_name: str = ""
     owners: list[str] = field(default_factory=list)
     dimensions: list[DimensionScore] = field(default_factory=list)
+    isolated: IsolatedLevel | None = None
+    debt: PackageDebt | None = None
+    debt_unavailable: str = ""
 
     @property
     def overall(self) -> int | None:
@@ -241,14 +247,20 @@ def score_product(
     *,
     assigned_counts: dict[str, int] | None = None,
     product_yamls: dict[str, dict] | None = None,
+    isolated_passes: IsolatedPasses | None = None,
+    hoglint_debt: HoglintDebt | None = None,
 ) -> ProductScore:
     """Compute all dimension scores for a single product.
 
-    The --all caller reads the model assignments and the product.yaml files once and threads them
-    in; a single-product run leaves them None and reads on demand.
+    The --all caller reads the model assignments, the product.yaml files, the ledger and the
+    hoglint debt once and threads them in; a single-product run leaves them None and reads on demand.
     """
     if assigned_counts is None:
         assigned_counts = _load_model_assignments()
+    if isolated_passes is None:
+        isolated_passes = IsolatedPasses.read(REPO_ROOT)
+    if hoglint_debt is None:
+        hoglint_debt = HoglintDebt.load(REPO_ROOT)
 
     meta = (product_yamls or {}).get(name) or load_product_yaml(name)
     product_dir = PRODUCTS_DIR / name
@@ -261,6 +273,9 @@ def score_product(
         product=name,
         display_name=meta.get("name", "") if isinstance(meta.get("name"), str) else "",
         owners=owners,
+        isolated=IsolatedLevel.of(name, product_dir, isolated_passes),
+        debt=None if hoglint_debt.unavailable else hoglint_debt.of(name),
+        debt_unavailable=hoglint_debt.unavailable,
     )
     ps.dimensions = [
         score_models(name, backend_dir, assigned_counts),
@@ -279,8 +294,17 @@ def score_all_products() -> list[ProductScore]:
 
     assigned_counts = _load_model_assignments()
     product_yamls = load_all_product_yamls()
+    isolated_passes = IsolatedPasses.read(REPO_ROOT)
+    hoglint_debt = HoglintDebt.load(REPO_ROOT)
     scores = [
-        score_product(name, assigned_counts=assigned_counts, product_yamls=product_yamls) for name in product_dirs
+        score_product(
+            name,
+            assigned_counts=assigned_counts,
+            product_yamls=product_yamls,
+            isolated_passes=isolated_passes,
+            hoglint_debt=hoglint_debt,
+        )
+        for name in product_dirs
     ]
     scores.sort(key=lambda s: s.overall or -1, reverse=True)
     return scores
@@ -321,6 +345,36 @@ def _dim_line(dim: DimensionScore, connector: str = "\u251c\u2500") -> str:
     return f"  {connector} {dim.name:14s}  {dim.score:3d}  {_bar(dim.score)}  {dim.detail}"
 
 
+def _debt_cell(ps: ProductScore) -> str:
+    if ps.debt is None:
+        return "?"
+    return str(ps.debt.accepted_total)
+
+
+def _rule_lines(rows_by_rule: dict[str, int]) -> list[str]:
+    ordered = sorted(rows_by_rule.items(), key=lambda item: (-item[1], item[0]))
+    return [f"    {rule:30s}  {rows:5d}" for rule, rows in ordered]
+
+
+def _hoglint_lines(ps: ProductScore) -> list[str]:
+    """The Isolated level and the debt per rule, shown beside the scores but not scored."""
+    lines: list[str] = []
+    if ps.isolated is not None:
+        lines.append(f"  {'isolated':17s}  {ps.isolated.detail}")
+    if ps.debt is None:
+        lines.append(f"  hoglint debt unavailable: {ps.debt_unavailable}")
+        return lines
+    debt_detail = f"{ps.debt.accepted_total} accepted"
+    if ps.debt.new_total:
+        debt_detail += f", {ps.debt.new_total} new"
+    lines.append(f"  {'hoglint debt':17s}  {debt_detail}")
+    lines.extend(_rule_lines(ps.debt.accepted))
+    if ps.debt.advisory:
+        lines.append(f"  {'hoglint advisory':17s}  {ps.debt.advisory_total} (rules that never block, not debt)")
+        lines.extend(_rule_lines(ps.debt.advisory))
+    return lines
+
+
 def generate_report(scores: list[ProductScore]) -> str:
     """Generate a heatmap grid report for all products."""
     lines: list[str] = []
@@ -328,6 +382,10 @@ def generate_report(scores: list[ProductScore]) -> str:
     lines.append("Product Maturity Report")
     lines.append("")
     lines.append("Dimensions: models, codegen")
+    lines.append("Not scored: isolated (yes, FAIL = claims and fails, free = passes without claiming), debt")
+    unavailable = next((ps.debt_unavailable for ps in scores if ps.debt_unavailable), "")
+    if unavailable:
+        lines.append(f"hoglint debt unavailable: {unavailable}")
     lines.append("")
 
     # Summary
@@ -348,14 +406,15 @@ def generate_report(scores: list[ProductScore]) -> str:
 
     # Header
     dim_header = "  ".join(f"{_DIM_SHORT[d]:>{_MINI_WIDTH}s}" for d in _DIM_ORDER)
-    lines.append(f"{'':>{name_w}s}  score  {dim_header}")
+    lines.append(f"{'':>{name_w}s}  score  {dim_header}  isolated   debt")
     lines.append("")
 
     # Rows
     for ps in scored:
         dim_map = ps.dimension_map
         mini_bars = "  ".join(_mini_bar(dim_map[d]) if d in dim_map else "\u00b7" * _MINI_WIDTH for d in _DIM_ORDER)
-        lines.append(f"{ps.product:>{name_w}s}  {ps.overall:>3d}    {mini_bars}")
+        isolated = ps.isolated.short if ps.isolated is not None else "?"
+        lines.append(f"{ps.product:>{name_w}s}  {ps.overall:>3d}    {mini_bars}  {isolated:8s}  {_debt_cell(ps):>5s}")
 
     # Owner rollup
     owner_scores: dict[str, list[int]] = {}
@@ -452,6 +511,9 @@ def generate_detail(ps: ProductScore) -> str:
     if overall is not None:
         lines.append("")
         lines.append(f"  {'overall':>17s}  {overall:3d}  {_bar(overall)}")
+
+    lines.append("")
+    lines.extend(_hoglint_lines(ps))
 
     return "\n".join(lines)
 
