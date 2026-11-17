@@ -130,7 +130,7 @@ MAX_STORED_INTEGER: Final = 2_147_483_647
 # The most recent checks an N-of-M decision can look back over, unless the kind sets its own.
 MAX_EVALUATION_PERIODS: Final = 10
 # The largest window any kind allows. The API publishes it, and each kind enforces its own.
-MAX_SOURCE_EVALUATION_PERIODS: Final = 60
+MAX_SOURCE_EVALUATION_PERIODS: Final = 1441
 
 
 @frozen

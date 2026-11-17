@@ -128,10 +128,8 @@ class TestMetricsAlertCreate(APIBaseTest):
         assert renamed.status_code == status.HTTP_200_OK, renamed.json()
         assert renamed.json()["check_interval_minutes"] == 5
 
-    @parameterized.expand([("an_hour", 60, status.HTTP_201_CREATED), ("past_an_hour", 61, status.HTTP_400_BAD_REQUEST)])
-    def test_a_metrics_alert_can_look_back_over_an_hour_of_checks(
-        self, _name: str, periods: int, expected: int
-    ) -> None:
+    @parameterized.expand([("a_day", 1441, status.HTTP_201_CREATED), ("past_a_day", 1442, status.HTTP_400_BAD_REQUEST)])
+    def test_a_metrics_alert_can_look_back_over_a_day_of_checks(self, _name: str, periods: int, expected: int) -> None:
         response = self._create(
             {"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}},
             evaluation_periods=periods,
@@ -433,6 +431,19 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         )
 
         assert self._kinds(self._evaluate()) == {}
+
+    def test_a_long_window_over_many_series_records_a_failure(self) -> None:
+        with team_scope(self.team.id):
+            platform_testing.set_evaluation_window(self.configuration_id, periods=1441, datapoints=1441)
+        self.snuffle.return_value = _response(
+            200,
+            _matrix(self.due_at - CHECKPOINT_EVAL_DELAY, *(({"group": str(index)}, ["1"]) for index in range(42))),
+        )
+
+        outcome = self._evaluate()
+
+        assert outcome.failure is not None
+        assert "points" in (outcome.error_message or "")
 
     def test_a_group_missing_now_keeps_its_earlier_breaches(self) -> None:
         self.checkpoint.return_value = self.due_at
