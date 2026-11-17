@@ -32,7 +32,7 @@ report_failure() {
 
 install_packages_and_aws_cli() {
     apt-get update -q
-    apt-get install -y -q build-essential ca-certificates curl docker-compose-v2 docker.io git jq libxml2-dev libxmlsec1-dev libxmlsec1-openssl pkg-config python3 unzip xz-utils
+    apt-get install -y -q brotli build-essential ca-certificates curl docker-compose-v2 docker.io git jq libxml2-dev libxmlsec1-dev libxmlsec1-openssl pkg-config python3 unzip xz-utils
     if aws --version 2>/dev/null | grep -q "^aws-cli/${AWS_CLI_VERSION} "; then
         return
     fi
