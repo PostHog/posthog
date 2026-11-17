@@ -69,6 +69,8 @@ EVERYONE = WatchedCondition(position=0, properties=())
 
 # (distinct id, minutes after START, event properties)
 Event = tuple[str, int, dict[str, Any]]
+# (minutes after START of the bucket, with_flag, exposed, unexposed, by_variant)
+BucketCounts = tuple[int, int, int, int, dict[str, int]]
 
 
 def _text_compared_with_a_number(team: Team) -> dict[str, Any]:
@@ -187,7 +189,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         _name: str,
         edit: WatchedEdit,
         events: list[Event],
-        expected: list[tuple[int, int, int, int, dict[str, int]]],
+        expected: list[BucketCounts],
         window: tuple[int, int] = (0, 30),
     ) -> None:
         self._send(events)
@@ -254,6 +256,7 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         self._send(
             [
                 ("person-1", 1, called("Matched condition set 2", True)),
+                ("person-1", 9, called("Matched condition set 2", False)),
                 ("person-2", 2, called("Out of rollout bound", False)),
                 ("person-3", 3, called("Matched condition set 1", True)),
                 ("person-4", 4, called("Evaluated locally", True)),
@@ -318,8 +321,8 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
             {edit_id: buckets[-1].since_edit.in_condition for edit_id, buckets in exposure.items()},
             {
                 "boolean": {
-                    ConditionMatch.REASON: ConditionExposure(with_flag=3, exposed=2, unexposed=1),
-                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=4, exposed=3, unexposed=1),
+                    ConditionMatch.REASON: ConditionExposure(with_flag=3, exposed=2, unexposed=2),
+                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=4, exposed=3, unexposed=2),
                 },
                 "other": {
                     ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1, unexposed=0),

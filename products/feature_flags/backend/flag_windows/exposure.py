@@ -1,5 +1,5 @@
-"""The exposure curve of a flag edit: in each time bucket, how many people carry the flag, and how many of them get the
-value that the edit started serving.
+"""The exposure curve of a flag edit: in each time bucket, how many people carry the flag, how many of them get the
+value that the edit started serving, and how many don't.
 
 Flag rollback suggestions read the curve as the clock of an observation window. The new value reaches people only when
 their app reloads flags, so the share of people with the new value rises over time and then stabilizes. The window
@@ -42,8 +42,8 @@ class ExposureCounts:
     with_flag: int
     # The people (or groups) with a value other than false.
     exposed: int
-    # The people (or groups) with the value false, or without the flag when the edit enables it. A person whose value
-    # changed counts here and in `exposed`, so this isn't `with_flag - exposed`.
+    # The people (or groups) with the value false, or that loaded flags without it when the edit enables the flag. A
+    # person whose value changed counts here and in `exposed`, so this isn't `with_flag - exposed`.
     unexposed: int
     # The people (or groups) with each variant that the flag serves. Empty for a boolean flag.
     by_variant: Mapping[str, int]

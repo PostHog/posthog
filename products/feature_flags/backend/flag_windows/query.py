@@ -143,6 +143,8 @@ class FlagRead:
     # The person (or group) is in a watched condition, by each way of matching. Empty without watched conditions.
     in_condition: Mapping[ConditionMatch, ast.Expr] = field(default_factory=dict)
 
+    # The event carries the value false, or loaded flags without this one when the edit enables the flag. The second
+    # case has a NULL `exposed`, and HogQL compares NULL as false, so `NOT exposed` holds.
     @property
     def unexposed(self) -> ast.Expr:
         return parse_expr(
