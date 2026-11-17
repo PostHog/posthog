@@ -2,12 +2,13 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '~/common/kafka/consumer'
+import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { IntakeBatchServices, insertIntakeBatch } from '../intake/intake-batch'
-import { RunKind } from '../intake/message'
+import { insertIntakeBatch } from '../intake/intake-batch'
+import { RunKind, decodeIntakeMessage } from '../intake/message'
 import { CDP_INTAKE_DLQ_OUTPUT } from '../outputs/outputs'
 import { CyclotronV2Manager } from '../services/cyclotron-v2'
 import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
@@ -18,18 +19,12 @@ import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 const CLAIM_RETRY = { initialDelayMs: 250, maxElapsedMs: 20_000 }
 const ATTEMPT_TIMEOUT_MS = 5_000
 
-// A record that still fails while draining holds the drain on it instead of being parked on the topic it came from again.
-const DRAIN_RETRY_MS = { initial: 1_000, max: 30_000 }
+const DRAIN_RETRY_MS = { initial: 1_000, max: 5_000 }
 const drainStallsCounter = new Counter({
     name: 'cdp_intake_dlq_drain_stalls_total',
     help: 'Drain attempts on the intake dead-letter topic that failed and will retry the same records.',
     labelNames: ['kind'] as const,
 })
-
-const STALL_ON_FAILURE: IntakeBatchServices['deadLetters'] = {
-    recordMessageFailure: () => false,
-    produceForBatch: () => Promise.resolve(),
-}
 
 const TOPICS: Record<
     RunKind,
@@ -51,7 +46,6 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
     private kafkaConsumer: KafkaConsumerInterface
     private drainConsumer?: KafkaConsumerInterface
     private groupId: string
-    private stopping = false
     private cyclotron: CyclotronV2Manager
     private deadLetters: CdpDeadLetterService
 
@@ -94,15 +88,12 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
         })
     }
 
-    public async processBatch(
-        messages: Message[],
-        deadLetters: IntakeBatchServices['deadLetters'] = this.deadLetters
-    ): Promise<void> {
+    public async processBatch(messages: Message[]): Promise<void> {
         await insertIntakeBatch(
             messages,
             {
                 cyclotron: this.cyclotron,
-                deadLetters,
+                deadLetters: this.deadLetters,
                 invocationResults: this.invocationResultsService.invocationResultsRowsService,
                 emailStatus: this.invocationResultsService.emailStatusService,
             },
@@ -112,8 +103,22 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
 
     // Both intake consumers park on one topic, so each drains only the records its own group parked.
     public async drainBatch(messages: Message[]): Promise<void> {
-        const own = messages.filter((message) => headerOf(message, 'dlq_consumer_group') === this.groupId)
-        await this.processBatch(own, STALL_ON_FAILURE)
+        const replays: Message[] = []
+        for (const message of messages) {
+            if (parseKafkaHeaders(message.headers).dlq_consumer_group !== this.groupId) {
+                continue
+            }
+            // Checked before any claim, so a held batch never inserts part of itself, and never parks a record again.
+            const decoded = decodeIntakeMessage(message.value)
+            if (decoded.status !== 'decoded') {
+                throw new Error(`Dead letter at offset ${message.offset} still fails: ${decoded.reason}`)
+            }
+            // The route already inserted a shadow copy's run, and its claim may have expired by now.
+            if (!decoded.message.shadow) {
+                replays.push(message)
+            }
+        }
+        await this.processBatch(replays)
     }
 
     public override async start(): Promise<void> {
@@ -141,7 +146,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
             try {
                 return await this.drainBatch(messages)
             } catch (error) {
-                if (this.stopping) {
+                if (this.isStopping) {
                     throw error
                 }
                 drainStallsCounter.labels({ kind: this.kind }).inc()
@@ -151,12 +156,15 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
                     error: error instanceof Error ? error.message : String(error),
                 })
                 await new Promise((resolve) => setTimeout(resolve, delayMs))
+                if (this.isStopping) {
+                    throw error
+                }
             }
         }
     }
 
     public override async stop(): Promise<void> {
-        this.stopping = true
+        this.isStopping = true
         await this.kafkaConsumer.disconnect()
         await this.drainConsumer?.disconnect()
         await this.cyclotron.disconnect()
@@ -166,14 +174,4 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
     public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
     }
-}
-
-function headerOf(message: Message, key: string): string | undefined {
-    for (const header of message.headers ?? []) {
-        const value = header[key]
-        if (value !== undefined) {
-            return value.toString()
-        }
-    }
-    return undefined
 }
