@@ -63373,6 +63373,8 @@ export namespace Schemas {
       label: string;
       /** What the step imports and where it lands in PostHog. */
       description: string;
+      /** Whether the step changes more than imported data, such as adding sending domains. Leave it out unless the person asks for it. */
+      opt_in: boolean;
     }
 
     export interface ImportProviderOption {

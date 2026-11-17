@@ -28,6 +28,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportStepSpec,
 )
 from products.messaging.backend.provider_imports.registry import PROVIDERS, UnknownImportProvider
+from products.messaging.backend.provider_imports.resend import DOMAIN_SETUP_STEP as DOMAIN_SETUP_STEP
 
 IMPORT_PROVIDER_CHOICES: list[tuple[str, str]] = [(value, str(label)) for value, label in ImportProviderKey.choices]
 PROVIDER_IMPORT_STATUS_CHOICES: list[tuple[str, str]] = [
@@ -53,6 +54,7 @@ class ImportStepOption:
     key: str
     label: str
     description: str
+    opt_in: bool = False
 
 
 @frozen
@@ -118,7 +120,7 @@ def list_import_providers(team_uuid: str, organization_id: str) -> list[ImportPr
             key=provider.key,
             label=provider.label,
             steps=tuple(
-                ImportStepOption(key=spec.key, label=spec.label, description=spec.description)
+                ImportStepOption(key=spec.key, label=spec.label, description=spec.description, opt_in=spec.opt_in)
                 for spec in provider.steps
             ),
             retains_credentials=provider.retains_credentials,

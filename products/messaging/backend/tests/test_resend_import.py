@@ -539,6 +539,51 @@ class TestResendImport(BaseTest):
         assert run.progress["automations"]["counts"] == {"already_present": len(FIXTURES["automations"])}
         assert not Cohort.objects.filter(team_id=self.team.id, is_static=True).exists()
 
+    def test_domain_setup_adds_verified_domains_that_imported_templates_then_send_from(self) -> None:
+        create_ses_domain = self._patch("products.workflows.backend.facade.api.create_ses_email_domain")
+
+        run = self._run(["domains", "domain_setup", "templates"])
+
+        assert run.steps == ["domain_setup", "templates"]
+        senders = {
+            sender.config["domain"]: sender for sender in IntegrationManager.email.credentials.list(self.team.id)
+        }
+        assert {domain: sender.config["mail_from_subdomain"] for domain, sender in senders.items()} == {
+            "example.com": "feedback",
+            "mail.example.org": "bounce",
+        }
+        assert all(not sender.config["verified"] for sender in senders.values())
+        assert sorted(
+            (call.args[0], call.kwargs["mail_from_subdomain"]) for call in create_ses_domain.call_args_list
+        ) == [("example.com", "feedback"), ("mail.example.org", "bounce")]
+        assert run.progress["domain_setup"]["counts"] == {"created": 2, "not_verified": 1}
+        welcome = MessageTemplate.objects.get(team_id=self.team.id, key="welcome-email")
+        assert welcome.content["email"]["from"]["integrationId"] == senders["example.com"].id
+
+        again = self._run(["domain_setup"])
+
+        assert again.progress["domain_setup"]["counts"] == {"pending": 2, "not_verified": 1}
+        assert len(IntegrationManager.email.credentials.list(self.team.id)) == 2
+        assert create_ses_domain.call_count == 2
+
+    def test_domain_setup_keeps_the_organization_limit_on_unverified_domains(self) -> None:
+        self._patch("products.workflows.backend.facade.api.create_ses_email_domain")
+        for domain in ("first.example", "second.example"):
+            IntegrationManager.email.credentials.create(
+                self.team.id,
+                external_id=f"hello@{domain}",
+                config={"email": f"hello@{domain}", "domain": domain, "verified": False},
+                sensitive_config={},
+                created_by_id=self.user.id,
+            )
+
+        run = self._run(["domain_setup"])
+
+        items = {item["label"]: item for item in run.progress["domain_setup"]["items"]}
+        assert items["example.com"]["status"] == "created"
+        assert items["mail.example.org"]["status"] == "failed"
+        assert "waiting for verification" in items["mail.example.org"]["notes"][0]
+
     def test_run_state_exposes_summary_for_the_ui(self) -> None:
         run = self._run(["suppressions", "domains"])
 

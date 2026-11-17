@@ -9,11 +9,12 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { ImportProviderOptionApi, ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { ImportedDomainsDnsTable } from './ImportedDomainsDnsTable'
 import { providerImportLogic } from './providerImportLogic'
 import { ProviderImportRunProgress } from './ProviderImportRunProgress'
 
 function ImportStepPicker({ provider }: { provider: ImportProviderOptionApi }): JSX.Element {
-    const { deselectedImportSteps } = useValues(providerImportLogic)
+    const { selectedImportSteps } = useValues(providerImportLogic)
     const { toggleImportStep } = useActions(providerImportLogic)
 
     return (
@@ -22,7 +23,7 @@ function ImportStepPicker({ provider }: { provider: ImportProviderOptionApi }): 
             {provider.steps.map((step) => (
                 <div key={step.key}>
                     <LemonCheckbox
-                        checked={!deselectedImportSteps.includes(step.key)}
+                        checked={selectedImportSteps.includes(step.key)}
                         onChange={() => toggleImportStep(step.key)}
                         label={step.label}
                         data-attr={`${provider.key}-import-step-${step.key}`}
@@ -60,6 +61,7 @@ function ImportRunResult({
                 </p>
             )}
             <ProviderImportRunProgress run={run} onOpenLink={closeImportModal} />
+            <ImportedDomainsDnsTable />
             {run.finished_at && (
                 <div className="flex items-center justify-between text-sm">
                     <span>Finished</span>

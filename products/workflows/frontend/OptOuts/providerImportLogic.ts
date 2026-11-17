@@ -4,9 +4,13 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { integrationsEmailStatusRetrieve } from 'products/integrations/frontend/generated/api'
+import type { EmailDomainStatusApi } from 'products/integrations/frontend/generated/api.schemas'
 import {
     messagingProviderImportsCreate,
     messagingProviderImportsList,
@@ -19,6 +23,7 @@ import type {
     ProviderImportRunApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
+import { ImportedDomainRecord, ImportedDomainSender, importedDomainSenders } from './importedDomainRecords'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 
 const IMPORT_RUN_POLL_INTERVAL_MS = 2000
@@ -34,7 +39,6 @@ const isActive = (run: ProviderImportRunApi): boolean => ACTIVE_IMPORT_RUN_STATU
 export interface providerImportLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     chosenProviderKey: string | null
-    deselectedImportSteps: string[]
     hasSeveralProviders: boolean
     importError: string | null
     importForm: ImportFormValues
@@ -51,6 +55,10 @@ export interface providerImportLogicValues {
     importRuns: ProviderImportRunApi[] | null
     importRunsLoading: boolean
     importStepOptions: ImportStepOptionApi[]
+    importedDomainRecords: ImportedDomainRecord[]
+    importedDomainSenders: ImportedDomainSender[]
+    importedDomainStatuses: Record<number, EmailDomainStatusApi> | null
+    importedDomainStatusesLoading: boolean
     isImportFormSubmitting: boolean
     isImportFormValid: boolean
     isImportModalOpen: boolean
@@ -64,6 +72,7 @@ export interface providerImportLogicValues {
     startedImportRun: ProviderImportRunApi | null
     startedImportRunLoading: boolean
     startingProviderKey: string | null
+    toggledImportSteps: string[]
     trackedImportRunIds: string[]
 }
 
@@ -101,6 +110,34 @@ export interface providerImportLogicActions {
     ) => {
         importRuns: ProviderImportRunApi[]
         payload?: any
+    }
+    loadImportedDomainStatuses: (refresh?: boolean) => {
+        refresh: boolean
+    }
+    loadImportedDomainStatusesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadImportedDomainStatusesSuccess: (
+        importedDomainStatuses: {
+            [x: number]: EmailDomainStatusApi
+        },
+        payload?: {
+            refresh: boolean
+        }
+    ) => {
+        importedDomainStatuses: {
+            [x: number]: EmailDomainStatusApi
+        }
+        payload?: {
+            refresh: boolean
+        }
+    }
+    loadMissingImportedDomainStatuses: () => {
+        value: true
     }
     openImportModal: (providerKey?: string | null) => {
         providerKey: string | null
@@ -199,7 +236,12 @@ export interface providerImportLogicMeta {
         ) => ProviderImportRunApi | null
         isImportRunActive: (latestImportRun: ProviderImportRunApi | null) => boolean
         importStepOptions: (selectedProvider: ImportProviderOptionApi | null) => ImportStepOptionApi[]
-        selectedImportSteps: (importStepOptions: ImportStepOptionApi[], deselectedImportSteps: string[]) => string[]
+        selectedImportSteps: (importStepOptions: ImportStepOptionApi[], toggledImportSteps: string[]) => string[]
+        importedDomainSenders: (latestImportRun: ProviderImportRunApi | null) => ImportedDomainSender[]
+        importedDomainRecords: (
+            importedDomainSenders: ImportedDomainSender[],
+            importedDomainStatuses: Record<number, EmailDomainStatusApi> | null
+        ) => ImportedDomainRecord[]
     }
 }
 
@@ -222,6 +264,8 @@ export const providerImportLogic = kea<providerImportLogicType>([
         resetImport: true,
         setImportError: (error: string | null) => ({ error }),
         toggleImportStep: (step: string) => ({ step }),
+        loadImportedDomainStatuses: (refresh: boolean = false) => ({ refresh }),
+        loadMissingImportedDomainStatuses: true,
         setTrackedImportRunIds: (runIds: string[]) => ({ runIds }),
         setShowImportAgainForm: (show: boolean) => ({ show }),
         setStartingProviderKey: (providerKey: string | null) => ({ providerKey }),
@@ -254,6 +298,38 @@ export const providerImportLogic = kea<providerImportLogicType>([
                             !loaded.some((loadedRun) => loadedRun.id === run.id)
                     )
                     return [...startedMeanwhile, ...loaded]
+                },
+            },
+        ],
+        importedDomainStatuses: [
+            null as Record<number, EmailDomainStatusApi> | null,
+            {
+                loadImportedDomainStatuses: async ({ refresh }, breakpoint) => {
+                    const teamId = String(values.currentTeamIdStrict)
+                    const statuses = { ...values.importedDomainStatuses }
+                    await Promise.all(
+                        values.importedDomainSenders.map(async ({ integrationId }) => {
+                            // A check the person asked for may write: verify asks the provider to look again, and
+                            // records a domain it already verified. A plain status read never does.
+                            if (refresh && !statuses[integrationId]?.verified) {
+                                try {
+                                    // nosemgrep: prefer-codegen-api-namespaced-integrations -- the generated integrationsEmailVerifyCreate returns void and demands a config body the endpoint ignores
+                                    await api.integrations.verifyEmail(integrationId)
+                                } catch {
+                                    // The status read below still shows where the domain is.
+                                }
+                            }
+                            try {
+                                statuses[integrationId] = await integrationsEmailStatusRetrieve(teamId, integrationId, {
+                                    refresh,
+                                })
+                            } catch {
+                                // A deleted sender or an unreachable provider keeps the last status it had.
+                            }
+                        })
+                    )
+                    breakpoint()
+                    return statuses
                 },
             },
         ],
@@ -300,11 +376,12 @@ export const providerImportLogic = kea<providerImportLogicType>([
                 selectProvider: () => null,
             },
         ],
-        deselectedImportSteps: [
+        // Steps the person flipped from their default. Opt-in steps start unselected, the rest start selected.
+        toggledImportSteps: [
             [] as string[],
             {
-                toggleImportStep: (deselected, { step }) =>
-                    deselected.includes(step) ? deselected.filter((key) => key !== step) : [...deselected, step],
+                toggleImportStep: (toggled, { step }) =>
+                    toggled.includes(step) ? toggled.filter((key) => key !== step) : [...toggled, step],
                 selectProvider: () => [],
                 openImportModal: () => [],
             },
@@ -392,9 +469,27 @@ export const providerImportLogic = kea<providerImportLogicType>([
             (selectedProvider: ImportProviderOptionApi | null): ImportStepOptionApi[] => selectedProvider?.steps ?? [],
         ],
         selectedImportSteps: [
-            (s) => [s.importStepOptions, s.deselectedImportSteps],
-            (importStepOptions: ImportStepOptionApi[], deselectedImportSteps: string[]): string[] =>
-                importStepOptions.map((step) => step.key).filter((key) => !deselectedImportSteps.includes(key)),
+            (s) => [s.importStepOptions, s.toggledImportSteps],
+            (importStepOptions: ImportStepOptionApi[], toggledImportSteps: string[]): string[] =>
+                importStepOptions
+                    .filter((step) => !!step.opt_in === toggledImportSteps.includes(step.key))
+                    .map((step) => step.key),
+        ],
+        importedDomainSenders: [
+            (s) => [s.latestImportRun],
+            (latestImportRun: ProviderImportRunApi | null): ImportedDomainSender[] =>
+                latestImportRun && !isActive(latestImportRun) ? importedDomainSenders(latestImportRun) : [],
+        ],
+        importedDomainRecords: [
+            (s) => [s.importedDomainSenders, s.importedDomainStatuses],
+            (
+                senders: ImportedDomainSender[],
+                statuses: Record<number, EmailDomainStatusApi> | null
+            ): ImportedDomainRecord[] =>
+                senders.flatMap(({ domain, integrationId }) => {
+                    const status = statuses?.[integrationId]
+                    return status && !status.verified ? status.records.map((record) => ({ ...record, domain })) : []
+                }),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -405,10 +500,15 @@ export const providerImportLogic = kea<providerImportLogicType>([
         selectProvider: ({ providerKey }) => {
             // A key belongs to one tool, so it must not travel to the next one picked.
             actions.resetImportForm()
+            // The runs can load before a tool is picked, and only then is its latest run known.
+            actions.loadMissingImportedDomainStatuses()
             if (providerKey) {
                 // pinned: analytics event name, shared with the backend stages of the same funnel
                 posthog.capture('workflows import run', { source: providerKey, stage: 'selected', dry_run: false })
             }
+        },
+        loadImportProvidersSuccess: () => {
+            actions.loadMissingImportedDomainStatuses()
         },
         startImport: () => {
             actions.setStartingProviderKey(values.selectedProvider?.key ?? null)
@@ -455,6 +555,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
                 }
             }
             actions.setTrackedImportRunIds(activeIds)
+            actions.loadMissingImportedDomainStatuses()
             if (activeIds.length > 0) {
                 cache.disposables.add(() => {
                     const timeout = setTimeout(() => actions.loadImportRuns(), IMPORT_RUN_POLL_INTERVAL_MS)
@@ -471,6 +572,21 @@ export const providerImportLogic = kea<providerImportLogicType>([
                     const timeout = setTimeout(() => actions.loadImportRuns(), IMPORT_RUN_POLL_INTERVAL_MS)
                     return () => clearTimeout(timeout)
                 }, 'importRunPoll')
+            }
+        },
+        loadMissingImportedDomainStatuses: () => {
+            const statuses = values.importedDomainStatuses
+            if (
+                !values.importedDomainStatusesLoading &&
+                values.importedDomainSenders.some(({ integrationId }) => !statuses?.[integrationId])
+            ) {
+                actions.loadImportedDomainStatuses()
+            }
+        },
+        loadImportedDomainStatusesSuccess: ({ importedDomainStatuses }) => {
+            if (Object.values(importedDomainStatuses ?? {}).some((status) => status.verified)) {
+                // A newly verified domain becomes a sender the templates and drafts can send from.
+                integrationsLogic.findMounted()?.actions.loadIntegrations()
             }
         },
         closeImportModal: () => {

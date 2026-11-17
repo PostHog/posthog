@@ -14,6 +14,7 @@ const STEP_OPTIONS = [
     { key: 'categories', label: 'Subscription topics', description: '' },
     { key: 'suppressions', label: 'Suppressed addresses', description: '' },
     { key: 'opt_outs', label: 'Global unsubscribes', description: '' },
+    { key: 'domain_setup', label: 'Add sending domains', description: '', opt_in: true },
 ]
 
 const PROVIDER_OPTION = {
@@ -216,6 +217,77 @@ describe('providerImportLogic', () => {
 
         expect(logic.values.importRuns?.map((run) => run.id)).toEqual(['run-2', 'run-1'])
         expect(logic.values.trackedImportRunIds).toEqual(['run-2'])
+    })
+
+    it('shows the DNS records of added domains until they verify, and asks again on check again', async () => {
+        const verified: number[] = []
+        const statusRefreshes: string[] = []
+        const status = (id: number, isVerified: boolean): Record<string, unknown> => ({
+            status: isVerified ? 'verified' : 'pending',
+            verified: isVerified,
+            checked_at: '2026-01-01T00:00:00Z',
+            steps: [],
+            records: [
+                {
+                    kind: 'verification',
+                    hostname: `_amazonses.domain-${id}.example.com`,
+                    type: 'TXT',
+                    value: 'token',
+                    priority: null,
+                    status: 'pending',
+                },
+            ],
+        })
+        const run = importRun('completed')
+        run.steps = [
+            {
+                ...run.steps[0],
+                key: 'domain_setup',
+                items: [
+                    { label: 'domain-1.example.com', status: 'created', url: '/workflows/channels/email/1', notes: [] },
+                    { label: 'domain-2.example.com', status: 'skipped', url: '/workflows/channels/email/2', notes: [] },
+                    { label: 'example.net', status: 'listed', url: '/workflows/channels', notes: [] },
+                ],
+            },
+        ]
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_provider_imports/': () => [200, [run]],
+                '/api/projects/:team_id/messaging_provider_imports/providers/': () => [
+                    200,
+                    [PROVIDER_OPTION, { ...PROVIDER_OPTION, key: 'resend', label: 'Resend' }],
+                ],
+                '/api/environments/:team_id/integrations/:id/email/status/': ({ params, request }) => {
+                    statusRefreshes.push(new URL(request.url).searchParams.get('refresh') ?? 'false')
+                    return [200, status(Number(params.id), Number(params.id) === 2)]
+                },
+            },
+            post: {
+                '/api/environments/:team_id/integrations/:id/email/verify/': ({ params }) => {
+                    verified.push(Number(params.id))
+                    return [200, { status: 'pending', dnsRecords: [] }]
+                },
+            },
+        })
+
+        // With two tools, the runs load before one is picked, so picking it must load the statuses.
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadImportProvidersSuccess([PROVIDER_OPTION, { ...PROVIDER_OPTION, key: 'resend' }] as any)
+        await expectLogic(logic, () => logic.actions.openImportModal()).toFinishAllListeners()
+        expect(statusRefreshes).toEqual([])
+        await expectLogic(logic, () => logic.actions.selectProvider('customerio')).toDispatchActions([
+            'loadImportedDomainStatusesSuccess',
+        ])
+
+        expect(logic.values.importedDomainRecords.map((record) => record.domain)).toEqual(['domain-1.example.com'])
+        expect(verified).toEqual([])
+
+        await expectLogic(logic, () => logic.actions.loadImportedDomainStatuses(true)).toDispatchActions([
+            'loadImportedDomainStatusesSuccess',
+        ])
+
+        expect(verified).toEqual([1])
+        expect(statusRefreshes.slice(-2)).toEqual(['true', 'true'])
     })
 
     it('asks which tool to import from only when there is more than one', async () => {

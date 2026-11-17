@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import OrganizationMembership
 from posthog.models.integration import Integration
 
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
@@ -46,21 +47,28 @@ class TestProviderImportsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_cohort_write", ["hog_flow:write"], ["automations"], 403),
-            ("with_cohort_write", ["hog_flow:write", "cohort:write"], ["automations"], 400),
-            ("full_access_key", ["*"], ["automations"], 400),
-            ("other_steps_need_no_cohort_write", ["hog_flow:write"], ["templates"], 400),
+            ("without_cohort_write", ["hog_flow:write"], ["automations"], False, 403),
+            ("with_cohort_write", ["hog_flow:write", "cohort:write"], ["automations"], False, 400),
+            ("full_access_key", ["*"], ["automations"], False, 400),
+            ("other_steps_need_no_cohort_write", ["hog_flow:write"], ["templates"], False, 400),
+            ("domains_without_integration_write", ["hog_flow:write"], ["domain_setup"], True, 403),
+            ("domains_as_a_member", ["hog_flow:write", "integration:write"], ["domain_setup"], False, 403),
+            ("domains_as_an_admin", ["hog_flow:write", "integration:write"], ["domain_setup"], True, 400),
         ]
     )
-    def test_importing_automations_with_a_key_needs_cohort_write(
+    def test_steps_that_write_elsewhere_need_the_access_for_it(
         self,
         _mock_client_class: MagicMock,
         start_workflow: MagicMock,
         _name: str,
         scopes: list[str],
         steps: list[str],
+        is_admin: bool,
         expected: int,
     ) -> None:
+        if is_admin:
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
         key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 

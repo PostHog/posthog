@@ -189,7 +189,8 @@ def _order_steps(provider: ImportProvider, steps: list[str]) -> list[str]:
         raise InvalidImportSteps(f"{provider.label} has no step named {', '.join(unknown)}.")
     if not steps:
         raise InvalidImportSteps("Select at least one thing to import.")
-    return [key for key in known if key in steps]
+    replaced = {spec.replaces for spec in provider.steps if spec.key in steps and spec.replaces}
+    return [key for key in known if key in steps and key not in replaced]
 
 
 def _continue_failed_steps(

@@ -16,10 +16,12 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import can_in_project, get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
+from products.authorization.backend.facade.enums import Action
 from products.messaging.backend.facade.provider_imports import (
+    DOMAIN_SETUP_STEP,
     IMPORT_PROVIDER_CHOICES,
     IMPORT_STEP_STATUS_CHOICES,
     PROVIDER_IMPORT_STATUS_CHOICES,
@@ -40,6 +42,9 @@ class ImportStepOptionSerializer(serializers.Serializer):
     )
     label = serializers.CharField(help_text="Display name of the step.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     description = serializers.CharField(help_text="What the step imports and where it lands in PostHog.")
+    opt_in = serializers.BooleanField(
+        help_text="Whether the step changes more than imported data, such as adding sending domains. Leave it out unless the person asks for it."
+    )
 
 
 class ImportProviderOptionSerializer(serializers.Serializer):
@@ -204,6 +209,17 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "Importing automations can create cohorts, so this key needs the cohort:write scope. "
                 "Leave out Automations, or use a key that has it."
             )
+        if DOMAIN_SETUP_STEP in data["steps"]:
+            # Adding a domain by hand needs these too, so the import can't add one for someone who couldn't.
+            if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["integration:write"]):
+                raise PermissionDenied(
+                    "Adding sending domains creates email senders, so this key needs the integration:write scope. "
+                    "Leave out Add sending domains, or use a key that has it."
+                )
+            if not can_in_project(request, self.team, Action.EDIT, self):
+                raise PermissionDenied(
+                    "You need permission to add integrations in this project to add sending domains."
+                )
         if data["provider"] not in {provider.key for provider in self._providers()}:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
         try:

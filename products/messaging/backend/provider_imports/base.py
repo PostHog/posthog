@@ -48,6 +48,10 @@ class ImportStepSpec:
     description: str
     # What the step counts in its summary, as (key, label) pairs in display order.
     count_labels: tuple[tuple[str, str], ...] = ()
+    # Left unselected until the person picks it, because it changes more than what PostHog stores about the import.
+    opt_in: bool = False
+    # A step this one does everything of. Selecting both runs only this one.
+    replaces: str | None = None
 
 
 @frozen
