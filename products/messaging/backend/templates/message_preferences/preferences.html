@@ -105,8 +105,6 @@
                     })
                 }
 
-                // A topic shown off only because all marketing is off keeps its saved choice, so the save
-                // neither overwrites it nor reports it as a new unsubscribe
                 function submittedChoice(toggle) {
                     return toggle.hasAttribute('data-topic') && !allMarketingToggle.checked
                         ? String(toggle.dataset.savedStatus !== 'OPTED_OUT')
@@ -182,11 +180,10 @@
                     }
                 }
 
-                // One save at a time: a later change would otherwise race an earlier save, and the
-                // rollback of whichever fails first would show values that differ from the stored ones
                 form.addEventListener('click', (event) => {
                     if (saveInFlight && event.target.classList.contains('toggle-checkbox')) {
                         event.preventDefault()
+                        updateStatusLabel(event.target, 'Still saving. Try again.', 'text-amber-600')
                     }
                 })
 

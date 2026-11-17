@@ -181,7 +181,6 @@ class TestMessagePreferencesViews(BaseTest):
 
     @parameterized.expand(
         [
-            # (stored "$all", newsletter checked, product updates checked, topics disabled)
             ("all_off", PreferenceStatus.OPTED_OUT, False, False, True),
             ("all_on", PreferenceStatus.OPTED_IN, True, False, False),
             ("all_unanswered", None, True, False, False),
