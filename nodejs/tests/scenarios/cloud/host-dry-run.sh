@@ -126,7 +126,7 @@ case "${1:-} ${2:-}" in
     "sts get-caller-identity")
         echo '{"Account":"000000000000","Arn":"arn:aws:sts::000000000000:assumed-role/dry-run/host"}' ;;
     "rds describe-db-clusters")
-        echo '{"Endpoint":"cluster","Port":5432,"MasterUserSecret":{"SecretArn":"arn:aws:secretsmanager:us-east-1:000000000000:secret:dry-run"}}' ;;
+        jq -cn --arg endpoint "${DRY_RUN_ENDPOINT:-cluster}" '{Endpoint:$endpoint,Port:5432,MasterUserSecret:{SecretArn:"arn:aws:secretsmanager:us-east-1:000000000000:secret:dry-run"}}' ;;
     "secretsmanager get-secret-value")
         jq -cn --arg password "$DRY_RUN_DB_PASSWORD" '{username:"posthog",password:$password}' ;;
     "ecr get-login-password")
@@ -199,17 +199,18 @@ bash nodejs/tests/scenarios/cloud/host-prepare.sh
 code=$?
 cat /opt/scenario/prepare.log
 [ "$code" = 0 ] || { echo "host-prepare.sh exited $code"; exit 1; }
-step "verify-full refuses a name the cluster certificate lacks"
-wrong="postgres://posthog:$(jq -rn --arg p "$DRY_RUN_DB_PASSWORD" '$p | @uri')@not-in-certificate:5432/cyclotron_node"
-tls="sslmode=verify-full&sslrootcert=/opt/scenario/rds-ca.pem"
-if sqlx migrate info -D "$wrong?$tls" --source rust/cyclotron-node-migrations/ >/dry-run/wrong-name-sqlx.log 2>&1; then
-    echo "sqlx connected to a name the certificate lacks"; exit 1
-fi
-grep -i cert /dry-run/wrong-name-sqlx.log || { cat /dry-run/wrong-name-sqlx.log; echo "sqlx failed for another reason"; exit 1; }
-if (cd nodejs && node -e 'new (require("pg").Client)({ connectionString: process.argv[1] }).connect().then(() => process.exit(0), (e) => { console.log(e.message); process.exit(1) })' "$wrong?uselibpqcompat=true&$tls") >/dry-run/wrong-name-node.log 2>&1; then
-    echo "Node connected to a name the certificate lacks"; exit 1
-fi
-grep -i cert /dry-run/wrong-name-node.log || { cat /dry-run/wrong-name-node.log; echo "Node failed for another reason"; exit 1; }
+cp /opt/scenario/prepare.log /dry-run/prepare.log
+refused() {
+    if DRY_RUN_ENDPOINT=not-in-certificate PATH="$2:$PATH" bash nodejs/tests/scenarios/cloud/host-prepare.sh; then
+        echo "host-prepare.sh connected over $1 to a name the certificate lacks"; exit 1
+    fi
+    cp /opt/scenario/prepare.log "/dry-run/prepare-refused-$1.log"
+    grep -E "$3" /opt/scenario/prepare.log || { cat /opt/scenario/prepare.log; echo "host-prepare.sh failed over $1 for another reason"; exit 1; }
+}
+step "host-prepare.sh refuses a cluster name its certificate lacks, for sqlx and then for Node"
+mkdir -p /dry-run/skip-sqlx && printf '#!/bin/sh\nexit 0\n' >/dry-run/skip-sqlx/sqlx && chmod +x /dry-run/skip-sqlx/sqlx
+refused sqlx /nonexistent NotValidForName
+refused node /dry-run/skip-sqlx altnames
 step "host-run-card.sh, stopped after $CARD_SECONDS s"
 rm -rf "/dry-run/bucket/runs/$RUN_ID/evidence" "/dry-run/bucket/runs/$RUN_ID/host/done"
 timeout --signal TERM --kill-after 60 "$CARD_SECONDS" bash nodejs/tests/scenarios/cloud/host-run-card.sh
