@@ -10,7 +10,6 @@ from posthog.llm.gateway_internal_client import (
     USAGE_REPORT_TIMEOUT_SECONDS,
     AIGatewayInternalError,
     AIGatewayNotConfigured,
-    CreditResult,
     add_credit,
     get_usage_report,
     get_usage_report_rows,
@@ -113,7 +112,7 @@ class TestAddCredit:
             result = add_credit(42, ORG_ID, "25.00", "topping up", "key-123")
 
         url = mock_post.call_args.args[0]
-        assert url == "http://gw/internal/teams/42/credits"
+        assert url == f"http://gw/internal/accounts/{ORG_ID}/credits"
         assert mock_post.call_args.kwargs["json"] == {"amount_usd": "25.00", "reason": "topping up"}
         assert mock_post.call_args.kwargs["headers"][IDEMPOTENCY_KEY_HEADER] == "key-123"
         assert mock_post.call_args.kwargs["headers"][INTERNAL_ACTOR_HEADER] == ADMIN_ACTOR
@@ -121,25 +120,6 @@ class TestAddCredit:
         assert result.entry_id == "entry-1"
         assert result.balance_usd == "35.000000"
         assert result.duplicate is False
-
-    @patch("posthog.llm.gateway_internal_client.settings")
-    def test_posts_to_the_organization_when_the_team_route_is_404(self, mock_settings):
-        _configured(mock_settings)
-        payload = {"org_id": ORG_ID, "entry_id": "entry-1", "amount_usd": "25", "balance_usd": "35", "duplicate": False}
-        responses = [_response(404, {"error": "not found"}), _response(200, payload)]
-        with patch("posthog.llm.gateway_internal_client.httpx.post", side_effect=responses) as mock_post:
-            result = add_credit(42, ORG_ID, "25.00", "topping up", "key-123")
-
-        assert [call.args[0] for call in mock_post.call_args_list] == [
-            "http://gw/internal/teams/42/credits",
-            f"http://gw/internal/accounts/{ORG_ID}/credits",
-        ]
-        first, second = mock_post.call_args_list
-        assert first.kwargs["json"] == second.kwargs["json"] == {"amount_usd": "25.00", "reason": "topping up"}
-        assert second.kwargs["headers"][IDEMPOTENCY_KEY_HEADER] == "key-123"
-        assert result == CreditResult(
-            team_id=42, entry_id="entry-1", amount_usd="25", balance_usd="35", duplicate=False
-        )
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_duplicate_replay(self, mock_settings):

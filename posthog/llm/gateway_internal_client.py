@@ -114,23 +114,17 @@ def get_wallet(team_id: int) -> Wallet:
 
 
 def add_credit(team_id: int, org_id: str, amount_usd: str, reason: str, idempotency_key: str) -> CreditResult:
-    # A gateway that funds by organization answers 404 on the team route. The
-    # team route goes first: a gateway that still serves it spends the team
-    # balance and may not read an organization balance.
-    # TODO(billing-entrypoint): post to the organization route only once every gateway funds by organization.
+    # The gateway funds by organization: the credit lands on the balance every
+    # team of the organization spends from.
     url, token = _config()
-    headers = _auth_headers(token, {IDEMPOTENCY_KEY_HEADER: idempotency_key, INTERNAL_ACTOR_HEADER: ADMIN_ACTOR})
     try:
-        for path in (f"/internal/teams/{team_id}/credits", f"/internal/accounts/{org_id}/credits"):
-            response = httpx.post(
-                f"{url}{path}",
-                headers=headers,
-                json={"amount_usd": amount_usd, "reason": reason},
-                timeout=INTERNAL_API_TIMEOUT_SECONDS,
-                trust_env=False,
-            )
-            if response.status_code != 404:
-                break
+        response = httpx.post(
+            f"{url}/internal/accounts/{org_id}/credits",
+            headers=_auth_headers(token, {IDEMPOTENCY_KEY_HEADER: idempotency_key, INTERNAL_ACTOR_HEADER: ADMIN_ACTOR}),
+            json={"amount_usd": amount_usd, "reason": reason},
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
     except httpx.HTTPError as exc:
         raise AIGatewayInternalError(f"credit request failed: {exc}") from exc
 

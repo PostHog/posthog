@@ -270,25 +270,16 @@ def provision_ai_gateway_mint_key(team_id: int, *, agent_model: str) -> str:
     refresh_ai_gateway_mint_key(team_id, mint_key)
 
     base_url = f"http://localhost:{AI_GATEWAY_PORT}"
-
-    def grant(path: str) -> requests.Response:
-        return requests.post(
-            f"{base_url}{path}",
-            json={"amount_usd": AI_GATEWAY_EVAL_CREDITS_USD, "reason": "Local eval test credits"},
-            headers={
-                "Authorization": f"Bearer {_AI_GATEWAY_INTERNAL_TOKEN}",
-                "Idempotency-Key": f"eval-{team_id}-{_AI_GATEWAY_CREDIT_GRANT_ID}",
-                "X-Internal-Actor": "eval-harness",
-            },
-            timeout=10,
-        )
-
-    # The local clone may fund by team or by organization. A gateway that funds
-    # by organization answers 404 on the team route; one that still serves it
-    # may not read an organization balance, so the team route goes first.
-    credits = grant(f"/internal/teams/{team_id}/credits")
-    if credits.status_code == 404:
-        credits = grant(f"/internal/accounts/{_team_organization_id(team_id)}/credits")
+    credits = requests.post(
+        f"{base_url}/internal/accounts/{_team_organization_id(team_id)}/credits",
+        json={"amount_usd": AI_GATEWAY_EVAL_CREDITS_USD, "reason": "Local eval test credits"},
+        headers={
+            "Authorization": f"Bearer {_AI_GATEWAY_INTERNAL_TOKEN}",
+            "Idempotency-Key": f"eval-{team_id}-{_AI_GATEWAY_CREDIT_GRANT_ID}",
+            "X-Internal-Actor": "eval-harness",
+        },
+        timeout=10,
+    )
     if not 200 <= credits.status_code < 300:
         raise SubprocessStartupError(f"ai-gateway refused eval test credits: HTTP {credits.status_code}")
     headers = {"Authorization": f"Bearer {mint_key}"}
