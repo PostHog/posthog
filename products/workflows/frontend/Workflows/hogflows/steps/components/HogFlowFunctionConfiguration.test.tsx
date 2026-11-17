@@ -1,6 +1,23 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import '@testing-library/jest-dom'
+
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { BindLogic } from 'kea'
+import { expectLogic } from 'kea-test-utils'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import { CyclotronJobInvocationGlobals } from '~/types'
 
-import { buildSampleGlobals, filterInputsSchemaForTrigger } from './HogFlowFunctionConfiguration'
+import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
+import {
+    HogFlowFunctionConfiguration,
+    buildSampleGlobals,
+    filterInputsSchemaForTrigger,
+} from './HogFlowFunctionConfiguration'
 
 // The stored shape a Slack message workflow carries. The trigger type alone no longer identifies
 // it, so every case below passes the whole config.
@@ -201,6 +218,62 @@ describe('HogFlowFunctionConfiguration', () => {
             expect(filterInputsSchemaForTrigger('template-email', { type: 'event' }, aiTaskSchema)).toEqual(
                 aiTaskSchema
             )
+        })
+    })
+
+    describe('engagement events on an email step', () => {
+        const logicProps: WorkflowLogicProps = { id: 'new' }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_function_templates': {
+                        results: [{ id: 'template-email', name: 'Email', type: 'destination', inputs_schema: [] }],
+                        count: 1,
+                    },
+                },
+            })
+        })
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        // The panel can replace the button after mount, so each check queries it again.
+        const engagementButton = (): HTMLElement =>
+            screen.getByText('Enable engagement events').closest('button') as HTMLElement
+
+        async function renderEmailStep(level: OrganizationMembershipLevel): Promise<void> {
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                effective_membership_level: level,
+                workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, capture_workflows_engagement_events: false },
+            })
+            const logic = workflowLogic(logicProps)
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionTemplatesByIdSuccess'])
+            render(
+                <BindLogic logic={workflowLogic} props={logicProps}>
+                    <HogFlowFunctionConfiguration templateId="template-email" inputs={{}} setInputs={() => {}} />
+                </BindLogic>
+            )
+            await screen.findByText('Enable engagement events')
+        }
+
+        it('disables the button for a project member and says who can turn it on', async () => {
+            await renderEmailStep(OrganizationMembershipLevel.Member)
+
+            expect(engagementButton()).toHaveAttribute('aria-disabled', 'true')
+            await waitFor(() => {
+                fireEvent.click(engagementButton())
+                expect(screen.getByText('Ask a project admin to turn on engagement events.')).toBeInTheDocument()
+            })
+        })
+
+        it('keeps the button enabled for a project admin', async () => {
+            await renderEmailStep(OrganizationMembershipLevel.Admin)
+
+            expect(engagementButton()).toHaveAttribute('aria-disabled', 'false')
         })
     })
 })
