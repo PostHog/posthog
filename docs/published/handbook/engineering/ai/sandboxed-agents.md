@@ -105,6 +105,10 @@ The agent inside the sandbox gets:
 
 ### Run system prompts
 
+Pull request footers link to an inbox report when the task has a report.
+Desktop attribution requires recorded `posthog_desktop` client provenance.
+Tasks with missing or unknown client provenance use generic PostHog branding without a Desktop source link.
+
 The run's `state.systemPrompt` is server-owned. Set it through trusted server-side run creation
 or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
 to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt

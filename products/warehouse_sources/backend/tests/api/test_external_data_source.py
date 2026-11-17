@@ -16063,6 +16063,44 @@ class TestRefreshSchemasErrorClassification(SimpleTestCase):
         assert is_expected is True
 
 
+SOURCE_SETUP_MODULE = "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup"
+
+
+class TestSourceRegistryBackedFields(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("removed_vendor", "Delighted", False),
+            ("unknown_plugin_key", "NotARegisteredSource", False),
+            ("registered_webhook_source", ExternalDataSourceType.STRIPE.value, True),
+        ]
+    )
+    def test_fields_fall_back_without_reporting_an_unregistered_source_type(
+        self, _name: str, source_type: str, supports_webhooks: bool
+    ) -> None:
+        serializer = ExternalDataSourceSerializers()
+        instance = ExternalDataSource(source_type=source_type)
+
+        with patch(f"{SOURCE_SETUP_MODULE}.capture_exception") as mock_capture_exception:
+            assert serializer.get_supports_webhooks(instance) is supports_webhooks
+            assert serializer.get_file_name(instance) is None
+
+        mock_capture_exception.assert_not_called()
+
+    def test_file_name_still_reports_an_error_from_a_registered_source(self) -> None:
+        serializer = ExternalDataSourceSerializers()
+        instance = ExternalDataSource(source_type=ExternalDataSourceType.STRIPE.value)
+        error = RuntimeError("boom")
+
+        with (
+            patch(f"{SOURCE_SETUP_MODULE}.SourceRegistry.get_source") as mock_get_source,
+            patch(f"{SOURCE_SETUP_MODULE}.capture_exception") as mock_capture_exception,
+        ):
+            mock_get_source.return_value.uploaded_file_name.side_effect = error
+            assert serializer.get_file_name(instance) is None
+
+        mock_capture_exception.assert_called_once_with(error)
+
+
 class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
     def _make_api_key(self, scopes: list[str]) -> str:
         value = generate_random_token_personal()
