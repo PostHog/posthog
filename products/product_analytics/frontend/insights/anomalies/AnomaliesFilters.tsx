@@ -13,7 +13,8 @@ import {
 import { ANOMALIES_DATE_RANGES } from './anomaliesDateRanges'
 import { anomaliesTabLogic } from './anomaliesTabLogic'
 
-const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterval> = [
+const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterval | null> = [
+    { value: null, label: 'All intervals' },
     { value: SignalsAnomaliesSearchRetrieveInterval.Hour, label: 'Hourly' },
     { value: SignalsAnomaliesSearchRetrieveInterval.Day, label: 'Daily' },
     { value: SignalsAnomaliesSearchRetrieveInterval.Week, label: 'Weekly' },
@@ -48,7 +49,7 @@ export function AnomaliesFilters(): JSX.Element {
                 onChange={(dateFrom) => setFilters({ dateFrom })}
                 data-attr="anomalies-tab-date-range"
             />
-            <LemonSelect
+            <LemonSelect<SignalsAnomaliesSearchRetrieveInterval | null>
                 size="small"
                 value={filters.interval}
                 options={INTERVAL_OPTIONS}
