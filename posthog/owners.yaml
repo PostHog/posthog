@@ -81,6 +81,8 @@ rules:
           - '/test/repo_invariants/test_*.py'
           - '/test/test_cascade_delete.py'
       owners: team-devex
+    - match: '/test/repo_invariants/test_legacy_alert_configuration_reads.py'
+      owners: team-apm
     - match:
           - '/security/test/test_*.py'
       owners: team-security
