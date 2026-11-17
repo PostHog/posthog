@@ -120,11 +120,7 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     try:
                         dest_model = cast(Any, dest_visitor.get_model())
                         dest_resource = dest_model.objects.get(pk=dest_pk)
-                        if authorization.check(
-                            resource=resource_for_object(dest_resource, team=destination_team),
-                            action=Action.VIEW,
-                            subject=Subject(user_id=user.pk),
-                        ):
+                        if _can_view_destination_object(dest_resource, destination_team, Subject(user_id=user.pk)):
                             entry["suggested_substitution"] = {
                                 "resource_kind": dest_kind,
                                 "resource_id": str(dest_pk),
@@ -371,13 +367,20 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # duplicate_resource_to_new_team rejects a missing or foreign substitution with a 400
             if dest_resource is None or dest_visitor.get_resource_team(dest_resource).pk != destination_team.pk:
                 continue
-            if not authorization.check(
-                resource=resource_for_object(dest_resource, team=destination_team), action=Action.VIEW, subject=subject
-            ):
+            if not _can_view_destination_object(dest_resource, destination_team, subject):
                 raise exceptions.PermissionDenied(
                     f"You do not have read access to {dest_visitor.kind} {sub['destination_resource_id']} "
                     "in the destination project"
                 )
+
+
+def _can_view_destination_object(resource: Any, destination_team: Team, subject: Subject) -> bool:
+    # A model without an access control resource, such as a dashboard tile, has no rules to deny it.
+    if model_to_resource(resource) is None:
+        return True
+    return authorization.check(
+        resource=resource_for_object(resource, team=destination_team), action=Action.VIEW, subject=subject
+    )
 
 
 def _is_immutable(resource: Any) -> bool:

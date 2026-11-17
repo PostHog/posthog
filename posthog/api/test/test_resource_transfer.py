@@ -337,6 +337,36 @@ class TestResourceTransferTransfer(APIBaseTest):
         tile_insight_ids = set(new_tiles.values_list("insight_id", flat=True))
         assert dest_insight.pk in tile_insight_ids
 
+    def test_second_copy_suggests_and_substitutes_tiles_without_access_rules(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        body = {
+            "source_team_id": self.team.pk,
+            "destination_team_id": self.dest_team.pk,
+            "resource_kind": "Dashboard",
+            "resource_id": str(dashboard.pk),
+        }
+        assert self.client.post(self._transfer_url(), body, format="json").status_code == status.HTTP_201_CREATED
+
+        preview = self.client.post(f"/api/organizations/{self.organization.id}/resource_transfers/preview/", body)
+
+        assert preview.status_code == status.HTTP_200_OK
+        tile = next(r for r in preview.json()["resources"] if r["resource_kind"] == "DashboardTile")
+        substitutions = [
+            {
+                "source_resource_kind": r["resource_kind"],
+                "source_resource_id": r["resource_id"],
+                "destination_resource_kind": r["suggested_substitution"]["resource_kind"],
+                "destination_resource_id": r["suggested_substitution"]["resource_id"],
+            }
+            for r in preview.json()["resources"]
+            if "suggested_substitution" in r
+        ]
+        assert "suggested_substitution" in tile
+        second = self.client.post(self._transfer_url(), {**body, "substitutions": substitutions}, format="json")
+        assert second.status_code == status.HTTP_201_CREATED
+
     @parameterized.expand(
         [
             ("kind_mismatch", "Insight", "Survey", "1"),
