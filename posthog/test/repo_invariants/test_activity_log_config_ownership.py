@@ -98,6 +98,12 @@ class TestActivityLogConfigOwnership(SimpleTestCase):
         assert checked, "no migrated activity-log config to check, so this guard is not wired up"
 
 
+def _fake_tuning_module(name: str, exclusions: dict[str, list[str]]) -> types.ModuleType:
+    module: Any = types.ModuleType(name)
+    module.FIELD_EXCLUSIONS = exclusions
+    return module
+
+
 class TestScopeConfigMerging(SimpleTestCase):
     """One scope is tuned in exactly one place, and the merge is what enforces it.
 
@@ -107,14 +113,14 @@ class TestScopeConfigMerging(SimpleTestCase):
     """
 
     def test_two_modules_tuning_the_same_scope_raise(self) -> None:
-        first = types.SimpleNamespace(__name__="first", FIELD_EXCLUSIONS={"Thing": ["a"]})
-        second = types.SimpleNamespace(__name__="second", FIELD_EXCLUSIONS={"Thing": ["b"]})
+        first = _fake_tuning_module("first", {"Thing": ["a"]})
+        second = _fake_tuning_module("second", {"Thing": ["b"]})
 
         with self.assertRaisesMessage(RuntimeError, "Thing is tuned twice"):
             activity_log._merge_scope_configs({"FIELD_EXCLUSIONS": {}}, (first, second))
 
     def test_a_scope_tuned_in_core_and_in_a_module_raises(self) -> None:
-        module = types.SimpleNamespace(__name__="module", FIELD_EXCLUSIONS={"Thing": ["b"]})
+        module = _fake_tuning_module("module", {"Thing": ["b"]})
 
         with self.assertRaisesMessage(RuntimeError, "Thing is tuned twice"):
             activity_log._merge_scope_configs({"FIELD_EXCLUSIONS": {"Thing": ["core"]}}, (module,))
