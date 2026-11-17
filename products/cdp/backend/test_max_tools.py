@@ -13,6 +13,7 @@ from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserExc
 SLACK_INPUTS_SCHEMA = [
     {"key": "slack_workspace", "type": "integration", "label": "Slack workspace", "secret": False},
     {"key": "blocks", "type": "json", "label": "Blocks", "secret": False},
+    {"key": "channel_name", "type": "string", "label": "Channel name", "secret": False},
     {"key": "signing_secret", "type": "string", "label": "Signing secret", "secret": True},
 ]
 
@@ -52,6 +53,7 @@ class TestCreateHogFunctionInputsTool:
                     "blocks": NEW_SLACK_BLOCKS,
                     "signing_secret": "model-secret-value",
                     "slack_workspace": 7,
+                    "channel_name": ["not", "a", "string"],
                     "not_in_schema": "dropped",
                 }
             )

@@ -1060,7 +1060,7 @@ The "key" field in the schema MUST match exactly what is used in the hog code af
 - If code uses inputs.api_key, the key must be "api_key" (NOT "apiKey")
 
 The user may also ask to change the configured value of an input, such as the Slack message blocks, a webhook body, or a URL.
-The current input values are listed below, keyed by input key. Secret inputs and integration inputs are left out, and you must never set a value for them.
+The current input values you may change are listed below, keyed by input key. Never set a value for an input that is not listed, such as a secret or an integration input.
 To change values, return a JSON object inside <input_values> tags that holds only the inputs whose values change, keyed by input key.
 Each key must exist in the inputs schema. Give the complete new value, in the same shape as the current value.
 Keep templating expressions such as {event.properties.name} unless the user asks to change them.

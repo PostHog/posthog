@@ -494,6 +494,9 @@ export interface hogFunctionConfigurationLogicActions {
         input: CyclotronJobInputType
         key: string
     }
+    changeInputsSchema: (inputsSchema: CyclotronJobInputSchemaType[]) => {
+        inputsSchema: CyclotronJobInputSchemaType[]
+    }
     clearInputsDiff: () => {
         value: true
     }
@@ -963,6 +966,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => ({ newInputs }),
         setNewInputValues: (newInputValues: Record<string, CyclotronJobInputType>) => ({ newInputValues }),
         changeInput: (key: string, input: CyclotronJobInputType) => ({ key, input }),
+        changeInputsSchema: (inputsSchema: CyclotronJobInputSchemaType[]) => ({ inputsSchema }),
         acceptInputsDiff: true,
         clearInputsDiff: true,
         reportAIHogFunctionInputsPrompted: true,
@@ -2100,6 +2104,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
             actions.reportAIHogFunctionInputsAccepted()
             actions.clearInputsDiff()
+        },
+        changeInputsSchema: ({ inputsSchema }) => {
+            // The editor builds the edited schema from the suggested one, so a schema edit during a
+            // suggestion takes the suggestion with it, including the values it holds as pending.
+            for (const [key, input] of Object.entries(values.newInputValues ?? {})) {
+                actions.setConfigurationValue(`inputs.${key}`, input)
+            }
+            actions.clearInputsDiff()
+            actions.setConfigurationValue('inputs_schema', inputsSchema)
         },
         reportAIHogFunctionInputsAccepted: () => {
             posthog.capture('ai_hog_function_inputs_accepted', { type: values.type })

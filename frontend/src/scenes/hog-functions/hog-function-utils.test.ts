@@ -12,7 +12,8 @@ describe('hogFunctionInputsSuggestion', () => {
     it('keeps the current input settings and swaps in the proposed value', () => {
         const suggestion = hogFunctionInputsSuggestion(
             { inputs_schema: SLACK_SCHEMA, inputs: { blocks: [{ type: 'divider' }] } },
-            { blocks: { value: [{ type: 'section' }], templating: 'liquid' } }
+            { blocks: { value: [{ type: 'section' }], templating: 'liquid' } },
+            SLACK_SCHEMA
         )
         expect(suggestion).toEqual({
             inputsSchema: SLACK_SCHEMA,
@@ -21,7 +22,19 @@ describe('hogFunctionInputsSuggestion', () => {
     })
 
     it('reads the bare schema list that a backend without input values returns', () => {
-        expect(hogFunctionInputsSuggestion(SLACK_SCHEMA, {})).toEqual({ inputsSchema: SLACK_SCHEMA, inputValues: {} })
+        expect(hogFunctionInputsSuggestion(SLACK_SCHEMA, {}, SLACK_SCHEMA)).toEqual({
+            inputsSchema: SLACK_SCHEMA,
+            inputValues: {},
+        })
+    })
+
+    it('holds the current value of an input whose type the suggestion changes', () => {
+        const retypedSchema: CyclotronJobInputSchemaType[] = [{ key: 'blocks', type: 'string', label: 'Blocks' }]
+        const currentInputs = { blocks: { value: [{ type: 'section' }] } }
+
+        expect(
+            hogFunctionInputsSuggestion({ inputs_schema: retypedSchema, inputs: {} }, currentInputs, SLACK_SCHEMA)
+        ).toEqual({ inputsSchema: retypedSchema, inputValues: currentInputs })
     })
 })
 

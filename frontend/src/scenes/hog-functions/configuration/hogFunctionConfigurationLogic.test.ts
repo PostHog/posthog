@@ -244,6 +244,20 @@ describe('hogFunctionConfigurationLogic', () => {
             expect(logic.values.configuration.inputs?.body).toEqual({ value: expectedBody })
             expect(logic.values.newInputValues).toBeNull()
         })
+
+        it('keeps a pending suggested value when the schema is edited during the suggestion', async () => {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+            const suggestedBody = { value: { event: '{event.event}' } }
+
+            logic.actions.setOldInputs(HOG_TEMPLATE.inputs_schema ?? [])
+            logic.actions.setNewInputs(HOG_TEMPLATE.inputs_schema ?? [])
+            logic.actions.setNewInputValues({ body: suggestedBody })
+            logic.actions.changeInputsSchema(HOG_TEMPLATE.inputs_schema ?? [])
+
+            expect(logic.values.configuration.inputs?.body).toEqual(suggestedBody)
+            expect(logic.values.newInputValues).toBeNull()
+        })
     })
 
     describe('sanitizeInputs', () => {

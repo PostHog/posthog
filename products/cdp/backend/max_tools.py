@@ -233,35 +233,49 @@ class HogFunctionInputsOutput(BaseModel):
     input_values: dict = Field(default_factory=dict, description="Changed input values, keyed by input key")
 
 
-# An integration input holds the ID of a connected account, and its integration_field inputs depend on
-# that account. A changed ID would leave those fields pointing at the old account, so the model never edits them.
-INTEGRATION_INPUT_TYPES = {"integration", "integration_field"}
+# The value types the model may change, with the Python types the input's editor can render.
+# Other types hold IDs or structures the model cannot know, such as integration accounts and email
+# senders, and a changed integration ID would leave its integration_field inputs on the old account.
+EDITABLE_INPUT_VALUE_TYPES: dict[str, tuple[type, ...]] = {
+    "string": (str,),
+    "number": (int, float),
+    "boolean": (bool, str),
+    "dictionary": (dict,),
+    "choice": (str,),
+    "json": (dict, list, str, int, float, bool),
+}
 
 
-def _locked_input_keys(*inputs_schemas: list) -> set[str]:
+def _editable_input_schemas(inputs_schema: list) -> dict[str, dict]:
     return {
-        schema["key"]
-        for inputs_schema in inputs_schemas
+        schema["key"]: schema
         for schema in inputs_schema
         if isinstance(schema, dict)
         and "key" in schema
-        and (schema.get("secret") or schema.get("type") in INTEGRATION_INPUT_TYPES)
+        and not schema.get("secret")
+        and schema.get("type") in EDITABLE_INPUT_VALUE_TYPES
     }
 
 
 def _input_values_for_prompt(current_inputs: dict, inputs_schema: list) -> dict:
-    locked_keys = _locked_input_keys(inputs_schema)
+    editable_schemas = _editable_input_schemas(inputs_schema)
     return {
         key: entry.get("value")
         for key, entry in current_inputs.items()
-        if key not in locked_keys and isinstance(entry, dict) and not entry.get("secret")
+        if key in editable_schemas and isinstance(entry, dict) and not entry.get("secret")
     }
 
 
 def _changed_input_values(proposed_values: dict, current_inputs_schema: list, new_inputs_schema: list) -> dict:
-    known_keys = {schema.get("key") for schema in new_inputs_schema if isinstance(schema, dict)}
-    allowed_keys = known_keys - _locked_input_keys(current_inputs_schema, new_inputs_schema)
-    return {key: value for key, value in proposed_values.items() if key in allowed_keys}
+    current_schemas = {schema.get("key"): schema for schema in current_inputs_schema if isinstance(schema, dict)}
+    editable_schemas = _editable_input_schemas(new_inputs_schema)
+    return {
+        key: value
+        for key, value in proposed_values.items()
+        if key in editable_schemas
+        and not current_schemas.get(key, {}).get("secret")
+        and isinstance(value, EDITABLE_INPUT_VALUE_TYPES[editable_schemas[key]["type"]])
+    }
 
 
 class CreateHogFunctionInputsTool(MaxTool):

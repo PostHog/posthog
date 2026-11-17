@@ -13,6 +13,7 @@ export function HogFunctionConfigurationSaveButton(): JSX.Element {
         willReEnableOnSave,
         willChangeEnabledOnSave,
         hogFunction,
+        inputsDiff,
     } = useValues(hogFunctionConfigurationLogic)
     const { submitConfiguration } = useActions(hogFunctionConfigurationLogic)
     return (
@@ -21,7 +22,13 @@ export function HogFunctionConfigurationSaveButton(): JSX.Element {
             htmlType="submit"
             onClick={submitConfiguration}
             loading={isConfigurationSubmitting}
-            disabledReason={!configurationChanged && hogFunction ? 'No changes' : undefined}
+            disabledReason={
+                inputsDiff
+                    ? 'Accept or reject the suggested inputs first'
+                    : !configurationChanged && hogFunction
+                      ? 'No changes'
+                      : undefined
+            }
             size="small"
         >
             {template ? 'Create' : 'Save'}

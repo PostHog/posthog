@@ -39,6 +39,7 @@ export function HogFunctionInputs(): JSX.Element {
     const {
         setConfigurationValue,
         changeInput,
+        changeInputsSchema,
         acceptInputsDiff,
         setOldInputs,
         setNewInputs,
@@ -89,13 +90,7 @@ export function HogFunctionInputs(): JSX.Element {
                         inputs_schema: newInputs ?? configuration.inputs_schema ?? [],
                         inputs: { ...configuration.inputs, ...newInputValues },
                     }}
-                    onInputSchemaChange={(schema) => {
-                        // If user manually edits while diff is showing, clear the diff
-                        if (oldInputs && newInputs) {
-                            clearInputsDiff()
-                        }
-                        setConfigurationValue('inputs_schema', schema)
-                    }}
+                    onInputSchemaChange={changeInputsSchema}
                     onInputChange={changeInput}
                     showSource={showSource}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
@@ -170,7 +165,8 @@ export function HogFunctionInputs(): JSX.Element {
             callback={(toolOutput: HogFunctionInputsToolOutput | CyclotronJobInputSchemaType[]) => {
                 const { inputsSchema, inputValues } = hogFunctionInputsSuggestion(
                     toolOutput,
-                    configuration.inputs ?? {}
+                    configuration.inputs ?? {},
+                    configuration.inputs_schema ?? []
                 )
                 // Store the old inputs before changing
                 setOldInputs(configuration.inputs_schema ?? [])
