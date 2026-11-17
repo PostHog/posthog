@@ -434,9 +434,11 @@ _CHECK_KINDS: Final = tuple(kind.value for kind in AlertEventKind if kind is not
 CHECKS_ONLY: Final = f"kind IN ({', '.join(repr(kind) for kind in _CHECK_KINDS)})"
 
 
-# The inner read deduplicates on the pair the writer names, as `announcement` does. The outer one
-# keeps the checks that moved the alert and the newest check, so a page of alerts that check every
-# minute returns a few rows each rather than a day of them.
+# The inner read deduplicates on the key the module docstring names. Every configuration-wide row
+# has the nil `alert_id`, and alerts on one schedule share evaluation keys, so without the
+# configuration one alert's check hides another's. The outer read keeps the checks that moved the
+# alert and the newest check, so a page of alerts that check every minute returns a few rows each
+# rather than a day of them.
 _HISTORY_SQL = f"""
 SELECT configuration_id, occurred_at, previous_state, state, error_message, is_latest, grouping_key
 FROM (
@@ -453,7 +455,7 @@ FROM (
           AND occurred_at >= %(since)s
           AND occurred_at < %(until)s
         ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
-        LIMIT 1 BY alert_id, evaluation_key
+        LIMIT 1 BY configuration_id, alert_id, evaluation_key
     )
 )
 WHERE previous_state != state OR is_latest
@@ -717,7 +719,7 @@ FROM (
       AND {CHECKS_ONLY}
       AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC'){has_paths}
     ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
-    LIMIT 1 BY alert_id, evaluation_key
+    LIMIT 1 BY configuration_id, alert_id, evaluation_key
 )
 ORDER BY configuration_id, occurred_at DESC, evaluation_key DESC
 LIMIT %(limit)s BY configuration_id
