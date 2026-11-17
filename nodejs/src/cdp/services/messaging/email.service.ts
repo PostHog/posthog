@@ -64,6 +64,7 @@ import {
     TRACKING_CODE_HEADER_NAME,
 } from './helpers/tracking-code'
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
+import { parseWorkflowEmailPause } from './helpers/workflow-email-pause'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
@@ -346,25 +347,6 @@ const workflowEmailPausedTotal = new Counter({
     name: 'cdp_workflow_email_paused_total',
     help: 'Email sends skipped because the workflow they belong to had its email paused for complaints or hard bounces.',
 })
-
-/**
- * Whether this workflow's email is paused, and the customer-facing reason.
- *
- * Stamped into the synthetic hog function's metadata by HogFlowFunctionsService, which is the only
- * flow-level state in scope here. The `HogFlow` post_save signal publishes a worker config reload
- * when the pause is written, so an in-flight run and an already-queued batch send both stop at this
- * choke point instead of only newly started runs.
- */
-function parseWorkflowEmailPause(metadata: HogFunctionType['metadata']): { reason: string; byStaff: boolean } | null {
-    if (!metadata?.email_sending_paused_at) {
-        return null
-    }
-    const reason = metadata.email_sending_paused_reason
-    return {
-        reason: typeof reason === 'string' ? reason : '',
-        byStaff: metadata.email_sending_paused_by === 'staff',
-    }
-}
 
 function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     // Wake around when the next token accrues. The 1x-2x jitter spreads a queued backlog's
