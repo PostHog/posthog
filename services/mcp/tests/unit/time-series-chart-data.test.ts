@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { CHART_DATA_PREAMBLE, buildTimeSeriesChartData } from '@/lib/time-series-chart-data'
+import { withInformationalResponse } from '@/tools/tool-utils'
 
 const DAYS = ['2026-11-10', '2026-11-11', '2026-11-12']
 
@@ -196,6 +197,9 @@ describe('buildTimeSeriesChartData', () => {
                     '2026-11-11T00:00:00-08:00|12|(null)',
                     '2026-11-10T00:00:00-08:00|10|4',
                     '[SQL result preview: Showing 2 of 9 returned rows.]',
+                    '',
+                    'Warehouse suggestions:',
+                    '- Sync the `orders` table to query revenue.',
                 ].join('\n'),
             },
             [
@@ -219,6 +223,52 @@ describe('buildTimeSeriesChartData', () => {
                     data: [
                         ['2026-11-10T13:00:00', 4],
                         ['2026-11-10T14:00:00', 6],
+                    ],
+                },
+            ],
+        ],
+        [
+            'count ranges, ignoring the end of each bucket',
+            {
+                ranges: [
+                    { date_from: '2026-11-10T00:00:00Z', date_to: '2026-11-10T01:00:00Z', count: 4 },
+                    { date_from: '2026-11-10T01:00:00Z', date_to: '2026-11-10T02:00:00Z', count: 6 },
+                ],
+            },
+            [
+                {
+                    name: 'count',
+                    data: [
+                        ['2026-11-10T00:00:00Z', 4],
+                        ['2026-11-10T01:00:00Z', 6],
+                    ],
+                },
+            ],
+        ],
+        [
+            'an execute-sql text table with NULL and empty groups kept apart',
+            {
+                results: [
+                    'day|vendor|calls',
+                    '2026-11-10|(null)|1',
+                    '2026-11-11|(null)|2',
+                    '2026-11-10||3',
+                    '2026-11-11||4',
+                ].join('\n'),
+            },
+            [
+                {
+                    name: '(null)',
+                    data: [
+                        ['2026-11-10', 1],
+                        ['2026-11-11', 2],
+                    ],
+                },
+                {
+                    name: '(empty)',
+                    data: [
+                        ['2026-11-10', 3],
+                        ['2026-11-11', 4],
                     ],
                 },
             ],
@@ -275,6 +325,35 @@ describe('buildTimeSeriesChartData', () => {
         ],
         ['a text table with one row', 'Date|count\n2026-11-10|5'],
         ['a text table with no time column', { results: 'browser|count\nChrome|5\nSafari|3' }],
+        [
+            'more points than one block can carry',
+            {
+                results: [
+                    {
+                        data: Array.from({ length: 3000 }, () => 1),
+                        days: Array.from({ length: 3000 }, () => '2026-11-10'),
+                        label: 'pageviews',
+                    },
+                ],
+            },
+        ],
+        [
+            'a text table with more series than one chart can name',
+            {
+                results: [
+                    ['day', ...Array.from({ length: 30 }, (_, index) => `metric_${index}`)].join('|'),
+                    ['2026-11-10', ...Array.from({ length: 30 }, () => '1')].join('|'),
+                    ['2026-11-11', ...Array.from({ length: 30 }, () => '2')].join('|'),
+                ].join('\n'),
+            },
+        ],
+        [
+            'an informational response, whose labels sit inside a fence',
+            withInformationalResponse(
+                { results: [{ data: [1, 2], dates: DAYS.slice(0, 2), label: 'Project A' }] },
+                'billing'
+            ),
+        ],
         ['a trends text table with an in-progress row', 'Date|count\n2026-11-10|5\n2026-11-11 (partial)|3'],
     ])('returns nothing for %s', (_label, result) => {
         expect(buildTimeSeriesChartData(result)).toBeUndefined()

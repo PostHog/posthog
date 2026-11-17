@@ -1,4 +1,5 @@
 import { isRecord } from '@/lib/plain-object'
+import { POSTHOG_INFORMATIONAL_RESPONSE_KEY } from '@/tools/types'
 
 type Point = [string, number]
 
@@ -15,9 +16,11 @@ const TIME_PATTERN = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(
 const MAX_BLOCK_BYTES = 48 * 1024
 const MAX_SERIES = 25
 const MIN_POINTS = 2
-// The smallest point, `["2026-11-03",1],`, is 17 bytes, so a table with more rows than this cannot
-// fit in one block. Such a table is not read at all.
-const MAX_ROWS = Math.floor(MAX_BLOCK_BYTES / 17)
+// The smallest point, `["2026-11-03",1],`, is 17 bytes, so more points than this cannot fit in one block.
+const MAX_POINTS = Math.floor(MAX_BLOCK_BYTES / 17)
+// A text table long enough to exceed this holds more than one block can carry, so it is not read.
+const MAX_TABLE_CHARS = 128 * 1024
+const MAX_LABEL_CHARS = 60
 
 const TIME_ARRAY_KEYS = ['days', 'dates']
 const VALUE_ARRAY_KEYS = ['data', 'values', 'exposure_counts']
@@ -31,6 +34,21 @@ const BREAKDOWN_DISPLAY_NAMES: Record<string, string> = {
     $$_posthog_breakdown_other_$$: 'Other',
     $$_posthog_breakdown_null_$$: 'None',
 }
+
+/** Counts what an adapter reads, so an oversized result stops before its points are copied. */
+class Budget {
+    private series = 0
+    private points = 0
+
+    admit(pointCount: number): boolean {
+        this.series += 1
+        this.points += pointCount
+        return this.series <= MAX_SERIES && this.points <= MAX_POINTS
+    }
+}
+
+// An adapter returns this when the result holds more than one block can carry.
+type AdapterResult = NamedSeries[] | null
 
 function isTime(value: unknown): value is string {
     return typeof value === 'string' && TIME_PATTERN.test(value)
@@ -82,22 +100,25 @@ function zipPoints(times: unknown[], values: unknown[]): Point[] | undefined {
     return points
 }
 
-function fromParallelArrays(items: unknown[]): NamedSeries[] {
+function fromParallelArrays(items: unknown[], budget: Budget): AdapterResult {
     const series: NamedSeries[] = []
-    items.forEach((item, index) => {
-        if (!isRecord(item)) {
-            return
-        }
+    for (const [index, item] of items.entries()) {
         // The previous period of a comparison covers other dates. On one time axis it would
         // draw as a second line beside the current one, not on top of it.
-        if (item.compare_label === 'previous') {
-            return
+        if (!isRecord(item) || item.compare_label === 'previous') {
+            continue
         }
         const times = firstArray(item, TIME_ARRAY_KEYS)
         const values = firstArray(item, VALUE_ARRAY_KEYS)
-        const data = times && values ? zipPoints(times, values) : undefined
+        if (!times || !values) {
+            continue
+        }
+        if (!budget.admit(times.length)) {
+            return null
+        }
+        const data = zipPoints(times, values)
         if (!data) {
-            return
+            continue
         }
         const baseName = firstString(item, SERIES_NAME_KEYS)
         const breakdown =
@@ -111,26 +132,29 @@ function fromParallelArrays(items: unknown[]): NamedSeries[] {
                 ? `${baseName} (${breakdown})`
                 : (breakdown ?? baseName ?? `Series ${index + 1}`)
         series.push({ name, data })
-    })
+    }
     return series
 }
 
-function fromSharedAxis(record: JsonRecord): NamedSeries[] {
+function fromSharedAxis(record: JsonRecord, budget: Budget): AdapterResult {
     const times = record.labels
     const items = record.series
     if (!Array.isArray(times) || !Array.isArray(items)) {
         return []
     }
     const series: NamedSeries[] = []
-    items.forEach((item, index) => {
+    for (const [index, item] of items.entries()) {
         if (!isRecord(item) || !Array.isArray(item.values)) {
-            return
+            continue
+        }
+        if (!budget.admit(times.length)) {
+            return null
         }
         const data = zipPoints(times, item.values)
         if (data) {
             series.push({ name: firstString(item, ['name']) ?? `Series ${index + 1}`, data })
         }
-    })
+    }
     return series
 }
 
@@ -144,30 +168,30 @@ function describeLabels(labels: unknown): string | undefined {
     return pairs.length > 0 ? pairs.join(', ') : undefined
 }
 
-function fromPointLists(items: unknown[]): NamedSeries[] {
+function fromPointLists(items: unknown[], budget: Budget): AdapterResult {
     const series: NamedSeries[] = []
-    items.forEach((item, index) => {
+    for (const [index, item] of items.entries()) {
         if (!isRecord(item) || !Array.isArray(item.points)) {
-            return
+            continue
+        }
+        if (!budget.admit(item.points.length)) {
+            return null
         }
         const times: unknown[] = []
         const values: unknown[] = []
         for (const point of item.points) {
-            if (!isRecord(point)) {
-                return
-            }
-            times.push(point.time ?? point.timestamp)
-            values.push(point.value)
+            times.push(isRecord(point) ? (point.time ?? point.timestamp) : undefined)
+            values.push(isRecord(point) ? point.value : undefined)
         }
         const data = zipPoints(times, values)
         if (!data) {
-            return
+            continue
         }
         const metric = typeof item.metric_name === 'string' ? item.metric_name : undefined
         const labels = describeLabels(item.labels)
         const name = [metric, labels].filter(Boolean).join(' ') || `Series ${index + 1}`
         series.push({ name, data })
-    })
+    }
     return series
 }
 
@@ -186,15 +210,14 @@ function kindOf(value: unknown): ColumnKind {
     return isTime(value) ? 'time' : 'text'
 }
 
-/** One pass over the rows for one column. A column of times with a gap reads as text, so it cannot be the time axis. */
 function columnKind(records: JsonRecord[], key: string): ColumnKind {
     let kind: ColumnKind = 'empty'
-    let hasGap = false
     for (const row of records) {
         const cell = kindOf(row[key])
-        if (cell === 'empty') {
-            hasGap = true
-        } else if (kind === 'empty' || kind === cell) {
+        if (cell === 'empty' || cell === kind) {
+            continue
+        }
+        if (kind === 'empty') {
             kind = cell
         } else if ((kind === 'time' || kind === 'text') && (cell === 'time' || cell === 'text')) {
             kind = 'text'
@@ -202,11 +225,25 @@ function columnKind(records: JsonRecord[], key: string): ColumnKind {
             return 'mixed'
         }
     }
-    return kind === 'time' && hasGap ? 'text' : kind
+    return kind
 }
 
-function fromRows(rows: unknown[]): NamedSeries[] {
-    if (rows.length > MAX_ROWS || !rows.every(isRecord)) {
+function groupLabel(key: string, cell: unknown): string {
+    if (cell === undefined || cell === null) {
+        return NULL_CELL
+    }
+    if (cell === '') {
+        return '(empty)'
+    }
+    const label = ID_COLUMN.test(key) ? `${key}=${cell}` : String(cell)
+    return label.length > MAX_LABEL_CHARS ? `${label.slice(0, MAX_LABEL_CHARS - 1)}…` : label
+}
+
+function fromRows(rows: unknown[], budget: Budget): AdapterResult {
+    if (rows.length > MAX_POINTS) {
+        return null
+    }
+    if (!rows.every(isRecord)) {
         return []
     }
     const records = rows as JsonRecord[]
@@ -224,18 +261,20 @@ function fromRows(rows: unknown[]): NamedSeries[] {
         }
         kinds.set(key, kind)
     }
-    const timeKey =
-        ROW_TIME_KEYS.find((key) => kinds.get(key) === 'time') ?? [...keys].find((key) => kinds.get(key) === 'time')
+    const isAxis = (key: string): boolean => kinds.get(key) === 'time' && records.every((row) => isTime(row[key]))
+    // SQL columns carry whatever alias the query gave them, so any column of times will do.
+    const timeKey = ROW_TIME_KEYS.find(isAxis) ?? [...keys].find(isAxis)
     if (!timeKey) {
         return []
     }
-    // A numeric ID such as `team_id` names a group. Drawn as a value, it would be a meaningless line.
     const valueKeys: string[] = []
     const splitKeys: string[] = []
     for (const [key, kind] of kinds) {
-        if (key === timeKey || kind === 'empty') {
+        // A second time column, such as the end of a bucket, says nothing the axis does not.
+        if (key === timeKey || kind === 'empty' || kind === 'time') {
             continue
         }
+        // A numeric ID such as `team_id` names a group. Drawn as a value, it would be a meaningless line.
         if (kind === 'number' && !ID_COLUMN.test(key)) {
             valueKeys.push(key)
         } else {
@@ -245,35 +284,47 @@ function fromRows(rows: unknown[]): NamedSeries[] {
     if (valueKeys.length === 0) {
         return []
     }
-    const namesValues = valueKeys.length > 1
-    const splitByIds = splitKeys.map((key) => ID_COLUMN.test(key))
+    if (records.length * valueKeys.length > MAX_POINTS) {
+        return null
+    }
 
-    const byName = new Map<string, Point[]>()
+    // Groups are keyed by their exact cells, so NULL, an empty string, and values that contain
+    // the display separator stay apart even when their labels read alike.
+    const byGroup = new Map<string, NamedSeries>()
     for (const row of records) {
-        let group = ''
-        splitKeys.forEach((key, index) => {
-            const cell = row[key]
-            if (cell === undefined || cell === null || cell === '') {
-                return
-            }
-            const part = splitByIds[index] ? `${key}=${cell}` : String(cell)
-            group = group === '' ? part : `${group}, ${part}`
-        })
+        const cells = splitKeys.map((key) => row[key] ?? null)
         for (const valueKey of valueKeys) {
             const value = row[valueKey]
             if (!isFiniteNumber(value)) {
                 continue
             }
-            const name = group === '' ? valueKey : namesValues ? `${group} ${valueKey}` : group
-            let points = byName.get(name)
-            if (!points) {
-                points = []
-                byName.set(name, points)
+            const groupKey = JSON.stringify([cells, valueKey])
+            let series = byGroup.get(groupKey)
+            if (!series) {
+                if (!budget.admit(0)) {
+                    return null
+                }
+                const group = splitKeys.map((key, index) => groupLabel(key, cells[index])).join(', ')
+                const name = group === '' ? valueKey : valueKeys.length > 1 ? `${group} ${valueKey}` : group
+                series = { name, data: [] }
+                byGroup.set(groupKey, series)
             }
-            points.push([row[timeKey] as string, value])
+            series.data.push([row[timeKey] as string, value])
         }
     }
-    return [...byName].map(([name, data]) => ({ name, data }))
+    return withUniqueNames([...byGroup.values()])
+}
+
+function withUniqueNames(series: NamedSeries[]): NamedSeries[] {
+    const seen = new Map<string, number>()
+    for (const entry of series) {
+        const count = (seen.get(entry.name) ?? 0) + 1
+        seen.set(entry.name, count)
+        if (count > 1) {
+            entry.name = `${entry.name} (${count})`
+        }
+    }
+    return series
 }
 
 const NUMBER_CELL = /^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i
@@ -288,31 +339,34 @@ function parseCell(cell: string): string | number | null {
 }
 
 /**
- * Reads the pipe-delimited table that `execute-sql` returns as text into rows. Notices may come
- * before the table (taxonomy warnings) or after it (a truncated-preview line), so the table is the
- * run of lines at the end that all have the same number of cells, and its first line is the header.
+ * Reads the pipe-delimited table that `execute-sql` returns as text into rows. Notices come before
+ * the table (taxonomy warnings) and after it (preview and warehouse suggestion lines), so the table
+ * is the longest run of consecutive lines that all have the same number of cells.
  */
-function rowsFromPipeTable(text: string): JsonRecord[] {
+function rowsFromPipeTable(text: string): JsonRecord[] | null {
+    if (text.length > MAX_TABLE_CHARS) {
+        return null
+    }
     if (!/\d{4}-\d{2}-\d{2}/.test(text)) {
         return []
     }
-    const lines = text.split('\n').filter((line) => line.trim() !== '')
-    while (lines.length > 0 && lines[lines.length - 1]!.startsWith('[')) {
-        lines.pop()
-    }
-    const table: string[][] = []
-    for (let index = lines.length - 1; index >= 0; index--) {
-        const cells = lines[index]!.split('|')
-        if (table.length > 0 && cells.length !== table[0]!.length) {
-            break
+    const lines = text.split('\n').map((line) => line.split('|'))
+    let best = { start: 0, end: 0 }
+    let start = 0
+    for (let index = 1; index <= lines.length; index++) {
+        if (index < lines.length && lines[index]!.length === lines[start]!.length) {
+            continue
         }
-        if (table.length > MAX_ROWS) {
-            return []
+        if (lines[start]!.length >= 2 && index - start > best.end - best.start) {
+            best = { start, end: index }
         }
-        table.unshift(cells)
+        start = index
     }
-    const [header, ...body] = table
-    if (!header || header.length < 2 || new Set(header).size !== header.length) {
+    if (best.end - best.start - 1 > MAX_POINTS) {
+        return null
+    }
+    const [header, ...body] = lines.slice(best.start, best.end)
+    if (!header || new Set(header).size !== header.length) {
         return []
     }
     return body.map((cells) => {
@@ -324,19 +378,20 @@ function rowsFromPipeTable(text: string): JsonRecord[] {
     })
 }
 
-function seriesFrom(candidate: unknown): NamedSeries[] {
+function seriesFrom(candidate: unknown): AdapterResult {
     if (typeof candidate === 'string') {
-        return fromRows(rowsFromPipeTable(candidate))
+        const rows = rowsFromPipeTable(candidate)
+        return rows === null ? null : fromRows(rows, new Budget())
     }
     if (isRecord(candidate)) {
-        return fromSharedAxis(candidate)
+        return fromSharedAxis(candidate, new Budget())
     }
     if (!Array.isArray(candidate)) {
         return []
     }
     for (const adapter of [fromParallelArrays, fromPointLists, fromRows]) {
-        const series = adapter(candidate)
-        if (series.length > 0) {
+        const series = adapter(candidate, new Budget())
+        if (series === null || series.length > 0) {
             return series
         }
     }
@@ -353,9 +408,13 @@ function candidatesIn(result: unknown): unknown[] {
 
 function findTimeSeries(result: unknown): NamedSeries[] {
     for (const candidate of candidatesIn(result)) {
-        const series = seriesFrom(candidate).filter((entry) => entry.data.length >= MIN_POINTS)
-        if (series.length > 0) {
-            return series
+        const series = seriesFrom(candidate)
+        if (series === null) {
+            return []
+        }
+        const drawable = series.filter((entry) => entry.data.length >= MIN_POINTS)
+        if (drawable.length > 0) {
+            return drawable
         }
     }
     return []
@@ -394,8 +453,13 @@ export const CHART_DATA_PREAMBLE =
     'Chart data: the JSON below repeats the values above as named series, so the client can draw them. Read and quote the output above.'
 
 export function buildTimeSeriesChartData(result: unknown): string | undefined {
+    // An informational response fences workspace-controlled text, such as project names. Labels
+    // copied into this block would sit outside that fence.
+    if (typeof result === 'object' && result !== null && POSTHOG_INFORMATIONAL_RESPONSE_KEY in result) {
+        return undefined
+    }
     const series = findTimeSeries(result)
-    if (series.length === 0 || series.length > MAX_SERIES) {
+    if (series.length === 0) {
         return undefined
     }
     toWallClockTimes(series)
