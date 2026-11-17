@@ -463,16 +463,40 @@ describe('scenario viewer', () => {
         expect(seeding).toMatchObject({ runId: LIVE_RUN_ID, phase: 'seed', state: 'running', ended: null })
     })
 
-    it('reads a run as stopped once its runner stops without an end record', async () => {
+    const startRecords = [
+        { type: 'start', at: 0, runId: UNFINISHED_RUN_ID, cardId: 'smoke', cardHash: 'c4rd' },
+        { type: 'phase', at: 0, phase: 'judge' },
+    ] as const
+
+    it.each([
+        [
+            'running',
+            'a runner that stopped following but still judges',
+            (runDir: string) => {
+                const log = openLiveLog(runDir, 10)
+                startRecords.forEach((record) => log.write(record))
+                return log.stop()
+            },
+        ],
+        [
+            'stopped',
+            'a runner that died without an end record',
+            (runDir: string) => {
+                mkdirSync(runDir, { recursive: true })
+                writeFileSync(
+                    path.join(runDir, LIVE_FILE),
+                    startRecords.map((record) => `${JSON.stringify(record)}\n`).join('')
+                )
+                return Promise.resolve()
+            },
+        ],
+    ])('reads the run as %s for %s', async (state, _story, leave) => {
         const ownStateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-viewer-stopped-'))
         const runDir = path.join(ownStateDir, UNFINISHED_RUN_ID)
         const ownServer = createViewerServer({ stateDir: ownStateDir, cardsDir })
         try {
             jest.useFakeTimers()
-            const log = openLiveLog(runDir, 10)
-            log.write({ type: 'start', at: Date.now(), runId: UNFINISHED_RUN_ID, cardId: 'smoke', cardHash: 'c4rd' })
-            log.write({ type: 'phase', at: Date.now(), phase: 'drive' })
-            await log.stop()
+            await leave(runDir)
             const minuteAgo = new Date(Date.now() - 60_000)
             utimesSync(path.join(runDir, LIVE_FILE), minuteAgo, minuteAgo)
             jest.advanceTimersByTime(1000)
@@ -482,7 +506,7 @@ describe('scenario viewer', () => {
 
             expect(parseJSON(await (await internalFetch(`${own}/api/live`)).text())).toMatchObject({
                 runId: UNFINISHED_RUN_ID,
-                state: 'stopped',
+                state,
                 ended: null,
             })
         } finally {

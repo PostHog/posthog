@@ -157,7 +157,6 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
             })()
         },
         async stop() {
-            stopBeat()
             stopped.abort()
             await following
         },
