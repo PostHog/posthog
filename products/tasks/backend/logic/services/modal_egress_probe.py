@@ -173,6 +173,14 @@ class ModalEgressProbe:
     def certificate_request(self) -> str:
         return self.sidecar.filesystem.read_text("/run/egress/relay.csr")
 
+    @classmethod
+    def connect(cls, *, sandbox_id: str, sidecar_id: str, endpoint: str, ttl_seconds: int) -> ModalEgressProbe:
+        sandbox = ModalSandbox.get_by_id(sandbox_id)
+        sidecar = sandbox._sandbox._experimental_sidecars.get(name=RELAY_NAME)
+        if sidecar.object_id != sidecar_id:
+            raise RuntimeError("The egress relay has been replaced")
+        return cls(sandbox, sidecar, endpoint, ttl_seconds)
+
     def start_relay(self, *, certificate: str, server_ca: str) -> None:
         self.sidecar.filesystem.write_text(certificate, "/run/egress/relay.pem")
         self.sidecar.filesystem.write_text(server_ca, "/run/egress/server-ca.pem")
