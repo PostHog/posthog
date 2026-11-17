@@ -125,7 +125,6 @@ pub async fn process_events(
     Json(events): Json<Vec<AnyEvent>>,
 ) -> Result<Batch<Option<AnyEvent>>, ProcessEventsError> {
     let batch = run_pipeline(ctx, headers, events, Route::V1).await?;
-    // `run_pipeline` turns a failed event into a 500 on this route, so no slot is `Failed`.
     Ok(batch.map(
         |outcome, ()| match outcome {
             ProcessOutcome::Ok(event) => Some(event),

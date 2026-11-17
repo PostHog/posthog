@@ -62,8 +62,7 @@ pub enum UnhandledError {
 }
 
 impl UnhandledError {
-    /// True when the event's own data caused the failure. Every other failure can come from
-    /// a dependency, and the response contract reports those for the whole request.
+    /// True when the event's own data caused the failure, and not a dependency.
     pub fn is_item_failure(&self) -> bool {
         matches!(self, Self::Poison(_) | Self::SerdeError(_))
     }
@@ -253,8 +252,7 @@ pub enum EventError {
     ProcessingFailed { code: &'static str, message: String },
 }
 
-/// Keeps a failure on the event whose data caused it, so that one bad event does not fail
-/// the batch. A failure that can come from a dependency still fails the batch.
+/// A failure that can come from a dependency still fails the batch, as the response contract requires.
 pub fn contain_failure<T>(
     operator: &'static str,
     result: Result<T, UnhandledError>,

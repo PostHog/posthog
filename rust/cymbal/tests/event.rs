@@ -777,8 +777,7 @@ async fn poison_event_fails_the_request_on_v1_and_fails_alone_on_v2(db: PgPool) 
         kind: ErrorKind::Poison,
     };
 
-    // The caller of `/process` retries the whole batch, so the healthy event must not create
-    // its issue before the request fails.
+    // The caller of `/process` retries the whole batch, so no issue may exist after the 500.
     let (addr, _) = common::spawn_stub_server(poison_after_first()).await;
     let (status, _): (_, JsonValue) = harness
         .post_events_to("/process", events.clone(), use_resolution_stub(addr))
