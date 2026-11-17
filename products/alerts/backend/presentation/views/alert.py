@@ -35,6 +35,7 @@ from posthog.schema import (
     FunnelsAlertConfig,
     HogQLAlertConfig,
     InsightThreshold,
+    LLMDetectorModel,
     MetricsAlertConfig,
     NodeKind,
     TrendsAlertConfig,
@@ -266,6 +267,7 @@ def _insight_alert_flag_enabled(context: dict[str, Any], flag: str) -> bool:
 
 
 MAX_DETECTOR_INSTRUCTIONS_CHARS = 2000
+LLM_DETECTOR_MODEL_CHOICES = tuple(model.value for model in LLMDetectorModel)
 
 
 def _as_number(value: Any) -> int | float | None:
@@ -307,6 +309,10 @@ def _enforce_llm_detector_rules(detector_config: Any) -> None:
             "The AI detector reads the series as it is, so it cannot use preprocessing. "
             "Differencing or smoothing would hide the shape it is meant to judge."
         )
+
+    model = detector_config.get("model")
+    if model is not None and model not in LLM_DETECTOR_MODEL_CHOICES:
+        raise ValidationError(f"The AI detector can use one of these models: {', '.join(LLM_DETECTOR_MODEL_CHOICES)}.")
 
     instructions = detector_config.get("instructions")
     if instructions is not None:

@@ -573,6 +573,13 @@ export interface EnsembleDetectorConfigApi {
     type: EnsembleDetectorConfigApiType
 }
 
+export type LLMDetectorModelApi = (typeof LLMDetectorModelApi)[keyof typeof LLMDetectorModelApi]
+
+export const LLMDetectorModelApi = {
+    ClaudeHaiku55: 'claude-haiku-5-5',
+    Gpt6Luna: 'gpt-6-luna',
+} as const
+
 export type LLMDetectorConfigApiType = (typeof LLMDetectorConfigApiType)[keyof typeof LLMDetectorConfigApiType]
 
 export const LLMDetectorConfigApiType = {
@@ -582,6 +589,8 @@ export const LLMDetectorConfigApiType = {
 export interface LLMDetectorConfigApi {
     /** What counts as unusual or interesting for this metric, in your own words. Optional. */
     instructions?: string | null
+    /** The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the alert uses claude-haiku-5-5. */
+    model?: LLMDetectorModelApi | null
     type: LLMDetectorConfigApiType
 }
 
