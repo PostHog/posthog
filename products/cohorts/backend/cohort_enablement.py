@@ -16,6 +16,8 @@ import structlog
 
 from posthog.models.team.team import Team
 
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableUnresolved
+from products.cohorts.backend.backfill.pinning import pin_behavioral_run
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import COHORT_REALTIME_SWITCH_FIELDS, Cohort, CohortType
@@ -35,6 +37,18 @@ from products.cohorts.backend.realtime_limits import (
 from products.cohorts.backend.realtime_teams import is_processing_team
 
 logger = structlog.get_logger(__name__)
+
+
+def flag_calls_table_refusal(cohort: Cohort) -> str | None:
+    """Why the cohort's behavioral backfill can't pick the table to read its flag calls from, or None.
+
+    The backfill run makes the same check when it pins its table, and it refuses a cohort that fails it.
+    """
+    try:
+        pin_behavioral_run([cohort], cohort.team)
+    except FlagCallsTableUnresolved as error:
+        return str(error)
+    return None
 
 
 class RealtimeTurnOnRefused(ValueError):
@@ -210,7 +224,10 @@ def _refuse_unless_it_can_be_ready(cohort: Cohort) -> None:
     if cohort.cohort_type != CohortType.REALTIME:
         raise RealtimeTurnOnRefused(f"{refusal}, because its criteria aren't supported in realtime.")
     for kind in cohort._required_backfill_stamps():
-        reason = backfill_ineligibility_reason(cohort, CohortBackfillKind(kind))
+        backfill_kind = CohortBackfillKind(kind)
+        reason = backfill_ineligibility_reason(cohort, backfill_kind)
+        if reason is None and backfill_kind == CohortBackfillKind.BEHAVIORAL:
+            reason = flag_calls_table_refusal(cohort)
         if reason is not None:
             logger.info("cohort_realtime_turn_on_refused", cohort_id=cohort.id, team_id=cohort.team_id, reason=reason)
             raise RealtimeTurnOnRefused(f"{refusal}, because PostHog can't prepare one of its criteria in realtime.")
