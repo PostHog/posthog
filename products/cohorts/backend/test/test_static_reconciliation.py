@@ -3,20 +3,31 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import OperationalError
 from django.utils import timezone
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 
 from posthog.models.instance_setting import override_instance_config
-from posthog.tasks.calculate_cohort import reconcile_static_cohorts
+from posthog.tasks.calculate_cohort import (
+    reconcile_static_cohort_membership,
+    reconcile_static_cohorts,
+    reset_stuck_cohorts,
+)
 from posthog.test.persons import create_person
 
 from products.cohorts.backend import static_reconciliation
 from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.util import count_cohort_members, insert_static_cohort
+from products.cohorts.backend.models.util import (
+    StaticCohortReadBackIncomplete,
+    count_cohort_members,
+    insert_cohort_people_into_pg,
+    insert_static_cohort,
+)
 from products.cohorts.backend.static_reconciliation import (
     StaticCohortToReconcile,
     reconcile_static_cohort,
@@ -49,7 +60,7 @@ class TestStaticCohortReconciliation(BaseTest):
         return [cohort.cohort_id for cohort in self._dispatched()]
 
     def _forget_attempts(self, *cohorts: Cohort) -> None:
-        cache.delete_many([static_reconciliation._attempt_cache_key(cohort.pk) for cohort in cohorts])
+        cache.delete_many([static_reconciliation._hold_cache_key(cohort.pk) for cohort in cohorts])
 
     @parameterized.expand([(True,), (False,)])
     def test_sweep_copies_clickhouse_members_to_postgres_unless_switched_off(self, enabled: bool) -> None:
@@ -92,9 +103,7 @@ class TestStaticCohortReconciliation(BaseTest):
             fields["last_calculation"] = self.now - fields.pop("last_calculation_ago")
         cohort = self._static_cohort(clickhouse_members=clickhouse_members, count=stored_count, **fields)
 
-        expected = StaticCohortToReconcile(
-            team_id=self.team.pk, cohort_id=cohort.pk, clickhouse_count=clickhouse_members
-        )
+        expected = StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk)
         self.assertEqual(self._dispatched(), [expected] if expected_dispatched else [])
 
     @patch.object(static_reconciliation, "RECONCILE_PAGE_SIZE", 2)
@@ -144,8 +153,61 @@ class TestStaticCohortReconciliation(BaseTest):
         person = create_person(team=self.team, distinct_ids=["member"])
         cohort = self._static_cohort(person_uuids=(person.uuid,), is_calculating=True)
 
-        reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk, clickhouse_count=1))
+        reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
 
         cohort.refresh_from_db()
         self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 0)
         self.assertTrue(cohort.is_calculating)
+
+    def test_stuck_cohort_sweep_leaves_a_repair_in_progress_alone(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["member"])
+        cohort = self._static_cohort(person_uuids=(person.uuid,), query={"kind": "HogQLQuery", "query": "select 1"})
+
+        def copy_while_the_sweep_runs(*args: Any, **kwargs: Any) -> None:
+            reset_stuck_cohorts()
+            insert_cohort_people_into_pg(*args, **kwargs)
+
+        with (
+            patch.object(static_reconciliation, "insert_cohort_people_into_pg", side_effect=copy_while_the_sweep_runs),
+            patch("posthog.tasks.calculate_cohort.insert_cohort_from_query") as population,
+        ):
+            reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+
+        cohort.refresh_from_db()
+        population.delay.assert_not_called()
+        self.assertEqual((cohort.errors_calculating, cohort.count), (0, 1))
+
+    def test_a_failed_recount_does_not_park_the_cohort(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["member"])
+        cohort = self._static_cohort(person_uuids=(person.uuid,))
+        target = StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk)
+
+        with (
+            patch.object(static_reconciliation, "count_cohort_members", side_effect=[0, ConnectionError("down")]),
+            self.assertRaises(ConnectionError),
+        ):
+            reconcile_static_cohort(target)
+
+        self.assertEqual(self._dispatched(), [target])
+
+    @parameterized.expand(
+        [
+            ("transient", OperationalError("connection reset"), True),
+            ("read_back_incomplete", StaticCohortReadBackIncomplete("read 1 of 2 rows"), False),
+        ]
+    )
+    @patch("posthog.tasks.calculate_cohort.reconcile_static_cohort")
+    def test_task_retries_only_transient_errors(
+        self, _name: str, error: Exception, retries: bool, repair: MagicMock
+    ) -> None:
+        repair.side_effect = error
+        task = reconcile_static_cohort_membership
+        task.push_request(retries=0, called_directly=False, is_eager=True)
+        try:
+            if retries:
+                with self.assertRaises(Retry):
+                    task.run(team_id=self.team.pk, cohort_id=1)
+            else:
+                task.run(team_id=self.team.pk, cohort_id=1)
+        finally:
+            task.pop_request()

@@ -1501,7 +1501,7 @@ def reconcile_static_cohorts() -> None:
     run_reconciliation_pass(
         now=timezone.now(),
         dispatch=lambda cohort: reconcile_static_cohort_membership.delay(
-            team_id=cohort.team_id, cohort_id=cohort.cohort_id, clickhouse_count=cohort.clickhouse_count
+            team_id=cohort.team_id, cohort_id=cohort.cohort_id
         ),
     )
 
@@ -1514,13 +1514,13 @@ def reconcile_static_cohorts() -> None:
     soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
 )
 @with_team_scope()
-def reconcile_static_cohort_membership(self: Task, team_id: int, cohort_id: int, clickhouse_count: int) -> None:
+def reconcile_static_cohort_membership(self: Task, team_id: int, cohort_id: int) -> None:
     try:
-        reconcile_static_cohort(
-            StaticCohortToReconcile(team_id=team_id, cohort_id=cohort_id, clickhouse_count=clickhouse_count)
-        )
+        reconcile_static_cohort(StaticCohortToReconcile(team_id=team_id, cohort_id=cohort_id))
     except Exception as err:
-        if not _is_final_attempt(self, _is_transient_population_error(err)):
+        # The read-back already waited for replicas. A retry would copy the whole cohort again, up to seven times.
+        retryable = _is_transient_population_error(err) and not isinstance(err, StaticCohortReadBackIncomplete)
+        if not _is_final_attempt(self, retryable):
             raise self.retry(
                 exc=err,
                 countdown=get_exponential_backoff_interval(

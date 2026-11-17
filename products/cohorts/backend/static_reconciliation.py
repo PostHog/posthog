@@ -37,6 +37,8 @@ RECONCILE_MIN_MISSING_RATIO = 0.01
 RECONCILE_SETTLE_DELAY = timedelta(hours=1)
 RECONCILE_RECENT_WINDOW = timedelta(hours=48)
 RECONCILE_RETRY_AFTER = timedelta(hours=48)
+# A recent cohort found in sync is counted again after this, not on every run of the recent window.
+RECONCILE_RECHECK_IN_SYNC_AFTER = timedelta(hours=6)
 # A parked cohort is left alone until its ClickHouse count changes or this expires.
 RECONCILE_PARK_FOR = timedelta(days=30)
 
@@ -60,7 +62,6 @@ class ReconcileDecision(StrEnum):
 class StaticCohortToReconcile:
     team_id: int
     cohort_id: int
-    clickhouse_count: int
 
 
 @frozen
@@ -70,8 +71,13 @@ class _Candidate:
     stored_count: int | None
 
 
-def _attempt_cache_key(cohort_id: int) -> str:
-    return f"static-cohort-reconcile:attempt:{cohort_id}"
+def _hold_cache_key(cohort_id: int) -> str:
+    """A cohort with this key is not counted or dispatched again until the key expires."""
+    return f"static-cohort-reconcile:hold:{cohort_id}"
+
+
+def _hold(cohort_id: int, duration: timedelta) -> None:
+    cache.set(_hold_cache_key(cohort_id), True, timeout=int(duration.total_seconds()))
 
 
 def _park_cache_key(cohort_id: int) -> str:
@@ -129,11 +135,11 @@ def _clickhouse_member_counts(candidates: list[_Candidate]) -> dict[int, int]:
 
 
 def _skipped_cohort_ids(candidates: list[_Candidate]) -> tuple[set[int], dict[int, int]]:
-    attempt_keys = {_attempt_cache_key(candidate.cohort_id): candidate.cohort_id for candidate in candidates}
+    hold_keys = {_hold_cache_key(candidate.cohort_id): candidate.cohort_id for candidate in candidates}
     park_keys = {_park_cache_key(candidate.cohort_id): candidate.cohort_id for candidate in candidates}
-    attempted = {attempt_keys[key] for key in cache.get_many(list(attempt_keys))}
+    held = {hold_keys[key] for key in cache.get_many(list(hold_keys))}
     parked = {park_keys[key]: count for key, count in cache.get_many(list(park_keys)).items()}
-    return attempted, parked
+    return held, parked
 
 
 def run_reconciliation_pass(*, now: datetime, dispatch: Callable[[StaticCohortToReconcile], None]) -> None:
@@ -146,20 +152,22 @@ def run_reconciliation_pass(*, now: datetime, dispatch: Callable[[StaticCohortTo
     recent = _candidates(settled.filter(last_calculation__gte=now - RECONCILE_RECENT_WINDOW))
     cursor = cache.get(RECONCILE_CURSOR_CACHE_KEY)
     backlog = _candidates(settled.filter(id__lt=cursor) if cursor is not None else settled)
-    attempted, parked = _skipped_cohort_ids(recent + backlog)
-    clickhouse_counts = _clickhouse_member_counts([c for c in recent + backlog if c.cohort_id not in attempted])
+    held, parked = _skipped_cohort_ids(recent + backlog)
+    clickhouse_counts = _clickhouse_member_counts([c for c in recent + backlog if c.cohort_id not in held])
     recent_ids = {candidate.cohort_id for candidate in recent}
     dispatched = 0
 
     def consider(candidate: _Candidate) -> None:
         nonlocal dispatched
-        if candidate.cohort_id in attempted:
+        if candidate.cohort_id in held:
             return
         clickhouse_count = clickhouse_counts.get(candidate.cohort_id, 0)
         if parked.get(candidate.cohort_id) == clickhouse_count:
             return
         decision = decide(stored_count=candidate.stored_count, clickhouse_count=clickhouse_count)
-        if decision == ReconcileDecision.TOO_LARGE:
+        if decision == ReconcileDecision.IN_SYNC and candidate.cohort_id in recent_ids:
+            _hold(candidate.cohort_id, RECONCILE_RECHECK_IN_SYNC_AFTER)
+        elif decision == ReconcileDecision.TOO_LARGE:
             _park(candidate.cohort_id, clickhouse_count)
             STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="skipped_too_large").inc()
             logger.warning(
@@ -171,18 +179,14 @@ def run_reconciliation_pass(*, now: datetime, dispatch: Callable[[StaticCohortTo
             )
         elif decision == ReconcileDecision.RECONCILE:
             try:
-                dispatch(
-                    StaticCohortToReconcile(
-                        team_id=candidate.team_id, cohort_id=candidate.cohort_id, clickhouse_count=clickhouse_count
-                    )
-                )
+                dispatch(StaticCohortToReconcile(team_id=candidate.team_id, cohort_id=candidate.cohort_id))
             except Exception as error:
                 STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="dispatch_failed").inc()
                 capture_exception(
                     error, additional_properties={"cohort_id": candidate.cohort_id, "team_id": candidate.team_id}
                 )
                 return
-            cache.set(_attempt_cache_key(candidate.cohort_id), True, timeout=int(RECONCILE_RETRY_AFTER.total_seconds()))
+            _hold(candidate.cohort_id, RECONCILE_RETRY_AFTER)
             dispatched += 1
             STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="dispatched").inc()
 
@@ -208,42 +212,57 @@ def run_reconciliation_pass(*, now: datetime, dispatch: Callable[[StaticCohortTo
         cache.set(RECONCILE_CURSOR_CACHE_KEY, next_cursor, timeout=int(RECONCILE_CURSOR_TTL.total_seconds()))
 
 
+def _write_count(cohort: StaticCohortToReconcile, count: int) -> bool:
+    # A population or CSV import that holds the cohort writes its own count when it finishes.
+    return bool(
+        Cohort.objects.filter(
+            team_id=cohort.team_id, id=cohort.cohort_id, is_static=True, deleted=False, is_calculating=False
+        ).update(count=count)
+    )
+
+
 def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
     """Copy the cohort's ClickHouse members to Postgres and store the new count.
 
-    The repair holds `is_calculating` like a population does, so a CSV upload or a switch to dynamic cannot run
-    under it. It writes nothing back if the cohort became dynamic or was deleted in the meantime.
+    The repair does not set `is_calculating`: the stuck-cohort sweep reads that flag on a cohort calculated more
+    than an hour ago as a dead population. The copy skips existing members, so a population running at the same
+    time is safe.
     """
-    owned = Cohort.objects.filter(team_id=cohort.team_id, id=cohort.cohort_id, is_static=True, deleted=False)
-    if not owned.filter(is_calculating=False).update(is_calculating=True):
+    row = Cohort.objects.filter(
+        team_id=cohort.team_id, id=cohort.cohort_id, is_static=True, deleted=False, is_calculating=False
+    ).first()
+    if row is None:
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="skipped_busy").inc()
         return
-    released = False
-    try:
-        postgres_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
-        if not _postgres_lags_clickhouse(postgres_count, cohort.clickhouse_count):
-            owned.filter(is_calculating=True).update(is_calculating=False, count=postgres_count)
-            released = True
-            STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="already_complete").inc()
-            return
-        row = owned.get()
-        # min_rows makes the copy wait for a replica that holds every row instead of storing a partial copy.
-        insert_cohort_people_into_pg(row, team_id=cohort.team_id, min_rows=cohort.clickhouse_count)
-        owned.filter(is_calculating=True).update(is_calculating=False, count=row.count)
-        released = True
-        if row.count == postgres_count:
-            _park(cohort.cohort_id, cohort.clickhouse_count)
-            STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="parked").inc()
-        else:
-            STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="reconciled").inc()
-        logger.info(
-            "static_cohort_reconciled",
-            team_id=cohort.team_id,
-            cohort_id=cohort.cohort_id,
-            postgres_count=postgres_count,
-            reconciled_count=row.count,
-            clickhouse_count=cohort.clickhouse_count,
-        )
-    finally:
-        if not released:
-            owned.filter(is_calculating=True).update(is_calculating=False)
+    # Rows deleted since the selection would make its count unreachable, and every read-back wait would copy again.
+    clickhouse_count = _clickhouse_member_counts(
+        [_Candidate(team_id=cohort.team_id, cohort_id=cohort.cohort_id, stored_count=None)]
+    ).get(cohort.cohort_id, 0)
+    postgres_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
+    decision = decide(stored_count=postgres_count, clickhouse_count=clickhouse_count)
+    if decision == ReconcileDecision.IN_SYNC:
+        _write_count(cohort, postgres_count)
+        STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="already_complete").inc()
+        return
+    if decision == ReconcileDecision.TOO_LARGE:
+        STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="skipped_too_large").inc()
+        return
+
+    # min_rows makes the copy wait for a replica that holds every row instead of storing a partial copy.
+    insert_cohort_people_into_pg(row, team_id=cohort.team_id, min_rows=clickhouse_count)
+    # Recount here: the copy logs a failed recount and keeps the old count, which would park a repaired cohort.
+    reconciled_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
+    _write_count(cohort, reconciled_count)
+    if reconciled_count == postgres_count:
+        _park(cohort.cohort_id, clickhouse_count)
+        STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="parked").inc()
+    else:
+        STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="reconciled").inc()
+    logger.info(
+        "static_cohort_reconciled",
+        team_id=cohort.team_id,
+        cohort_id=cohort.cohort_id,
+        postgres_count=postgres_count,
+        reconciled_count=reconciled_count,
+        clickhouse_count=clickhouse_count,
+    )
