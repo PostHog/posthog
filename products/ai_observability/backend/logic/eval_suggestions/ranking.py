@@ -28,7 +28,7 @@ from .adapters import AdaptedCheck
 from .call_review import REVIEW_TEMPLATE_KEY, ReviewCard
 from .call_review_queries import CALL_TYPE_INPUT_CHARS, CallTypeRow, SnippetMatches
 from .coverage import EvalFix, fix_dedupe_key
-from .judge_calibration import Calibration
+from .judge_calibration import Calibration, CodeCheck
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
 from .prices import MODEL_PRICES
 from .profile import StructuredGap, TeamProfile, normalize_segment_value
@@ -628,6 +628,51 @@ def review_proposal(
         estimated_weekly_cost_usd=cost.weekly_cost_usd,
         mean_input_tokens=round(profile.mean_input_tokens) if profile.mean_input_tokens else None,
         judge_model=judge_model,
+    )
+
+
+def review_code_proposal(
+    card: ReviewCard, profile: TeamProfile, *, snippets: Mapping[str, str], code: CodeCheck
+) -> Proposal | None:
+    """The card as a free Hog check on the generations of its call types, with the code's own rate, or None when no
+    filter selects those generations. It keeps the judge card's filters and dedupe key, so the check stays one card
+    whichever kind a run gives it."""
+    filters = call_type_filters(card.call_types, snippets)
+    if filters is None:
+        return None
+    weekly_units = 7 * sum(c.calls for c in card.call_types)
+    rollout = capped_rollout(weekly_units, WEEKLY_HOG_RUNS)
+    text = cards.review_text(card, cards.FREE)
+    return Proposal(
+        kind=EvalSuggestionKind.NEW_HOG,
+        template_key=REVIEW_TEMPLATE_KEY,
+        dedupe_key=review_dedupe_key(card),
+        headline=text.headline,
+        outcome=text.outcome,
+        reason=text.reason,
+        draft={
+            "name": card.title[: Evaluation._meta.get_field("name").max_length],
+            "description": card.checks,
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": code.source},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "target": "generation",
+            # How the code matched the review's labels. Accepting the card leaves this out of the evaluation.
+            "calibration": asdict(code.calibration),
+        },
+        filters=filters,
+        rollout_percentage=rollout,
+        measured_failure_rate=code.failed / code.of,
+        sample_size=code.of,
+        evidence=[Evidence(trace_id=e.trace_id, reason=e.reason[:160]) for e in card.examples],
+        score=_score(
+            REVIEW_SEVERITY,
+            wilson_interval(code.failed, code.of).low * weekly_units,
+            judge=False,
+            similar=False,
+        ),
+        estimated_weekly_runs=round(weekly_units * rollout / 100),
     )
 
 
