@@ -3,8 +3,9 @@
 Gigahog is a hoglake server, so the routes and bodies are hoglake's (`server/.../api/Routes.kt` and `Dto.kt` in
 PostHog/hoglake). pyhoglake is not used, because it needs a newer pyarrow than this repository pins.
 
-The writer reaches Gigahog on its public listener, which refuses every request without a valid tenant token. The
-token comes from hogtower's OAuth token endpoint, in exchange for the writer's `hlw_` credential.
+The writer reaches Gigahog on its public listener, which refuses every request without a valid token. For each team,
+the writer exchanges its `hlw_` credential at hogtower's OAuth token endpoint for two credentials that cover only that
+team: a Gigahog token, and an S3 session that reads the team's prepared files and writes its Gigahog prefix.
 
 This module must not import the workflow module: the workflow imports it.
 """
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import time
 import uuid
+import datetime as dt
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import field
@@ -31,11 +33,9 @@ _USER_AGENT = "posthog-data-imports-writer"
 _REQUEST_TIMEOUT_SECONDS = 60.0
 _TRANSIENT_ATTEMPTS = 4
 _TRANSIENT_BACKOFF_SECONDS = 1.0
-# Renewing early keeps a token from expiring while its request is on the way to Gigahog.
-_TOKEN_RENEWAL_MARGIN_SECONDS = 60.0
-# A server without this capability ignores the `org` of a containment mark and confines the namespace's files to
-# `data/<namespace>/`, which would refuse every file under the imports layout.
-ORG_MARKED_CONTAINMENT_CAPABILITY = "org-marked-containment-v1"
+# The S3 session cannot be renewed while a copy runs, so credentials are renewed while they still have enough time
+# left for a copy started on them.
+_CREDENTIAL_RENEWAL_MARGIN_SECONDS = 300.0
 
 
 @frozen
@@ -46,7 +46,21 @@ class GigahogConfig:
     token_url: str
     client_id: str
     client_secret: str = field(repr=False)
-    mark_namespaces: bool = False
+
+
+@frozen
+class GigahogStorageSession:
+    access_key_id: str
+    secret_access_key: str = field(repr=False)
+    session_token: str = field(repr=False)
+    region: str | None
+
+
+@frozen
+class _TeamCredentials:
+    access_token: str = field(repr=False)
+    storage: GigahogStorageSession
+    renew_at_monotonic: float
 
 
 @frozen
@@ -109,67 +123,103 @@ class GigahogCommit:
 
 
 class GigahogError(Exception):
-    def __init__(self, status_code: int, code: str, detail: str | None) -> None:
+    def __init__(self, status_code: int, code: str, detail: str | None, *, after_ambiguous_send: bool = False) -> None:
         super().__init__(f"Gigahog answered HTTP {status_code} {code}" + (f": {detail}" if detail else ""))
         self.status_code = status_code
         self.code = code
         self.detail = detail
+        # An earlier send of the same request ended without a clear answer, and it may have been applied.
+        self.after_ambiguous_send = after_ambiguous_send
 
     @property
     def retryable(self) -> bool:
         # 409 is a concurrent change and 410 an expired read snapshot, which a fresh read fixes. 429 and 5xx are the
         # server's own trouble. Every other 4xx refuses the request itself, so a repeat fails the same way.
-        return self.status_code in (409, 410, 429) or self.status_code >= 500
+        # hogtower answers `invalid_target` for a team it does not know yet, which its team sync fixes.
+        return self.status_code in (409, 410, 429) or self.status_code >= 500 or self.code == "invalid_target"
 
     @property
     def refused(self) -> bool:
-        # A 5xx can come after the server applied the request. A 429 can come from a proxy and says nothing about the
-        # server. Every other 4xx is the server's refusal, so the request changed nothing.
-        return 400 <= self.status_code < 500 and self.status_code != 429
+        # A 5xx can come after the server applied the request, and a 429 can come from a proxy. Another 4xx is a
+        # refusal, unless an earlier send may have landed: a repeat's auth refusal precedes the receipt lookup.
+        return 400 <= self.status_code < 500 and self.status_code != 429 and not self.after_ambiguous_send
 
 
-class _WriterToken:
-    """The writer's bearer token, exchanged for the `hlw_` credential and renewed before it expires."""
+class GigahogTokenError(GigahogError):
+    """hogtower refused or failed the token exchange, which says nothing about what Gigahog applied."""
 
-    def __init__(self, config: GigahogConfig, session: requests.Session) -> None:
-        self._config = config
-        self._session = session
-        self._lock = threading.Lock()
-        self._token: str | None = None
-        self._renew_at = 0.0
+    @property
+    def refused(self) -> bool:
+        return False
 
-    def get(self, *, renew: bool = False) -> str:
-        with self._lock:
-            if renew or self._token is None or time.monotonic() >= self._renew_at:
-                self._exchange()
-            assert self._token is not None
-            return self._token
 
-    def _exchange(self) -> None:
-        response = _send_repeating_transient_failures(
-            lambda: self._session.post(
-                self._config.token_url,
-                data={
-                    "grant_type": "client_credentials",
-                    "client_id": self._config.client_id,
-                    "client_secret": self._config.client_secret,
-                },
-                headers={"User-Agent": _USER_AGENT},
-                timeout=_REQUEST_TIMEOUT_SECONDS,
-            ),
-            target="token",
-        )
-        if response.status_code >= 300:
-            raise _error_from_response(response)
-        body = response.json()
-        self._token = body["access_token"]
-        self._renew_at = time.monotonic() + max(float(body.get("expires_in", 0)) - _TOKEN_RENEWAL_MARGIN_SECONDS, 0)
+# Shared by every client in the process, so syncs of one team reuse its credentials until they near expiry. Each team
+# has its own lock, so a slow exchange for one team does not hold up the others.
+_team_credentials: dict[tuple[str, str, int], _TeamCredentials] = {}
+_team_locks: dict[tuple[str, str, int], threading.Lock] = {}
+_team_locks_lock = threading.Lock()
+
+
+def _team_credentials_for(
+    config: GigahogConfig, team_id: int, session: requests.Session, *, renew: bool = False
+) -> _TeamCredentials:
+    key = (config.token_url, config.client_id, team_id)
+    with _team_locks_lock:
+        team_lock = _team_locks.setdefault(key, threading.Lock())
+    with team_lock:
+        cached = _team_credentials.get(key)
+        if renew or cached is None or time.monotonic() >= cached.renew_at_monotonic:
+            cached = _exchange_for_team(config, team_id, session)
+            _team_credentials[key] = cached
+        return cached
+
+
+def _exchange_for_team(config: GigahogConfig, team_id: int, session: requests.Session) -> _TeamCredentials:
+    response, _ = _send_repeating_transient_failures(
+        partial(
+            session.post,
+            config.token_url,
+            data={
+                "grant_type": "client_credentials",
+                "client_id": config.client_id,
+                "client_secret": config.client_secret,
+                "team_id": str(team_id),
+            },
+            headers={"User-Agent": _USER_AGENT},
+            timeout=_REQUEST_TIMEOUT_SECONDS,
+        ),
+        target="token",
+    )
+    if response.status_code >= 300:
+        raise _error_from_response(response, error_type=GigahogTokenError)
+    body = response.json()
+    storage = body["storage"]
+    storage_expires_at = dt.datetime.fromisoformat(storage["expires_at"])
+    if storage_expires_at.tzinfo is None:
+        storage_expires_at = storage_expires_at.replace(tzinfo=dt.UTC)
+    lifetime = min(
+        float(body["expires_in"]),
+        (storage_expires_at - dt.datetime.now(dt.UTC)).total_seconds(),
+    )
+    return _TeamCredentials(
+        access_token=body["access_token"],
+        storage=GigahogStorageSession(
+            access_key_id=storage["access_key_id"],
+            secret_access_key=storage["secret_access_key"],
+            session_token=storage["session_token"],
+            region=storage.get("region"),
+        ),
+        renew_at_monotonic=time.monotonic() + max(lifetime - _CREDENTIAL_RENEWAL_MARGIN_SECONDS, 0),
+    )
 
 
 class GigahogClient:
-    def __init__(self, config: GigahogConfig, *, session: requests.Session | None = None) -> None:
+    """Gigahog calls for one team, with that team's token."""
+
+    def __init__(self, config: GigahogConfig, *, team_id: int, session: requests.Session | None = None) -> None:
+        self._config = config
+        self._team_id = team_id
         self._session = session or requests.Session()
-        self._token = _WriterToken(config, self._session)
         self._base = f"{config.url.rstrip('/')}/v1/catalogs/{_segment(config.catalog)}"
 
     def close(self) -> None:
@@ -181,26 +231,9 @@ class GigahogClient:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def create_namespace(self, namespace: str) -> bool:
-        """Create the namespace, and return False when it already exists."""
-        try:
-            self._request("POST", "/namespaces", json={"name": namespace, "message": "data imports"})
-        except GigahogError as error:
-            if error.code == "already_exists":
-                return False
-            raise
-        return True
-
-    def capabilities(self) -> frozenset[str]:
-        return frozenset(self._request("GET", "").get("capabilities") or ())
-
-    def mark_namespace(self, namespace: str, *, team_id: int, org: str) -> None:
-        """Mark the namespace as the team's, with its org. Gigahog refuses this once the namespace has held a table."""
-        self._request(
-            "PUT",
-            f"/namespaces/{_segment(namespace)}/containment",
-            json={"field": "team_id", "value": int(team_id), "org": org},
-        )
+    def storage_session(self, *, fresh: bool = False) -> GigahogStorageSession:
+        """The team's S3 session. A `fresh` one has its full lifetime, for a copy that may take long."""
+        return _team_credentials_for(self._config, self._team_id, self._session, renew=fresh).storage
 
     def namespace(self, namespace: str) -> GigahogNamespace:
         body = self._request("GET", f"/namespaces/{_segment(namespace)}")
@@ -275,10 +308,11 @@ class GigahogClient:
         server records the token's subject, which is the only author it accepts from a tenant token.
         """
         renewed = False
+        ambiguous = False
         while True:
             # A token can expire between the check and the request, so the first 401 renews it.
-            token = self._token.get(renew=renewed)
-            response = _send_repeating_transient_failures(
+            token = _team_credentials_for(self._config, self._team_id, self._session, renew=renewed).access_token
+            response, ambiguous_send = _send_repeating_transient_failures(
                 partial(
                     self._session.request,
                     method,
@@ -289,17 +323,23 @@ class GigahogClient:
                 ),
                 target=path,
             )
+            ambiguous = ambiguous or ambiguous_send
             if response.status_code < 300:
                 return response.json() if response.content else None
-            refusal = _error_from_response(response)
+            refusal = _error_from_response(response, after_ambiguous_send=ambiguous)
             if refusal.status_code != 401 or renewed:
                 raise refusal
             LOGGER.warning("Renewing the Gigahog token after a 401", path=path)
             renewed = True
 
 
-def _send_repeating_transient_failures(send: Callable[[], requests.Response], *, target: str) -> requests.Response:
-    """Send, and repeat on a lost connection, a 5xx or a 429. Return the last response, whatever its status."""
+def _send_repeating_transient_failures(
+    send: Callable[[], requests.Response], *, target: str
+) -> tuple[requests.Response, bool]:
+    """Send, and repeat on a lost connection, a 5xx or a 429.
+
+    Return the last response, whatever its status, and whether an earlier send ended without a clear answer.
+    """
     for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
         try:
             response = send()
@@ -312,7 +352,7 @@ def _send_repeating_transient_failures(send: Callable[[], requests.Response], *,
         else:
             transient = response.status_code == 429 or response.status_code >= 500
             if not transient or attempt == _TRANSIENT_ATTEMPTS:
-                return response
+                return response, attempt > 1
             LOGGER.warning("Repeating a Gigahog request", target=target, status=response.status_code)
         time.sleep(_TRANSIENT_BACKOFF_SECONDS * 2 ** (attempt - 1))
     raise AssertionError("unreachable")
@@ -322,7 +362,12 @@ def _segment(name: str) -> str:
     return quote(name, safe="")
 
 
-def _error_from_response(response: requests.Response) -> GigahogError:
+def _error_from_response(
+    response: requests.Response,
+    *,
+    error_type: type[GigahogError] = GigahogError,
+    after_ambiguous_send: bool = False,
+) -> GigahogError:
     code = f"http_{response.status_code}"
     detail: str | None = None
     try:
@@ -333,7 +378,7 @@ def _error_from_response(response: requests.Response) -> GigahogError:
         if isinstance(body, dict):
             code = str(body.get("error") or code)
             detail = body.get("detail") or body.get("error_description")
-    return GigahogError(response.status_code, code, detail)
+    return error_type(response.status_code, code, detail, after_ambiguous_send=after_ambiguous_send)
 
 
 def _table_from_wire(body: Mapping[str, Any]) -> GigahogTable:

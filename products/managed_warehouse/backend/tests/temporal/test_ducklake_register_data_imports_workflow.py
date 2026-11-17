@@ -249,25 +249,34 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
             f"s3://gigahog-bucket/imports/org_id={ateam.organization_id}/team_id={ateam.id}/dev_postgres_customers/"
             f"{schema.id}/job-123/1234567890_abcdef12"
         )
-        # A second import table with the same HogQL name would replace this one's rows in Gigahog.
-        await database_sync_to_async(DataWarehouseTable.objects.create)(
+        # A newer import with the same HogQL name would replace this one's rows in Gigahog, so only the newer is refused.
+        newer_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
             team=ateam,
             name="DEV_postgres_customers",
             format="Delta",
             url_pattern="s3://bucket/other",
             credential=credential,
             external_data_source=source,
+            queryable_folder=prepared_queryable_folder,
         )
-        with pytest.raises(ApplicationError, match="has the name") as raised:
-            await prepare_ducklake_data_imports_registration_activity(
+        newer_schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
+            team=ateam, name="customers_copy", source=source, table=newer_table
+        )
+        for prepared_schema, refused in ((schema, False), (newer_schema, True)):
+            prepare_again = prepare_ducklake_data_imports_registration_activity(
                 DuckLakeRegisterDataImportsInputs(
                     team_id=ateam.id,
                     job_id="job-123",
-                    schema_id=schema.id,
+                    schema_id=prepared_schema.id,
                     prepared_queryable_folder=prepared_queryable_folder,
                 )
             )
-        assert raised.value.non_retryable is True
+            if not refused:
+                assert await prepare_again is not None
+                continue
+            with pytest.raises(ApplicationError, match="already holds the name") as raised:
+                await prepare_again
+            assert raised.value.non_retryable is True
         return
     if engine == ENGINE_HOGLAKE:
         assert (metadata.engine, metadata.ducklake_schema_name, metadata.ducklake_table_name) == (
@@ -2276,18 +2285,32 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
 
 
 class _FakeS3:
-    def __init__(self, keys: set[str], *, partial_copy_fails: bool = False, rm_mode: str = "works") -> None:
+    def __init__(
+        self,
+        keys: set[str],
+        *,
+        partial_copy_fails: bool = False,
+        rm_mode: str = "works",
+        listing: str = "open",
+    ) -> None:
         self.keys = set(keys)
         self.partial_copy_fails = partial_copy_fails
         self.rm_mode = rm_mode
+        # "prefix_scoped" behaves like s3fs on a session whose ListBucket grant is limited to a prefix: an empty
+        # listing without `prefix` falls back to a HeadObject that S3 answers with 403. "refused" denies every listing.
+        self.listing = listing
         self.copy_destinations: list[str] = []
 
     def invalidate_cache(self, path: str | None = None) -> None:
         pass
 
-    def find(self, prefix: str, detail: bool = False) -> Any:
-        folder = prefix.rstrip("/") + "/"
+    def find(self, path: str, detail: bool = False, prefix: str = "") -> Any:
+        if self.listing == "refused":
+            raise PermissionError("Access Denied")
+        folder = path.rstrip("/") + "/" + prefix
         found = sorted(key for key in self.keys if key.startswith(folder))
+        if not found and not prefix and self.listing == "prefix_scoped":
+            raise PermissionError("Forbidden")
         return {key: {"Size": 10, "type": "file"} for key in found} if detail else found
 
     def copy(self, sources: list[str], destinations: list[str], *, batch_size: int) -> None:
@@ -2302,6 +2325,39 @@ class _FakeS3:
             raise RuntimeError("delete failed")
         if self.rm_mode == "works":
             self.keys.difference_update(paths)
+
+
+@pytest.mark.parametrize("listing", ["prefix_scoped", "refused"])
+def test_an_empty_folder_lists_as_empty_unless_the_listing_itself_is_refused(listing: str) -> None:
+    fake_s3 = _FakeS3(set(), listing=listing)
+    copy = partial(
+        registration_module._copy_prepared_parquet_files,
+        "s3://source/dlt/team_1_stripe/charges",
+        "s3://gigahog-bucket/imports/landing",
+        s3=fake_s3,
+    )
+
+    if listing == "refused":
+        with pytest.raises(PermissionError):
+            copy()
+        return
+    with pytest.raises(ApplicationError, match="No prepared Parquet files") as raised:
+        copy()
+    assert raised.value.non_retryable is True
+    assert registration_module._trino_landing_files("s3://gigahog-bucket/imports/landing/", s3=fake_s3) == []
+
+
+def test_s3fs_lists_a_prefix_without_looking_the_folder_up() -> None:
+    # `_find_under` relies on this: under a prefix-scoped grant, the HeadObject that s3fs sends for an empty listing
+    # without `prefix` is refused.
+    filesystem = s3fs.S3FileSystem(anon=True, skip_instance_cache=True)
+    with (
+        patch.object(filesystem, "_lsdir", AsyncMock(return_value=[])),
+        patch.object(filesystem, "_info", AsyncMock(side_effect=PermissionError("Forbidden"))),
+    ):
+        assert filesystem.find("gigahog-bucket/imports", prefix="landing/") == []
+        with pytest.raises(PermissionError):
+            filesystem.find("gigahog-bucket/imports/landing")
 
 
 @pytest.mark.parametrize(
@@ -2932,9 +2988,9 @@ async def test_registration_gate_sends_a_gigahog_organization_past_trino_and_duc
 @pytest.mark.parametrize(
     "outcome, files_kept",
     [
+        ("namespace_missing", False),
         ("published", True),
         ("stale", False),
-        # Gigahog refused every commit request, so no table references the files.
         ("refused", False),
         # The server may have committed before it failed, so the table may reference the files.
         ("unknown", True),
@@ -2962,7 +3018,20 @@ def test_gigahog_copy_activity_lands_under_the_attempt_and_deletes_files_no_tabl
         )
         raise ApplicationError(str(refusal), non_retryable=False) from refusal
 
-    monkeypatch.setattr(registration_module, "get_s3_client", lambda: fake_s3)
+    def require_namespace(client, *, organization_id, team_id):
+        if outcome == "namespace_missing":
+            raise ApplicationError("Gigahog has no namespace team_1 yet", non_retryable=False)
+
+    monkeypatch.setattr(registration_module, "get_s3_client", MagicMock(side_effect=AssertionError))
+    monkeypatch.setattr(registration_module, "GigahogClient", MagicMock())
+    monkeypatch.setattr(registration_module, "require_gigahog_namespace", require_namespace)
+    session_requests: list[bool] = []
+
+    def team_filesystem(client, *, fresh=False):
+        session_requests.append(fresh)
+        return fake_s3
+
+    monkeypatch.setattr(registration_module, "gigahog_team_filesystem", team_filesystem)
     monkeypatch.setattr(registration_module, "register_prepared_files_in_gigahog", register)
     monkeypatch.setattr(
         registration_module, "register_prepared_files_in_hoglake", MagicMock(side_effect=AssertionError)
@@ -2985,11 +3054,15 @@ def test_gigahog_copy_activity_lands_under_the_attempt_and_deletes_files_no_tabl
         registration_table_names=names,
     )
 
-    if outcome in ("refused", "unknown"):
+    if outcome in ("namespace_missing", "refused", "unknown"):
         with pytest.raises(ApplicationError):
             copy_and_register_ducklake_data_imports_activity(inputs)
     else:
         assert copy_and_register_ducklake_data_imports_activity(inputs) is (outcome == "published")
+    if outcome == "namespace_missing":
+        assert fake_s3.copy_destinations == []
+        return
+    assert session_requests[0] is True
 
     [landed] = fake_s3.copy_destinations
     assert re.fullmatch(

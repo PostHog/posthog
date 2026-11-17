@@ -1,7 +1,7 @@
 import re
 import json
 import uuid
-import dataclasses
+import datetime as dt
 from collections.abc import Callable
 from pathlib import Path
 from typing import IO, Any
@@ -17,10 +17,12 @@ import pyarrow.parquet as pq
 from temporalio.exceptions import ApplicationError
 
 from products.managed_warehouse.backend.temporal import gigahog_client as client_module
-from products.managed_warehouse.backend.temporal.gigahog_client import GigahogConfig
+from products.managed_warehouse.backend.temporal.gigahog_client import GigahogClient, GigahogConfig
 from products.managed_warehouse.backend.temporal.gigahog_register_data_imports import (
     gigahog_columns,
+    gigahog_commit_refused,
     gigahog_landing_uri,
+    gigahog_team_filesystem,
     register_prepared_files_in_gigahog,
 )
 
@@ -45,8 +47,10 @@ CONFIG = GigahogConfig(
 class _FakeGigahog:
     """hogtower's token endpoint and the hoglake routes the writer calls, held in memory.
 
-    Like the public listener, it refuses requests without a current token and an `author` from a tenant token, keeps
-    a receipt per idempotency key, and refuses a changed body under a key it has seen.
+    The token endpoint answers a per-team exchange with a token and an S3 session for that team. Like the public
+    listener, Gigahog refuses requests without a current token, answers 404 for another team's namespace, refuses an
+    `author` from a scoped token, keeps a receipt per idempotency key, and refuses a changed body under a key it has
+    seen. Namespaces exist only when the test creates them, as hogtower's provisioner does.
     """
 
     def __init__(self) -> None:
@@ -57,12 +61,14 @@ class _FakeGigahog:
         self.receipts: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
         self.commits = 0
         self.tokens_issued = 0
-        self.valid_token: str | None = None
-        self.capabilities = ["atomic-partition-replacement-v1", "org-marked-containment-v1"]
+        self.valid_tokens: dict[str, int] = {}
+        self.known_teams = {TEAM}
+        self.token_expires_in = 900
+        self.storage_expires_at = "2099-01-01T00:00:00+00:00"
         # Faults the next commit request meets. "lost" commits and drops the response. "conflict" is another
         # writer's commit landing first. "unavailable" refuses without committing. "token_expired" expires the token.
+        # "unauthorized" answers 401 whatever the token.
         self.commit_faults: list[str] = []
-        # Faults the next token exchanges meet. "unavailable" answers 503.
         self.token_faults: list[str] = []
 
     def install(self, mocker: requests_mock.Mocker) -> None:
@@ -75,7 +81,9 @@ class _FakeGigahog:
         self.namespaces[f"team_{team_id}"] = {"field": "team_id", "value": team_id, "org": org}
 
     def _token(self, request: Any, context: Any) -> Any:
-        assert parse_qs(request.body) == {
+        form = parse_qs(request.body)
+        team_id = int(form.pop("team_id")[0])
+        assert form == {
             "grant_type": ["client_credentials"],
             "client_id": ["hlw_writer"],
             "client_secret": ["writer-secret"],
@@ -84,39 +92,50 @@ class _FakeGigahog:
             assert self.token_faults.pop(0) == "unavailable"
             context.status_code = 503
             return {"error": "unavailable"}
+        if team_id not in self.known_teams:
+            context.status_code = 400
+            return {"error": "invalid_target"}
         self.tokens_issued += 1
-        self.valid_token = f"token-{self.tokens_issued}"
-        return {"access_token": self.valid_token, "token_type": "Bearer", "expires_in": 900}
+        token = f"token-{self.tokens_issued}"
+        self.valid_tokens[token] = team_id
+        return {
+            "access_token": token,
+            "token_type": "Bearer",
+            "expires_in": self.token_expires_in,
+            "storage": {
+                "access_key_id": f"team-{team_id}-key",
+                "secret_access_key": f"team-{team_id}-secret",
+                "session_token": f"team-{team_id}-session",
+                "expires_at": self.storage_expires_at,
+                "region": "us-east-1",
+            },
+        }
 
     def __call__(self, request: Any, context: Any) -> Any:
         path = request.path.removeprefix(f"/v1/catalogs/{CATALOG}")
         body: dict[str, Any] = json.loads(request.body) if request.body else {}
         if path == "/commit/replacements/prepared" and self.commit_faults[:1] == ["token_expired"]:
             self.commit_faults.pop(0)
-            self.valid_token = None
-        if request.headers.get("Authorization") != f"Bearer {self.valid_token}":
+            self.valid_tokens.clear()
+        if path == "/commit/replacements/prepared" and self.commit_faults[:1] == ["unauthorized"]:
+            self.commit_faults.pop(0)
+            context.status_code = 401
+            return {"error": "unauthorized"}
+        token = request.headers.get("Authorization", "").removeprefix("Bearer ")
+        if token not in self.valid_tokens:
             context.status_code = 401
             return {"error": "unauthorized"}
         if "author" in body:
             context.status_code = 422
-            return {"error": "validation", "detail": "a tenant token cannot claim an author"}
-        if request.method == "GET" and path == "":
-            return {"name": CATALOG, "capabilities": self.capabilities}
-        if match := re.fullmatch(r"/namespaces/([^/]+)/containment", path):
-            assert request.method == "PUT"
-            if any(namespace == match.group(1) for namespace, _ in self.tables):
-                context.status_code = 409
-                return {"error": "namespace_not_empty"}
-            self.namespaces[match.group(1)] = body
-            return body
-        if request.method == "POST" and path == "/namespaces":
-            if body["name"] in self.namespaces:
-                context.status_code = 409
-                return {"error": "already_exists"}
-            self.namespaces[body["name"]] = None
-            context.status_code = 201
-            return {"name": body["name"]}
+            return {"error": "validation", "detail": "a scoped token cannot claim an author"}
+        namespace = re.match(r"/namespaces/([^/]+)", path)
+        if namespace and (
+            namespace.group(1) != f"team_{self.valid_tokens[token]}" or namespace.group(1) not in self.namespaces
+        ):
+            context.status_code = 404
+            return {"error": "namespace_not_found"}
         if match := re.fullmatch(r"/namespaces/([^/]+)", path):
+            assert request.method == "GET"
             containment = self.namespaces[match.group(1)]
             return {"name": match.group(1), **({"containment": containment} if containment else {})}
         if match := re.fullmatch(r"/namespaces/([^/]+)/tables", path):
@@ -190,7 +209,11 @@ class _LocalFiles:
 def gigahog():
     fake = _FakeGigahog()
     fake.mark(TEAM, ORG.lower())
-    with requests_mock.Mocker() as mocker, patch.object(client_module, "_TRANSIENT_BACKOFF_SECONDS", 0):
+    with (
+        requests_mock.Mocker() as mocker,
+        patch.object(client_module, "_TRANSIENT_BACKOFF_SECONDS", 0),
+        patch.dict(client_module._team_credentials, clear=True),
+    ):
         fake.install(mocker)
         yield fake
 
@@ -276,6 +299,38 @@ def test_registration_creates_the_team_table_and_each_sync_replaces_all_its_file
     assert _register(files, second_uri, second, attempt=uuid.uuid4().hex).row_count == 1
 
     assert [file["path"] for file in gigahog.live_files[("team_42", TABLE)]] == second
+    assert gigahog.tokens_issued == 1
+
+
+@pytest.mark.parametrize(
+    "case, exchanges",
+    [
+        ("cached", 1),
+        ("fresh_for_a_copy", 2),
+        ("other_team", 2),
+        # Renewal follows the earlier of the token's and the session's expiry.
+        ("token_expires_soon", 2),
+        ("session_expires_soon", 2),
+    ],
+)
+def test_team_credentials_cover_one_team_and_renew_before_they_expire(gigahog, case: str, exchanges: int) -> None:
+    gigahog.known_teams.add(TEAM + 1)
+    if case == "token_expires_soon":
+        gigahog.token_expires_in = 120
+    elif case == "session_expires_soon":
+        gigahog.storage_expires_at = (dt.datetime.now(dt.UTC) + dt.timedelta(seconds=120)).isoformat()
+
+    GigahogClient(CONFIG, team_id=TEAM).storage_session()
+    second_team = TEAM + 1 if case == "other_team" else TEAM
+    filesystem = gigahog_team_filesystem(GigahogClient(CONFIG, team_id=second_team), fresh=case == "fresh_for_a_copy")
+
+    assert gigahog.tokens_issued == exchanges
+    assert (filesystem.key, filesystem.secret, filesystem.token) == (
+        f"team-{second_team}-key",
+        f"team-{second_team}-secret",
+        f"team-{second_team}-session",
+    )
+    assert filesystem.client_kwargs == {"region_name": "us-east-1"}
 
 
 @pytest.mark.parametrize(
@@ -287,8 +342,6 @@ def test_registration_creates_the_team_table_and_each_sync_replaces_all_its_file
         (["token_expired"], []),
         # The token expires while the commit is being repeated, after the first attempt.
         (["unavailable", "token_expired"], []),
-        # Without a repeat, one failed exchange would throw away the whole copy, because the copy activity is not
-        # retried.
         ([], ["unavailable"]),
     ],
 )
@@ -315,9 +368,11 @@ def test_a_repeated_commit_lands_the_generation_once(
         ("unsupported_type", False),
         ("case_only_names", False),
         ("columns_with_field_ids", False),
-        # A table in an unmarked namespace would keep it from ever being marked, so the run waits for the mark.
+        ("namespace_missing", True),
         ("namespace_without_org_mark", True),
         ("namespace_of_another_org", False),
+        # hogtower's team sync has not reached the team yet.
+        ("team_unknown_to_hogtower", True),
     ],
 )
 def test_registration_refuses_without_committing(gigahog, files, case, retryable) -> None:
@@ -328,8 +383,12 @@ def test_registration_refuses_without_committing(gigahog, files, case, retryable
         landing_uri = landing_uri.replace("team_id=42", "team_id=43")
     elif case == "data_in_hive_partition":
         hive_partition_columns = ("_ph_partition_key", "region")
-    elif case == "namespace_without_org_mark":
+    elif case == "namespace_missing":
         del gigahog.namespaces["team_42"]
+    elif case == "namespace_without_org_mark":
+        gigahog.namespaces["team_42"] = None
+    elif case == "team_unknown_to_hogtower":
+        gigahog.known_teams.clear()
     elif case == "namespace_of_another_org":
         gigahog.mark(TEAM, str(uuid.UUID(int=1)))
     elif case == "changed_columns":
@@ -354,32 +413,32 @@ def test_registration_refuses_without_committing(gigahog, files, case, retryable
 
     assert raised.value.non_retryable is not retryable
     assert gigahog.commits == 0
-    if case.startswith("namespace_"):
+    if case.startswith(("namespace_", "team_")):
         assert gigahog.tables == {}
+        assert ("team_42" in gigahog.namespaces) is (case != "namespace_missing")
     if case == "changed_columns":
         assert gigahog.live_files[("team_42", TABLE)] == [{"path": "old"}]
 
 
-@pytest.mark.parametrize("server_can_mark", [True, False])
-def test_an_enabled_writer_marks_a_new_namespace_before_its_first_table(gigahog, files, server_can_mark) -> None:
-    del gigahog.namespaces["team_42"]
-    if not server_can_mark:
-        # An older server would confine the namespace to `data/team_42/` and refuse every import file.
-        gigahog.capabilities.remove("org-marked-containment-v1")
+@pytest.mark.parametrize(
+    "commit_faults, refused",
+    [
+        (["conflict"] * 3, True),
+        # The first send may have committed, and a 401 on the repeat comes before Gigahog looks up its receipt.
+        (["unavailable", "unauthorized", "unauthorized"], False),
+    ],
+)
+def test_a_commit_counts_as_refused_only_when_no_send_may_have_landed(
+    gigahog, files, commit_faults: list[str], refused: bool
+) -> None:
+    gigahog.commit_faults = commit_faults
     landing_uri = _landing_uri()
     paths = _write_generation(files, landing_uri, {"a.parquet": _charges(1)})
-    config = dataclasses.replace(CONFIG, mark_namespaces=True)
 
-    if server_can_mark:
-        assert _register(files, landing_uri, paths, config=config).published
-        assert gigahog.namespaces["team_42"] == {"field": "team_id", "value": 42, "org": ORG.lower()}
-        assert gigahog.commits == 1
-        return
     with pytest.raises(ApplicationError) as raised:
-        _register(files, landing_uri, paths, config=config)
-    assert raised.value.non_retryable is False
-    assert gigahog.namespaces["team_42"] is None
-    assert gigahog.tables == {}
+        _register(files, landing_uri, paths)
+
+    assert gigahog_commit_refused(raised.value) is refused
 
 
 @pytest.mark.parametrize("stale_after_a_conflict", [False, True])

@@ -7,6 +7,9 @@ import in HogQL, and reach the customer later as `hoglake.team_<id>.<table>`. Th
 One replacement commit ends every live file of the table and adds the generation's files in one snapshot, so readers
 see the old rows or the new rows, never a mix.
 
+hogtower's provisioner creates and org-marks each `team_<id>`. The writer never creates a namespace, and refuses to
+write to one that is missing or not marked as the team's.
+
 This module must not import the workflow module: the workflow imports it.
 """
 
@@ -17,6 +20,7 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+import s3fs
 import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
@@ -24,16 +28,17 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 
+from products.data_warehouse.backend.facade.api import boto_proxy_config_kwargs
 from products.managed_warehouse.backend.backfill_trino import hoglake_schema
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_trino import ParquetFilesystem
 from products.managed_warehouse.backend.temporal.gigahog_client import (
-    ORG_MARKED_CONTAINMENT_CAPABILITY,
     GigahogClient,
     GigahogColumn,
     GigahogConfig,
     GigahogError,
     GigahogFile,
     GigahogTable,
+    GigahogTokenError,
 )
 from products.managed_warehouse.backend.temporal.hoglake_register_data_imports import DROPPABLE_HIVE_PARTITION_COLUMNS
 
@@ -91,7 +96,6 @@ def gigahog_config(
     token_url: str | None,
     client_id: str | None,
     client_secret: str | None,
-    mark_namespaces: bool = False,
 ) -> GigahogConfig | None:
     """The writer's configuration, or None when the worker has no Gigahog to write to."""
     if not url:
@@ -111,7 +115,32 @@ def gigahog_config(
         token_url=token_url,
         client_id=client_id,
         client_secret=client_secret,
-        mark_namespaces=mark_namespaces,
+    )
+
+
+def gigahog_team_filesystem(client: GigahogClient, *, fresh: bool = False) -> s3fs.S3FileSystem:
+    """An S3 filesystem on the team's session, which reads the team's prepared files and writes its Gigahog prefix.
+
+    The session's credentials are fixed for the filesystem's life, so a long copy asks for a `fresh` session.
+    """
+    try:
+        storage = client.storage_session(fresh=fresh)
+    except GigahogError as error:
+        raise ApplicationError(str(error), non_retryable=not error.retryable) from error
+    return s3fs.S3FileSystem(
+        key=storage.access_key_id,
+        secret=storage.secret_access_key,
+        token=storage.session_token,
+        client_kwargs={"region_name": storage.region} if storage.region else {},
+        # botocore checks a ranged read, such as a Parquet footer, against the whole object's checksum and fails, so
+        # checksums are used only where a request requires one, as in get_s3_client.
+        config_kwargs={
+            "request_checksum_calculation": "when_required",
+            "response_checksum_validation": "when_required",
+            **boto_proxy_config_kwargs(),
+        },
+        # The session is the team's, so a cached instance must not serve another team or outlive the session.
+        skip_instance_cache=True,
     )
 
 
@@ -227,30 +256,29 @@ def _read_prepared_files(filesystem: ParquetFilesystem, paths: Sequence[str]) ->
         return list(executor.map(read, paths))
 
 
-def _require_org_mark(client: GigahogClient, namespace: str, *, organization_id: str, team_id: int, mark: bool) -> None:
-    """Refuse a namespace that is not marked as the team's, before any table goes in.
+def require_gigahog_namespace(client: GigahogClient, *, organization_id: str, team_id: int) -> None:
+    """Refuse to write unless `team_<id>` exists and is marked as the team's, with its org.
 
-    Gigahog serves `team_<id>` to customers only when the namespace carries the org mark, and it refuses to mark a
-    namespace that has ever held a table. A table created before the mark would therefore keep the team's imports
-    from customers for good. With `mark`, the writer sets a missing mark itself; otherwise an operator or the
-    provisioner sets it.
+    hogtower's provisioner creates and marks the namespace, so a missing or unmarked one fails the run without
+    creating anything, and a later sync writes once the provisioner has caught up. Gigahog answers 404 to a token of
+    another org, so that case fails the same way.
     """
-    containment = client.namespace(namespace).containment
+    namespace = hoglake_schema(team_id)
     expected_org = str(uuid.UUID(str(organization_id)))
-    if containment is None and mark:
-        if ORG_MARKED_CONTAINMENT_CAPABILITY not in client.capabilities():
-            raise ApplicationError(
-                f"The Gigahog catalog does not list {ORG_MARKED_CONTAINMENT_CAPABILITY}, so namespace {namespace} "
-                "cannot carry the org mark yet",
-                non_retryable=False,
-            )
-        client.mark_namespace(namespace, team_id=team_id, org=expected_org)
-        LOGGER.info("Marked the team's Gigahog namespace with its org", namespace=namespace)
+    try:
         containment = client.namespace(namespace).containment
+    except GigahogError as error:
+        if error.status_code != 404 or isinstance(error, GigahogTokenError):
+            raise ApplicationError(str(error), non_retryable=not error.retryable) from error
+        raise ApplicationError(
+            f"Gigahog has no namespace {namespace} for organization {expected_org} yet. hogtower's provisioner creates "
+            "it when the team is enabled for Gigahog imports.",
+            non_retryable=False,
+        ) from error
     if containment is None or containment.org is None:
         raise ApplicationError(
-            f"Gigahog namespace {namespace} has no org mark yet. Mark it as team {team_id} of organization "
-            f"{expected_org} before the first import.",
+            f"Gigahog namespace {namespace} has no org mark yet. hogtower's provisioner marks it as team {team_id} of "
+            f"organization {expected_org}.",
             non_retryable=False,
         )
     if (containment.field, containment.value, containment.org) != ("team_id", int(team_id), expected_org):
@@ -333,13 +361,9 @@ def register_prepared_files_in_gigahog(
     row_count = sum(file.num_rows for file in prepared)
 
     owned_client = client is None
-    gigahog = client or GigahogClient(config)
+    gigahog = client or GigahogClient(config, team_id=team_id)
     try:
-        if gigahog.create_namespace(namespace):
-            LOGGER.info("Created the team's Gigahog namespace", namespace=namespace, catalog=config.catalog)
-        _require_org_mark(
-            gigahog, namespace, organization_id=organization_id, team_id=team_id, mark=config.mark_namespaces
-        )
+        require_gigahog_namespace(gigahog, organization_id=organization_id, team_id=team_id)
         files = [
             GigahogFile(
                 path=file.path,

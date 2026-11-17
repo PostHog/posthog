@@ -11,7 +11,7 @@ import datetime as dt
 import threading
 import contextlib
 import dataclasses
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -72,12 +72,14 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
     staging_table_minted_at,
     staging_table_name,
 )
-from products.managed_warehouse.backend.temporal.gigahog_client import GigahogConfig
+from products.managed_warehouse.backend.temporal.gigahog_client import GigahogClient, GigahogConfig
 from products.managed_warehouse.backend.temporal.gigahog_register_data_imports import (
     gigahog_commit_refused,
     gigahog_config,
     gigahog_landing_uri,
+    gigahog_team_filesystem,
     register_prepared_files_in_gigahog,
+    require_gigahog_namespace,
 )
 from products.managed_warehouse.backend.temporal.hoglake_register_data_imports import (
     cleanup_hoglake_registration_tables,
@@ -411,7 +413,6 @@ def _gigahog_config() -> GigahogConfig | None:
         token_url=settings.GIGAHOG_IMPORTS_TOKEN_URL,
         client_id=settings.GIGAHOG_IMPORTS_CLIENT_ID,
         client_secret=settings.GIGAHOG_IMPORTS_CLIENT_SECRET,
-        mark_namespaces=settings.GIGAHOG_IMPORTS_MARK_NAMESPACES,
     )
 
 
@@ -564,12 +565,11 @@ async def _prepare_gigahog_registration(
 ) -> DuckLakeRegisterDataImportsMetadata:
     assert schema.table is not None
     table_name = hoglake_import_table_name(schema.table.name)
-    if await database_sync_to_async(_import_table_name_taken)(
-        team_id=inputs.team_id, table_name=table_name, table_id=schema.table.id
-    ):
+    holder = await database_sync_to_async(_import_table_name_holder)(team_id=inputs.team_id, table_name=table_name)
+    if holder is not None and holder != schema.table.id:
         raise ApplicationError(
-            f"Another import table of team {inputs.team_id} has the name '{table_name}', so the two would replace "
-            "each other in Gigahog",
+            f"Import table {holder} of team {inputs.team_id} already holds the name '{table_name}' in Gigahog, so "
+            "this import is not written there until it has a name of its own",
             non_retryable=True,
         )
     config = _gigahog_config()
@@ -594,14 +594,19 @@ async def _prepare_gigahog_registration(
     )
 
 
-def _import_table_name_taken(*, team_id: int, table_name: str, table_id: uuid.UUID) -> bool:
-    # HogQL does not keep import table names unique within a team, and Gigahog holds one table per name.
+def _import_table_name_holder(*, team_id: int, table_name: str) -> uuid.UUID | None:
+    """The import table that holds `table_name` in the team's Gigahog namespace: the earliest created one.
+
+    HogQL does not keep import table names unique within a team, and Gigahog holds one table per name. A later import
+    is refused from its first sync on, so the earliest one is the first holder and keeps syncing.
+    """
     return (
         DataWarehouseTable.objects.filter(team_id=team_id, name__iexact=table_name, external_data_source__isnull=False)
         .exclude(deleted=True)
         .exclude(external_data_source__deleted=True)
-        .exclude(id=table_id)
-        .exists()
+        .order_by("created_at", "id")
+        .values_list("id", flat=True)
+        .first()
     )
 
 
@@ -785,9 +790,10 @@ def _finish_prepared_registration(
     logger: typing.Any,
     message: str,
     table_field: str,
+    delete_landing_files: Callable[[], None],
 ) -> bool:
     if not published:
-        _delete_trino_landing_files(landing_uri, logger=logger)
+        delete_landing_files()
         _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
         return False
 
@@ -875,6 +881,7 @@ def _copy_and_register_in_hoglake(
             logger=logger,
             message="Copied and registered prepared Parquet files in hoglake",
             table_field="hoglake_table",
+            delete_landing_files=lambda: _delete_trino_landing_files(landing_uri, logger=logger),
         )
 
 
@@ -907,10 +914,19 @@ def _copy_and_register_in_gigahog(
         nonlocal commit_started
         commit_started = True
 
-    with heartbeater:
+    with heartbeater, GigahogClient(config, team_id=inputs.team_id) as client:
+        require_gigahog_namespace(client, organization_id=organization_id, team_id=inputs.team_id)
+
+        def delete_landing_files() -> None:
+            _delete_gigahog_landing_files(client, landing_uri, logger=logger)
+
         try:
+            # The worker's own role cannot write to Gigahog, so every S3 call uses the team's session. A filesystem's
+            # credentials cannot be renewed, so the copy gets a session with its full lifetime.
             with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
-                landing_paths, copied_bytes = _copy_prepared_parquet_files(metadata.prepared_source_uri, landing_uri)
+                landing_paths, copied_bytes = _copy_prepared_parquet_files(
+                    metadata.prepared_source_uri, landing_uri, s3=gigahog_team_filesystem(client, fresh=True)
+                )
             with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=schema_id):
                 result = register_prepared_files_in_gigahog(
                     config=config,
@@ -921,15 +937,16 @@ def _copy_and_register_in_gigahog(
                     landing_uri=landing_uri,
                     landing_paths=landing_paths,
                     hive_partition_columns=_hive_partition_columns(landing_uri, landing_paths),
-                    filesystem=get_s3_client(),
+                    filesystem=gigahog_team_filesystem(client),
                     should_publish=lambda: _should_publish_prepared_generation(inputs),
                     before_commit=mark_commit_started,
+                    client=client,
                 )
         except Exception as error:
             # No table references this execution's files before the commit or after Gigahog refuses it, and no other
             # execution writes here. A commit with an unknown outcome may reference them, so they stay.
             if not commit_started or gigahog_commit_refused(error):
-                _delete_trino_landing_files(landing_uri, logger=logger)
+                delete_landing_files()
             raise
         return _finish_prepared_registration(
             inputs,
@@ -942,7 +959,18 @@ def _copy_and_register_in_gigahog(
             logger=logger,
             message="Copied prepared Parquet files to Gigahog and committed them",
             table_field="gigahog_table",
+            delete_landing_files=delete_landing_files,
         )
+
+
+def _delete_gigahog_landing_files(client: GigahogClient, landing_uri: str, *, logger: typing.Any) -> None:
+    try:
+        filesystem = gigahog_team_filesystem(client)
+    except Exception as error:
+        logger.warning("Failed to get the team's S3 session to delete Gigahog landing files", error=str(error))
+        capture_exception(error)
+        return
+    _delete_trino_landing_files(landing_uri, logger=logger, s3=filesystem)
 
 
 def _copy_and_register_through_trino(
@@ -1027,30 +1055,48 @@ def _copy_and_register_through_trino(
         return True
 
 
-def _trino_landing_files(landing_uri: str) -> list[str]:
-    s3 = get_s3_client()
+def _trino_landing_files(landing_uri: str, *, s3: typing.Any = None) -> list[str]:
+    s3 = get_s3_client() if s3 is None else s3
     # The trailing slash keeps the listing inside this execution's folder.
     prefix = landing_uri.removeprefix("s3://").rstrip("/") + "/"
     s3.invalidate_cache(prefix)
-    return list(s3.find(prefix))
+    return list(_find_under(s3, prefix))
 
 
-def _delete_trino_landing_files(landing_uri: str, *, logger: typing.Any) -> None:
+def _find_under(s3: typing.Any, folder: str, *, detail: bool = False) -> typing.Any:
+    """`s3.find(folder)`, where an empty folder lists as empty.
+
+    When a listing is empty, s3fs looks the folder up as an object, and S3 answers that HeadObject with 403, not 404,
+    to a session whose ListBucket grant is limited to a prefix, as the team's Gigahog session is. Listing again with
+    the folder as `prefix` skips that lookup, so an empty answer there means the folder is empty, and a refusal there
+    is a real one.
+    """
     try:
-        paths = _trino_landing_files(landing_uri)
+        return s3.find(folder, detail=detail)
+    except PermissionError:
+        parent, name = folder.rstrip("/").rsplit("/", 1)
+        if s3.find(parent, prefix=f"{name}/", detail=detail):
+            raise
+        return {} if detail else []
+
+
+def _delete_trino_landing_files(landing_uri: str, *, logger: typing.Any, s3: typing.Any = None) -> None:
+    try:
+        s3 = get_s3_client() if s3 is None else s3
+        paths = _trino_landing_files(landing_uri, s3=s3)
         if paths:
-            get_s3_client().rm(paths)
-        remaining = _trino_landing_files(landing_uri)
+            s3.rm(paths)
+        remaining = _trino_landing_files(landing_uri, s3=s3)
         if remaining:
             raise RuntimeError(f"{len(remaining)} files remain after the delete")
         logger.info(
-            "Deleted the files of a Trino registration attempt that added none of them",
+            "Deleted the files of a registration attempt that added none of them",
             landing_uri=landing_uri,
             file_count=len(paths),
         )
     except Exception as error:
         logger.warning(
-            "Failed to delete the files of a Trino registration attempt that added none of them",
+            "Failed to delete the files of a registration attempt that added none of them",
             landing_uri=landing_uri,
             error=str(error),
         )
@@ -1137,16 +1183,16 @@ def _generation_scoped_landing_uri(
     raise ApplicationError("DuckLake landing URI does not match the registration job", non_retryable=True)
 
 
-def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[list[str], int]:
+def _copy_prepared_parquet_files(source_uri: str, landing_uri: str, *, s3: typing.Any = None) -> tuple[list[str], int]:
     source_prefix = source_uri.removeprefix("s3://").rstrip("/")
     landing_prefix = landing_uri.removeprefix("s3://").rstrip("/")
-    s3 = get_s3_client()
+    s3 = get_s3_client() if s3 is None else s3
     # The client is cached per thread for the life of the worker, and its listings never expire.
     # s3fs find() never replaces a listing that is already cached, and copy() reads the details of
     # each source file from that listing. A rotating prepared folder that was rewritten with new
     # file names would fail with FileNotFoundError, so start from an empty cache.
     s3.invalidate_cache()
-    found = s3.find(source_prefix, detail=True)
+    found = _find_under(s3, source_prefix, detail=True)
     source_paths = list(found.keys()) if isinstance(found, dict) else list(found)
     parquet_paths = sorted(str(path) for path in source_paths if str(path).lower().endswith(".parquet"))
     if not parquet_paths:
