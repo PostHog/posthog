@@ -55,7 +55,7 @@ IMPACT_COUNTS = {
     "untracked": 2,
     "window_days": 7,
 }
-LONG_ID_SENDS = 15
+LONG_ID_SENDS = 20
 SMALL_MAX_QUERY_SIZE = 16 * 1024
 
 
@@ -651,7 +651,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         }
 
     def test_counts_conversions_of_sends_whose_ids_overflow_one_clickhouse_query(self, _flag):
-        long_distinct_ids = [f"long-{index:02d}-{'x' * 370}" for index in range(LONG_ID_SENDS)]
+        long_distinct_ids = [f"long-{index:02d}-{'€' * 380}" for index in range(LONG_ID_SENDS)]
         for minutes_ago, distinct_id in enumerate(long_distinct_ids, start=10):
             create_person(team=self.team, distinct_ids=[distinct_id])
             message_id = self._send(minutes_ago, f"{distinct_id}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
@@ -666,7 +666,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         with (
             patch("posthog.clickhouse.client.execute.default_settings", return_value=small_clickhouse_queries),
             patch(
-                "products.messaging.backend.services.transactional_email_log._CONVERSION_QUERY_BYTES",
+                "products.messaging.backend.services.transactional_email_log._BATCH_QUERY_BYTES",
                 SMALL_MAX_QUERY_SIZE // 4,
             ),
         ):

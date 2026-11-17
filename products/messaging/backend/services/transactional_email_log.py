@@ -5,7 +5,7 @@ sending domain, and opens and clicks add rows of their own. The delivery status 
 delivery row, so an open never hides a bounce.
 """
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import Any, cast
@@ -59,7 +59,7 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
-_CONVERSION_QUERY_BYTES = MAX_QUERY_SIZE_BYTES // 4
+_BATCH_QUERY_BYTES = MAX_QUERY_SIZE_BYTES // 4
 _DISTINCT_ID_COPIES_IN_QUERY = 3
 _SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
 IMPACT_WINDOW_DAYS = 7
@@ -716,21 +716,21 @@ def _sends_to_follow(team: Team, user: User | None, workflow_id: str, period: _P
 
 def _converted_sends(team: Team, user: User | None, event: str, sends: list[_FollowedSend]) -> set[str]:
     converted: set[str] = set()
-    for batch in _batches_by_query_size(sends):
+    for batch in _batches_by_query_size(sends, _query_bytes_of):
         converted |= _converted_in_batch(team, user, event, batch)
     return converted
 
 
-def _batches_by_query_size(sends: list[_FollowedSend]) -> Iterator[list[_FollowedSend]]:
-    batch: list[_FollowedSend] = []
+def _batches_by_query_size[T](items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:
+    batch: list[T] = []
     batch_bytes = 0
-    for send in sends:
-        send_bytes = _query_bytes_of(send)
-        if batch and batch_bytes + send_bytes > _CONVERSION_QUERY_BYTES:
+    for item in items:
+        item_bytes = query_bytes_of(item)
+        if batch and batch_bytes + item_bytes > _BATCH_QUERY_BYTES:
             yield batch
             batch, batch_bytes = [], 0
-        batch.append(send)
-        batch_bytes += send_bytes
+        batch.append(item)
+        batch_bytes += item_bytes
     if batch:
         yield batch
 
@@ -796,6 +796,13 @@ def _conversions_of(sends: list[_FollowedSend], converted: set[str]) -> Transact
 
 
 def _persons_for_distinct_ids(team: Team, user: User | None, distinct_ids: list[str]) -> dict[str, str]:
+    persons: dict[str, str] = {}
+    for batch in _batches_by_query_size(distinct_ids, _escaped_literal_bytes):
+        persons |= _persons_in_batch(team, user, batch)
+    return persons
+
+
+def _persons_in_batch(team: Team, user: User | None, distinct_ids: list[str]) -> dict[str, str]:
     response = execute_hogql_query(
         """
         SELECT distinct_id, toString(person_id) FROM person_distinct_ids
