@@ -83,15 +83,17 @@ function sameTeams(a: string[], b: string[]): boolean {
 }
 
 /**
- * A non-blank expression is always sent, so saving pins it to the current catalog version again.
- * Clearing the text removes the filter instead of saving a blank one.
+ * The expression is sent only when it changed. An unchanged filter keeps the catalog version it was
+ * saved on, so a teams-only save cannot fail on a field that a newer catalog dropped. Clearing the
+ * text removes the filter instead of saving a blank one.
  */
 function changeFrom(values: SourceFilterFormValues, config: SignalSourceConfig): SourceFilterChange {
     const change: SourceFilterChange = {}
     const trimmed = values.expression.trim()
-    if (trimmed) {
+    const saved = savedSourceFilter(config.config)
+    if (trimmed && trimmed !== saved?.expression.trim()) {
         change.expression = trimmed
-    } else if (savedSourceFilter(config.config)) {
+    } else if (!trimmed && saved) {
         change.expression = null
     }
     if (sourceReadsLinearTeams(config)) {

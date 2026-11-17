@@ -89,6 +89,12 @@ describe('sourceFilterModalLogic', () => {
             { config_remove: ['hogql_filter'] },
         ],
         [
+            'leaves an unchanged filter on its catalog version when only teams change',
+            { hogql_filter: { expression: "project_name = 'Mobile'", catalog_version: 1 } },
+            { teamScope: 'all' as const },
+            { config_set: { linear_team_ids: [] } },
+        ],
+        [
             'saves teams and the filter in one request',
             {},
             { expression: 'assignee_id IS NULL', teamScope: 'all' as const },

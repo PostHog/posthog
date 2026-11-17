@@ -133,7 +133,7 @@ export function SourceFilterModal({
                     {savedOnOlderCatalog && (
                         <LemonBanner type="info">
                             This filter was saved before the {sourceLabel} fields last changed. It keeps working as
-                            saved. Saving it again checks it against the current fields.
+                            saved. Editing it checks it against the current fields.
                         </LemonBanner>
                     )}
                     {teamsEditable && (
