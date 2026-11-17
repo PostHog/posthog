@@ -39,7 +39,11 @@ from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
 from products.replay_vision.backend import quota
-from products.replay_vision.backend.api.scanners import HighlightFeedQuerySerializer, ReplayScannerSerializer
+from products.replay_vision.backend.api.scanners import (
+    HighlightFeedQuerySerializer,
+    ReplayScannerSerializer,
+    ScannerScopeField,
+)
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
@@ -76,6 +80,7 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import estim
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_access import recording_viewer_access
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
+from products.replay_vision.backend.scope.experiment import VariantsSource
 from products.replay_vision.backend.search import ObservationMatch
 from products.replay_vision.backend.semantic_clusters import cluster_status
 from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
@@ -1629,6 +1634,162 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
     def test_list_filter_rejects_non_positive_integers(self, _name: str, value: str) -> None:
         resp = self.client.get(f"{self.scanners_url}?experiment_id={value}")
         self.assertEqual(resp.status_code, 400)
+
+
+class TestScannerScopeShape(SimpleTestCase):
+    """Field-level scope validation, which runs in `to_internal_value` before anything reads a row."""
+
+    @parameterized.expand(
+        [
+            ("unknown_kind", {"kind": "funnel", "experiment_id": 9, "variants": ["a"]}, "kind"),
+            ("missing_kind", {"experiment_id": 9, "variants": ["a"]}, "kind"),
+            ("missing_experiment", {"kind": "experiment", "variants": ["a"]}, "experiment_id"),
+            ("bad_experiment_id", {"kind": "experiment", "experiment_id": 0, "variants": ["a"]}, "experiment_id"),
+            ("empty_variants", {"kind": "experiment", "experiment_id": 9, "variants": []}, "variants"),
+            ("missing_variants", {"kind": "experiment", "experiment_id": 9}, "variants"),
+            ("blank_variant", {"kind": "experiment", "experiment_id": 9, "variants": [""]}, "variants"),
+            ("not_an_object", "nope", None),
+        ]
+    )
+    def test_rejects_a_malformed_scope(self, _name: str, scope: Any, field: str | None) -> None:
+        # `variants` is required and non-empty on purpose: the scope model has no value meaning
+        # "every variant", so a writer that omits it would silently watch nothing.
+        with self.assertRaises(DRFValidationError) as caught:
+            ScannerScopeField().to_internal_value(scope)
+        if field is not None:
+            self.assertIn(field, str(caught.exception.detail))
+
+    def test_accepts_a_scope_and_defaults_the_variants_source(self) -> None:
+        value = ScannerScopeField().to_internal_value(
+            {"kind": "experiment", "experiment_id": 9, "variants": ["control", "test"]}
+        )
+
+        self.assertEqual(value["experiment_id"], 9)
+        self.assertEqual(value["variants"], ["control", "test"])
+        # Defaults to the narrower meaning, so the launch receiver does not extend a list a person picked.
+        self.assertEqual(value["variants_source"], VariantsSource.USER)
+
+
+class TestScannerScope(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.experiment = create_experiment(self.team, "scope-exp", launched=True, variants=["control", "test"])
+        self.scope = {"kind": "experiment", "experiment_id": self.experiment.id, "variants": ["control", "test"]}
+
+    def _payload(self, name: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "name": name,
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_8_FLASH,
+            **extra,
+        }
+
+    def test_scope_round_trips_and_clears(self) -> None:
+        resp = self.client.post(self.scanners_url, data=self._payload("scoped", scope=self.scope), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(resp.json()["scope"]["experiment_id"], self.experiment.id)
+        self.assertEqual(resp.json()["scope"]["variants"], ["control", "test"])
+
+        scanner_id = resp.json()["id"]
+        resp = self.client.patch(f"{self.scanners_url}{scanner_id}/", data={"scope": None}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertIsNone(resp.json()["scope"])
+
+    def test_scope_rejects_an_experiment_the_caller_cannot_view(self) -> None:
+        with patch("products.replay_vision.backend.api.scanners.is_experiment_accessible", return_value=False):
+            resp = self.client.post(self.scanners_url, data=self._payload("denied", scope=self.scope), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertIn("not found", str(resp.json()).lower())
+
+    def test_scope_rejects_a_variant_the_experiment_does_not_define(self) -> None:
+        bad = {**self.scope, "variants": ["control", "nope"]}
+
+        resp = self.client.post(self.scanners_url, data=self._payload("bad-variant", scope=bad), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+
+    @parameterized.expand(
+        [
+            ("experiment_id", "experiment_id", 424242),
+            ("kind", "kind", "funnel"),
+        ]
+    )
+    def test_the_fixed_scope_keys_cannot_move(self, _name: str, key: str, value: Any) -> None:
+        scanner = self._create_scanner(name="fixed", scope=self.scope)
+
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/", data={"scope": {**self.scope, key: value}}, format="json"
+        )
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+
+    def test_variants_stay_editable(self) -> None:
+        scanner = self._create_scanner(name="editable", scope=self.scope)
+
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/", data={"scope": {**self.scope, "variants": ["control"]}}, format="json"
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["scope"]["variants"], ["control"])
+
+    def test_a_denied_caller_reads_no_scope_but_still_reads_the_summary(self) -> None:
+        scanner = self._create_scanner(name="redacted", scope=self.scope)
+
+        with patch("products.replay_vision.backend.api.scanners.is_experiment_accessible", return_value=False):
+            resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertIsNone(resp.json()["scope"])
+        self.assertEqual(resp.json()["scope_summary"], "An experiment, 2 variants")
+
+    def test_a_denied_callers_save_does_not_clear_the_scope(self) -> None:
+        scanner = self._create_scanner(name="keepme", scope=self.scope)
+
+        with patch("products.replay_vision.backend.api.scanners.is_experiment_accessible", return_value=False):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/", data={"name": "renamed", "scope": None}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        assert scanner.scope is not None
+        self.assertEqual(scanner.scope["experiment_id"], self.experiment.id)
+
+    def test_filters_by_scope_kind_and_experiment_id(self) -> None:
+        scoped = self._create_scanner(name="has-scope", scope=self.scope)
+        self._create_scanner(name="no-scope")
+
+        by_kind = self.client.get(f"{self.scanners_url}?scope_kind=experiment")
+        self.assertEqual([r["id"] for r in by_kind.json()["results"]], [str(scoped.id)])
+
+        # Reads the scope column, which is the lookup the partial expression index serves.
+        by_experiment = self.client.get(f"{self.scanners_url}?experiment_id={self.experiment.id}")
+        self.assertEqual([r["id"] for r in by_experiment.json()["results"]], [str(scoped.id)])
+
+    @parameterized.expand(
+        [
+            ("experiment_type", {"scanner_type": ScannerType.EXPERIMENT, "scanner_config": {"prompt": "p"}}),
+            ("legacy_targeting", {"experiment_targeting": {"experiment_id": 9, "variant": "test"}}),
+        ]
+    )
+    def test_the_flag_refuses_the_older_shapes(self, _name: str, extra: dict[str, Any]) -> None:
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=True):
+            resp = self.client.post(self.scanners_url, data=self._payload("legacy", **extra), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+
+    def test_without_the_flag_the_older_shapes_still_write(self) -> None:
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=False):
+            resp = self.client.post(
+                self.scanners_url,
+                data=self._payload("legacy-ok", experiment_targeting={"experiment_id": self.experiment.id}),
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
 
 
 class TestScannerLifecycleTelemetry(_VisionAPITestCase):

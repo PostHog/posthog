@@ -186,7 +186,9 @@ from products.replay_vision.backend.scanning import (
     scan_existing_scanner,
     scan_outcome_counts,
 )
-from products.replay_vision.backend.scope.load import experiment_id_of
+from products.replay_vision.backend.scope.experiment import ExperimentScope, VariantsSource
+from products.replay_vision.backend.scope.flag import scope_api_enabled
+from products.replay_vision.backend.scope.load import experiment_id_of, scope_for
 from products.replay_vision.backend.scout_writes import (
     check_scout_scanner_credit_limit,
     refuse_scout_scanner_delete,
@@ -463,6 +465,67 @@ class ScannerExperimentTargetingSerializer(serializers.Serializer):
     )
 
 
+class ScannerExperimentScopeSerializer(serializers.Serializer):
+    """An experiment scope: the sessions of people exposed to an experiment, labeled by variant."""
+
+    kind = serializers.ChoiceField(
+        choices=[(ExperimentScope.kind, "Experiment")],
+        help_text="The kind of scope. Only `experiment` exists today.",
+    )
+    experiment_id = serializers.IntegerField(
+        min_value=1,
+        help_text="The experiment whose exposed sessions the scanner watches.",
+    )
+    variants = serializers.ListField(
+        child=serializers.CharField(max_length=400, allow_blank=False),
+        allow_empty=False,
+        help_text=(
+            "Every variant the scanner watches, named explicitly. Read them from the experiment "
+            "first. There is no value that means every variant, so a variant added to the "
+            "experiment later is not watched until it is added here."
+        ),
+    )
+    variants_source = serializers.ChoiceField(
+        choices=VariantsSource.choices,
+        required=False,
+        default=VariantsSource.USER,
+        help_text=(
+            "Whether `variants` was the experiment's full variant set when the scanner was made, "
+            "or a subset someone picked. The launch receiver adds new variants only to the first."
+        ),
+    )
+
+
+SCOPE_SERIALIZERS: dict[str, type[serializers.Serializer]] = {
+    ExperimentScope.kind: ScannerExperimentScopeSerializer,
+}
+
+
+@extend_schema_field(ScannerExperimentScopeSerializer(allow_null=True))
+class ScannerScopeField(serializers.JSONField):
+    """The scope blob, validated whole against the serializer its `kind` names.
+
+    A JSONField subclass for the same reason as `ScannerExperimentTargetingField`: a partial PATCH
+    must not save a half-filled scope, and DRF propagates the parent's `partial` into a nested
+    serializer. Each write goes through a fresh non-partial serializer instead.
+    """
+
+    def to_internal_value(self, data: Any) -> Any:
+        data = super().to_internal_value(data)
+        if data is None:
+            return None
+        if not isinstance(data, dict):
+            raise serializers.ValidationError("Scope must be an object.")
+        kind = data.get("kind")
+        nested_cls = SCOPE_SERIALIZERS.get(kind) if isinstance(kind, str) else None
+        if nested_cls is None:
+            known = ", ".join(sorted(SCOPE_SERIALIZERS))
+            raise serializers.ValidationError({"kind": f"Unknown scope kind. Known kinds: {known}."})
+        nested = nested_cls(data=data)
+        nested.is_valid(raise_exception=True)
+        return dict(nested.validated_data)
+
+
 @extend_schema_field(ScannerExperimentTargetingSerializer(allow_null=True))
 class ScannerExperimentTargetingField(serializers.JSONField):
     """The experiment-targeting blob, always validated whole.
@@ -492,6 +555,17 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "The experiment this scanner's targeting watches, if any. "
             "Set null when the experiment targeting is removed."
         ),
+    )
+    scope = ScannerScopeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Which sessions the scanner watches beyond its filters, and the label it gives each "
+            "one. Null watches every session the filters match. Set null to remove the scope."
+        ),
+    )
+    scope_summary = serializers.SerializerMethodField(
+        help_text="What this scanner's scope watches, for a reader that cannot see the experiment.",
     )
     name = serializers.CharField(
         max_length=255,
@@ -752,6 +826,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "enabled",
             "emits_signals",
             "experiment_targeting",
+            "scope",
+            "scope_summary",
             "scanner_version",
             "estimated_monthly_observations",
             "estimated_at",
@@ -953,6 +1029,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         self._validate_scanner_config(attrs)
         self._validate_experiment_scanner(attrs)
         self._drop_redacted_targeting_clear(attrs)
+        self._drop_redacted_scope_clear(attrs)
+        self._validate_scope(attrs)
+        self._refuse_legacy_shapes_under_the_flag(attrs)
         scout_caller = bool(self.context.get("scout_sandbox_caller"))
         check_scout_scanner_credit_limit(
             scout_caller,
@@ -1026,6 +1105,81 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             and not self._can_view_targeted_experiment(self.instance.experiment_targeting)
         ):
             attrs.pop("experiment_targeting")
+
+    def _drop_redacted_scope_clear(self, attrs: dict[str, Any]) -> None:
+        # `scope` redacts to null for a caller denied the experiment, and the editor writes the
+        # whole object back on save, so without this such a save would clear a scope the caller
+        # cannot see. Dropping the key treats it as untouched.
+        if (
+            "scope" in attrs
+            and attrs["scope"] is None
+            and self.instance is not None
+            and isinstance(self.instance.scope, dict)
+            and not self._can_view_scope(self.instance.scope)
+        ):
+            attrs.pop("scope")
+
+    def _validate_scope(self, attrs: dict[str, Any]) -> None:
+        """Access-check a written scope, and hold the keys that are fixed after creation.
+
+        The shape is already validated by the field. This is the part that needs the team and the
+        instance: whether the caller may watch that experiment, and whether this edit moves a key
+        the scope model treats as immutable.
+        """
+        if "scope" not in attrs or attrs["scope"] is None:
+            return
+        scope = attrs["scope"]
+        if scope.get("kind") != ExperimentScope.kind:
+            return
+        get_team = self.context.get("get_team")
+        if get_team is None:  # no request context; the endpoint path always has one
+            return
+        team = get_team()
+        experiment_id = scope["experiment_id"]
+        # A denied or cross-team id reads as not-found, the way validate_experiment_targeting does,
+        # so a caller cannot probe for an experiment they may not see.
+        if not is_experiment_accessible(self.user_access_control, team.id, experiment_id):
+            raise serializers.ValidationError({"scope": "Experiment not found."})
+        # Deferred for the same reason as in `_validate_experiment_scanner`: the experiments replay
+        # facade circles back into this package's importers.
+        from products.experiments.backend.facade.replay import resolve_exposure_linkage  # noqa: PLC0415
+
+        # Rejects a variant the experiment's flag does not define, so an unwatchable scope cannot be stored.
+        resolve_exposure_linkage(team, experiment_id=experiment_id, variants=scope.get("variants"))
+        if self.instance is None:
+            return
+        stored = self.instance.scope if isinstance(self.instance.scope, dict) else None
+        if stored is None:
+            return
+        if stored.get("kind") != scope["kind"]:
+            raise serializers.ValidationError({"scope": "A scanner's scope kind is fixed after creation."})
+        if stored.get("experiment_id") != experiment_id:
+            raise serializers.ValidationError(
+                {"scope": "A scanner's experiment is fixed after creation. Make a new scanner instead."}
+            )
+
+    def _refuse_legacy_shapes_under_the_flag(self, attrs: dict[str, Any]) -> None:
+        """Under the flag, a scope is the only way to watch an experiment.
+
+        Both older shapes still read, so existing scanners keep working; this refuses only new
+        writes of them, which is what stops a team from creating rows the new editor cannot show.
+        """
+        writes_a_legacy_shape = attrs.get("scanner_type") == ScannerType.EXPERIMENT or attrs.get("experiment_targeting")
+        get_team = self.context.get("get_team")
+        # No request context (internal serialization) or nothing legacy in this write: there is
+        # nothing to refuse, and evaluating the flag would cost a lookup for no decision.
+        if not writes_a_legacy_shape or get_team is None:
+            return
+        if not scope_api_enabled(get_team(), acting_user(self.context)):
+            return
+        if attrs.get("scanner_type") == ScannerType.EXPERIMENT:
+            raise serializers.ValidationError(
+                {"scanner_type": "The experiment type is retired. Pick an answer format and set `scope` instead."}
+            )
+        if attrs.get("experiment_targeting"):
+            raise serializers.ValidationError(
+                {"experiment_targeting": "Experiment targeting is retired. Set `scope` instead."}
+            )
 
     def _restore_redacted_experiment_config(self, attrs: dict[str, Any]) -> None:
         """Normalize an experiment scanner's config on update, where the experiment itself is fixed.
@@ -1215,7 +1369,32 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 }
                 if data.get("filter_error"):
                     data["filter_error"] = REDACTED_FILTER_ERROR
+        # Same rule for the scope column: it carries the same experiment id the older stores do.
+        if isinstance(data.get("scope"), dict) and not self._can_view_scope(data["scope"]):
+            data["scope"] = None
+            if data.get("filter_error"):
+                data["filter_error"] = REDACTED_FILTER_ERROR
         return data
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_scope_summary(self, instance: ReplayScanner) -> str | None:
+        """One line naming what the scope watches, readable by a caller denied the experiment.
+
+        The scope itself redacts to null for that caller, so without this the editor could not say
+        why a scanner watches fewer sessions than its filters imply.
+        """
+        scope = scope_for(instance)
+        if scope is None:
+            return None
+        variants = scope.settings.variants
+        if not variants:
+            return "An experiment"
+        return f"An experiment, {len(variants)} variant{'s' if len(variants) != 1 else ''}"
+
+    def _can_view_scope(self, scope: dict[str, Any]) -> bool:
+        if scope.get("kind") != ExperimentScope.kind:
+            return True
+        return self._can_view_targeted_experiment(scope)
 
     def _can_view_targeted_experiment(self, targeting: dict[str, Any]) -> bool:
         experiment_id = targeting.get("experiment_id")
@@ -1465,7 +1644,12 @@ class ReplayScannerFilter(django_filters.FilterSet):
     )
     experiment_id = django_filters.CharFilter(
         method="_filter_experiment_id",
-        help_text="Filter to scanners whose targeting watches the given experiment.",
+        help_text="Filter to scanners whose scope watches the given experiment.",
+    )
+    scope_kind = django_filters.ChoiceFilter(
+        method="_filter_scope_kind",
+        choices=[(ExperimentScope.kind, "Experiment")],
+        help_text="Filter to scanners whose scope is of this kind.",
     )
     tags = django_filters.CharFilter(
         method="_filter_tags",
@@ -1519,6 +1703,14 @@ class ReplayScannerFilter(django_filters.FilterSet):
         if view is None or not is_experiment_accessible(view.user_access_control, view.team_id, experiment_id):
             return queryset.none()
         return queryset.filter(scanner_experiment_scope_q(experiment_ids=[experiment_id]))
+
+    @staticmethod
+    def _filter_scope_kind(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
+        if not value:
+            return queryset
+        # Only the column answers this: neither older store records a kind, because both only ever
+        # meant "experiment". A row still held in one of them is reachable through ?experiment_id=.
+        return queryset.filter(scope__kind=value)
 
     @staticmethod
     def _filter_search(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:

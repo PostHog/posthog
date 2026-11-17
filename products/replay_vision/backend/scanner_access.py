@@ -116,8 +116,9 @@ def scanner_experiment_scope_q(*, unrestricted: bool = False, experiment_ids: It
     """Scanner rows whose experiment scope matches: watching no experiment (`unrestricted`) and/or
     watching one of `experiment_ids`, OR-combined.
 
-    Reads both scope stores: the experiment scanner type's `scanner_config` and the legacy
-    `experiment_targeting` column the other types use (see `ReplayScanner.experiment_scope`).
+    Reads all three stores: the `scope` column, the experiment scanner type's `scanner_config`,
+    and the legacy `experiment_targeting` column the other types use (see `scope.load.stored_scope`
+    for the same order on a single row).
     Phrased positively with `isnull` because on a nullable JSON path `.exclude` negates to NULL and
     wrongly drops unscoped rows. The lookup keys are written as literals (not composed from a
     variable) so the ORM-field-injection lint sees they're not caller input.
@@ -127,10 +128,16 @@ def scanner_experiment_scope_q(*, unrestricted: bool = False, experiment_ids: It
         q |= Q(
             experiment_targeting__experiment_id__isnull=True,
             scanner_config__experiment_id__isnull=True,
+            scope__experiment_id__isnull=True,
         )
     ids = list(experiment_ids)
     if ids:
-        q |= Q(experiment_targeting__experiment_id__in=ids) | Q(scanner_config__experiment_id__in=ids)
+        # `scope__experiment_id__in` is the lookup the partial expression index serves.
+        q |= (
+            Q(scope__experiment_id__in=ids)
+            | Q(experiment_targeting__experiment_id__in=ids)
+            | Q(scanner_config__experiment_id__in=ids)
+        )
     return q
 
 
