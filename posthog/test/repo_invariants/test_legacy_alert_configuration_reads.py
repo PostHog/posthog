@@ -183,6 +183,9 @@ class _Reader:
             if node.value in {"alert_configuration", "alert_configurations"}:
                 return self._names_a_relation(parent)
             if self.uses_logs_row_children and LOGS_ROW_LOOKUP.search(node.value):
+                # A lookup through `alert` joins the logs row in any query call, not only the relation loaders.
+                if node.value != "alert":
+                    return isinstance(parent, ast.Call)
                 return self._names_a_relation(parent)
             return bool(LEGACY_STRING.search(node.value) or LOOKUP.search(node.value))
         return False
@@ -208,6 +211,7 @@ class _Reader:
             "only",
             "values",
             "values_list",
+            "order_by",
         }
 
 
@@ -326,6 +330,10 @@ def test_legacy_alert_configurations_are_read_only_by_listed_code() -> None:
         ("LogsAlertEvent.objects.select_related('alert').first().alert.name", ["<module>", "<module>"]),
         ("from m import LogsAlertCheck\nchecks.filter(alert__team_id=1)", ["<module>"]),
         ("result.alert.name", []),
+        ("from m import LogsAlertEvent\nLogsAlertEvent.objects.order_by('alert__name')", ["<module>"]),
+        ("from m import LogsAlertCheck\nchecks.annotate(name=F('alert__name'))", ["<module>"]),
+        ("AlertCheck.objects.order_by('alert_configuration')", ["<module>"]),
+        ("from m import LogsAlertCheck\nchecks.order_by('-created_at')", []),
         ("apps.get_model('alerts', 'AlertConfiguration').objects.all()", ["<module>"]),
         ("apps.get_model('logs', 'LogsAlertConfiguration')", ["<module>"]),
         ("apps.get_model('alerts', 'AlertCheck')", []),
