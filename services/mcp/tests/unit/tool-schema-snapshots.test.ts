@@ -91,6 +91,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
     const featureFlags = {
         'self-driving-usage-display': true,
+        'today-rail-nav': true,
         tracing: true,
         tasks: true,
         'tasks-mcp-agent-run-start': true,
