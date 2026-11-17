@@ -24,6 +24,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
     WEBHOOK_EVENT_ORDER,
 )
 
+# A hash of each staged payload as delivered. Arrow later adds null fields that other rows of the batch carry,
+# so a hash of the row would differ between two batches that hold the same delivery.
+PAYLOAD_HASH_COLUMN = "_ph_payload_hash"
+_STAGING_COLUMNS = frozenset((*WEBHOOK_EVENT_COLUMNS, PAYLOAD_HASH_COLUMN))
+
+
+def payload_hash(payload: dict[str, Any]) -> str:
+    return hashlib.sha256(orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS)).hexdigest()
+
 
 @frozen
 class WebhookEvent:
@@ -38,7 +47,6 @@ class WebhookEvents:
     """How one table's staged webhook rows become events."""
 
     read: Callable[[dict[str, Any]], WebhookEvent | None]
-    primary_keys: tuple[str, ...]
     # Adds back what the event payloads leave out, for the kept rows in order.
     complete: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None
 
@@ -48,14 +56,12 @@ def _order(time: Any, rank: Any, arrival: Any) -> tuple[Any, ...]:
     return (time is not None, time, rank or 0, arrival or "")
 
 
-def _content_id(row: dict[str, Any], primary_keys: Sequence[str], time: datetime.datetime | None) -> str:
-    # A redelivery of an event without an id has the same key, time and payload, so it gets the same id.
-    content = orjson.dumps(
-        [[row.get(key) for key in primary_keys], time.isoformat() if time else None, row],
-        option=orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS,
-        default=str,
-    )
-    return f"sha256:{hashlib.sha256(content).hexdigest()}"
+def _content_id(staged: dict[str, Any], row: dict[str, Any]) -> str:
+    # A redelivery of an event without an id has the same payload, which holds its key and change time.
+    digest = staged.get(PAYLOAD_HASH_COLUMN)
+    if digest is None:
+        digest = hashlib.sha256(orjson.dumps(row, option=orjson.OPT_SORT_KEYS, default=str)).hexdigest()
+    return f"sha256:{digest}"
 
 
 def _utc(time: datetime.datetime | None) -> datetime.datetime | None:
@@ -71,9 +77,9 @@ def event_rows(table: pa.Table, events: WebhookEvents) -> list[dict[str, Any]]:
         event = events.read(staged)
         if event is None:
             continue
-        row = {name: value for name, value in event.row.items() if name not in WEBHOOK_EVENT_COLUMNS}
+        row = {name: value for name, value in event.row.items() if name not in _STAGING_COLUMNS}
         time = _utc(event.time)
-        event_id = event.event_id or _content_id(row, events.primary_keys, time)
+        event_id = event.event_id or _content_id(staged, row)
         if event_id in rows:
             continue
         rows[event_id] = {

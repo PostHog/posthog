@@ -1841,7 +1841,7 @@ def webhook_events(endpoint: str) -> WebhookEvents | None:
         rank = (attempt if isinstance(attempt, int) else 0) * _STAGES_PER_ATTEMPT + stage
         return WebhookEvent(row=staged, time=time, rank=rank)
 
-    return WebhookEvents(read=read, primary_keys=primary_keys)
+    return WebhookEvents(read=read)
 
 
 async def _chain_webhook_items_with_reconciliation(

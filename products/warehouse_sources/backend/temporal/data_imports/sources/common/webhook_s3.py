@@ -29,8 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.db 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_event_columns import ARRIVAL_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import (
+    PAYLOAD_HASH_COLUMN,
     WebhookEvents,
     every_event_transformer,
+    payload_hash,
 )
 
 # Informational key on a job's `schema_snapshot`. The job keeps `sync_type: webhook`, because the next
@@ -370,5 +372,8 @@ class WebhookSourceManager:
     def _transform_webhook_table(self, table: pa.Table, arrival_prefix: str | None = None) -> pa.Table:
         rows = [orjson.loads(str(s)) for s in table.column("payload_json").to_pylist()]
         if arrival_prefix is not None:
-            rows = [{**row, ARRIVAL_COLUMN: f"{arrival_prefix}#{index:09d}"} for index, row in enumerate(rows)]
+            rows = [
+                {**row, ARRIVAL_COLUMN: f"{arrival_prefix}#{index:09d}", PAYLOAD_HASH_COLUMN: payload_hash(row)}
+                for index, row in enumerate(rows)
+            ]
         return table_from_py_list(rows)

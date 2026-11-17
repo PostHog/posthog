@@ -28,6 +28,13 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_event_columns import (
+    EVENT_ID_COLUMN,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import (
+    WebhookEvent,
+    WebhookEvents,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
     StagedWebhookFile,
     WebhookFallback,
@@ -460,6 +467,46 @@ class TestWebhookSourceManager:
         assert tables[0].num_rows == 2
         assert pa.types.is_string(tables[0].schema.field("total_sales").type)
         assert sorted(id for id in tables[0].column("id").to_pylist() if id is not None) == ["1", "2"]
+
+    async def test_a_redelivery_keeps_its_event_id_when_its_batch_has_other_fields(self):
+        schema_id = "test-schema"
+        manager = _make_manager(team_id=1, schema_id=schema_id)
+        manager._inputs.webhook_history = True
+        delivery = {"id": "1", "status": "completed"}
+        files = [
+            _make_webhook_parquet_bytes([delivery], team_id=1, schema_id=schema_id),
+            _make_webhook_parquet_bytes(
+                [{"id": "2", "status": "queued", "runner": "r1"}, delivery], team_id=1, schema_id=schema_id
+            ),
+        ]
+        mock_s3 = AsyncMock()
+        opens = []
+        for parquet_bytes in files:
+            mock_file = AsyncMock()
+            mock_file.read = AsyncMock(return_value=parquet_bytes)
+            open_cm = AsyncMock()
+            open_cm.__aenter__ = AsyncMock(return_value=mock_file)
+            open_cm.__aexit__ = AsyncMock(return_value=False)
+            opens.append(open_cm)
+        mock_s3.open_async = AsyncMock(side_effect=opens)
+        events = WebhookEvents(read=lambda staged: WebhookEvent(row=staged, time=None))
+
+        with (
+            patch.object(
+                manager,
+                "_list_webhook_parquet_files",
+                return_value=[
+                    StagedWebhookFile(path="s3://bucket/a.parquet", arrival_prefix="a"),
+                    StagedWebhookFile(path="s3://bucket/b.parquet", arrival_prefix="b"),
+                ],
+            ),
+            _mock_s3_context(mock_s3),
+        ):
+            tables = [table async for table in manager.get_items(events=events, batch_row_limit=1)]
+
+        ids = [row[EVENT_ID_COLUMN] for table in tables for row in table.to_pylist() if row["id"] == delivery["id"]]
+        assert len(tables) == 2
+        assert len(ids) == 2 and ids[0] == ids[1]
 
     async def test_get_items_yields_nothing_when_no_files(self):
         manager = _make_manager()

@@ -1509,7 +1509,7 @@ def webhook_events(endpoint: str) -> WebhookEvents | None:
     # The payment method history table already keeps one row per event.
     if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME:
         return None
-    return WebhookEvents(read=_webhook_event, primary_keys=tuple(PRIMARY_KEYS.get(endpoint, DEFAULT_PRIMARY_KEYS)))
+    return WebhookEvents(read=_webhook_event)
 
 
 def _lines_truncated(obj: dict[str, Any]) -> bool:
