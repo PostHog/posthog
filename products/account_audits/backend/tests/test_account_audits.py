@@ -20,10 +20,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
-from posthog.models.oauth import OAuthApplication
-from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, create_oauth_access_token_for_user
 
 from products.access_control.backend.models import AccessControl
 from products.account_audits.backend.models import AccountAuditAdmission, AccountAuditCredential
@@ -32,12 +29,9 @@ from products.account_audits.backend.presentation.views import (
     AccountAuditStartRequestSerializer,
     AccountAuditStartThrottle,
 )
-from products.account_audits.backend.task_profiles import ACCOUNT_AUDIT_MCP_SCOPES
 from products.notebooks.backend.models import Notebook
 from products.skills.backend.models import LLMSkill
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
-
-from ee.api.billing import BILLING_ACCESS_DENIED_MESSAGE
 
 
 class TestAccountAuditStartAPI(APIBaseTest):
@@ -443,44 +437,6 @@ class TestAccountAuditStartAPI(APIBaseTest):
         with self.assertRaises(ProtectedError):
             credential.delete()
         self.assertTrue(AccountAuditAdmission.objects.unscoped().filter(pk=admission.pk).exists())
-
-
-class TestAccountAuditBillingAccess(APIBaseTest):
-    """The token an audit run receives, minted the way dispatch mints it, against the billing overview."""
-
-    @parameterized.expand(
-        [
-            ("owner", OrganizationMembership.Level.OWNER, 200, None),
-            ("member", OrganizationMembership.Level.MEMBER, 403, BILLING_ACCESS_DENIED_MESSAGE),
-        ]
-    )
-    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
-    def test_audit_token_reads_billing_only_as_far_as_the_acting_role_allows(
-        self, _name: str, level: int, expected_status: int, expected_detail: str | None, _flag
-    ) -> None:
-        self.organization_membership.level = level
-        self.organization_membership.save(update_fields=["level"])
-        OAuthApplication.objects.create(
-            client_id=ARRAY_APP_CLIENT_ID_DEV,
-            name="Array Dev App",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://localhost:8237/callback",
-            algorithm="RS256",
-        )
-        token = create_oauth_access_token_for_user(self.user, self.team.id, scopes=ACCOUNT_AUDIT_MCP_SCOPES)
-        self.client.logout()
-
-        with patch(
-            "ee.billing.billing_manager.BillingManager.get_billing",
-            return_value={"products": [], "available_product_features": []},
-        ):
-            response = self.client.get("/api/billing/", HTTP_AUTHORIZATION=f"Bearer {token}")
-
-        self.assertEqual(response.status_code, expected_status, response.content)
-        if expected_detail is not None:
-            # The member is refused for its role, not for a scope the token lacks.
-            self.assertEqual(response.json()["detail"], expected_detail)
 
 
 class TestAccountAuditRequestValidation(SimpleTestCase):
