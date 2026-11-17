@@ -8,9 +8,9 @@ import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { hogql } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
 
-import { hogql } from '~/queries/utils'
 import { AnyPropertyFilter, Breadcrumb } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'

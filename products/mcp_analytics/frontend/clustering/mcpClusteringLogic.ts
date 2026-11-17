@@ -30,6 +30,9 @@ const EMPTY_SNAPSHOT: MCPIntentClusterSnapshotApi = {
     clusters: [],
     tools: [],
     tool_overlaps: [],
+    long_tail: null,
+    recurring: [],
+    intent_text_redacted: false,
     computed_with: null,
 }
 
@@ -833,7 +836,7 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             }
         },
         triggerRecomputeSuccess: ({ snapshot }) => {
-            lemonToast.info('Clustering started — this usually takes 30–60 seconds.')
+            lemonToast.info('Clustering started. This usually takes 30 to 60 seconds.')
             if (snapshot.status === 'computing') {
                 actions.startPolling()
             }

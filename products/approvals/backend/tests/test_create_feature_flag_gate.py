@@ -13,6 +13,7 @@ from products.approvals.backend.actions.feature_flags import (
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.approvals.backend.services import ChangeRequestService
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, MINTED_OWNER_CONTEXT_KEY
 
 
 class TestCreateDetection(APIBaseTest):
@@ -201,6 +202,24 @@ class TestCreateFlagGateAPI(APIBaseTest):
 
         flag = FeatureFlag.objects.get(team=self.team, key="rollout-gated")
         assert flag.filters["groups"][0]["rollout_percentage"] == 100
+
+    def test_public_create_cannot_claim_a_product_owner(self, _mock_enabled):
+        self._update_policy()
+
+        with patch("products.approvals.backend.ownership.scope_by_owner_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {
+                    "key": "claims-survey-owner",
+                    "active": False,
+                    "filters": {"groups": [{"rollout_percentage": 100}]},
+                    MINTED_OWNER_CONTEXT_KEY: FLAG_OWNER_SURVEY,
+                },
+                format="json",
+            )
+
+        assert response.status_code == 409, response.json()
+        assert not FeatureFlag.objects.filter(team=self.team, key="claims-survey-owner").exists()
 
     def test_create_active_flag_with_rollout_under_both_policies_is_rejected(self, _mock_enabled):
         # A create that both enables the flag AND sets its rollout trips the enable policy and the

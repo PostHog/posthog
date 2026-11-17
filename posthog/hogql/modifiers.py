@@ -66,8 +66,8 @@ def create_default_modifiers_for_team(
             # A modifier removed from the schema can stay stored on a project, and the model rejects unknown fields.
             if key not in HogQLQueryModifiers.model_fields:
                 continue
-            # The events table is switched per project by CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS, which every
-            # reader of the table checks. A stored modifier would switch the HogQL readers alone.
+            # A project's early opt-in. It is applied after this loop, because a query's modifier, an enclosing
+            # query and a staff switch outrank it.
             if key == "useNewEventsSchema":
                 continue
             if getattr(modifiers, key, None) is None:
@@ -92,8 +92,31 @@ def create_default_modifiers_for_team(
                 else:
                     setattr(modifiers, key, value)
 
+    # Deferred: keeps posthog.models off this module's import path.
+    from posthog.models.event.new_events_schema import (  # noqa: PLC0415
+        events_table_override,
+        project_opted_in_to_new_events_table,
+    )
+
+    if events_table_override(modifiers) is None and project_opted_in_to_new_events_table(team):
+        modifiers.useNewEventsSchema = True
+
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = True
+
+    if modifiers.materializeRepeatedCTEs is None and is_cloud():
+        from posthog.ph_client import (
+            feature_enabled_or_false,  # noqa: PLC0415 -- keeps the analytics client off django.setup's import path
+        )
+
+        if feature_enabled_or_false(
+            "hogql-materialize-repeated-ctes",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            modifiers.materializeRepeatedCTEs = True
 
     from products.web_analytics.backend.hogql_queries.cookieless_flag import (  # noqa: PLC0415 - keeps posthog.schema off the django.setup() import path
         resolve_cookieless_traffic_is_regular_modifier,

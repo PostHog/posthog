@@ -1,7 +1,7 @@
 import api from 'lib/api'
+import { hogql } from 'lib/utils/hogql'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 
 export const GATEWAY_SPEND_WINDOW_DAYS = 30
 

@@ -11,6 +11,7 @@
 //! The fetch lane runs in another language. The registrable domain therefore travels with each
 //! URL as data, so that lane reads the result and never repeats the rule.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::sync::LazyLock;
@@ -20,7 +21,10 @@ use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
 
 use url::Url;
 
+mod redact;
 mod shopify;
+
+pub use redact::{needs_redaction, redaction, without_credentials, Redaction};
 
 const VOLATILE_PARAMS: &[&str] = &["cb", "nocache", "rnd"];
 
@@ -292,7 +296,7 @@ pub enum Decline {
     /// Longer than [`MAX_URL_LEN`], before or after normalization.
     TooLong,
     /// Not parseable as an absolute URL. A relative `src` lands here, because the recording does
-    /// not carry the base it would need to resolve against.
+    /// not carry the base it would need to resolve against. A protocol-relative URL does not, because it names its host.
     NotAbsolute,
     /// A scheme we do not fetch. Only `https` passes, so plain `http` lands here too.
     BadScheme,
@@ -312,6 +316,18 @@ pub enum Decline {
 }
 
 impl Decline {
+    pub const ALL: [Decline; 9] = [
+        Decline::TooLong,
+        Decline::NotAbsolute,
+        Decline::BadScheme,
+        Decline::BadPort,
+        Decline::NoHost,
+        Decline::NonPublicHost,
+        Decline::Credential,
+        Decline::InvalidQuery,
+        Decline::TrackingBeacon,
+    ];
+
     /// True for a URL the policy refuses because nobody wants it fetched, not because it is
     /// malformed or unsafe. A consumer that reads jobs from a queue drops only that job for such a
     /// decline, and rejects the whole record for every other one.
@@ -319,7 +335,8 @@ impl Decline {
         matches!(self, Decline::TrackingBeacon)
     }
 
-    /// The metric label. Stable, because a dashboard and an alert both key on it.
+    /// The metric label, and the reason in a v4 URL decline marker. Stable, because a dashboard, an
+    /// alert and a reader of v4 blocks all key on it.
     pub fn label(self) -> &'static str {
         match self {
             Decline::TooLong => "too_long",
@@ -335,15 +352,104 @@ impl Decline {
     }
 }
 
+/// The URL as a reference names it, or why the policy declines it. It checks the host and path again as `Url` serializes them.
+pub fn checked_url(raw: &str) -> Result<CanonicalUrl, Decline> {
+    let url = try_canonicalize(raw)?;
+    let path = Url::parse(&url.fetch)
+        .map(|u| u.path().to_owned())
+        .unwrap_or_default();
+    if !is_public_host(&url.host) {
+        return Err(Decline::NonPublicHost);
+    }
+    if is_tracking_beacon(&url.host, &path) {
+        return Err(Decline::TrackingBeacon);
+    }
+    Ok(url)
+}
+
 /// Canonicalize a remote image URL into its fetch and dedup forms, or say why it was refused.
 pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
     try_canonicalize(raw).ok()
+}
+
+/// Whether the URL names a host but no scheme, such as `//cdn.example.com/a.png`. The browser loads it with the page's
+/// scheme, so it is remote. A browser reads a backslash as a slash in an `https` URL, so `\\host` and `/\host` count too.
+pub fn is_protocol_relative(raw: &str) -> bool {
+    matches!(
+        parsed_start(raw, 8).trim_start().as_bytes(),
+        [b'/' | b'\\', b'/' | b'\\', ..]
+    )
+}
+
+/// The first `len` characters of `raw` as [`as_parsed`] reads them, from no more of `raw` than they need, because a
+/// slot can hold a data URI of many megabytes.
+pub fn parsed_start(raw: &str, len: usize) -> String {
+    raw.trim_start_matches(|ch: char| ch <= ' ')
+        .chars()
+        .filter(|ch| !matches!(ch, '\t' | '\n' | '\r'))
+        .take(len)
+        .collect()
+}
+
+/// The URL parser strips C0 controls and spaces from both ends of a URL and drops every ASCII tab and line break anywhere in it, so `\u{1}https://cdn.example.com` and `/\n/cdn.example.com` load from that host.
+pub fn as_parsed(raw: &str) -> Cow<'_, str> {
+    let raw = raw.trim_matches(|c: char| c <= ' ');
+    if raw.contains(['\t', '\n', '\r']) {
+        Cow::Owned(raw.replace(['\t', '\n', '\r'], ""))
+    } else {
+        Cow::Borrowed(raw)
+    }
+}
+
+/// Whether the browser loads the URL from a host. A URL scheme is not case sensitive, so `HTTPS://` loads as
+/// `https://` does. A browser reads any run of slashes and backslashes after `http:` or `https:` as `//`, and none at
+/// all on a page of another scheme, so `https:\\host` and `https:host` can load from the host too. A
+/// protocol-relative URL does as well.
+pub fn is_remote(url: &str) -> bool {
+    let url = parsed_start(url, 7);
+    let url = url.as_str();
+    let after_scheme = ["https:", "http:"].iter().find_map(|scheme| {
+        url.get(..scheme.len())
+            .filter(|start| start.eq_ignore_ascii_case(scheme))
+            .map(|_| &url[scheme.len()..])
+    });
+    match after_scheme {
+        Some(rest) => !rest.is_empty(),
+        None => is_protocol_relative(url),
+    }
+}
+
+/// The media types the image fetcher stores, the `SUPPORTED_IMAGE_MEDIA_TYPES` of `image-fetch-v4/image-transport.ts`.
+pub const FETCHED_IMAGE_TYPES: [&str; 6] = [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/avif",
+    "image/svg+xml",
+];
+
+/// Whether a `<source type>` names a type the fetcher stores, ignoring parameters such as `codecs`.
+pub fn is_fetched_image_type(source_type: &str) -> bool {
+    let essence = source_type.split(';').next().unwrap_or_default().trim();
+    FETCHED_IMAGE_TYPES
+        .iter()
+        .any(|fetched| fetched.eq_ignore_ascii_case(essence))
 }
 
 pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     if raw.len() > MAX_URL_LEN {
         return Err(Decline::TooLong);
     }
+    // Only `https` passes the scheme check below, so a protocol-relative URL is read as `https`. It then meets every
+    // check that the same URL with a scheme meets.
+    let with_scheme;
+    let raw = if is_protocol_relative(raw) {
+        with_scheme = format!("https:{}", as_parsed(raw).trim());
+        with_scheme.as_str()
+    } else {
+        raw
+    };
     let mut url = Url::parse(raw).map_err(|_| Decline::NotAbsolute)?;
     // The browser blocks a plain `http` image on an HTTPS page as mixed content, so it never
     // rendered for the person we recorded, and a fetch puts the request on the wire in clear text
@@ -376,7 +482,7 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
         url.set_host(Some(&host)).map_err(|_| Decline::NoHost)?;
     }
     let lowercase_path = decoded_lowercase_path(&url)?;
-    if has_credential_query(&url)? || has_credential_path(&lowercase_path, &host) {
+    if has_credential_query(&url)? || has_credential_path(&lowercase_path, Some(&host)) {
         return Err(Decline::Credential);
     }
     if matches_beacon_list(&host, &collapse_slashes(&lowercase_path)) {
@@ -436,12 +542,9 @@ fn has_credential_query(url: &Url) -> Result<bool, Decline> {
             .decode_utf8()
             .map_err(|_| Decline::InvalidQuery)?;
     }
-    Ok(url.query_pairs().any(|(name, value)| {
-        CREDENTIAL_PARAMS
-            .iter()
-            .any(|credential| credential.eq_ignore_ascii_case(&name))
-            || (name.eq_ignore_ascii_case("s") && value.chars().count() == 32)
-    }))
+    Ok(url
+        .query_pairs()
+        .any(|(name, value)| is_credential_param(&name, &value)))
 }
 
 fn has_valid_percent_encoding(value: &str) -> bool {
@@ -475,40 +578,70 @@ fn decoded_lowercase_path(url: &Url) -> Result<String, Decline> {
         .to_ascii_lowercase())
 }
 
-/// `path` is the decoded lowercase path from [`decoded_lowercase_path`].
-fn has_credential_path(path: &str, host: &str) -> bool {
+/// `path` is the decoded lowercase path from [`decoded_lowercase_path`], and `host` is `None` for a relative URL.
+fn has_credential_path(path: &str, host: Option<&str>) -> bool {
     let segments: Vec<&str> = path.split('/').collect();
+    let has_supabase_signature = path.contains("/storage/v1/object/sign/")
+        || path.contains("/storage/v1/render/image/sign/");
+    has_supabase_signature || !path_tokens(&segments, host).is_empty()
+}
+
+fn is_oracle_object_storage(host: &str) -> bool {
+    host.starts_with("objectstorage.")
+        && host.ends_with(".oraclecloud.com")
+        && host.split('.').count() == 4
+}
+
+/// Where a path holds a token: a whole segment, or a `;jsessionid=` parameter in one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PathToken {
+    Segment(usize),
+    SessionId(usize),
+}
+
+/// `segments` is a decoded lowercase path split at `/`, so the first one is empty. `host` is `None` for a relative URL,
+/// whose host is the page's, so a rule for one host then matches it on any page.
+fn path_tokens(segments: &[&str], host: Option<&str>) -> Vec<PathToken> {
+    let mut tokens = Vec::new();
     let first_segment_has_bunny_token = segments
         .get(1)
         .and_then(|segment| segment.strip_prefix("bcdn_token="))
         .and_then(|value| value.split('&').next())
         .is_some_and(|token| !token.is_empty());
-    let has_oracle_token = host.starts_with("objectstorage.")
-        && host.ends_with(".oraclecloud.com")
-        && host.split('.').count() == 4
+    if first_segment_has_bunny_token {
+        tokens.push(PathToken::Segment(1));
+    }
+    let has_oracle_token = host.is_none_or(is_oracle_object_storage)
         && segments.get(1) == Some(&"p")
         && segments.get(2).is_some_and(|token| !token.is_empty())
         && segments.get(3) == Some(&"n");
-    let has_cloudinary_signature = segments.iter().any(|segment| {
-        segment
+    if has_oracle_token {
+        tokens.push(PathToken::Segment(2));
+    }
+    for (index, segment) in segments.iter().enumerate() {
+        let has_cloudinary_signature = segment
             .strip_prefix("s--")
             .and_then(|value| value.strip_suffix("--"))
-            .is_some_and(|token| !token.is_empty())
-    });
-    let has_supabase_signature = path.contains("/storage/v1/object/sign/")
-        || path.contains("/storage/v1/render/image/sign/");
-    let has_session_token = segments.iter().any(|segment| {
-        segment
+            .is_some_and(|token| !token.is_empty());
+        if has_cloudinary_signature {
+            tokens.push(PathToken::Segment(index));
+        }
+        let has_session_token = segment
             .split_once(";jsessionid=")
             .and_then(|(_, value)| value.split(';').next())
-            .is_some_and(|token| !token.is_empty())
-    });
+            .is_some_and(|token| !token.is_empty());
+        if has_session_token {
+            tokens.push(PathToken::SessionId(index));
+        }
+    }
+    tokens
+}
 
-    first_segment_has_bunny_token
-        || has_oracle_token
-        || has_cloudinary_signature
-        || has_supabase_signature
-        || has_session_token
+fn is_credential_param(name: &str, value: &str) -> bool {
+    CREDENTIAL_PARAMS
+        .iter()
+        .any(|credential| credential.eq_ignore_ascii_case(name))
+        || (name.eq_ignore_ascii_case("s") && value.chars().count() == 32)
 }
 
 fn remove_volatile_params(raw_query: Option<&str>) -> Result<Option<String>, Decline> {
@@ -556,7 +689,6 @@ mod tests {
             "data:image/png;base64,aGk=",
             "/relative/a.png",
             "not a url",
-            "//protocol-relative.example.com/a.png",
         ] {
             assert!(canonicalize(raw).is_none(), "{raw} should not canonicalize");
         }
@@ -632,6 +764,23 @@ mod tests {
         let c = canonicalize("HTTPS://Example.COM:443/A.png#frag").unwrap();
         assert_eq!(c.fetch, "https://example.com/A.png");
         assert_eq!(c.host, "example.com");
+        // A protocol-relative URL gets the same canonical form, so it shares the reference of its https form.
+        for raw in [
+            "//Example.COM/A.png",
+            " //example.com/A.png ",
+            r"\\example.com/A.png",
+            r"/\example.com/A.png",
+            r"https:\\example.com/A.png",
+            r"https:/\example.com/A.png",
+            "https:/example.com/A.png",
+            "https:example.com/A.png",
+        ] {
+            assert_eq!(canonicalize(raw).unwrap(), c, "{raw}");
+        }
+        assert_eq!(
+            try_canonicalize("//user:secret@example.com/a.png"),
+            Err(Decline::Credential)
+        );
     }
 
     #[test]

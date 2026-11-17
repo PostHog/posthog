@@ -18,6 +18,7 @@ import structlog
 import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
+from rest_framework.throttling import BaseThrottle
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthFailed
 from social_core.pipeline.partial import partial
@@ -37,14 +38,16 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailValidationHelper,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     validate_display_name,
 )
 from posthog.helpers.oauth_pending_connection import (
-    apply_connector_signup_onboarding_skip,
+    apply_pending_connection_onboarding_skip,
     read_pending_oauth_connection,
 )
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
+from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import (
     InviteExpiredException,
     Organization,
@@ -58,7 +61,12 @@ from posthog.models.identity_provider_config import ConfigScope, IdentityProvide
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
-from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
+from posthog.rate_limit import (
+    SignupAttemptIPThrottle,
+    SignupEmailPrecheckThrottle,
+    SignupIPThrottle,
+    SignupResendInviteThrottle,
+)
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
@@ -92,11 +100,13 @@ def _save_session_with_recovery(session: SessionBase) -> None:
         session.create()
 
 
-def verify_email_or_login(request: Request, user: User) -> None:
+def verify_email_or_login(request: Request, user: User) -> bool:
+    """Send a verification code, or log the user in when none is needed. Returns whether a code went out."""
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
         email_verification_code_verifier.send_code(user)
-    else:
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return True
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    return False
 
 
 def requested_next_url(request) -> str | None:
@@ -130,6 +140,8 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
 
 
 class SignupSerializer(serializers.Serializer):
+    _inbox_provider: InboxProvider | None = None
+
     first_name: serializers.Field = serializers.CharField(max_length=128)
     last_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email: serializers.Field = serializers.EmailField()
@@ -143,6 +155,12 @@ class SignupSerializer(serializers.Serializer):
     referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True
+    )
+    referral_source_influencer: serializers.Field = serializers.CharField(
+        max_length=1000,
+        required=False,
+        allow_blank=True,
+        help_text="The social media account or person that referred the user, asked when the referral source mentions a social network or creator channel.",
     )
     turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
     challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
@@ -221,6 +239,7 @@ class SignupSerializer(serializers.Serializer):
 
             value = session_email
 
+        reject_lookalike_email_characters(value)
         if not settings.DEMO:
             if not self.is_social_signup:
                 reject_plus_addressed_email(value)
@@ -292,6 +311,7 @@ class SignupSerializer(serializers.Serializer):
         role_at_organization = validated_data.pop("role_at_organization", "")
         referral_source = validated_data.pop("referral_source", "")
         referral_source_ai_prompt = validated_data.pop("referral_source_ai_prompt", "")
+        referral_source_influencer = validated_data.pop("referral_source_influencer", "")
 
         # For passkey signup, set password to None and use the pre-generated UUID
         if passkey_credential:
@@ -355,7 +375,7 @@ class SignupSerializer(serializers.Serializer):
         user = self._user
         oauth_connection = read_pending_oauth_connection(request)
         if oauth_connection is not None:
-            apply_connector_signup_onboarding_skip(user, self._organization)
+            apply_pending_connection_onboarding_skip(user, self._organization, oauth_connection)
 
         report_user_signed_up(
             user,
@@ -368,6 +388,7 @@ class SignupSerializer(serializers.Serializer):
             role_at_organization=role_at_organization,
             referral_source=referral_source,
             referral_source_ai_prompt=referral_source_ai_prompt,
+            referral_source_influencer=referral_source_influencer,
             oauth_connection=oauth_connection,
         )
 
@@ -382,7 +403,9 @@ class SignupSerializer(serializers.Serializer):
             ip_address=get_trusted_client_ip(request),
         )
 
-        verify_email_or_login(request, user)
+        inbox_lookup = InboxProviderLookup.start(user.email)
+        if verify_email_or_login(request, user):
+            self._inbox_provider = inbox_lookup.result()
 
         return user
 
@@ -417,6 +440,7 @@ class SignupSerializer(serializers.Serializer):
         next_url = requested_next_url(self.context.get("request"))
         data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
+        data["inbox_provider"] = self._inbox_provider
         return data
 
 
@@ -457,6 +481,7 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
             # the user fills in the rest, and only then hits the rejection on submit.
             reject_plus_addressed_email(email)
+            reject_lookalike_email_characters(email)
             email_exists = (
                 EmailValidationHelper.user_exists_with_stripped_alias(email)
                 or EmailValidationHelper.user_exists_with_gmail_canonical(email)
@@ -520,7 +545,29 @@ class SignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     # Enables E2E testing of signup flow
     permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (CanCreateOrg,)
-    throttle_classes = [] if settings.E2E_TESTING else [SignupIPThrottle]
+    throttle_classes = [] if settings.E2E_TESTING else [SignupAttemptIPThrottle, SignupIPThrottle]
+
+    account_created = False
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # DRF builds new instances per call, and only the ones that checked this request know its reserved slot
+        if not hasattr(self, "_throttles"):
+            self._throttles = super().get_throttles()
+        return self._throttles
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        try:
+            super().perform_create(serializer)
+        finally:
+            # The account commits before the verification email goes out, so a later failure still counts.
+            self.account_created = getattr(serializer, "_user", None) is not None
+
+    def handle_exception(self, exc: Exception) -> response.Response:
+        if not self.account_created:
+            for throttle in self.get_throttles():
+                if isinstance(throttle, SignupIPThrottle):
+                    throttle.release()
+        return super().handle_exception(exc)
 
 
 class InviteSignupSerializer(serializers.Serializer):
@@ -599,7 +646,7 @@ class InviteSignupSerializer(serializers.Serializer):
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
-        except OrganizationInvite.DoesNotExist:
+        except (OrganizationInvite.DoesNotExist, ValidationError):
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
         if not user and invite.target_email:
@@ -743,7 +790,7 @@ class InviteSignupSerializer(serializers.Serializer):
             oauth_connection = read_pending_oauth_connection(request)
             # A delegated invitee is the teammate asked to run onboarding, so they keep it.
             if oauth_connection is not None and not is_delegation:
-                apply_connector_signup_onboarding_skip(user, invite.organization)
+                apply_pending_connection_onboarding_skip(user, invite.organization, oauth_connection)
 
             verify_email_or_login(self.context["request"], user)
 
@@ -777,6 +824,13 @@ class InviteSignupSerializer(serializers.Serializer):
 class InviteSignupViewset(generics.CreateAPIView):
     serializer_class = InviteSignupSerializer
     permission_classes = (permissions.AllowAny,)
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        # The GET only loads the invite page, so page loads do not spend the signup attempts.
+        if self.request.method == "POST" and not settings.E2E_TESTING:
+            throttles.append(SignupAttemptIPThrottle())
+        return throttles
 
     def get(self, request, *args, **kwargs):
         """
@@ -831,6 +885,13 @@ class SocialSignupSerializer(serializers.Serializer):
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default=""
     )
+    referral_source_influencer: serializers.Field = serializers.CharField(
+        max_length=1000,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="The social media account or person that referred the user, asked when the referral source mentions a social network or creator channel.",
+    )
 
     def validate_first_name(self, value: str) -> str:
         return validate_display_name(value)
@@ -851,6 +912,7 @@ class SocialSignupSerializer(serializers.Serializer):
         role_at_organization = validated_data["role_at_organization"]
         referral_source = validated_data.get("referral_source", "")
         referral_source_ai_prompt = validated_data.get("referral_source_ai_prompt", "")
+        referral_source_influencer = validated_data.get("referral_source_influencer", "")
         first_name = validated_data["first_name"]
 
         serializer = SignupSerializer(
@@ -862,6 +924,7 @@ class SocialSignupSerializer(serializers.Serializer):
                 "role_at_organization": role_at_organization,
                 "referral_source": referral_source,
                 "referral_source_ai_prompt": referral_source_ai_prompt,
+                "referral_source_influencer": referral_source_influencer,
             },
             context={"request": request},
         )
@@ -1264,7 +1327,7 @@ def social_create_user(
     # A delegated invitee is the teammate asked to run onboarding, so they keep it.
     is_delegated_invitee = strategy.session_get("next") == DELEGATED_ONBOARDING_NEXT
     if oauth_connection is not None and user.organization is not None and not is_delegated_invitee:
-        apply_connector_signup_onboarding_skip(user, user.organization)
+        apply_pending_connection_onboarding_skip(user, user.organization, oauth_connection)
 
     report_user_signed_up(
         user,

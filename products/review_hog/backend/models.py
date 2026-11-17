@@ -31,7 +31,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     artefact_type_for,
 )
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 
 class ReviewReport(UUIDModel, TeamScopedRootMixin):
@@ -119,7 +119,8 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # signals side (the signals-side `code_review` artefact is API-deletable; this row is the durable
     # link). Filled once, never overwritten by later turns from another trigger.
     signal_report_id = models.UUIDField(null=True, blank=True)
-    # Which trigger created this report ("label" / "inbox" / "manual" / "ui" / "comment"); stamped on create only.
+    # Which trigger created this report ("stamphog" / "inbox" / "manual" / "ui" / "comment" / "review_request", or "label" from
+    # before labels stopped starting reviews); stamped on create only.
     trigger_source = models.CharField(max_length=20, default="manual")
     # The reviewer arm, chosen once at creation from the report's tier (see `REVIEW_ARMS_BY_TIER`)
     # and sticky for the report's life. Adapter/model/effort/permission-mode persist as one bundle
@@ -491,7 +492,7 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     review_inbox_prs = models.BooleanField(default=False, db_default=False)
     # Unused: values live in preferences.
     stamphog_review_inbox_prs = models.BooleanField(default=False, db_default=False)
-    # Unused: a label always runs.
+    # Unused: no label starts a review.
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
     # Unused: values live in preferences.
     resolve_comments = models.BooleanField(default=True, db_default=True)
@@ -599,8 +600,9 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
 
     `selected` includes the repository into this project, also when another project takes all
     repositories of the installation. `flash_for` is the repository exception: null follows the
-    project rule (`ReviewProjectSettings.flash_for`). A row that is neither selected nor an exception
-    has no meaning and is deleted. A repository has at most one row across all projects, so it
+    project rule (`ReviewProjectSettings.flash_for`). `review_drafts` lets draft pull requests get
+    their automatic review when they open. A row that is not selected, has no exception and does not
+    review drafts has no meaning and is deleted. A repository has at most one row across all projects, so it
     belongs to one project only.
     """
 
@@ -619,6 +621,7 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
     full_name = models.CharField(max_length=200)
     selected = models.BooleanField(default=False, db_default=False)
     flash_for = models.CharField(max_length=20, choices=AutomaticFlashFor.choices, null=True, blank=True)
+    review_drafts = models.BooleanField(default=False, db_default=False)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )

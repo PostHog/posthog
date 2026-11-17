@@ -47,6 +47,8 @@ from posthog.security.llm_prompt_sanitization import sanitize_user_text
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
 from ee.hogai.utils.types.base import (
     ArtifactRefMessage,
@@ -82,6 +84,9 @@ MAX_EVENT_DESCRIPTION_LENGTH = 500
 
 # Matches CAPTURE_V1_MAX_EVENT_NAME_LENGTH in rust/capture, which rejects a longer name at ingestion.
 MAX_EVENT_NAME_LENGTH = 200
+
+# Covers the User model's limits: 150 characters each for first and last name, and 254 for an email.
+MAX_EVENT_OWNER_FIELD_LENGTH = 301
 
 NOT_SEEN_RECENTLY_MARKER = f"(not seen in the last {LOOKBACK_DAYS} days)"
 NOT_SEEN_RECENTLY_LEGEND = (
@@ -331,6 +336,35 @@ def get_event_description(team: Team, event_name: str) -> str | None:
     if description := _get_event_definition_descriptions(team, [event_name], {}).get(event_name):
         return sanitize_event_description(description)
     return None
+
+
+def get_event_owner(team: Team, event_name: str) -> str | None:
+    """Return the owner of a single event as "Name (email)", or None if the event has no owner.
+
+    Only the enterprise `EventDefinition` model carries an `owner`, so this is a no-op on non-EE builds.
+    Core taxonomy events are looked up too: an owner only ever comes from the event definition.
+    """
+    if not EE_AVAILABLE:
+        return None
+
+    from ee.models.event_definition import (
+        EnterpriseEventDefinition,  # noqa: PLC0415 — EE-only model, keep off the OSS import path
+    )
+
+    # Event definitions belong to the project, so an environment sees the owner set from any other one.
+    owner = (
+        EnterpriseEventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(effective_project_id=team.project_id, name=event_name, owner__isnull=False)
+        .values_list("owner__first_name", "owner__last_name", "owner__email")
+        .first()
+    )
+    if owner is None:
+        return None
+    first_name, last_name, email = owner
+    # Users write their own names, so a name is untrusted text like an event description.
+    name = sanitize_user_text(f"{first_name} {last_name}", MAX_EVENT_OWNER_FIELD_LENGTH)
+    email = sanitize_user_text(email, MAX_EVENT_OWNER_FIELD_LENGTH)
+    return f"{name} ({email})" if name else email
 
 
 def _get_event_definition_descriptions(

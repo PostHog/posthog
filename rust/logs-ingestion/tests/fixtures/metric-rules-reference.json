@@ -1,0 +1,1943 @@
+{
+ "compile_rows": [
+  {
+   "id": "a",
+   "metric_name": "",
+   "filter_group": null,
+   "value_attribute": null,
+   "group_by": []
+  },
+  {
+   "id": "b",
+   "metric_name": 5,
+   "filter_group": null,
+   "value_attribute": null,
+   "group_by": []
+  },
+  {
+   "id": "c",
+   "filter_group": null,
+   "value_attribute": null,
+   "group_by": []
+  },
+  {
+   "id": "d",
+   "metric_name": "d",
+   "source": "SPANS",
+   "value_attribute": "",
+   "group_by": [
+    "severity_text",
+    1,
+    "",
+    null,
+    "event_name"
+   ]
+  },
+  {
+   "id": "e",
+   "metric_name": "e",
+   "source": "spans",
+   "value_attribute": "duration_ms",
+   "group_by": [
+    "kind",
+    "name",
+    "status_code",
+    "service_name",
+    "attributes.a",
+    "attributes.b"
+   ]
+  },
+  {
+   "id": "f",
+   "metric_name": "f",
+   "source": "spans",
+   "value_attribute": 7,
+   "group_by": [
+    "severity_text"
+   ]
+  },
+  {
+   "id": "g",
+   "metric_name": "g",
+   "value_attribute": "x",
+   "group_by": [
+    "name"
+   ]
+  },
+  {
+   "id": "h",
+   "metric_name": "h",
+   "value_attribute": "duration_ms",
+   "group_by": []
+  },
+  {
+   "id": "i",
+   "metric_name": "i",
+   "value_attribute": "attributes.\ud800",
+   "group_by": [
+    "resource_attributes.\udc00",
+    "attributes."
+   ]
+  },
+  {
+   "id": "j",
+   "metric_name": "j",
+   "value_attribute": null,
+   "group_by": "service_name"
+  },
+  {
+   "id": "k",
+   "metric_name": "k",
+   "source": "spans",
+   "value_attribute": null,
+   "group_by": [
+    "event_name"
+   ]
+  }
+ ],
+ "compile": [
+  {
+   "id": "d",
+   "metric_name": "d",
+   "source": "logs",
+   "value_attribute": null,
+   "group_by": [
+    "severity_text",
+    "event_name"
+   ]
+  },
+  {
+   "id": "e",
+   "metric_name": "e",
+   "source": "spans",
+   "value_attribute": "duration_ms",
+   "group_by": [
+    "kind",
+    "name",
+    "status_code",
+    "service_name",
+    "attributes.a"
+   ]
+  },
+  {
+   "id": "i",
+   "metric_name": "i",
+   "source": "logs",
+   "value_attribute": "attributes.\ud800",
+   "group_by": [
+    "resource_attributes.\udc00",
+    "attributes."
+   ]
+  },
+  {
+   "id": "j",
+   "metric_name": "j",
+   "source": "logs",
+   "value_attribute": null,
+   "group_by": []
+  }
+ ],
+ "hmac_key_hex": "0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186",
+ "labels": [
+  {
+   "attribute": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"",
+   "length": 256,
+   "label_key": "[\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"]"
+  },
+  {
+   "attribute": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"",
+   "length": 256,
+   "label_key": "[\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"]"
+  },
+  {
+   "attribute": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx🚀\"",
+   "length": 256,
+   "label_key": "[\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\ud83d\"]"
+  },
+  {
+   "attribute": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx🚀\"",
+   "length": 256,
+   "label_key": "[\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx🚀\"]"
+  },
+  {
+   "attribute": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx🚀y\"",
+   "length": 256,
+   "label_key": "[\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx🚀\"]"
+  },
+  {
+   "attribute": "\"🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀\"",
+   "length": 256,
+   "label_key": "[\"🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀\"]"
+  },
+  {
+   "attribute": "\"🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀\"",
+   "length": 256,
+   "label_key": "[\"🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀\"]"
+  },
+  {
+   "attribute": "\"a🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀\"",
+   "length": 256,
+   "label_key": "[\"a🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀\\ud83d\"]"
+  },
+  {
+   "attribute": "\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"",
+   "length": 256,
+   "label_key": "[\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"]"
+  },
+  {
+   "attribute": "\"日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本\"",
+   "length": 256,
+   "label_key": "[\"日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本日本\"]"
+  },
+  {
+   "attribute": "\"\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\"",
+   "length": 256,
+   "label_key": "[\"\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\\ud83d\"]"
+  },
+  {
+   "attribute": "\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\udc00z\"",
+   "length": 256,
+   "label_key": "[\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\udc00\"]"
+  },
+  {
+   "attribute": "raw-🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀",
+   "length": 256,
+   "label_key": "[\"raw-🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀\"]"
+  }
+ ],
+ "id_to_hex": [
+  {
+   "input_hex": "0112233445566778899aabbccddeef00",
+   "expected_bytes": 16,
+   "output": "0112233445566778899aabbccddeef00"
+  },
+  {
+   "input_hex": "fffefdfcfbfaf9f8",
+   "expected_bytes": 8,
+   "output": "fffefdfcfbfaf9f8"
+  },
+  {
+   "input_hex": "00000000000000000000000000000000",
+   "expected_bytes": 16,
+   "output": null
+  },
+  {
+   "input_hex": "",
+   "expected_bytes": 16,
+   "output": null
+  },
+  {
+   "input_hex": "4152496a4e4556575a33694a6d7175387a64377641413d3d",
+   "expected_bytes": 16,
+   "output": "0112233445566778899aabbccddeef00"
+  },
+  {
+   "input_hex": "4152496a4e4556575a33694a6d7175387a6437764141",
+   "expected_bytes": 16,
+   "output": "0112233445566778899aabbccddeef00"
+  },
+  {
+   "input_hex": "2f2f37392f5076362b66673d",
+   "expected_bytes": 8,
+   "output": "fffefdfcfbfaf9f8"
+  },
+  {
+   "input_hex": "5f5f37395f5076362d66673d",
+   "expected_bytes": 8,
+   "output": "fffefdfcfbfaf9f8"
+  },
+  {
+   "input_hex": "204152496a4e4556575a330a2a694a6d7175387a64377641413d3d",
+   "expected_bytes": 16,
+   "output": "0112233445566778899aabbccddeef00"
+  },
+  {
+   "input_hex": "4152496a4e4556573d5a33694a6d7175387a64377641413d3d",
+   "expected_bytes": 16,
+   "output": null
+  },
+  {
+   "input_hex": "414141414141414141414141414141414141414141413d3d",
+   "expected_bytes": 16,
+   "output": null
+  },
+  {
+   "input_hex": "4152496a4e4556575a33694a6d7175387a64377641413d3d41414141",
+   "expected_bytes": 16,
+   "output": "0112233445566778899aabbccddeef00"
+  },
+  {
+   "input_hex": "c1d2c9eacec5d6d7dab3e9caedf1f5b8fae4b7f6c1c1bdbd",
+   "expected_bytes": 16,
+   "output": "0112233445566778899aabbccddeef00"
+  },
+  {
+   "input_hex": "41514944424155474277674a4367734d44513450",
+   "expected_bytes": 16,
+   "output": null
+  },
+  {
+   "input_hex": "6e6f742062617365363420617420616c6c2121",
+   "expected_bytes": 16,
+   "output": null
+  },
+  {
+   "input_hex": "0112233445566778899aabbccddeef",
+   "expected_bytes": 16,
+   "output": null
+  }
+ ],
+ "label_hashes": [
+  {
+   "label_key": "[]",
+   "hash": 59966496679625
+  },
+  {
+   "label_key": "[\"\"]",
+   "hash": 273217511290766
+  },
+  {
+   "label_key": "[\"api\",\"ERROR\"]",
+   "hash": 253038246542535
+  },
+  {
+   "label_key": "[\"\\ud83dx\"]",
+   "hash": 88575327074555
+  },
+  {
+   "label_key": "[\"🚀🚀🚀\"]",
+   "hash": 92551814109060
+  }
+ ],
+ "admission": [
+  {
+   "name": "per rule cap",
+   "caps": [
+    2,
+    10,
+    100
+   ],
+   "calls": [
+    [
+     1,
+     "r",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     1,
+     "r",
+     "[\"b\"]",
+     1736944633250
+    ],
+    [
+     1,
+     "r",
+     "[\"c\"]",
+     1736944633250
+    ],
+    [
+     1,
+     "r",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     1,
+     "r2",
+     "[\"c\"]",
+     1736944633250
+    ],
+    [
+     2,
+     "r",
+     "[\"c\"]",
+     1736944633250
+    ]
+   ],
+   "results": [
+    true,
+    true,
+    false,
+    true,
+    true,
+    true
+   ]
+  },
+  {
+   "name": "per team cap survives other rules",
+   "caps": [
+    10,
+    3,
+    100
+   ],
+   "calls": [
+    [
+     1,
+     "r1",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     1,
+     "r2",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     1,
+     "r3",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     1,
+     "r4",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     1,
+     "r1",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     2,
+     "r1",
+     "[\"a\"]",
+     1736944633250
+    ]
+   ],
+   "results": [
+    true,
+    true,
+    true,
+    false,
+    true,
+    true
+   ]
+  },
+  {
+   "name": "total cap",
+   "caps": [
+    10,
+    10,
+    2
+   ],
+   "calls": [
+    [
+     1,
+     "r",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     2,
+     "r",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     3,
+     "r",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     1,
+     "r",
+     "[\"a\"]",
+     1736944633250
+    ]
+   ],
+   "results": [
+    true,
+    true,
+    false,
+    true
+   ]
+  },
+  {
+   "name": "window rollover",
+   "caps": [
+    1,
+    1,
+    1
+   ],
+   "calls": [
+    [
+     1,
+     "r",
+     "[\"a\"]",
+     1736945999999
+    ],
+    [
+     1,
+     "r",
+     "[\"b\"]",
+     1736945999999
+    ],
+    [
+     1,
+     "r",
+     "[\"b\"]",
+     1736946000000
+    ],
+    [
+     1,
+     "r",
+     "[\"a\"]",
+     1736946000001
+    ],
+    [
+     1,
+     "r",
+     "[\"a\"]",
+     1736942400001.5
+    ],
+    [
+     1,
+     "r",
+     "[\"a\"]",
+     1736942400002
+    ],
+    [
+     1,
+     "r",
+     "[\"b\"]",
+     1736949600000.25
+    ]
+   ],
+   "results": [
+    true,
+    false,
+    true,
+    false,
+    true,
+    true,
+    true
+   ]
+  },
+  {
+   "name": "team and rule ids share a key space",
+   "caps": [
+    1,
+    10,
+    100
+   ],
+   "calls": [
+    [
+     1,
+     "2:r",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     12,
+     "r",
+     "[\"a\"]",
+     1736944633250
+    ],
+    [
+     1,
+     "2:r",
+     "[\"b\"]",
+     1736944633250
+    ]
+   ],
+   "results": [
+    true,
+    true,
+    false
+   ]
+  }
+ ],
+ "payloads": [
+  {
+   "rows": [
+    {
+     "id": "d",
+     "metric_name": "span.ms",
+     "source": "spans",
+     "filter_group": null,
+     "value_attribute": "duration_ms",
+     "group_by": [
+      "service_name",
+      "kind",
+      "name",
+      "status_code"
+     ]
+    },
+    {
+     "id": "h",
+     "metric_name": "span.attr",
+     "source": "spans",
+     "filter_group": null,
+     "value_attribute": "attributes.ms",
+     "group_by": [
+      "resource_attributes.k8s.pod.name",
+      "attributes.http.method"
+     ]
+    },
+    {
+     "id": "c",
+     "metric_name": "span.count",
+     "source": "spans",
+     "filter_group": null,
+     "value_attribute": null,
+     "group_by": []
+    }
+   ],
+   "defaults": null,
+   "now_ms": 1736944633250,
+   "records": [
+    {
+     "uuid": "s0",
+     "trace_id": null,
+     "span_id": null,
+     "timestamp": 1736944633250000,
+     "end_time": 1736944633251500,
+     "name": "GET /a",
+     "kind": 1,
+     "status_code": 0,
+     "service_name": "api",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "12.5",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s1",
+     "trace_id": {
+      "$bytes": "1f202122232425262728292a2b2c2d2e"
+     },
+     "span_id": {
+      "$bytes": "0102030405060708"
+     },
+     "timestamp": 1736944632250000,
+     "end_time": 1736944632250000,
+     "name": "db.query",
+     "kind": 2,
+     "status_code": 1,
+     "service_name": "worker",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "\"  3e2ms\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s2",
+     "trace_id": {
+      "$bytes": "3e3f404142434445464748494a4b4c4d"
+     },
+     "span_id": null,
+     "timestamp": 1736944631250000,
+     "end_time": 1736944638500125,
+     "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "kind": 3,
+     "status_code": 2,
+     "service_name": null,
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "\"x\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s3",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "030405060708090a"
+     },
+     "timestamp": 1736944630250000,
+     "end_time": 1736944630250250,
+     "name": "",
+     "kind": 9,
+     "status_code": 7,
+     "service_name": "api",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "-4",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s4",
+     "trace_id": {
+      "$bytes": "7c7d7e7f808182838485868788898a8b"
+     },
+     "span_id": null,
+     "timestamp": 1736944629250000,
+     "end_time": 1736956629250001,
+     "name": "GET /a",
+     "kind": null,
+     "status_code": null,
+     "service_name": "worker",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "\"Infinity\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s5",
+     "trace_id": {
+      "$bytes": "9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aa"
+     },
+     "span_id": {
+      "$bytes": "05060708090a0b0c"
+     },
+     "timestamp": 1736944628250000,
+     "end_time": 1736944628251500,
+     "name": "db.query",
+     "kind": 1,
+     "status_code": 0,
+     "service_name": null,
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "0.1",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s6",
+     "trace_id": null,
+     "span_id": null,
+     "timestamp": 1736944627250000,
+     "end_time": 1736944627250000,
+     "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "kind": 2,
+     "status_code": 1,
+     "service_name": "api",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "\"1e400\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s7",
+     "trace_id": {
+      "$bytes": "d9dadbdcdddedfe0e1e2e3e4e5e6e7e8"
+     },
+     "span_id": {
+      "$bytes": "0708090a0b0c0d0e"
+     },
+     "timestamp": 1736944626250000,
+     "end_time": 1736944633500125,
+     "name": "",
+     "kind": 3,
+     "status_code": 2,
+     "service_name": "worker",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "12.5",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s8",
+     "trace_id": {
+      "$bytes": "f8f9fafbfcfdfeff0001020304050607"
+     },
+     "span_id": null,
+     "timestamp": 1736944625250000,
+     "end_time": 1736944625250250,
+     "name": "GET /a",
+     "kind": 9,
+     "status_code": 7,
+     "service_name": null,
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "\"  3e2ms\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s9",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "090a0b0c0d0e0f10"
+     },
+     "timestamp": 1736944624250000,
+     "end_time": 1736956624250001,
+     "name": "db.query",
+     "kind": null,
+     "status_code": null,
+     "service_name": "api",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "\"x\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s10",
+     "trace_id": {
+      "$bytes": "363738393a3b3c3d3e3f404142434445"
+     },
+     "span_id": null,
+     "timestamp": 1736944623250000,
+     "end_time": 1736944623251500,
+     "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "kind": 1,
+     "status_code": 0,
+     "service_name": "worker",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "-4",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s11",
+     "trace_id": {
+      "$bytes": "55565758595a5b5c5d5e5f6061626364"
+     },
+     "span_id": {
+      "$bytes": "0b0c0d0e0f101112"
+     },
+     "timestamp": 1736944622250000,
+     "end_time": 1736944622250000,
+     "name": "",
+     "kind": 2,
+     "status_code": 1,
+     "service_name": null,
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "\"Infinity\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s12",
+     "trace_id": null,
+     "span_id": null,
+     "timestamp": 1736944621250000,
+     "end_time": 1736944628500125,
+     "name": "GET /a",
+     "kind": 3,
+     "status_code": 2,
+     "service_name": "api",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "0.1",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s13",
+     "trace_id": {
+      "$bytes": "939495969798999a9b9c9d9e9fa0a1a2"
+     },
+     "span_id": {
+      "$bytes": "0d0e0f1011121314"
+     },
+     "timestamp": 1736944620250000,
+     "end_time": 1736944620250250,
+     "name": "db.query",
+     "kind": 9,
+     "status_code": 7,
+     "service_name": "worker",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "\"1e400\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s14",
+     "trace_id": {
+      "$bytes": "b2b3b4b5b6b7b8b9babbbcbdbebfc0c1"
+     },
+     "span_id": null,
+     "timestamp": 1736944619250000,
+     "end_time": 1736956619250001,
+     "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "kind": null,
+     "status_code": null,
+     "service_name": null,
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "12.5",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s15",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "0f10111213141516"
+     },
+     "timestamp": 1736944618250000,
+     "end_time": 1736944618251500,
+     "name": "",
+     "kind": 1,
+     "status_code": 0,
+     "service_name": "api",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "\"  3e2ms\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s16",
+     "trace_id": {
+      "$bytes": "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+     },
+     "span_id": null,
+     "timestamp": 1736944617250000,
+     "end_time": 1736944617250000,
+     "name": "GET /a",
+     "kind": 2,
+     "status_code": 1,
+     "service_name": "worker",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "\"x\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s17",
+     "trace_id": {
+      "$bytes": "0f101112131415161718191a1b1c1d1e"
+     },
+     "span_id": {
+      "$bytes": "1112131415161718"
+     },
+     "timestamp": 1736944616250000,
+     "end_time": 1736944623500125,
+     "name": "db.query",
+     "kind": 3,
+     "status_code": 2,
+     "service_name": null,
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "-4",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s18",
+     "trace_id": null,
+     "span_id": null,
+     "timestamp": 1736944615250000,
+     "end_time": 1736944615250250,
+     "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "kind": 9,
+     "status_code": 7,
+     "service_name": "api",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "\"Infinity\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s19",
+     "trace_id": {
+      "$bytes": "4d4e4f505152535455565758595a5b5c"
+     },
+     "span_id": {
+      "$bytes": "131415161718191a"
+     },
+     "timestamp": 1736944614250000,
+     "end_time": 1736956614250001,
+     "name": "",
+     "kind": null,
+     "status_code": null,
+     "service_name": "worker",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "0.1",
+      "http.method": "\"GET\""
+     }
+    }
+   ],
+   "payload_json": "{\"resourceMetrics\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"api\"}}]},\"scopeMetrics\":[{\"scope\":{\"name\":\"posthog/logs-metric-rules\"},\"metrics\":[{\"name\":\"span.ms\",\"unit\":\"ms\",\"histogram\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"INTERNAL\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"GET /a\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"UNSET\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"count\":1,\"sum\":1.5,\"bucketCounts\":[0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"9\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"7\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"count\":1,\"sum\":0.25,\"bucketCounts\":[0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"SERVER\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"OK\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"count\":1,\"sum\":0,\"bucketCounts\":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"db.query\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"count\":1,\"sum\":12000000.001,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"CLIENT\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"GET /a\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"count\":1,\"sum\":7250.125,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"INTERNAL\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"UNSET\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"count\":1,\"sum\":1.5,\"bucketCounts\":[0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"9\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"7\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"count\":1,\"sum\":0.25,\"bucketCounts\":[0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]}],\"aggregationTemporality\":1}}]}]},{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"worker\"}}]},\"scopeMetrics\":[{\"scope\":{\"name\":\"posthog/logs-metric-rules\"},\"metrics\":[{\"name\":\"span.ms\",\"unit\":\"ms\",\"histogram\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"SERVER\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"db.query\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"OK\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":0,\"traceId\":\"1f202122232425262728292a2b2c2d2e\",\"spanId\":\"0102030405060708\"}],\"count\":1,\"sum\":0,\"bucketCounts\":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"GET /a\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":12000000.001,\"traceId\":\"7c7d7e7f808182838485868788898a8b\"}],\"count\":1,\"sum\":12000000.001,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"CLIENT\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":7250.125,\"traceId\":\"d9dadbdcdddedfe0e1e2e3e4e5e6e7e8\",\"spanId\":\"0708090a0b0c0d0e\"}],\"count\":1,\"sum\":7250.125,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"INTERNAL\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"UNSET\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1.5,\"traceId\":\"363738393a3b3c3d3e3f404142434445\"}],\"count\":1,\"sum\":1.5,\"bucketCounts\":[0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"9\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"db.query\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"7\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":0.25,\"traceId\":\"939495969798999a9b9c9d9e9fa0a1a2\",\"spanId\":\"0d0e0f1011121314\"}],\"count\":1,\"sum\":0.25,\"bucketCounts\":[0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"SERVER\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"GET /a\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"OK\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":0,\"traceId\":\"f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff\"}],\"count\":1,\"sum\":0,\"bucketCounts\":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":12000000.001,\"traceId\":\"4d4e4f505152535455565758595a5b5c\",\"spanId\":\"131415161718191a\"}],\"count\":1,\"sum\":12000000.001,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]}],\"aggregationTemporality\":1}}]}]},{\"resource\":{\"attributes\":[]},\"scopeMetrics\":[{\"scope\":{\"name\":\"posthog/logs-metric-rules\"},\"metrics\":[{\"name\":\"span.ms\",\"unit\":\"ms\",\"histogram\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"CLIENT\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":7250.125,\"traceId\":\"3e3f404142434445464748494a4b4c4d\"}],\"count\":1,\"sum\":7250.125,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"INTERNAL\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"db.query\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"UNSET\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1.5,\"traceId\":\"9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aa\",\"spanId\":\"05060708090a0b0c\"}],\"count\":1,\"sum\":1.5,\"bucketCounts\":[0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"9\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"GET /a\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"7\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":0.25,\"traceId\":\"f8f9fafbfcfdfeff0001020304050607\"}],\"count\":1,\"sum\":0.25,\"bucketCounts\":[0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"SERVER\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"OK\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":0,\"traceId\":\"55565758595a5b5c5d5e5f6061626364\",\"spanId\":\"0b0c0d0e0f101112\"}],\"count\":1,\"sum\":0,\"bucketCounts\":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":12000000.001,\"traceId\":\"b2b3b4b5b6b7b8b9babbbcbdbebfc0c1\"}],\"count\":1,\"sum\":12000000.001,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"CLIENT\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"db.query\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":7250.125,\"traceId\":\"0f101112131415161718191a1b1c1d1e\",\"spanId\":\"1112131415161718\"}],\"count\":1,\"sum\":7250.125,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]}],\"aggregationTemporality\":1}},{\"name\":\"span.attr\",\"histogram\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"k8s.pod.name\",\"value\":{\"stringValue\":\"pod-0\"}},{\"key\":\"http.method\",\"value\":{\"stringValue\":\"GET\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":321.1,\"traceId\":\"f8f9fafbfcfdfeff0001020304050607\"}],\"count\":5,\"sum\":321.1,\"bucketCounts\":[1,1,0,2,0,0,0,0,1,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"k8s.pod.name\",\"value\":{\"stringValue\":\"pod-1\"}},{\"key\":\"http.method\",\"value\":{\"stringValue\":\"GET\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":604.7,\"traceId\":\"1f202122232425262728292a2b2c2d2e\",\"spanId\":\"0102030405060708\"}],\"count\":7,\"sum\":604.7,\"bucketCounts\":[2,2,0,1,0,0,0,0,2,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]}],\"aggregationTemporality\":1}},{\"name\":\"span.count\",\"sum\":{\"dataPoints\":[{\"attributes\":[],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":20,\"traceId\":\"1f202122232425262728292a2b2c2d2e\",\"spanId\":\"0102030405060708\"}],\"asDouble\":20}],\"aggregationTemporality\":1,\"isMonotonic\":true}}]}]}]}",
+   "value_skipped": 8,
+   "eval_errors": 0,
+   "series_overflow": {},
+   "threw": null
+  },
+  {
+   "rows": [
+    {
+     "id": "u",
+     "metric_name": "by.user",
+     "filter_group": null,
+     "value_attribute": null,
+     "group_by": [
+      "service_name",
+      "attributes.user",
+      "severity_text"
+     ]
+    },
+    {
+     "id": "v",
+     "metric_name": "posthog.log.records",
+     "filter_group": null,
+     "value_attribute": "attributes.ms",
+     "group_by": [
+      "attributes.user"
+     ]
+    },
+    {
+     "id": "u",
+     "metric_name": "same.id",
+     "filter_group": null,
+     "value_attribute": null,
+     "group_by": [
+      "event_name"
+     ]
+    }
+   ],
+   "defaults": "logs",
+   "now_ms": 1736944633250,
+   "records": [
+    {
+     "uuid": "l0",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": null,
+     "service_name": "api",
+     "severity_text": "INFO",
+     "event_name": null,
+     "attributes": {
+      "ms": "0",
+      "user": "\"deny\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l1",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "web",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "997.5",
+      "user": "\"u1\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l2",
+     "trace_id": {
+      "$bytes": "00000000000000000000000000000000"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736943373250000,
+     "service_name": "api",
+     "severity_text": null,
+     "event_name": null,
+     "attributes": {
+      "ms": "1995",
+      "user": "\"u2\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l3",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": null,
+     "service_name": "web",
+     "severity_text": "INFO",
+     "event_name": null,
+     "attributes": {
+      "ms": "2992.5",
+      "user": "\"u3\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l4",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "api",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "3990",
+      "user": "\"deny\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l5",
+     "trace_id": {
+      "$bytes": "00000000000000000000000000000000"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736943373250000,
+     "service_name": "web",
+     "severity_text": null,
+     "event_name": null,
+     "attributes": {
+      "ms": "4987.5",
+      "user": "\"u0\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l6",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": null,
+     "service_name": "api",
+     "severity_text": "INFO",
+     "event_name": null,
+     "attributes": {
+      "ms": "5985",
+      "user": "\"u1\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l7",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "web",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "6982.5",
+      "user": "\"u2\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l8",
+     "trace_id": {
+      "$bytes": "00000000000000000000000000000000"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736943373250000,
+     "service_name": "api",
+     "severity_text": null,
+     "event_name": null,
+     "attributes": {
+      "ms": "7980",
+      "user": "\"deny\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l9",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": null,
+     "service_name": "web",
+     "severity_text": "INFO",
+     "event_name": null,
+     "attributes": {
+      "ms": "8977.5",
+      "user": "\"u4\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l10",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "api",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "9975",
+      "user": "\"u0\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l11",
+     "trace_id": {
+      "$bytes": "00000000000000000000000000000000"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736943373250000,
+     "service_name": "web",
+     "severity_text": null,
+     "event_name": null,
+     "attributes": {
+      "ms": "10972.5",
+      "user": "\"u1\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l12",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": null,
+     "service_name": "api",
+     "severity_text": "INFO",
+     "event_name": null,
+     "attributes": {
+      "ms": "11970",
+      "user": "\"deny\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l13",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "web",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "12967.5",
+      "user": "\"u3\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l14",
+     "trace_id": {
+      "$bytes": "00000000000000000000000000000000"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736943373250000,
+     "service_name": "api",
+     "severity_text": null,
+     "event_name": null,
+     "attributes": {
+      "ms": "13965",
+      "user": "\"u4\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l15",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": null,
+     "service_name": "web",
+     "severity_text": "INFO",
+     "event_name": null,
+     "attributes": {
+      "ms": "14962.5",
+      "user": "\"u0\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l16",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "api",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "15960",
+      "user": "\"deny\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l17",
+     "trace_id": {
+      "$bytes": "00000000000000000000000000000000"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736943373250000,
+     "service_name": "web",
+     "severity_text": null,
+     "event_name": null,
+     "attributes": {
+      "ms": "16957.5",
+      "user": "\"u2\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l18",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": null,
+     "service_name": "api",
+     "severity_text": "INFO",
+     "event_name": null,
+     "attributes": {
+      "ms": "17955",
+      "user": "\"u3\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l19",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "web",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "18952.5",
+      "user": "\"u4\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l20",
+     "trace_id": {
+      "$bytes": "00000000000000000000000000000000"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736943373250000,
+     "service_name": "api",
+     "severity_text": null,
+     "event_name": null,
+     "attributes": {
+      "ms": "19950",
+      "user": "\"deny\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l21",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": null,
+     "service_name": "web",
+     "severity_text": "INFO",
+     "event_name": null,
+     "attributes": {
+      "ms": "20947.5",
+      "user": "\"u1\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l22",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "api",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "21945",
+      "user": "\"u2\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l23",
+     "trace_id": {
+      "$bytes": "00000000000000000000000000000000"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736943373250000,
+     "service_name": "web",
+     "severity_text": null,
+     "event_name": null,
+     "attributes": {
+      "ms": "22942.5",
+      "user": "\"u3\""
+     },
+     "resource_attributes": null
+    }
+   ],
+   "payload_json": "{\"resourceMetrics\":[{\"resource\":{\"attributes\":[]},\"scopeMetrics\":[{\"scope\":{\"name\":\"posthog/logs-metric-rules\"},\"metrics\":[{\"name\":\"by.user\",\"sum\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"otel.metric.overflow\",\"value\":{\"boolValue\":true}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":4,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":4},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":16,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":16},{\"attributes\":[{\"key\":\"otel.metric.overflow\",\"value\":{\"boolValue\":true}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":4,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":4},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":16,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":16},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u1\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u3\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u1\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u2\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u4\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u0\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u3\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u0\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u3\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u4\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u1\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u2\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1}],\"aggregationTemporality\":1,\"isMonotonic\":true}},{\"name\":\"posthog.log.records\",\"histogram\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"otel.metric.overflow\",\"value\":{\"boolValue\":true}},{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":31920,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"count\":4,\"sum\":31920,\"bucketCounts\":[1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,2],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"user\",\"value\":{\"stringValue\":\"u1\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":27930,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"count\":3,\"sum\":27930,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,1],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"user\",\"value\":{\"stringValue\":\"u3\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":33915,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"count\":3,\"sum\":33915,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,2],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"user\",\"value\":{\"stringValue\":\"u2\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":28927.5,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"count\":2,\"sum\":28927.5,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"user\",\"value\":{\"stringValue\":\"u4\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":27930,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"count\":2,\"sum\":27930,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"user\",\"value\":{\"stringValue\":\"u0\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":24937.5,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"count\":2,\"sum\":24937.5,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]}],\"aggregationTemporality\":1}}]}]},{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"web\"}}]},\"scopeMetrics\":[{\"scope\":{\"name\":\"posthog/logs-metric-rules\"},\"metrics\":[{\"name\":\"by.user\",\"sum\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u1\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u3\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u2\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u4\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u3\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u0\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u4\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u1\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1}],\"aggregationTemporality\":1,\"isMonotonic\":true}}]}]},{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"api\"}}]},\"scopeMetrics\":[{\"scope\":{\"name\":\"posthog/logs-metric-rules\"},\"metrics\":[{\"name\":\"by.user\",\"sum\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u1\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u0\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u3\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"INFO\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"user\",\"value\":{\"stringValue\":\"u2\"}},{\"key\":\"severity_text\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1}],\"aggregationTemporality\":1,\"isMonotonic\":true}}]}]}]}",
+   "value_skipped": 0,
+   "eval_errors": 0,
+   "series_overflow": {
+    "u": 4,
+    "v": 4
+   },
+   "threw": null
+  },
+  {
+   "rows": [
+    {
+     "id": "n",
+     "metric_name": "none",
+     "filter_group": null,
+     "value_attribute": "attributes.missing",
+     "group_by": []
+    }
+   ],
+   "defaults": null,
+   "now_ms": 1736944633250,
+   "records": [
+    {
+     "uuid": "l0",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": null,
+     "service_name": "api",
+     "severity_text": "INFO",
+     "event_name": null,
+     "attributes": {
+      "ms": "0",
+      "user": "\"deny\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l1",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "web",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "997.5",
+      "user": "\"u1\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l2",
+     "trace_id": {
+      "$bytes": "00000000000000000000000000000000"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736943373250000,
+     "service_name": "api",
+     "severity_text": null,
+     "event_name": null,
+     "attributes": {
+      "ms": "1995",
+      "user": "\"u2\""
+     },
+     "resource_attributes": null
+    }
+   ],
+   "payload_json": null,
+   "value_skipped": 2,
+   "eval_errors": 0,
+   "series_overflow": {},
+   "threw": null
+  },
+  {
+   "rows": [
+    {
+     "id": "p",
+     "metric_name": "proto",
+     "filter_group": null,
+     "value_attribute": "attributes.valueOf",
+     "group_by": []
+    },
+    {
+     "id": "q",
+     "metric_name": "proto.labels",
+     "filter_group": null,
+     "value_attribute": null,
+     "group_by": [
+      "attributes.constructor",
+      "attributes.__proto__",
+      "attributes.toString",
+      "resource_attributes.__proto__"
+     ]
+    }
+   ],
+   "defaults": null,
+   "now_ms": 1736944633250,
+   "records": [
+    {
+     "uuid": "l0",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": null,
+     "service_name": "api",
+     "severity_text": "INFO",
+     "event_name": null,
+     "attributes": {
+      "ms": "0",
+      "user": "\"deny\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l1",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "web",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "997.5",
+      "user": "\"u1\""
+     },
+     "resource_attributes": {
+      "a": "\"b\""
+     }
+    },
+    {
+     "uuid": "l2",
+     "trace_id": {
+      "$bytes": "00000000000000000000000000000000"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736943373250000,
+     "service_name": "api",
+     "severity_text": null,
+     "event_name": null,
+     "attributes": {
+      "ms": "1995",
+      "user": "\"u2\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l3",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": null,
+     "service_name": "web",
+     "severity_text": "INFO",
+     "event_name": null,
+     "attributes": {
+      "ms": "2992.5",
+      "user": "\"u3\""
+     },
+     "resource_attributes": {
+      "a": "\"b\""
+     }
+    }
+   ],
+   "payload_json": "{\"resourceMetrics\":[{\"resource\":{\"attributes\":[]},\"scopeMetrics\":[{\"scope\":{\"name\":\"posthog/logs-metric-rules\"},\"metrics\":[{\"name\":\"proto.labels\",\"sum\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"constructor\",\"value\":{}},{\"key\":\"__proto__\",\"value\":{\"stringValue\":{}}},{\"key\":\"toString\",\"value\":{}},{\"key\":\"__proto__\",\"value\":{\"stringValue\":\"\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1},{\"attributes\":[{\"key\":\"constructor\",\"value\":{}},{\"key\":\"__proto__\",\"value\":{\"stringValue\":{}}},{\"key\":\"toString\",\"value\":{}},{\"key\":\"__proto__\",\"value\":{\"stringValue\":{}}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":2,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":2}],\"aggregationTemporality\":1,\"isMonotonic\":true}}]}]}]}",
+   "value_skipped": 3,
+   "eval_errors": 0,
+   "series_overflow": {},
+   "threw": null
+  },
+  {
+   "rows": [
+    {
+     "id": "ok",
+     "metric_name": "ok",
+     "filter_group": null,
+     "value_attribute": null,
+     "group_by": []
+    },
+    {
+     "id": "t",
+     "metric_name": "throws",
+     "filter_group": null,
+     "value_attribute": null,
+     "group_by": [
+      "attributes.__defineGetter__"
+     ]
+    }
+   ],
+   "defaults": null,
+   "now_ms": 1736944633250,
+   "records": [
+    {
+     "uuid": "l1",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "web",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "997.5",
+      "user": "\"u1\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l4",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "api",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "3990",
+      "user": "\"deny\""
+     },
+     "resource_attributes": null
+    },
+    {
+     "uuid": "l7",
+     "trace_id": {
+      "$bytes": "4152496a4e4556575a33694a6d7175387a64377641413d3d"
+     },
+     "span_id": {
+      "$bytes": "fffefdfcfbfaf9f8"
+     },
+     "timestamp": 1736944573250000,
+     "service_name": "web",
+     "severity_text": "ERROR",
+     "event_name": null,
+     "attributes": {
+      "ms": "6982.5",
+      "user": "\"u2\""
+     },
+     "resource_attributes": null
+    }
+   ],
+   "payload_json": "{\"resourceMetrics\":[{\"resource\":{\"attributes\":[]},\"scopeMetrics\":[{\"scope\":{\"name\":\"posthog/logs-metric-rules\"},\"metrics\":[{\"name\":\"ok\",\"sum\":{\"dataPoints\":[{\"attributes\":[],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":1,\"traceId\":\"0112233445566778899aabbccddeef00\",\"spanId\":\"fffefdfcfbfaf9f8\"}],\"asDouble\":1}],\"aggregationTemporality\":1,\"isMonotonic\":true}}]}]}]}",
+   "value_skipped": 0,
+   "eval_errors": 0,
+   "series_overflow": {},
+   "threw": "TypeError: value.startsWith is not a function"
+  },
+  {
+   "rows": [],
+   "defaults": "spans",
+   "now_ms": 1736944633250,
+   "records": [
+    {
+     "uuid": "s0",
+     "trace_id": null,
+     "span_id": null,
+     "timestamp": 1736944633250000,
+     "end_time": 1736944633251500,
+     "name": "GET /a",
+     "kind": 1,
+     "status_code": 0,
+     "service_name": "api",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "12.5",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s1",
+     "trace_id": {
+      "$bytes": "1f202122232425262728292a2b2c2d2e"
+     },
+     "span_id": {
+      "$bytes": "0102030405060708"
+     },
+     "timestamp": 1736944632250000,
+     "end_time": 1736944632250000,
+     "name": "db.query",
+     "kind": 2,
+     "status_code": 1,
+     "service_name": "worker",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "\"  3e2ms\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s2",
+     "trace_id": {
+      "$bytes": "3e3f404142434445464748494a4b4c4d"
+     },
+     "span_id": null,
+     "timestamp": 1736944631250000,
+     "end_time": 1736944638500125,
+     "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "kind": 3,
+     "status_code": 2,
+     "service_name": null,
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "\"x\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s3",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "030405060708090a"
+     },
+     "timestamp": 1736944630250000,
+     "end_time": 1736944630250250,
+     "name": "",
+     "kind": 9,
+     "status_code": 7,
+     "service_name": "api",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "-4",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s4",
+     "trace_id": {
+      "$bytes": "7c7d7e7f808182838485868788898a8b"
+     },
+     "span_id": null,
+     "timestamp": 1736944629250000,
+     "end_time": 1736956629250001,
+     "name": "GET /a",
+     "kind": null,
+     "status_code": null,
+     "service_name": "worker",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "\"Infinity\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s5",
+     "trace_id": {
+      "$bytes": "9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aa"
+     },
+     "span_id": {
+      "$bytes": "05060708090a0b0c"
+     },
+     "timestamp": 1736944628250000,
+     "end_time": 1736944628251500,
+     "name": "db.query",
+     "kind": 1,
+     "status_code": 0,
+     "service_name": null,
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "0.1",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s6",
+     "trace_id": null,
+     "span_id": null,
+     "timestamp": 1736944627250000,
+     "end_time": 1736944627250000,
+     "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "kind": 2,
+     "status_code": 1,
+     "service_name": "api",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "\"1e400\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s7",
+     "trace_id": {
+      "$bytes": "d9dadbdcdddedfe0e1e2e3e4e5e6e7e8"
+     },
+     "span_id": {
+      "$bytes": "0708090a0b0c0d0e"
+     },
+     "timestamp": 1736944626250000,
+     "end_time": 1736944633500125,
+     "name": "",
+     "kind": 3,
+     "status_code": 2,
+     "service_name": "worker",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "12.5",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s8",
+     "trace_id": {
+      "$bytes": "f8f9fafbfcfdfeff0001020304050607"
+     },
+     "span_id": null,
+     "timestamp": 1736944625250000,
+     "end_time": 1736944625250250,
+     "name": "GET /a",
+     "kind": 9,
+     "status_code": 7,
+     "service_name": null,
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-0\""
+     },
+     "attributes": {
+      "ms": "\"  3e2ms\"",
+      "http.method": "\"GET\""
+     }
+    },
+    {
+     "uuid": "s9",
+     "trace_id": null,
+     "span_id": {
+      "$bytes": "090a0b0c0d0e0f10"
+     },
+     "timestamp": 1736944624250000,
+     "end_time": 1736956624250001,
+     "name": "db.query",
+     "kind": null,
+     "status_code": null,
+     "service_name": "api",
+     "resource_attributes": {
+      "k8s.pod.name": "\"pod-1\""
+     },
+     "attributes": {
+      "ms": "\"x\"",
+      "http.method": "\"GET\""
+     }
+    }
+   ],
+   "payload_json": "{\"resourceMetrics\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"worker\"}}]},\"scopeMetrics\":[{\"scope\":{\"name\":\"posthog/logs-metric-rules\"},\"metrics\":[{\"name\":\"posthog.span.duration\",\"unit\":\"ms\",\"histogram\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"SERVER\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"db.query\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"OK\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":0,\"traceId\":\"1f202122232425262728292a2b2c2d2e\",\"spanId\":\"0102030405060708\"}],\"count\":1,\"sum\":0,\"bucketCounts\":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"CLIENT\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":7250.125,\"traceId\":\"d9dadbdcdddedfe0e1e2e3e4e5e6e7e8\",\"spanId\":\"0708090a0b0c0d0e\"}],\"count\":1,\"sum\":7250.125,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]}],\"aggregationTemporality\":1}}]}]},{\"resource\":{\"attributes\":[]},\"scopeMetrics\":[{\"scope\":{\"name\":\"posthog/logs-metric-rules\"},\"metrics\":[{\"name\":\"posthog.span.duration\",\"unit\":\"ms\",\"histogram\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"CLIENT\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"ERROR\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":7250.125,\"traceId\":\"3e3f404142434445464748494a4b4c4d\"}],\"count\":1,\"sum\":7250.125,\"bucketCounts\":[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"9\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"GET /a\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"7\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"exemplars\":[{\"filteredAttributes\":[],\"timeUnixNano\":\"1736944630000000000\",\"asDouble\":0.25,\"traceId\":\"f8f9fafbfcfdfeff0001020304050607\"}],\"count\":1,\"sum\":0.25,\"bucketCounts\":[0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]}],\"aggregationTemporality\":1}}]}]},{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"api\"}}]},\"scopeMetrics\":[{\"scope\":{\"name\":\"posthog/logs-metric-rules\"},\"metrics\":[{\"name\":\"posthog.span.duration\",\"unit\":\"ms\",\"histogram\":{\"dataPoints\":[{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"9\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"7\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"count\":1,\"sum\":0.25,\"bucketCounts\":[0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]},{\"attributes\":[{\"key\":\"posthog.bucket_layout\",\"value\":{\"stringValue\":\"otel_default_v1\"}},{\"key\":\"kind\",\"value\":{\"stringValue\":\"SERVER\"}},{\"key\":\"name\",\"value\":{\"stringValue\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}},{\"key\":\"status_code\",\"value\":{\"stringValue\":\"OK\"}}],\"startTimeUnixNano\":\"1736944620000000000\",\"timeUnixNano\":\"1736944630000000000\",\"count\":1,\"sum\":0,\"bucketCounts\":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"explicitBounds\":[0,5,10,25,50,75,100,250,500,750,1000,2500,5000,7500,10000]}],\"aggregationTemporality\":1}}]}]}]}",
+   "value_skipped": 0,
+   "eval_errors": 0,
+   "series_overflow": {},
+   "threw": null
+  }
+ ]
+}

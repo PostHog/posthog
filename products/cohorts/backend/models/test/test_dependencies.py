@@ -8,6 +8,7 @@ from django.core.cache import cache
 from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -23,6 +24,11 @@ from products.cohorts.backend.models.dependencies import (
     get_cohort_dependents,
     get_flag_excluded_behavioral_cohort_ids,
     warm_team_cohort_dependency_cache,
+)
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
 )
 
 
@@ -702,7 +708,6 @@ class TestFlagExcludedBehavioralCohortIds(BaseTest):
         )
 
     def test_backfilled_realtime_cohort_excluded_without_flag_included_with_it(self) -> None:
-        from django.utils import timezone
 
         # A realtime cohort that has been backfilled (is_flag_compatible=True) should NOT be
         # excluded when allow_realtime_backfilled=True, but must still be excluded when False.
@@ -710,6 +715,7 @@ class TestFlagExcludedBehavioralCohortIds(BaseTest):
             team=self.team,
             name="realtime_behavioral",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self.BEHAVIORAL_FILTERS,
             last_backfill_person_properties_at=timezone.now(),
             last_backfill_events_at=timezone.now(),
@@ -720,6 +726,15 @@ class TestFlagExcludedBehavioralCohortIds(BaseTest):
 
         self.assertIn(realtime_behavioral.id, excluded_without)
         self.assertNotIn(realtime_behavioral.id, excluded_with)
+
+        # A grant writes no cohort, so nothing invalidates the cached answer from before it.
+        RealtimeCohortTeamAccess.objects.create(
+            team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+        )
+        self.assertIn(
+            realtime_behavioral.id,
+            get_flag_excluded_behavioral_cohort_ids(self.team.id, allow_realtime_backfilled=True),
+        )
 
     def test_detects_behavioral_nested_in_group_and_two_hop_referrers(self) -> None:
         # Behavioral node nested inside an inner AND group exercises the check_property_values recursion.

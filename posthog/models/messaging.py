@@ -1,4 +1,6 @@
 import hashlib
+from collections.abc import Mapping
+from typing import Any
 
 from django.conf import settings
 from django.db import models
@@ -28,9 +30,11 @@ def get_email_hashes(email: str) -> list[str]:
     return [_hash_email(email, salt) for salt in salts if salt]
 
 
-class MessagingRecordManager(models.Manager):
-    def get_or_create(self, defaults=None, **kwargs):
-        raw_email = kwargs.pop("raw_email", None)
+class MessagingRecordManager(models.Manager["MessagingRecord"]):
+    # Keyword-only `raw_email` keeps the django-stubs plugin from checking it as a field lookup.
+    def get_or_create(
+        self, defaults: Mapping[str, Any] | None = None, *, raw_email: str | None = None, **kwargs: Any
+    ) -> tuple["MessagingRecord", bool]:
         if raw_email is None:
             return super().get_or_create(defaults, **kwargs)
 
@@ -44,8 +48,9 @@ class MessagingRecordManager(models.Manager):
         kwargs["email_hash"] = get_email_hash(raw_email)
         return super().get_or_create(defaults, **kwargs)
 
-    async def aget_or_create(self, defaults=None, **kwargs):
-        raw_email = kwargs.pop("raw_email", None)
+    async def aget_or_create(
+        self, defaults: Mapping[str, Any] | None = None, *, raw_email: str | None = None, **kwargs: Any
+    ) -> tuple["MessagingRecord", bool]:
         if raw_email is None:
             return await super().aget_or_create(defaults, **kwargs)
 
@@ -56,12 +61,11 @@ class MessagingRecordManager(models.Manager):
         kwargs["email_hash"] = get_email_hash(raw_email)
         return await super().aget_or_create(defaults, **kwargs)
 
-    def filter(self, *args, **kwargs):
+    def filter(self, *args: Any, raw_email: str | None = None, **kwargs: Any) -> models.QuerySet["MessagingRecord"]:
         # A raw_email maps to multiple hashes across salt rotations, so we only remap it
         # on filter() — never get(), which would raise MultipleObjectsReturned if both a
         # pre- and post-rotation record exist. Callers needing one row use
         # filter(raw_email=...).first()/.exists().
-        raw_email = kwargs.pop("raw_email", None)
         if raw_email is not None:
             kwargs["email_hash__in"] = get_email_hashes(raw_email)
         return super().filter(*args, **kwargs)

@@ -18,7 +18,7 @@ discovery → research ×N (up to 10) → actionability → priority? → presen
 
 ## Output shape
 
-Returns `ReportResearchOutput` from `products.signals.backend.report_generation.research` — consumed as-is by the Signals pipeline.
+Returns `ReportResearchOutput` from `products.signals.backend.facade.research` — consumed as-is by the Signals pipeline.
 
 ## Run it
 

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import types
+import shutil
 import zipfile
 import textwrap
 from pathlib import Path
@@ -239,6 +241,25 @@ def test_build_skill_collects_all_files(tmp_path: Path) -> None:
     assert paths[0] == "SKILL.md"
     assert "references/example.md" in paths
     assert len(result.files) == 2
+
+
+def test_inbox_exploration_packages_workflow_references(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[4]
+    source = repo_root / "products" / "signals" / "skills" / "inbox-exploration"
+    skill_dir = tmp_path / "products" / "signals" / "skills" / "inbox-exploration"
+    shutil.copytree(source, skill_dir)
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+
+    with zipfile.ZipFile(builder.pack()) as bundle:
+        entry = bundle.read("inbox-exploration/SKILL.md").decode()
+        assert len(entry.splitlines()) < 500
+        references = set(re.findall(r"\]\((references/[^)#]+)(?:#[^)]*)?\)", entry))
+        assert references
+        assert {f"inbox-exploration/{path}" for path in references} == {
+            path for path in bundle.namelist() if path.startswith("inbox-exploration/references/")
+        }
+        for reference in references:
+            assert bundle.read(f"inbox-exploration/{reference}").decode() == (skill_dir / reference).read_text()
 
 
 def test_build_skill_ignores_non_allowed_subdirs(tmp_path: Path) -> None:

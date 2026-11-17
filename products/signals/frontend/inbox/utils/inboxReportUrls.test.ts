@@ -28,6 +28,7 @@ describe('inbox report urls', () => {
             // Live segments and bare report ids are left for their own route handlers.
             ['reports', null],
             ['scouts', null],
+            ['sources', null],
             ['settings', null],
             ['0198a1b2-report-id', null],
             [undefined, null],

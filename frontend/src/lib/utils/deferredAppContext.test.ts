@@ -1,6 +1,11 @@
 import { AppContext, UserType } from '~/types'
 
-import { applyDeferredAppContext, inlineAppContextUrl } from './deferredAppContext'
+import {
+    applyDeferredAppContext,
+    earlyUserContextReads,
+    inlineAppContextUrl,
+    watchEarlyUserContextReads,
+} from './deferredAppContext'
 
 describe('deferredAppContext', () => {
     afterEach(() => {
@@ -14,18 +19,34 @@ describe('deferredAppContext', () => {
             app_context: { current_user: { distinct_id: 'user-1' } as UserType },
             feature_flags: { 'some-flag': true },
         })
+        const contextKeptBeforeTheData = window.POSTHOG_APP_CONTEXT
 
         await applyDeferredAppContext()
 
-        expect(window.POSTHOG_APP_CONTEXT).toEqual({
-            anonymous: false,
-            deferred: true,
-            current_user: { distinct_id: 'user-1' },
-        })
+        const merged = { anonymous: false, deferred: true, current_user: { distinct_id: 'user-1' } }
+        expect(window.POSTHOG_APP_CONTEXT).toEqual(merged)
+        expect(contextKeptBeforeTheData).toEqual(merged)
         expect(window.POSTHOG_USER_IDENTITY_WITH_FLAGS).toEqual({
             distinctID: 'page-distinct-id',
             featureFlags: { 'some-flag': true },
         })
+    })
+
+    it('records the user data read before the data arrives', async () => {
+        let resolveRequest!: (value: { app_context: Partial<AppContext>; feature_flags: null }) => void
+        window.POSTHOG_APP_CONTEXT_REQUEST = new Promise((resolve) => {
+            resolveRequest = resolve
+        })
+        window.POSTHOG_APP_CONTEXT = { anonymous: false, deferred: true } as unknown as AppContext
+        watchEarlyUserContextReads()
+
+        void window.POSTHOG_APP_CONTEXT.current_team
+        void window.POSTHOG_APP_CONTEXT.anonymous
+        resolveRequest({ app_context: { current_user: { distinct_id: 'user-1' } as UserType }, feature_flags: null })
+        await applyDeferredAppContext()
+        void window.POSTHOG_APP_CONTEXT.current_user
+
+        expect(earlyUserContextReads()).toEqual(['current_team'])
     })
 
     it.each([

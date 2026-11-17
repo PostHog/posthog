@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -10,6 +12,24 @@ import { organizationLogic } from './organizationLogic'
 
 describe('organizationLogic', () => {
     let logic: ReturnType<typeof organizationLogic.build>
+
+    it('shows the IP lockout warning returned by a successful save', async () => {
+        initKeaTests()
+        logic = organizationLogic()
+        logic.mount()
+        const warning = 'Your current IP address is not in this allowlist.'
+        const warningToast = jest.spyOn(lemonToast, 'warning')
+
+        await expectLogic(logic, () => {
+            logic.actions.updateOrganizationSuccess(
+                { ...MOCK_DEFAULT_ORGANIZATION, ip_restrictions_warning: warning },
+                { ip_restrictions_enabled: true }
+            )
+        }).toFinishAllListeners()
+
+        expect(warningToast).toHaveBeenCalledWith(warning)
+        warningToast.mockRestore()
+    })
 
     describe('if POSTHOG_APP_CONTEXT available', () => {
         beforeEach(() => {

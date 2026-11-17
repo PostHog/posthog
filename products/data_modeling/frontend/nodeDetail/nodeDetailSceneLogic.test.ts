@@ -3,6 +3,8 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import {
@@ -16,6 +18,8 @@ import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
+
+import { suiteRunResultsLogic } from 'products/data_quality/frontend/suiteRunResultsLogic'
 
 import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailQuery } from './NodeDetailQuery'
@@ -183,6 +187,22 @@ describe('nodeDetailSceneLogic', () => {
 
         expect(logic.values.availableTabs).toEqual(['lineage'])
         expect(logic.values.currentTab).toEqual('lineage')
+    })
+
+    it('keeps the current model in its lineage when its type is hidden', async () => {
+        await mountScene(urls.nodeDetail(NODE_ID, 'lineage'))
+        logic.actions.loadLineageGraphSuccess({
+            currentNodeId: NODE_ID,
+            nodes: [buildNode('table', { id: 'source' }), node, buildNode('metric', { id: 'revenue' })],
+            edges: [
+                { id: 'e1', source_id: 'source', target_id: NODE_ID },
+                { id: 'e2', source_id: NODE_ID, target_id: 'revenue' },
+            ],
+        })
+
+        logic.actions.setLineageTypeFilter(['table'])
+
+        expect(logic.values.lineageVisibleNodeIds).toEqual(new Set(['source', NODE_ID]))
     })
 
     it('replaces a backing-resource URL with the canonical node URL', async () => {
@@ -382,6 +402,17 @@ describe('nodeDetailSceneLogic', () => {
         expect(screen.getByText('11 of 11 columns')).toBeTruthy()
     })
 
+    it.each([
+        ['opens the data quality tab for its own view', SAVED_QUERY_ID, 'data-quality'],
+        ['stays put for another view', 'other-view', 'query'],
+    ])('when a toast asks to show run results, %s', async (_, subjectId, expectedTab) => {
+        await mountScene(urls.nodeDetail(NODE_ID, 'query'))
+
+        suiteRunResultsLogic.actions.revealSubjectResults({ subjectType: 'view', subjectId })
+
+        expect(logic.values.effectiveTab).toEqual(expectedTab)
+    })
+
     it('lists every tab a saved query supports when data quality checks are on', async () => {
         await mountScene(urls.nodeDetail(NODE_ID))
 
@@ -486,6 +517,45 @@ describe('nodeDetailSceneLogic', () => {
         dataWarehouseViewsLogic.actions.deleteDataWarehouseSavedQuerySuccess([], deletedId)
 
         expect(router.values.location.pathname).toEqual(expectedPath)
+    })
+
+    it('leads back to Data catalog tables instead of Models on the catalog restructure path', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: true,
+        })
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.breadcrumbs.map(({ name, path }) => [name, path])).toEqual([
+            ['Data catalog', urls.dataCatalog()],
+            ['Tables & views', urls.dataCatalog('tables')],
+            ['orders', undefined],
+        ])
+
+        dataWarehouseViewsLogic.actions.deleteDataWarehouseSavedQuerySuccess([], SAVED_QUERY_ID)
+
+        expect(router.values.location.pathname + router.values.location.search).toEqual(
+            `/project/997${urls.dataCatalog('tables')}`
+        )
+    })
+
+    // Reverting and cancelling materialization only announce themselves through this action. Without
+    // the subscription the scene stays on is_materialized true, and the next update re-materializes
+    // the view that was just reverted.
+    it.each<[string, string, boolean]>([
+        ['its own view', SAVED_QUERY_ID, false],
+        ['another view', 'saved-query-2', true],
+    ])('refreshes materialization state when %s changes', async (_name, changedId, expected) => {
+        node = buildNode('matview')
+        savedQuery = { ...savedQuery, is_materialized: true }
+        await mountScene(urls.nodeDetail(NODE_ID))
+        expect(logic.values.isMaterialized).toBe(true)
+
+        savedQuery = { ...savedQuery, is_materialized: false }
+        dataWarehouseViewsLogic.actions.materializationChanged(changedId)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isMaterialized).toBe(expected)
     })
 
     it('keeps a tab mounted once it has been visited', async () => {

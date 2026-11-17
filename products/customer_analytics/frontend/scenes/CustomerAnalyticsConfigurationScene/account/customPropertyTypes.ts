@@ -1,4 +1,5 @@
 import { DataColorToken } from 'lib/colors'
+import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { humanFriendlyCurrency, humanFriendlyLargeNumber, humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type {
@@ -149,4 +150,20 @@ export function runOutcomeNote(run: CustomPropertySyncRunApi, entityPlural: stri
         }
     }
     return null
+}
+
+const LOGS_FILTER_FORMAT = 'YYYY-MM-DD HH:mm:ss'
+
+// The log viewer's date filter drops fractions of a second, so the end gets one second of slack to keep
+// the run's last line. A running run has no end, and the viewer then searches up to now.
+export function runLogsWindow(
+    run: Pick<CustomPropertySyncRunApi, 'started_at' | 'finished_at'>,
+    timezone: string
+): { dateFrom?: string; dateTo?: string } {
+    return {
+        dateFrom: run.started_at ? dayjsUtcToTimezone(run.started_at, timezone).format(LOGS_FILTER_FORMAT) : undefined,
+        dateTo: run.finished_at
+            ? dayjsUtcToTimezone(run.finished_at, timezone).add(1, 'second').format(LOGS_FILTER_FORMAT)
+            : undefined,
+    }
 }

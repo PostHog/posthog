@@ -13,10 +13,12 @@ from products.stamphog.backend.temporal.activities import (
     fetch_review_context,
     list_in_flight_reviewer_bots,
     mark_review_failed,
+    poll_pending_attestations,
     post_verdict,
     refresh_review_evidence,
     refuse_on_pre_gates,
     rereview_after_external_review_finished,
+    reuse_withheld_verdict,
     review_in_sandbox,
     run_review_in_sandbox,
     signal_review_started,
@@ -29,6 +31,7 @@ WORKFLOWS = [StamphogReviewWorkflow]
 ACTIVITIES = [
     dismiss_stale_approvals,
     signal_review_started,
+    reuse_withheld_verdict,
     start_review_sandbox,
     fetch_review_context,
     checkout_review_sandbox,
@@ -39,6 +42,7 @@ ACTIVITIES = [
     run_review_in_sandbox,
     destroy_review_sandbox,
     rereview_after_external_review_finished,
+    poll_pending_attestations,
     post_verdict,
     mark_review_failed,
 ]

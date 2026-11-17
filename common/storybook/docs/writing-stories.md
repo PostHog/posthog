@@ -91,7 +91,7 @@ parameters: { featureFlags: { 'bool-flag': true, 'my-experiment': 'test' } } // 
 
 - The default is no flags, so every flag is off.
 - `featureFlagLogic` reads the persisted flags on mount and keeps them under every later flag load, so a pinned variant survives the empty flag callback posthog-js fires on load.
-- `STORYBOOK_FEATURE_FLAGS` from `lib/constants` is every flag except `TODAY_RAIL_NAV` and `INTERNAL_FEEDBACK_WIDGET`. The rail swaps the whole navigation, so a story opts in to it on its own. Use the constant for a scene story that shows the app with everything on.
+- `STORYBOOK_FEATURE_FLAGS` from `lib/constants` is every flag except `TODAY_RAIL_NAV`. The rail swaps the whole navigation, so a story opts in to it on its own. Use the constant for a scene story that shows the app with everything on.
 - A component that reads flags from a different posthog-js instance, such as the toolbar, needs that instance's own override. `Toolbar.stories.tsx` calls `toolbarPosthogJS.featureFlags.overrideFeatureFlags` for this reason.
 - The parameter only sets the flag. When the render also depends on other runtime state, such as localStorage, an `APP_CONTEXT` field or a logic that has to resolve an entry, set that up too. A small wrapper in the story file can set the state and mount the logic before it renders the component. Don't add test-only props to the production component.
 

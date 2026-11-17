@@ -336,6 +336,8 @@ export interface ReviewRepositoryApi {
      * * `listed` - Automatic Flash for these people
      * * `off` - Automatic Flash opt-in only */
     readonly flash_for: AutomaticFlashForEnumApi | null
+    /** Whether draft pull requests in this repository get their automatic review when they open. */
+    readonly review_drafts: boolean
     /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
     readonly people: readonly ReviewRepositoryPersonApi[]
     /** Who added the repository. */
@@ -368,6 +370,8 @@ export interface ReviewRepositoryWriteApi {
      * * `listed` - Automatic Flash for these people
      * * `off` - Automatic Flash opt-in only */
     flash_for?: AutomaticFlashForEnumApi | null
+    /** True lets draft pull requests in this repository get their automatic review when they open. False waits until they are ready for review. Omit it to keep the current value. */
+    review_drafts?: boolean
 }
 
 export interface ReviewRepositoryWriteResponseApi {
@@ -550,6 +554,8 @@ export interface ReviewRepositoryOverviewEntryApi {
     repository_id: string | null
     /** This project's repository exception. Null when the repository follows the project. */
     exception: ReviewRepositoryExceptionApi | null
+    /** Whether draft pull requests in this repository get their automatic review when they open. Authors who turned off reviews of their drafts still get none. */
+    review_drafts: boolean
     /** The requesting user's own choice for this repository: 'flash', 'off', or null.
      *
      * * `flash` - Flash
@@ -587,7 +593,7 @@ export interface ReviewRepositoryOverviewApi {
      * @nullable
      */
     next_offset: number | null
-    /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception and no own choice. 0 otherwise. */
+    /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception, no draft reviews and no own choice. 0 otherwise. */
     folded: number
     /** With view 'differs', or 'all' without a search: the names of the first left-out repositories, at most 3. Empty otherwise. */
     folded_preview: string[]
@@ -951,7 +957,101 @@ export const ValidatorCategoryEnumApi = {
     Compatibility: 'compatibility',
 } as const
 
+/**
+ * * `addressed` - Addressed
+ * * `reacted` - Reacted
+ * * `ignored` - Ignored
+ */
+export type ReviewFindingOutcomeKindEnumApi =
+    (typeof ReviewFindingOutcomeKindEnumApi)[keyof typeof ReviewFindingOutcomeKindEnumApi]
+
+export const ReviewFindingOutcomeKindEnumApi = {
+    Addressed: 'addressed',
+    Reacted: 'reacted',
+    Ignored: 'ignored',
+} as const
+
+/**
+ * * `judge_confirmed` - A judge confirmed the fix
+ * * `judge_rejected` - A judge found no fix
+ * * `comment_reply` - A person replied
+ * * `comment_reply_agent` - An agent replied
+ * * `comment_reaction` - A person reacted
+ * * `no_signal` - No signal
+ * * `judge_budget_exhausted` - Not judged
+ * * `judge_failed` - The judge failed
+ */
+export type ReviewFindingOutcomeMethodEnumApi =
+    (typeof ReviewFindingOutcomeMethodEnumApi)[keyof typeof ReviewFindingOutcomeMethodEnumApi]
+
+export const ReviewFindingOutcomeMethodEnumApi = {
+    JudgeConfirmed: 'judge_confirmed',
+    JudgeRejected: 'judge_rejected',
+    CommentReply: 'comment_reply',
+    CommentReplyAgent: 'comment_reply_agent',
+    CommentReaction: 'comment_reaction',
+    NoSignal: 'no_signal',
+    JudgeBudgetExhausted: 'judge_budget_exhausted',
+    JudgeFailed: 'judge_failed',
+} as const
+
+/**
+ * * `positive` - Positive
+ * * `negative` - Negative
+ * * `mixed` - Mixed
+ */
+export type ReviewFindingReactionSentimentEnumApi =
+    (typeof ReviewFindingReactionSentimentEnumApi)[keyof typeof ReviewFindingReactionSentimentEnumApi]
+
+export const ReviewFindingReactionSentimentEnumApi = {
+    Positive: 'positive',
+    Negative: 'negative',
+    Mixed: 'mixed',
+} as const
+
+export interface ReviewFindingOutcomeApi {
+    /** What happened to the published finding by the time its pull request merged. `reacted`: a person or another agent replied to or reacted on its comment. `addressed`: a later commit changed the finding's lines and a judge confirmed that the change fixes it. `ignored`: neither.
+     *
+     * * `addressed` - Addressed
+     * * `reacted` - Reacted
+     * * `ignored` - Ignored */
+    outcome: ReviewFindingOutcomeKindEnumApi
+    /** The signal that decided `outcome`. `judge_confirmed` gives `addressed`. `comment_reply`, `comment_reply_agent` and `comment_reaction` give `reacted`. `judge_rejected` (the lines changed but the judge found no fix), `no_signal` (nothing touched the lines), `judge_budget_exhausted` and `judge_failed` (the judge did not rule) give `ignored`.
+     *
+     * * `judge_confirmed` - A judge confirmed the fix
+     * * `judge_rejected` - A judge found no fix
+     * * `comment_reply` - A person replied
+     * * `comment_reply_agent` - An agent replied
+     * * `comment_reaction` - A person reacted
+     * * `no_signal` - No signal
+     * * `judge_budget_exhausted` - Not judged
+     * * `judge_failed` - The judge failed */
+    method: ReviewFindingOutcomeMethodEnumApi
+    /** The commit the finding was published at, the base of the diff the outcome was judged on. */
+    reviewed_head: string
+    /** The pull request's head commit when it merged. */
+    final_head: string
+    /** The tone of the reactions on the finding's comment, without PostHog Review's own. `positive`: 👍, ❤️, 🎉 or 🚀. `negative`: 👎 or 😕. `mixed`: both. Null when no reaction carries a tone.
+     *
+     * * `positive` - Positive
+     * * `negative` - Negative
+     * * `mixed` - Mixed */
+    reaction_sentiment: ReviewFindingReactionSentimentEnumApi | null
+    /**
+     * The start of the first reply to the finding's comment that PostHog Review did not write, such as 'Fixed in <sha>' or 'Leaving this as is'. Null without a reply.
+     * @nullable
+     */
+    reply_excerpt: string | null
+    /**
+     * Whether GitHub showed the finding's comment as outdated at merge, because a push changed the code under it. Null when the comment was not found on the pull request.
+     * @nullable
+     */
+    comment_outdated: boolean | null
+}
+
 export interface ReviewFindingApi {
+    /** The finding's id, unique within the review: it starts with the turn that raised it. */
+    issue_key: string
     /** One-line summary of the finding. */
     title: string
     /** Repository-relative path of the affected file. */
@@ -993,6 +1093,8 @@ export interface ReviewFindingApi {
     validator_category: ValidatorCategoryEnumApi | null
     /** The validator's argumentation for keeping or dismissing the finding. */
     validator_note: string
+    /** What the pull request did about the finding, decided once after it merged. Null while the pull request is open, when it closed without merging, for a dismissed finding, and until the hourly outcome sweep reaches it. The sweep finds merges through the project's GitHub data warehouse source, so a project without one gets no outcomes. */
+    outcome: ReviewFindingOutcomeApi | null
 }
 
 /**
@@ -1361,7 +1463,20 @@ export interface ReviewPRStatusApi {
     request_outcome: ReviewPRStatusRequestOutcomeApi | null
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface ReviewReviewsTablePageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** How many reviews match the scope and every filter, across all pages. */
     count: number
     /** How many reviews have a run in flight under the scope and filters, ignoring `status`. Labels the running quick filter without a second request. */
@@ -1557,7 +1672,7 @@ export interface ReviewUserSettingsApi {
      * * `flash` - On everywhere
      * * `off` - Off everywhere */
     default_review_mode?: DefaultReviewModeEnumApi
-    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts. */
     review_drafts?: boolean
     /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
     resolve_comments?: boolean
@@ -1588,7 +1703,7 @@ export interface PatchedReviewUserSettingsApi {
      * * `flash` - On everywhere
      * * `off` - Off everywhere */
     default_review_mode?: DefaultReviewModeEnumApi
-    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts. */
     review_drafts?: boolean
     /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
     resolve_comments?: boolean

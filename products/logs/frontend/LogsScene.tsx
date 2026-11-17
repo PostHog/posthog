@@ -5,6 +5,7 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { useApmMobileLayout } from 'lib/hooks/useApmMobileLayout'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -39,8 +40,11 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
+    const mobileLayout = useApmMobileLayout()
     return (
-        <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+        <SceneContent
+            className={mobileLayout ? 'min-h-full' : 'h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]'}
+        >
             <LogsSceneTabbedContent />
         </SceneContent>
     )
@@ -92,7 +96,11 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 should not replay the initial loading animation. */}
             <div className={cn('flex flex-col flex-1 min-h-0', activeTab !== 'viewer' && 'hidden')}>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
+                    <LogsViewer
+                        id={LOGS_SCENE_VIEWER_ID}
+                        showSavedViewsButton
+                        keyboardShortcutsEnabled={activeTab === 'viewer'}
+                    />
                 </div>
             </div>
             {showServices && showServicesV2 && <LogsServicesV2 />}

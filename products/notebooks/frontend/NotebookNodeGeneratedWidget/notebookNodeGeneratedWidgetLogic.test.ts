@@ -71,7 +71,7 @@ function status(overrides: Partial<WidgetStatusApi> = {}): WidgetStatusApi {
     }
 }
 
-const emptyVersions: WidgetVersionPageApi = { results: [], count: 0, next_offset: null }
+const emptyVersions: WidgetVersionPageApi = { results: [], count: 0, next: null, previous: null, next_offset: null }
 
 describe('notebookNodeGeneratedWidgetLogic', () => {
     const props = {
@@ -410,6 +410,8 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
             results: [version],
             count: 1,
+            next: null,
+            previous: null,
             next_offset: null,
         })
         logic = notebookNodeGeneratedWidgetLogic(props)
@@ -451,7 +453,13 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         }
         // The first status carries no version, matching a settings panel opened before generation.
         jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
-        jest.mocked(notebooksWidgetVersions).mockResolvedValue({ results: [firstVersion], count: 1, next_offset: null })
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({
+            results: [firstVersion],
+            count: 1,
+            next: null,
+            previous: null,
+            next_offset: null,
+        })
         logic = notebookNodeGeneratedWidgetLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -517,7 +525,13 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
                         resolveResetRequest = resolve
                     })
             )
-            .mockResolvedValueOnce({ results: [currentVersion], count: 1, next_offset: null })
+            .mockResolvedValueOnce({
+                results: [currentVersion],
+                count: 1,
+                next: null,
+                previous: null,
+                next_offset: null,
+            })
         logic = notebookNodeGeneratedWidgetLogic(props)
         logic.mount()
         await expectLogic(logic).toDispatchActions(['statusReceived'])
@@ -526,7 +540,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.actions.loadVersions(true)
 
         logic.actions.statusReceived(readyStatus)
-        resolveInitialRequest({ results: [initialVersion], count: 1, next_offset: null })
+        resolveInitialRequest({ results: [initialVersion], count: 1, next: null, previous: null, next_offset: null })
         await expectLogic(logic).toFinishAllListeners()
 
         expect(notebooksWidgetVersions).toHaveBeenCalledTimes(1)
@@ -534,7 +548,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
 
         logic.actions.loadVersions(true)
         logic.actions.loadVersions(true)
-        resolveResetRequest({ results: [initialVersion], count: 1, next_offset: null })
+        resolveResetRequest({ results: [initialVersion], count: 1, next: null, previous: null, next_offset: null })
         await expectLogic(logic).toFinishAllListeners()
 
         expect(notebooksWidgetVersions).toHaveBeenCalledTimes(3)
@@ -664,10 +678,18 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         })
         jest.mocked(notebooksWidgetStatus).mockResolvedValue(readyStatus)
         jest.mocked(notebooksWidgetVersions)
-            .mockResolvedValueOnce({ results: [historicalVersion], count: 1, next_offset: null })
+            .mockResolvedValueOnce({
+                results: [historicalVersion],
+                count: 1,
+                next: null,
+                previous: null,
+                next_offset: null,
+            })
             .mockResolvedValueOnce({
                 results: [{ ...historicalVersion, artifact_url: 'https://example.com/widget-new.html' }],
                 count: 1,
+                next: null,
+                previous: null,
                 next_offset: null,
             })
         logic = notebookNodeGeneratedWidgetLogic(props)
@@ -720,6 +742,8 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
             results: [previousVersion],
             count: 1,
+            next: null,
+            previous: null,
             next_offset: null,
         })
         logic = notebookNodeGeneratedWidgetLogic(props)
@@ -782,10 +806,18 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             })
         )
         jest.mocked(notebooksWidgetVersions)
-            .mockResolvedValueOnce({ results: [previousVersion], count: 1, next_offset: null })
+            .mockResolvedValueOnce({
+                results: [previousVersion],
+                count: 1,
+                next: null,
+                previous: null,
+                next_offset: null,
+            })
             .mockResolvedValueOnce({
                 results: [failedVersion, { ...previousVersion, is_current: false }],
                 count: 2,
+                next: null,
+                previous: null,
                 next_offset: null,
             })
         logic = notebookNodeGeneratedWidgetLogic(props)
@@ -1070,6 +1102,8 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
                 },
             ],
             count: 1,
+            next: null,
+            previous: null,
             next_offset: null,
         })
         jest.mocked(notebooksWidgetSource).mockResolvedValue({ source: 'export default function Widget() {}' })
@@ -1155,7 +1189,13 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         jest.mocked(notebooksWidgetStatus).mockResolvedValue(
             status({ lifecycle_status: 'ready', current_version_id: currentVersionId, has_versions: true })
         )
-        jest.mocked(notebooksWidgetVersions).mockResolvedValue({ results: [], count: 0, next_offset: null })
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({
+            results: [],
+            count: 0,
+            next: null,
+            previous: null,
+            next_offset: null,
+        })
         jest.mocked(notebooksWidgetSource).mockResolvedValue({ source: 'export default function Widget() {}' })
         logic = notebookNodeGeneratedWidgetLogic(props)
         logic.mount()

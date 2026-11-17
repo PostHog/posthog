@@ -940,11 +940,16 @@ tools:
             Returns 404 if the run id does not exist or belongs to a different experiment.
         param_overrides:
             id:
+                description:
+                    The experiment's numeric ID, not the recalculation run UUID. Get it from experiment-get or from the
+                    response of experiment-metrics-recalculation-create. The run UUID goes in recalculation_id.
                 cast: string-int
                 aliases:
                     - experimentId
                     - experiment_id
             recalculation_id:
+                description: The recalculation run UUID, from experiment-metrics-recalculation-create or
+                    experiment-metrics-recalculation-latest-retrieve.
                 aliases:
                     - run_id
                     - runId
@@ -1144,8 +1149,8 @@ tools:
         title: Create shared experiment metric
         description: >
             Create a reusable shared metric. Requires name (unique per project, case-insensitive) and query
-            (kind='ExperimentMetric', metric_type one of 'mean', 'funnel', 'ratio', 'retention'). Optional: description,
-            tags.
+            (kind='ExperimentMetric', metric_type one of 'mean', 'funnel', 'ratio', 'retention', 'quantile'). Optional:
+            description, tags.
 
 
             Load the configuring-experiment-analytics skill before constructing the query, and use read-data-schema to
@@ -1396,9 +1401,8 @@ tools:
             doing" almost always means, use experiment-metrics-recalculation-latest-retrieve instead.
 
 
-            Requires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics array
-            — each metric has a uuid and the fingerprint is computed from its configuration), so you generally need to
-            fetch the experiment first.
+            Requires metric_uuid as a query parameter, available on each metric in the experiment's metrics array, so
+            you generally need to fetch the experiment first. The fingerprint parameter is ignored and can be left out.
 
 
             Returns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day,

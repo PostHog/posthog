@@ -17,6 +17,7 @@ import {
 } from '~/common/config/kafka-topics'
 import type { PostgresRouterConfig } from '~/common/utils/db/postgres'
 import { isDevEnv, isProdEnv } from '~/common/utils/env-utils'
+import { AI_MEDIA_OFFLOAD_MIN_BYTES } from '~/ingestion/common/ai-event-limits'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER,
@@ -146,6 +147,18 @@ export type IngestionConsumerConfig = {
     INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: number
     INGESTION_API_GRPC_READ_MAX_BYTES: number
     INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: number
+    // A sub-batch in flight longer than this drains the worker and exits it. `0` disables it.
+    // Keep it above the consumer's INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS (60s)
+    // and above the longest batch without a soft budget. librdkafka's
+    // message.timeout.ms is also 300s (the ingestion producers do not set it),
+    // so at the 300s default a produce that is about to time out can trip it.
+    INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS: number
+    // The consumer fences a sub-batch it has waited INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS
+    // for, so an ack later than that is replayed anyway.
+    INGESTION_API_GRPC_STUCK_DRAIN_TIMEOUT_MS: number
+    // After the drain, the normal stop can wait on the dependency the stuck
+    // sub-batch waits on, so the process exits with code 1 after this long.
+    INGESTION_API_GRPC_STUCK_CLEANUP_TIMEOUT_MS: number
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
@@ -176,6 +189,10 @@ export type IngestionConsumerConfig = {
     // comes back skipped_move_limit for the merge-mode policy.
     PERSONHOG_SYNC_MERGE_MOVE_LIMIT: number
     PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: boolean
+    // Re-send budget per batch for merges refused at admission, measured from the batch's
+    // first refusal and shared by every merge and step retry in it. Keep it well under
+    // CONSUMER_LOOP_STALL_THRESHOLD_MS, which the whole batch has to fit in.
+    PERSON_MERGE_NOT_APPLIED_WAIT_MS: number
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
     // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
     // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
@@ -231,6 +248,7 @@ export type IngestionConsumerConfig = {
     // Stateful overflow config
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
+    INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: number
 
     // Per-token/distinct_id restrictions
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
@@ -344,6 +362,9 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: 300_000,
         INGESTION_API_GRPC_READ_MAX_BYTES: 32 * 1024 * 1024,
         INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: 15_000,
+        INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS: 300_000,
+        INGESTION_API_GRPC_STUCK_DRAIN_TIMEOUT_MS: 60_000,
+        INGESTION_API_GRPC_STUCK_CLEANUP_TIMEOUT_MS: 30_000,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
@@ -370,6 +391,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
         PERSONHOG_SYNC_MERGE_MOVE_LIMIT: 10_000,
         PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: false,
+        PERSON_MERGE_NOT_APPLIED_WAIT_MS: 20_000,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
@@ -401,6 +423,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // Stateful overflow config
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
         INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60,
+        INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: 50_000,
 
         // Per-token/distinct_id restrictions
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
@@ -456,7 +479,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         AI_BLOB_S3_TIMEOUT_MS: 30000,
         AI_BLOB_OFFLOAD_TEAMS: '',
         // Keep the floor above base64-packed embedding vectors so logged embeddings stay inline as text.
-        AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 20480,
+        // The shortest base64 that decodes to AI_MEDIA_OFFLOAD_MIN_BYTES, so no media of that size stays inline.
+        AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: Math.ceil(AI_MEDIA_OFFLOAD_MIN_BYTES / 3) * 4,
         AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
         // Chunk-wide cap on concurrent blob uploads, so blob-heavy traffic
         // can't monopolize the S3 socket pool.

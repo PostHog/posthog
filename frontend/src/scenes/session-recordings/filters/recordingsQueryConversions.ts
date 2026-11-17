@@ -161,6 +161,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         operand: deriveOperand(universalFilters.filter_group),
         limit: universalFilters.limit,
         session_ids: universalFilters.session_ids,
+        person_uuid: universalFilters.person_uuid,
         experiment_exposure: universalFilters.experiment_exposure,
     }
 }
@@ -200,5 +201,6 @@ export function recordingsQueryToUniversalFilters(
         experiment_exposure: query?.experiment_exposure,
         recommended_only: query?.recommended_only,
         event_match_scope: query?.event_match_scope,
+        person_uuid: query?.person_uuid,
     }
 }

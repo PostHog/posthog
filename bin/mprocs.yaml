@@ -131,7 +131,7 @@ procs:
             # compose stacks use.
             AI_BLOB_S3_BUCKET: ai-blobs
             AI_BLOB_S3_PREFIX: 'aio/'
-            AI_BLOB_S3_ENDPOINT: 'http://localhost:19000'
+            AI_BLOB_S3_ENDPOINT: 'http://objectstorage:19000'
             AI_BLOB_S3_REGION: us-east-1
             AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
             AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
@@ -329,6 +329,16 @@ procs:
             bin/start-rust-service feature-flags
         capability: flag_evaluation
         ready_pattern: 'listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    flags-cache-builder:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service flags-cache-builder
+        capability: flag_evaluation
+        ready_pattern: 'Consumer loop started'
         groups:
             layer: Product services
             tech: Rust

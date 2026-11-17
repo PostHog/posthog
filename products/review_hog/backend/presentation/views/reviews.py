@@ -1,6 +1,6 @@
-import uuid
 import dataclasses
 from typing import Any, cast, get_args
+from uuid import UUID
 
 from django.db import models
 from django.utils import timezone
@@ -16,6 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.integration import github_rate_limited_response
+from posthog.api.pagination import PageLinksSerializer, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -395,7 +396,7 @@ class ReviewsTableParamsSerializer(serializers.Serializer):
     )
 
 
-class ReviewReviewsTablePageSerializer(serializers.Serializer):
+class ReviewReviewsTablePageSerializer(PageLinksSerializer):
     count = serializers.IntegerField(help_text="How many reviews match the scope and every filter, across all pages.")
     running_count = serializers.IntegerField(
         help_text="How many reviews have a run in flight under the scope and filters, ignoring `status`. "
@@ -589,7 +590,69 @@ class ReviewFindingLineRangeSerializer(serializers.Serializer):
     end = serializers.IntegerField(allow_null=True, help_text="Last affected line; null for a single line.")
 
 
+class ReviewFindingOutcomeKind(models.TextChoices):
+    ADDRESSED = "addressed", "Addressed"
+    REACTED = "reacted", "Reacted"
+    IGNORED = "ignored", "Ignored"
+
+
+class ReviewFindingReactionSentiment(models.TextChoices):
+    POSITIVE = "positive", "Positive"
+    NEGATIVE = "negative", "Negative"
+    MIXED = "mixed", "Mixed"
+
+
+class ReviewFindingOutcomeMethod(models.TextChoices):
+    JUDGE_CONFIRMED = "judge_confirmed", "A judge confirmed the fix"
+    JUDGE_REJECTED = "judge_rejected", "A judge found no fix"
+    COMMENT_REPLY = "comment_reply", "A person replied"
+    COMMENT_REPLY_AGENT = "comment_reply_agent", "An agent replied"
+    COMMENT_REACTION = "comment_reaction", "A person reacted"
+    NO_SIGNAL = "no_signal", "No signal"
+    JUDGE_BUDGET_EXHAUSTED = "judge_budget_exhausted", "Not judged"
+    JUDGE_FAILED = "judge_failed", "The judge failed"
+
+
+class ReviewFindingOutcomeSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(
+        choices=ReviewFindingOutcomeKind.choices,
+        help_text="What happened to the published finding by the time its pull request merged. `reacted`: a "
+        "person or another agent replied to or reacted on its comment. `addressed`: a later commit changed "
+        "the finding's lines and a judge confirmed that the change fixes it. `ignored`: neither.",
+    )
+    method = serializers.ChoiceField(
+        choices=ReviewFindingOutcomeMethod.choices,
+        help_text="The signal that decided `outcome`. `judge_confirmed` gives `addressed`. `comment_reply`, "
+        "`comment_reply_agent` and `comment_reaction` give `reacted`. `judge_rejected` (the lines changed but "
+        "the judge found no fix), `no_signal` (nothing touched the lines), `judge_budget_exhausted` and "
+        "`judge_failed` (the judge did not rule) give `ignored`.",
+    )
+    reviewed_head = serializers.CharField(
+        help_text="The commit the finding was published at, the base of the diff the outcome was judged on."
+    )
+    final_head = serializers.CharField(help_text="The pull request's head commit when it merged.")
+    reaction_sentiment = serializers.ChoiceField(
+        choices=ReviewFindingReactionSentiment.choices,
+        allow_null=True,
+        help_text="The tone of the reactions on the finding's comment, without PostHog Review's own. `positive`: "
+        "👍, ❤️, 🎉 or 🚀. `negative`: 👎 or 😕. `mixed`: both. Null when no reaction carries a tone.",
+    )
+    reply_excerpt = serializers.CharField(
+        allow_null=True,
+        help_text="The start of the first reply to the finding's comment that PostHog Review did not write, such "
+        "as 'Fixed in <sha>' or 'Leaving this as is'. Null without a reply.",
+    )
+    comment_outdated = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether GitHub showed the finding's comment as outdated at merge, because a push changed the "
+        "code under it. Null when the comment was not found on the pull request.",
+    )
+
+
 class ReviewFindingSerializer(serializers.Serializer):
+    issue_key = serializers.CharField(
+        help_text="The finding's id, unique within the review: it starts with the turn that raised it."
+    )
     title = serializers.CharField(help_text="One-line summary of the finding.")
     file = serializers.CharField(help_text="Repository-relative path of the affected file.")
     lines = ReviewFindingLineRangeSerializer(many=True, help_text="Affected line ranges within the file.")
@@ -612,6 +675,13 @@ class ReviewFindingSerializer(serializers.Serializer):
     )
     validator_note = serializers.CharField(
         help_text="The validator's argumentation for keeping or dismissing the finding."
+    )
+    outcome = ReviewFindingOutcomeSerializer(
+        allow_null=True,
+        help_text="What the pull request did about the finding, decided once after it merged. Null while the "
+        "pull request is open, when it closed without merging, for a dismissed finding, and until the hourly "
+        "outcome sweep reaches it. The sweep finds merges through the project's GitHub data warehouse source, "
+        "so a project without one gets no outcomes.",
     )
 
 
@@ -738,6 +808,13 @@ class ReviewPerspectiveStatsSerializer(serializers.Serializer):
     )
 
 
+def _next_table_offset(offset: int, limit: int, count: int) -> int | None:
+    next_offset = offset + limit
+    if next_offset >= count or next_offset > MAX_REVIEWS_TABLE_OFFSET:
+        return None
+    return next_offset
+
+
 class _PageEnvelopeSchema(AutoSchema):
     """Stops drf-spectacular's list-view heuristic from wrapping the `list` response in an array.
 
@@ -846,6 +923,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     serializer_class = ReviewRecentReviewSerializer
     pagination_class = None
     schema = _PageEnvelopeSchema()
+    path_parameters = {"pk": UUID}
 
     def _root_team_id(self) -> int:
         return resolve_effective_team_id(self.team_id)
@@ -908,7 +986,13 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             limit=filters["limit"],
             offset=filters["offset"],
         )
-        return Response(ReviewReviewsTablePageSerializer(page).data)
+        data = ReviewReviewsTablePageSerializer(page).data
+        offset, limit = filters["offset"], filters["limit"]
+        next_offset = _next_table_offset(offset, limit, page.count)
+        # Past the last row, `previous` points at the last page that holds rows, or is null when no row matches.
+        links_offset = min(offset, page.count)
+        data.update(offset_page_links(request, offset=links_offset, limit=limit, next_offset=next_offset))
+        return Response(data)
 
     @extend_schema(
         parameters=[PerspectiveStatsParamsSerializer],
@@ -1050,7 +1134,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     @extend_schema(
         parameters=[
-            # The viewset has no queryset, so the path parameter does not get its type from the model.
+            # _PageEnvelopeSchema does not extend PostHogAutoSchema, so path_parameters does not type the id here.
             OpenApiParameter(
                 "id",
                 OpenApiTypes.UUID,
@@ -1073,15 +1157,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed "
         "under `scope=everyone` can be opened too.",
     )
-    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
-        try:
-            report_uuid = uuid.UUID(str(pk))
-        except ValueError:
-            raise NotFound("Review not found.")
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
         params = ReviewDetailParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         try:
-            detail = get_review_detail(self._root_team_id(), report_uuid, params.validated_data.get("run_index"))
+            detail = get_review_detail(self._root_team_id(), pk, params.validated_data.get("run_index"))
         except ReviewTurnNotFoundError:
             raise NotFound("No completed review turn with that run_index.")
         except ReviewNotFoundError:

@@ -1,9 +1,12 @@
 """Django models for mcp_analytics."""
 
+from django.core.validators import RegexValidator
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
+
+from products.mcp_analytics.backend.custom_harness_icons import validate_harness_icon
 
 
 class MCPIntentClusterSnapshot(TeamScopedRootMixin):
@@ -124,4 +127,28 @@ class MCPSession(UUIDModel, TeamScopedRootMixin):
         ordering = ["-created_at"]
         constraints = [
             models.UniqueConstraint(fields=["team", "session_id"], name="unique_mcp_session"),
+        ]
+
+
+class MCPCustomHarness(UUIDModel, TeamScopedRootMixin):
+    # A database constraint to posthog_team would lock that hot table when the table is created.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    name = models.CharField(
+        max_length=100,
+        validators=[RegexValidator(r"^[\w .+&()/-]+$", "Use letters, numbers, spaces and . + & ( ) / - only.")],
+    )
+    match_pattern = models.CharField(
+        max_length=100,
+        validators=[RegexValidator(r"^[a-z0-9._ /-]+$", "Use lowercase letters, numbers, spaces and . _ / - only.")],
+    )
+    icon = models.TextField(blank=True, default="", validators=[validate_harness_icon])
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_mcp_custom_harness"
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "match_pattern"], name="unique_mcp_custom_harness_pattern"),
         ]

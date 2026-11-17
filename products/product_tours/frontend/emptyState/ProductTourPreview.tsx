@@ -2,7 +2,7 @@ import './ProductTourPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored rising completion series for the stat card sparkline.
 const SPARK_LINE = 'M 0 31 L 10 30 L 20 30.8 L 30 27.5 L 40 28.2 L 50 24.5 L 60 25 L 70 21.5 L 80 20 L 90 16.5 L 100 15'
@@ -17,7 +17,7 @@ const SPARK_AREA = `${SPARK_LINE} L 100 40 L 0 40 Z`
  * tooltips are absolutely positioned and crossfaded, so stepping never shifts layout.
  */
 export function ProductTourPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('TourPreview', isStatic && 'TourPreview--static')}>

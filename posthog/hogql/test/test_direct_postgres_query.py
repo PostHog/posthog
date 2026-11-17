@@ -1322,7 +1322,7 @@ class TestDirectPostgresQuery(APIBaseTest):
     )
     def test_ensure_single_direct_statement_rejects_multi_statement(self, _name: str, sql: str):
         with self.assertRaises(ExposedHogQLError):
-            ensure_single_direct_statement(sql)
+            ensure_single_direct_statement(sql, dialect="postgres")
 
     @parameterized.expand(
         [
@@ -1335,7 +1335,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         ]
     )
     def test_ensure_single_direct_statement_allows_single_statement(self, _name: str, sql: str):
-        self.assertEqual(ensure_single_direct_statement(sql), sql)
+        self.assertEqual(ensure_single_direct_statement(sql, dialect="postgres"), sql)
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_rejects_multi_statement_before_execution(self, mock_connect):
@@ -2206,7 +2206,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             ),
             patch(f"{_MIXINS_MODULE}._managed_warehouse_organization_id", return_value="org-1"),
             patch(
-                "products.managed_warehouse.backend.managed_ingress.get_managed_warehouse_target",
+                "products.managed_warehouse.backend.facade.api.get_managed_warehouse_target",
                 return_value=ManagedWarehouseTarget(host=host, ports=frozenset({5432})),
             ),
         ):

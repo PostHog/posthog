@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "cause": {
+            "description": "When set, only events whose masked message equals this failures-table `cause` match; \"\" selects events without a message.",
+            "type": "string"
+        },
         "dateRange": {
             "properties": {
                 "date_from": {

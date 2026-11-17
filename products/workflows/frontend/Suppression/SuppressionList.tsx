@@ -20,7 +20,7 @@ export function SuppressionList(): JSX.Element {
         setShowAddModal,
         setNewIdentifier,
         addSuppression,
-        removeSuppression,
+        confirmRemove,
         setSearchTerm,
     } = useActions(suppressionListLogic)
     const {
@@ -29,7 +29,7 @@ export function SuppressionList(): JSX.Element {
         currentPage,
         showAddModal,
         addSuppressionLoading,
-        removeSuppressionLoading,
+        removedSuppressionsLoading,
         newIdentifier,
         searchTerm,
     } = useValues(suppressionListLogic)
@@ -74,9 +74,9 @@ export function SuppressionList(): JSX.Element {
                             <LemonButton
                                 status="danger"
                                 icon={<IconTrash />}
-                                onClick={() => removeSuppression(entry.identifier)}
-                                loading={removeSuppressionLoading}
-                                disabledReason={removeSuppressionLoading ? 'Removing…' : undefined}
+                                onClick={() => confirmRemove([entry])}
+                                loading={removedSuppressionsLoading}
+                                disabledReason={removedSuppressionsLoading ? 'Removing…' : undefined}
                                 fullWidth
                             >
                                 Remove
@@ -122,6 +122,24 @@ export function SuppressionList(): JSX.Element {
                 loading={suppressionsLoading}
                 loadingSkeletonRows={3}
                 rowKey="identifier"
+                bulkSelection={{
+                    noun: ['address', 'addresses'],
+                    clearSelectionKey: suppressions,
+                    rowAriaLabel: (entry: MessageSuppressionApi) => `Select ${entry.identifier}`,
+                    headerAriaLabel: 'Select all addresses on this page',
+                    renderActions: ({ selectedRecords }) => (
+                        <LemonButton
+                            icon={<IconTrash />}
+                            size="small"
+                            type="secondary"
+                            status="danger"
+                            onClick={() => confirmRemove(selectedRecords)}
+                            loading={removedSuppressionsLoading}
+                        >
+                            Remove
+                        </LemonButton>
+                    ),
+                }}
                 emptyState={
                     searchTerm.trim()
                         ? 'No suppressed addresses match your search'

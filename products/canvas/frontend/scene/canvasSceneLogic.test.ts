@@ -17,6 +17,7 @@ const CANVAS_ID = 'canvas-1'
 describe('canvasSceneLogic', () => {
     let releaseTaskRequest: () => void = () => {}
     let patchStatus = 200
+    let viewStatus = 200
     let patchedBody: Record<string, unknown> | null = null
 
     beforeEach(() => {
@@ -24,6 +25,7 @@ describe('canvasSceneLogic', () => {
             releaseTaskRequest = resolve
         })
         patchStatus = 200
+        viewStatus = 200
         patchedBody = null
         const spaces = {
             'space-1': { id: 'space-1', name: 'me', system_role: 'personal', channel_type: 'personal' },
@@ -31,23 +33,28 @@ describe('canvasSceneLogic', () => {
         }
         useMocks({
             get: {
-                '/api/projects/:team_id/canvases/:id/view/': {
-                    canvas: {
-                        id: CANVAS_ID,
-                        name: 'Untitled canvas',
-                        kind: 'freeform',
-                        channel: 'space-1',
-                        template_id: 'freeform',
-                        generation_task_id: null,
-                        published_build_id: null,
-                    },
-                    published_build: null,
-                    current_version_id: null,
-                    has_active_build: false,
-                    source: null,
-                    layout: null,
-                    sandbox_document_url: null,
-                },
+                '/api/projects/:team_id/canvases/:id/view/': () => [
+                    viewStatus,
+                    viewStatus !== 200
+                        ? { detail: 'You do not have permission to perform this action.' }
+                        : {
+                              canvas: {
+                                  id: CANVAS_ID,
+                                  name: 'Untitled canvas',
+                                  kind: 'freeform',
+                                  channel: 'space-1',
+                                  template_id: 'freeform',
+                                  generation_task_id: null,
+                                  published_build_id: null,
+                              },
+                              published_build: null,
+                              current_version_id: null,
+                              has_active_build: false,
+                              source: null,
+                              layout: null,
+                              sandbox_document_url: null,
+                          },
+                ],
                 '/api/projects/:team_id/canvases/:id/builds/': { builds: [], published_build_id: null },
                 '/api/projects/:team_id/task_channels/': Object.values(spaces),
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
@@ -83,6 +90,18 @@ describe('canvasSceneLogic', () => {
             },
         })
         initKeaTests()
+    })
+
+    it.each([
+        [403, 'forbidden'],
+        [404, 'missing'],
+        [500, 'error'],
+    ])('shows the %s load failure as the %s state', async (status, bodyState) => {
+        viewStatus = status
+        const logic = canvasSceneLogic({ id: CANVAS_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadViewFailure'])
+        expect(logic.values.bodyState).toEqual(bodyState)
     })
 
     it.each([

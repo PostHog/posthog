@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+  android:width="240dp"
+  android:height="60dp"
+  android:viewportWidth="240"
+  android:viewportHeight="60">
+  <path
+    android:pathData="M0,1 L240,1 M0,30 L240,30 M0,59 L240,59"
+    android:strokeColor="@color/chart_widget_hairline"
+    android:strokeWidth="1" />
+  <path
+    android:pathData="M3,46 L20,42 L38,44 L55,36 L72,39 L90,31 L107,34 L124,25 L141,28 L159,20 L176,23 L193,14 L211,16 L228,9 L237,6 L237,59 L3,59 Z"
+    android:fillColor="@color/chart_widget_series_1"
+    android:fillAlpha="0.12" />
+  <path
+    android:pathData="M3,50 L20,47 L38,49 L55,45 L72,46 L90,41 L107,43 L124,38 L141,40 L159,35 L176,37 L193,31 L211,33 L228,29 L237,28"
+    android:strokeColor="@color/chart_widget_previous"
+    android:strokeWidth="1.2"
+    android:strokeLineCap="round" />
+  <path
+    android:pathData="M3,46 L20,42 L38,44 L55,36 L72,39 L90,31 L107,34 L124,25 L141,28 L159,20 L176,23 L193,14 L211,16 L228,9 L237,6"
+    android:strokeColor="@color/chart_widget_series_1"
+    android:strokeWidth="2"
+    android:strokeLineCap="round"
+    android:strokeLineJoin="round" />
+</vector>

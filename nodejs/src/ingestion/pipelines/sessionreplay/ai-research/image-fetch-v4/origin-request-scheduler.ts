@@ -5,9 +5,9 @@ import type { ImageFetchBlockReason } from './block-reason'
 import { ConfigurationRequestScheduler } from './configuration-policy'
 import { BudgetBlockReason, BudgetGrant, HostBudget } from './host-budget'
 import { ImageFetchRequestMetrics, SchedulerWaitScope } from './metrics'
-import { politenessKey } from './politeness-key'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
+import { politenessKey } from './v4-native'
 
 export type ScheduledRequest<T> =
     | { ran: true; value: T }

@@ -16,9 +16,11 @@ from posthog.models.utils import (
 )
 from posthog.test.api_keys import create_project_secret_api_key
 
+SEARCH_URL = "/admin/console/tools/api-key-search/search/"
+
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
-class TestApiKeySearchView(BaseTest):
+class TestApiKeySearchTool(BaseTest):
     def setUp(self):
         super().setUp()
         self.client = Client()
@@ -26,8 +28,12 @@ class TestApiKeySearchView(BaseTest):
         self.user.is_staff = True
         self.user.save()
 
-    def _search(self, query: str):
-        return self.client.post("/admin/apikeysearch", data={"q": query})
+    def _search(self, key: str):
+        response = self.client.post(SEARCH_URL, data={"key": key}, follow=True)
+        # Neither the result page nor its URL may show the key that staff searched for.
+        assert key.strip().encode() not in response.content
+        assert all(key.strip() not in url for url, _ in response.redirect_chain)
+        return response
 
     def _create_personal_api_key(self, token: str, mode: str = "sha256", iterations: int | None = None):
         if mode == "sha256":
@@ -44,18 +50,11 @@ class TestApiKeySearchView(BaseTest):
             scopes=["*"],
         )
 
-    def test_requires_staff(self):
-        self.user.is_staff = False
-        self.user.save()
+    def test_the_old_url_opens_the_tool_without_the_key(self):
+        response = self.client.post("/admin/apikeysearch", data={"q": "phx_not_carried_over"}, follow=True)
 
-        response = self._search("phx_whatever")
-
-        self.assertEqual(response.status_code, 302)
-
-    def test_get_renders_search_form(self):
-        response = self.client.get("/admin/apikeysearch")
-
-        self.assertEqual(response.status_code, 200)
+        assert response.redirect_chain == [("/admin/console/tools/api-key-search/", 302)]
+        assert b"phx_not_carried_over" not in response.content
 
     @parameterized.expand(
         [
@@ -93,13 +92,8 @@ class TestApiKeySearchView(BaseTest):
         self.assertIn(b"PSAK Search Key", response.content)
         self.assertIn(f"/admin/posthog/projectsecretapikey/{key.id}/change/".encode(), response.content)
 
-    @parameterized.expand(
-        [
-            ("primary", "secret_api_token", b"Feature Flags Secure API Key"),
-            ("backup", "secret_api_token_backup", b"(Backup)"),
-        ]
-    )
-    def test_finds_legacy_team_secret_token(self, _name: str, token_field: str, expected_content: bytes):
+    @parameterized.expand([("primary", "secret_api_token", False), ("backup", "secret_api_token_backup", True)])
+    def test_finds_legacy_team_secret_token(self, _name: str, token_field: str, is_backup: bool):
         token = generate_random_token_secret()
         setattr(self.team, token_field, token)
         self.team.save()
@@ -107,11 +101,12 @@ class TestApiKeySearchView(BaseTest):
         response = self._search(token)
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(expected_content, response.content)
-        self.assertIn(self.team.name.encode(), response.content)
+        self.assertIn(b"Feature flags secure API key", response.content)
+        self.assertEqual(b"(backup)" in response.content, is_backup)
+        self.assertIn(f"/admin/console/teams/{self.team.pk}/".encode(), response.content)
 
     def test_unknown_token_shows_no_results(self):
         response = self._search("not-a-real-key-at-all-1234567890")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"No results found", response.content)
+        self.assertIn(b"No key matches", response.content)

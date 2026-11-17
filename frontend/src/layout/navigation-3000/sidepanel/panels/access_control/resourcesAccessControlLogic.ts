@@ -33,6 +33,7 @@ export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlRes
     [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
     [AccessControlResourceType.Tagger]: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
     [AccessControlResourceType.BusinessKnowledge]: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
+    [AccessControlResourceType.MarketingAnalytics]: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
 }
 
 export function isResourceRolledOut(
@@ -196,6 +197,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Heatmap,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.LlmAnalytics,
+                    AccessControlResourceType.MarketingAnalytics,
                     AccessControlResourceType.Evaluation,
                     AccessControlResourceType.McpAnalytics,
                     AccessControlResourceType.Tagger,

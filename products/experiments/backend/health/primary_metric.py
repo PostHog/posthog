@@ -1,3 +1,5 @@
+from posthog.schema import ExperimentQueryResponse
+
 from posthog.exceptions_capture import capture_exception
 
 from products.experiments.backend.health.context import PrimaryMetric
@@ -39,5 +41,16 @@ def _load_primary_metric(experiment: Experiment) -> PrimaryMetric | None:
         target=running_time_target(
             experiment, team_config=team_config, calculation_config=calculation_config, response=response
         ),
-        result=MetricResultStats.from_response(response) if is_funnel and response is not None else None,
+        result=MetricResultStats.from_response(response, is_quantile=False)
+        if is_funnel and response is not None
+        else None,
+        exposures=_exposures(response),
+    )
+
+
+def _exposures(response: ExperimentQueryResponse | None) -> int | None:
+    if response is None or response.baseline is None:
+        return None
+    return response.baseline.number_of_samples + sum(
+        variant.number_of_samples for variant in response.variant_results or []
     )

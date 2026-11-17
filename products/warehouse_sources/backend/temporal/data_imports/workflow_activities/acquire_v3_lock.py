@@ -15,6 +15,7 @@ from temporalio.client import Client, WorkflowExecutionStatus
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import update_external_job_status
@@ -334,7 +335,8 @@ def _describe_holder_workflow(
             holder_run_id=holder_run_id,
             error=str(e),
         )
-        capture_exception(e)
+        if not is_transient_db_error(e):
+            capture_exception(e)
         return HolderWorkflowDescription(status=None, job=None, status_is_assumed=False)
 
 
@@ -356,7 +358,8 @@ def _take_over_stale_running_job(
             reason="queue_db_connect_failed",
             error=str(e),
         )
-        capture_exception(e)
+        if not is_transient_db_error(e):
+            capture_exception(e)
         return False
 
     try:
@@ -374,7 +377,8 @@ def _take_over_stale_running_job(
                 reason="queue_db_query_failed",
                 error=str(e),
             )
-            capture_exception(e)
+            if not is_transient_db_error(e):
+                capture_exception(e)
             return False
 
         hold_seconds = (datetime.now(UTC) - holder_job.created_at).total_seconds()
@@ -414,7 +418,8 @@ def _take_over_stale_running_job(
                 reason="queue_batch_fail_failed",
                 error=str(e),
             )
-            capture_exception(e)
+            if not is_transient_db_error(e):
+                capture_exception(e)
             return False
     finally:
         conn.close()
@@ -437,7 +442,8 @@ def _take_over_stale_running_job(
             holder_token=holder,
             error=str(e),
         )
-        capture_exception(e)
+        if not is_transient_db_error(e):
+            capture_exception(e)
         return False
 
     logger.warning(

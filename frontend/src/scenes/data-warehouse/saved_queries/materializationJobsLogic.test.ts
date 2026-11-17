@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { createElement } from 'react'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -18,6 +18,7 @@ import { MaterializationRunActions } from 'products/data_warehouse/frontend/shar
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
 import { MaterializationStatusPanel } from './MaterializationStatusPanel'
+import { SyncFrequencyValue } from './SyncFrequencySelect'
 
 const ELIGIBLE_CHECK = {
     eligible: true,
@@ -75,6 +76,7 @@ describe('materializationJobsLogic', () => {
                     },
                 ],
                 '/api/projects/:team_id/data_modeling_jobs/': { results: [], count: 0 },
+                '/api/projects/:team_id/data_modeling_nodes/:id/': [404, { detail: 'Not found' }],
             },
             post: {
                 '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': () => {
@@ -146,7 +148,7 @@ describe('materializationJobsLogic', () => {
         )
         expect(showsRefreshModeColumn).toBe(showsRefreshMode)
         if (fullRefreshReason === 'first run') {
-            expect(screen.getByLabelText('Full refresh. Reason: first run.')).toBeTruthy()
+            expect(screen.getByText('First run')).toBeTruthy()
         }
         if (runMode === 'incremental') {
             expect(screen.getByText('Incremental')).toBeTruthy()
@@ -717,6 +719,184 @@ describe('materializationJobsLogic', () => {
         })
         expect(logic.values.savingMaterialization).toBe(false)
         expect(logic.values.hasMaterializationChanges).toBe(status !== 200)
+    })
+
+    describe('cadence pin', () => {
+        const orgUniverse = { id: 'up-node', name: 'org_universe' }
+        const dailyRevenue = { id: 'down-node', name: 'daily_revenue' }
+        const TIERED_BOUNDS = {
+            frequency_mode: 'tiered',
+            options: [
+                { cadence: '6hour', allowed: true, blocked_by: null, blocker: null, speeds_up: [orgUniverse] },
+                { cadence: '24hour', allowed: false, blocked_by: 'consumer', blocker: dailyRevenue, speeds_up: [] },
+            ],
+            floor: null,
+            ceiling: { label: '6 hours', blocker: dailyRevenue },
+            best_effort_sources: [],
+            best_effort_sources_withheld: false,
+        }
+        let nodePatches: { id: string; body: Record<string, unknown> }[]
+        let savedQueryPatches: number
+
+        function pinMocks({
+            pinned,
+            patchStatus = 200,
+            nodeOptions = [{ cadence: '24hour', delays_if_pinned: [dailyRevenue], unpinned_cadence: '6hour' }],
+        }: {
+            pinned: boolean
+            patchStatus?: number
+            nodeOptions?: Record<string, unknown>[]
+        }): Parameters<typeof useMocks>[0] {
+            const mocks = apiMocks({ isMaterialized: true, savedQueryExtras: { sync_frequency_bounds: TIERED_BOUNDS } })
+            mocks.get!['/api/projects/:team_id/data_modeling_nodes/:id/'] = (req) =>
+                new URL(req.request.url).searchParams.get('lookup') === 'saved_query'
+                    ? [200, { id: 'node-1' }]
+                    : [404, { detail: 'Not found' }]
+            mocks.get!['/api/projects/:team_id/data_modeling_nodes/:id/frequency_bounds/'] = [
+                200,
+                { pinned, options: nodeOptions },
+            ]
+            mocks.patch = {
+                '/api/projects/:team_id/data_modeling_nodes/:id/': async ({ request, params }) => {
+                    nodePatches.push({ id: String(params.id), body: (await request.json()) as Record<string, unknown> })
+                    return patchStatus === 200
+                        ? [200, { id: params.id }]
+                        : [patchStatus, { detail: 'Pick how often this view refreshes before pinning it.' }]
+                },
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => {
+                    savedQueryPatches += 1
+                    return [200, { id: 'view-1' }]
+                },
+            }
+            return mocks
+        }
+
+        beforeEach(() => {
+            nodePatches = []
+            savedQueryPatches = 0
+            savedSyncFrequency = '6hour'
+        })
+
+        it.each([
+            [
+                'pins a cadence slower than a downstream view needs',
+                false,
+                '24hour',
+                null,
+                { sync_frequency: '24hour', pinned: true },
+            ],
+            ['unpins and keeps the saved cadence', true, null, false, { pinned: false }],
+        ])('%s in one node write', async (_case, pinned, cadence, pinDraft, expectedBody) => {
+            useMocks(pinMocks({ pinned }))
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadNodeFrequencySuccess'])
+            expect(logic.values.nodeFrequency?.bounds.pinned).toBe(pinned)
+
+            if (cadence) {
+                logic.actions.setSyncFrequencyDraft(cadence as SyncFrequencyValue)
+            }
+            if (pinDraft !== null) {
+                logic.actions.setPinDraft(pinDraft)
+            }
+            expect(logic.values.hasMaterializationChanges).toBe(true)
+
+            await expectLogic(logic, () => logic.actions.saveMaterializationChanges()).toDispatchActions([
+                'finishSavingMaterialization',
+            ])
+            expect(nodePatches).toEqual([{ id: 'node-1', body: expectedBody }])
+            expect(savedQueryPatches).toBe(0)
+            expect(logic.values.hasMaterializationChanges).toBe(false)
+        })
+
+        it('drops a pending pin when the draft moves back to a cadence downstream views allow', async () => {
+            useMocks(pinMocks({ pinned: false }))
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadNodeFrequencySuccess'])
+
+            logic.actions.setSyncFrequencyDraft('24hour')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.pinDraft).toBe(true)
+            logic.actions.setSyncFrequencyDraft('6hour')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.pinDraft).toBeNull()
+            expect(logic.values.hasMaterializationChanges).toBe(false)
+        })
+
+        it('pins again when a slower cadence is picked after unpinning', async () => {
+            savedSyncFrequency = '24hour'
+            useMocks(
+                pinMocks({
+                    pinned: true,
+                    nodeOptions: [
+                        { cadence: '12hour', delays_if_pinned: [dailyRevenue], unpinned_cadence: '6hour' },
+                        { cadence: '24hour', delays_if_pinned: [dailyRevenue], unpinned_cadence: '6hour' },
+                    ],
+                })
+            )
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadNodeFrequencySuccess'])
+
+            logic.actions.setPinDraft(false)
+            expect(logic.values.cadencePin?.pinned).toBe(false)
+            logic.actions.setSyncFrequencyDraft('12hour')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.pinDraft).toBe(true)
+            expect(logic.values.cadencePin?.pinned).toBe(true)
+        })
+
+        it('addresses the node API by the active environment, not the project', async () => {
+            ApiConfig.setCurrentProjectId(111)
+            ApiConfig.setCurrentTeamId(222)
+            const mocks = pinMocks({ pinned: false })
+            const requested: string[] = []
+            for (const path of [
+                '/api/projects/:team_id/data_modeling_nodes/:id/',
+                '/api/projects/:team_id/data_modeling_nodes/:id/frequency_bounds/',
+            ]) {
+                const handler = mocks.get![path]
+                mocks.get![path] = (req: any) => {
+                    requested.push(String(req.params.team_id))
+                    return typeof handler === 'function' ? handler(req) : handler
+                }
+            }
+            useMocks(mocks)
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadNodeFrequencySuccess'])
+            expect(requested).toEqual(['222', '222'])
+        })
+
+        it('keeps a poll that started before the save from overwriting the saved cadence', async () => {
+            useMocks(pinMocks({ pinned: false }))
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadNodeFrequencySuccess'])
+            const previous = logic.values.savedQuery!
+            let resolveStale!: (value: typeof previous) => void
+            const stale = new Promise<typeof previous>((resolve) => {
+                resolveStale = resolve
+            })
+            const fetch = jest
+                .spyOn(api.dataWarehouseSavedQueries, 'get')
+                .mockImplementationOnce(() => stale)
+                .mockResolvedValue({ ...previous, sync_frequency: '24hour' })
+            try {
+                logic.actions.loadSavedQuery()
+                logic.actions.setSyncFrequencyDraft('24hour')
+                await expectLogic(logic, () => logic.actions.saveMaterializationChanges()).toDispatchActions([
+                    'finishSavingMaterialization',
+                ])
+                resolveStale(previous)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.savedQuery?.sync_frequency).toBe('24hour')
+            } finally {
+                fetch.mockRestore()
+            }
+        })
     })
     it.each(['Running', 'Completed'])(
         'polls a %s job at the appropriate interval and recovers from failure',

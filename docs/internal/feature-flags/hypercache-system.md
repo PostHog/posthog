@@ -234,6 +234,15 @@ Models that invalidate the flags cache:
 - `FeatureFlagEvaluationTag` - Evaluation tags changed
 - `Tag` - Tag renamed
 
+Deleting a `Team` clears its local evaluation and team metadata entries from Redis and S3 after the deletion commits.
+The rebuild task cannot run for a deleted team, and the flags service falls back to the S3 copies, which have no TTL.
+A stale team metadata entry lets the flags service resolve the deleted team's token without a Postgres check.
+A refresh run that loaded the team before the deletion can write an entry again. The daily cleanup task deletes that entry from Redis and S3.
+
+The staff cache tools `clear` action also accepts the ids of deleted teams.
+Use it to purge an orphaned flags entry for a team that no longer exists.
+It does not clear team metadata entries, because it takes team ids and those entries are keyed by API token.
+
 ## Remote config caching
 
 Remote config uses a different caching strategy than local evaluation. It prioritizes zero-overhead cache hits by using Redis-only caching for serving, with HyperCache used only for background sync operations.
@@ -546,12 +555,12 @@ The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache u
 
 Cache freshness is maintained through scheduled Celery tasks.
 
-| Task                                              | Schedule         | Purpose                                              |
-| ------------------------------------------------- | ---------------- | ---------------------------------------------------- |
-| `refresh_expiring_flags_cache_entries`            | Hourly at :15    | Refresh caches with TTL < 24h before they expire     |
-| `cleanup_stale_flags_expiry_tracking_task`        | Daily at 3:15 AM | Remove expired team entries from tracking sorted set |
-| `refresh_expiring_flag_definitions_cache_entries` | Hourly at :35    | Refresh flag definitions caches before they expire   |
-| `verify_and_fix_flag_definitions_cache_task`      | Hourly at :50    | Verify flag definitions cache against database       |
+| Task                                              | Schedule         | Purpose                                            |
+| ------------------------------------------------- | ---------------- | -------------------------------------------------- |
+| `refresh_expiring_flags_cache_entries`            | Hourly at :15    | Refresh caches with TTL < 24h before they expire   |
+| `cleanup_stale_flags_expiry_tracking_task`        | Daily at 3:15 AM | Delete deleted teams' entries and tracking members |
+| `refresh_expiring_flag_definitions_cache_entries` | Hourly at :35    | Refresh flag definitions caches before they expire |
+| `verify_and_fix_flag_definitions_cache_task`      | Hourly at :50    | Verify flag definitions cache against database     |
 
 ### Refresh task
 

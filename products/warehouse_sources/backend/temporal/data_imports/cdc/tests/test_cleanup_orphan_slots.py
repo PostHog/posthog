@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 from contextlib import contextmanager
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -9,6 +10,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import cleanup_orphan_slots_activity
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCLag
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 
 pytestmark = pytest.mark.django_db
@@ -61,13 +63,21 @@ def _mock_adapter(*, lag_bytes=0, retention_cap_mb=None, slot_survives_drop=Fals
         yield MagicMock()
 
     adapter.management_connection.side_effect = _conn
-    adapter.get_lag_bytes.return_value = lag_bytes
-    adapter.get_retention_cap_mb.return_value = retention_cap_mb
-    adapter.slot_exists.return_value = slot_survives_drop
+    adapter.get_lag.return_value = (
+        None if lag_bytes is None else CDCLag(behind_bytes=lag_bytes, retention_cap_mb=retention_cap_mb)
+    )
+    adapter.stream_exists.return_value = slot_survives_drop
     return adapter
 
 
-def _run(adapter):
+_SCHEDULE_LOOKUP: dict[str, dict[str, Any]] = {
+    "present": {"return_value": True},
+    "missing": {"return_value": False},
+    "error": {"side_effect": TimeoutError()},
+}
+
+
+def _run(adapter, *, schedule_state="present"):
     with (
         patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity") as mock_activity,
         patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.HeartbeaterSync"),
@@ -77,6 +87,10 @@ def _run(adapter):
             return_value=adapter,
         ),
         patch("products.data_warehouse.backend.logic.data_load.service.delete_cdc_extraction_schedule") as mock_delete,
+        patch(
+            "products.data_warehouse.backend.logic.data_load.service.cdc_extraction_schedule_exists",
+            **_SCHEDULE_LOOKUP[schedule_state],
+        ),
         # mark_cdc_broken (critical-lag paths) reaches Temporal / Kafka / analytics — stub the boundaries.
         patch("products.data_warehouse.backend.logic.data_load.service.pause_cdc_extraction_schedule") as mock_pause,
         patch("products.data_warehouse.backend.logic.data_load.service.pause_external_data_schedule"),
@@ -95,7 +109,7 @@ def test_encrypted_cdc_source_is_selected(team):
 
     _run(adapter)
 
-    adapter.get_lag_bytes.assert_called_once()
+    adapter.get_lag.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -113,7 +127,7 @@ def test_disabled_or_incomplete_sources_skipped(team, job_inputs):
 
     _run(adapter)
 
-    adapter.get_lag_bytes.assert_not_called()
+    adapter.get_lag.assert_not_called()
 
 
 def test_deleted_posthog_managed_drops_resources_and_schedule(team):
@@ -123,8 +137,8 @@ def test_deleted_posthog_managed_drops_resources_and_schedule(team):
     _, mock_delete, _ = _run(adapter)
 
     mock_delete.assert_called_once()
-    adapter.drop_resources.assert_called_once()
-    adapter.get_lag_bytes.assert_not_called()
+    adapter.drop_stream.assert_called_once()
+    adapter.get_lag.assert_not_called()
 
 
 def test_deleted_self_managed_drops_schedule_but_not_slot(team):
@@ -134,7 +148,7 @@ def test_deleted_self_managed_drops_schedule_but_not_slot(team):
     _, mock_delete, _ = _run(adapter)
 
     mock_delete.assert_called_once()
-    adapter.drop_resources.assert_not_called()
+    adapter.drop_stream.assert_not_called()
 
 
 def test_deleted_source_purges_shadow_buffer_prefixes(team):
@@ -165,7 +179,7 @@ def test_critical_lag_posthog_auto_drop_stops_capture_once_the_slot_is_gone(team
 
     _, _, mock_pause = _run(adapter)
 
-    adapter.drop_resources.assert_called_once()
+    adapter.drop_stream.assert_called_once()
     source.refresh_from_db()
     assert (source.status == ExternalDataSource.Status.ERROR) is stopped
     schema.refresh_from_db()
@@ -208,7 +222,7 @@ def test_critical_lag_auto_drop_disabled_does_not_drop(team):
 
     _run(adapter)
 
-    adapter.drop_resources.assert_not_called()
+    adapter.drop_stream.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -234,12 +248,90 @@ def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(
     _, _, mock_pause = _run(adapter)
 
     # Customer owns the slot: surface the broken state but never drop or pause — it may recover.
-    adapter.drop_resources.assert_not_called()
+    adapter.drop_stream.assert_not_called()
     mock_pause.assert_not_called()
     source.refresh_from_db()
     assert source.status == expected_status
     schema.refresh_from_db()
     assert schema.sync_type_config["cdc_broken"]["reason"] == expected_reason
+
+
+def _restore_case(
+    case_id,
+    *,
+    management="self_managed",
+    retention_cap_mb=None,
+    lag_mb=5000,
+    schedule_state="missing",
+    existing_reason=None,
+    restored=True,
+    dropped=False,
+    expected_reason=None,
+):
+    return pytest.param(
+        management,
+        retention_cap_mb,
+        lag_mb,
+        schedule_state,
+        existing_reason,
+        restored,
+        dropped,
+        expected_reason,
+        id=case_id,
+    )
+
+
+@pytest.mark.parametrize(
+    "management, retention_cap_mb, lag_mb, schedule_state, existing_reason, restored, dropped, expected_reason",
+    [
+        _restore_case("missing_schedule_is_restored_without_lag_blame"),
+        _restore_case("capped_slot_is_kept_while_capture_catches_up", management="posthog", retention_cap_mb=10000),
+        _restore_case(
+            "uncapped_slot_is_dropped_without_a_restore",
+            management="posthog",
+            restored=False,
+            dropped=True,
+            expected_reason="auto_dropped_critical_lag",
+        ),
+        _restore_case(
+            "existing_schedule_is_left_alone",
+            schedule_state="present",
+            restored=False,
+            expected_reason="critical_lag_self_managed",
+        ),
+        _restore_case(
+            "repair_owns_the_schedule",
+            existing_reason="auto_dropped_critical_lag",
+            restored=False,
+            expected_reason="auto_dropped_critical_lag",
+        ),
+        _restore_case(
+            "failed_lookup_still_checks_the_lag",
+            schedule_state="error",
+            restored=False,
+            expected_reason="critical_lag_self_managed",
+        ),
+        _restore_case("lag_below_the_warning_threshold_skips_the_lookup", lag_mb=100, restored=False),
+    ],
+)
+def test_lagging_source_restores_a_missing_extraction_schedule(
+    team, management, retention_cap_mb, lag_mb, schedule_state, existing_reason, restored, dropped, expected_reason
+):
+    source = _create_source(team, job_inputs=_cdc_job_inputs(management=management))
+    schema = _create_cdc_schema(team, source)
+    if existing_reason:
+        schema.sync_type_config = {**schema.sync_type_config, "cdc_broken": {"reason": existing_reason}}
+        schema.save()
+
+    adapter = _mock_adapter(lag_bytes=lag_mb * 1024 * 1024, retention_cap_mb=retention_cap_mb)
+    with patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule") as mock_sync:
+        _, _, mock_pause = _run(adapter, schedule_state=schedule_state)
+
+    assert mock_sync.called is restored
+    assert adapter.drop_stream.called is dropped
+    assert mock_pause.called is dropped
+    schema.refresh_from_db()
+    assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") == expected_reason
 
 
 def _job(team, source, schema, status, age, workflow_id=None):
@@ -277,11 +369,11 @@ def test_a_source_blocked_by_billing_past_buffer_retention_is_marked_broken(team
     with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
         _, _, mock_pause = _run(adapter)
 
-    assert adapter.drop_resources.called is dropped
+    assert adapter.drop_stream.called is dropped
     assert mock_pause.called is paused
     schema.refresh_from_db()
     assert schema.sync_type_config["cdc_broken"]["reason"] == "billing_limit_expired"
-    adapter.get_lag_bytes.assert_not_called()
+    adapter.get_lag.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -309,13 +401,13 @@ def test_a_source_is_left_running_unless_billing_blocks_it_past_buffer_retention
     with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=team_limited):
         _run(adapter)
 
-    adapter.drop_resources.assert_not_called()
+    adapter.drop_stream.assert_not_called()
     schema.refresh_from_db()
     assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") != "billing_limit_expired"
 
 
 def test_a_slot_that_survives_the_drop_keeps_billing_capture_running(team):
-    # drop_resources only logs a refused drop, so pausing capture on the strength of the call alone
+    # drop_stream only logs a refused drop, so pausing capture on the strength of the call alone
     # would leave a live slot with nothing advancing it and the customer's WAL growing.
     source = _create_source(team, job_inputs=_cdc_job_inputs())
     schema = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(days=15))
@@ -324,9 +416,9 @@ def test_a_slot_that_survives_the_drop_keeps_billing_capture_running(team):
     with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
         _, _, mock_pause = _run(adapter)
 
-    adapter.drop_resources.assert_called()
+    adapter.drop_stream.assert_called()
     mock_pause.assert_not_called()
-    adapter.get_lag_bytes.assert_called_once()
+    adapter.get_lag.assert_called_once()
     source.refresh_from_db()
     assert source.status != ExternalDataSource.Status.ERROR
     schema.refresh_from_db()
@@ -354,7 +446,7 @@ def test_a_job_that_is_not_the_tables_own_sync_does_not_defer_the_billing_stop(t
     with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
         _run(adapter)
 
-    adapter.drop_resources.assert_called_once()
+    adapter.drop_stream.assert_called_once()
     schema.refresh_from_db()
     assert schema.sync_type_config["cdc_broken"]["reason"] == "billing_limit_expired"
 
@@ -391,6 +483,6 @@ def test_a_failed_billing_check_still_checks_the_slots_lag(team):
     with patch(f"{_ACTIVITIES}.blocked_past_buffer_retention", side_effect=RuntimeError("quota cache down")):
         _run(adapter)
 
-    adapter.drop_resources.assert_called_once()
+    adapter.drop_stream.assert_called_once()
     schema.refresh_from_db()
     assert schema.sync_type_config["cdc_broken"]["reason"] == "auto_dropped_critical_lag"

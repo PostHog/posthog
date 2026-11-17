@@ -28,6 +28,7 @@ from posthog.schema import (
     ExperimentExposureNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentWarehouseNativeNode,
@@ -47,6 +48,7 @@ from posthog.models.user import User
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.metric_resolution import ExperimentMetric, build_metric, scheduled_metric_definitions
+from products.experiments.backend.metric_utils import format_quantile_level
 from products.experiments.backend.models.experiment import Experiment
 
 logger = logging.getLogger(__name__)
@@ -190,7 +192,7 @@ def _metric_sources(
         MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
     ]
 ]:
-    if isinstance(metric, ExperimentMeanMetric):
+    if isinstance(metric, ExperimentMeanMetric | ExperimentQuantileMetric):
         return [(MetricSourceRole.SOURCE, metric.source)]
     if isinstance(metric, ExperimentFunnelMetric):
         return [(MetricSourceRole.STEP, step) for step in metric.series]
@@ -246,6 +248,9 @@ def _default_metric_title(metric: ExperimentMetric) -> str:
         )
     if isinstance(metric, ExperimentRetentionMetric):
         return f"{_source_title(metric.start_event) or 'Start event'} / {_source_title(metric.completion_event) or 'Completion event'}"
+    if isinstance(metric, ExperimentQuantileMetric):
+        measured = metric.source.math_property or _source_title(metric.source) or "Untitled metric"
+        return f"{format_quantile_level(metric.quantile)} of {measured}"
 
 
 def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:

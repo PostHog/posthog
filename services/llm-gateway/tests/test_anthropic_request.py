@@ -10,7 +10,7 @@ from llm_gateway.anthropic_request import (
 from llm_gateway.metrics.prometheus import CLEAR_THINKING_EDIT_DROPPED
 
 PRODUCT = "posthog_code"
-OTHER_PRODUCT = "llm_gateway"
+OTHER_PRODUCT = "django"
 CLEAR_THINKING = {"type": "clear_thinking_20251015", "keep": "all"}
 CLEAR_TOOL_USES = {"type": "clear_tool_uses_20250919"}
 

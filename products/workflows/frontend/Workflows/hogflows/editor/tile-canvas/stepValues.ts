@@ -42,10 +42,16 @@ export function propertyValueText(value: unknown): string {
 }
 
 export function inputValue(action: HogFlowAction, key: string): unknown {
+    if (action.type === 'email_sandbox') {
+        return key === 'email' ? action.config.inputs.email.value : undefined
+    }
     return isFunctionAction(action) ? action.config.inputs?.[key]?.value : undefined
 }
 
 export function templateIdOf(action: HogFlowAction): string | undefined {
+    if (action.type === 'email_sandbox') {
+        return 'template-email'
+    }
     return isFunctionAction(action) ? action.config.template_id : undefined
 }
 

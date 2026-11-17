@@ -1,15 +1,16 @@
 import './Onboarding.scss'
 
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 
 import { Logo } from 'lib/brand'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { onboardingWizardRunLogic } from 'products/wizard/frontend/views/onboarding/onboardingWizardRunLogic'
+
 import { OnboardingFlowHost } from './OnboardingFlowHost'
 import { onboardingLogic } from './onboardingLogic'
 import { ProductSelectionShell } from './productSelection/ProductSelectionShell'
-import { SimpleOnboarding } from './simple/SimpleOnboarding'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -17,14 +18,14 @@ export const scene: SceneExport = {
 }
 
 const CARD_CLASSES =
-    'relative w-full min-h-0 flex flex-col overflow-visible p-0 sm:max-h-[calc(100dvh-7rem)] sm:overflow-y-auto sm:p-8 md:p-10 sm:bg-surface-primary sm:rounded-2xl sm:shadow-[0_16px_40px_rgb(30_50_10_/_25%)] sm:border sm:border-primary'
+    'relative w-full min-h-0 flex flex-col overflow-visible p-0 sm:max-h-[calc(100dvh-7rem)] sm:overflow-y-auto sm:p-8 md:p-10 sm:bg-surface-primary sm:rounded-2xl sm:shadow-[0_16px_40px_rgb(20_44_72_/_18%)] sm:border sm:border-primary'
 
-/**
- * Renders product selection until a product is chosen, then hands off to the flow host. The simple
- * flow skips product selection.
- */
+/** Renders product selection until a product is chosen, then hands off to the flow host. */
 export function Onboarding(): JSX.Element | null {
-    const { productKey, flowVariant } = useValues(onboardingLogic)
+    const { productKey, currentTeam, user } = useValues(onboardingLogic)
+    useMountedLogic(
+        onboardingWizardRunLogic({ projectId: currentTeam ? String(currentTeam.id) : '', userId: user?.id ?? 0 })
+    )
 
     return (
         <div className="OnboardingDottedBg min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
@@ -32,13 +33,7 @@ export function Onboarding(): JSX.Element | null {
                 <Logo size="lg" />
             </span>
             <div className={clsx(CARD_CLASSES, productKey ? 'max-w-5xl' : 'max-w-6xl')}>
-                {flowVariant === 'simple' ? (
-                    <SimpleOnboarding />
-                ) : productKey ? (
-                    <OnboardingFlowHost />
-                ) : (
-                    <ProductSelectionShell />
-                )}
+                {productKey ? <OnboardingFlowHost /> : <ProductSelectionShell />}
             </div>
         </div>
     )

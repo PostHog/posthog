@@ -32,7 +32,10 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 CODE = ExperimentHealthFindingCode.METRIC_CANNOT_COMPILE
 KEY = ExperimentHealthCheckKey.METRIC_CANNOT_COMPILE
@@ -210,7 +213,7 @@ class TestMetricCannotCompile(BaseTest):
                 "primary_metric_after_the_end",
                 "metrics",
                 _mean(_hogql(COMPOUND)),
-                ("compound_aggregation", INFO, 'the primary metric "Revenue"'),
+                ("compound_aggregation", WARNING, 'the primary metric "Revenue"'),
                 {"start_date": timezone.now() - timedelta(days=10), "end_date": timezone.now() - timedelta(days=1)},
             ),
         ]
@@ -274,6 +277,33 @@ class TestMetricCannotCompile(BaseTest):
                 "error_of_the_compiler_itself",
                 {"metrics": [_mean(_hogql(COMPOUND))]},
                 InternalHogQLError("Unexpected node"),
+                (NOT_CHECKED, "Couldn't check 1 metric"),
+            ),
+            (
+                "warehouse_native_sources_have_no_hogql_to_compile",
+                {
+                    "metrics": [
+                        _mean(
+                            {
+                                "kind": "ExperimentWarehouseNativeNode",
+                                "connection_id": "00000000-0000-0000-0000-000000000000",
+                                "query": "SELECT customer_id AS entity_id, paid_at AS timestamp, amount FROM payments",
+                                "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+                                "math": "sum",
+                                "math_property": "amount",
+                            }
+                        )
+                    ],
+                    "exposure_criteria": {
+                        "exposure_config": {
+                            "kind": "ExperimentWarehouseNativeExposureConfig",
+                            "connection_id": "00000000-0000-0000-0000-000000000000",
+                            "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                            "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+                        }
+                    },
+                },
+                None,
                 (NOT_CHECKED, "Couldn't check 1 metric"),
             ),
             (

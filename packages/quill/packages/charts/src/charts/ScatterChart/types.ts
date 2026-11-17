@@ -71,9 +71,9 @@ export interface ScatterChartConfig<Meta = unknown> {
     /** Draws a dashed least-squares fit line per series, spanning that series' own points. Fitted in
      *  the axes' own space, so a log axis fits the log values. */
     showBestFit?: boolean
-    legend?: ChartLegendConfig
+    legend?: Omit<ChartLegendConfig, 'table'>
     tooltip?: ScatterTooltipConfig<Meta>
-    /** Applied over the computed margins. Should be referentially stable (a module-level constant). */
+    /** Applied over the computed margins. */
     margins?: Partial<ChartMargins>
 }
 
