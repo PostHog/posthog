@@ -7939,7 +7939,7 @@ export interface ForecastSideRule {
 /**
  * Forecasts the next point from the points before it, then compares the actual value with the
  * forecast. Carries no preprocessing block: the forecast reads the series as it is. With neither
- * side set, it fires outside the 0.05 to 0.95 forecast range on either side.
+ * side set, it fires outside the 0.01 to 0.99 forecast range on either side.
  */
 export interface ForecastDetectorConfig {
     type: 'forecast'
