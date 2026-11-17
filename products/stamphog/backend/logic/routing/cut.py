@@ -48,8 +48,8 @@ new source, option or catalog entry into an existing extension point, or the UI,
 author's feature.
 
 Never cut an owner when any of these is true:
-- Their code behaves differently for anyone outside the author's feature after the change: a check, a limit, a \
-default, a permission, a response, stored data, money, or what a user sees.
+- Their code behaves differently after the change: a check, a limit, a default, a permission, a response, stored \
+data, money, or what a user sees.
 - A test assertion in their files changes.
 - The pull request is mainly about their code, for example it only fixes their bug.
 - The owner is pinned.
