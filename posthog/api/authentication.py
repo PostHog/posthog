@@ -1228,7 +1228,8 @@ def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVe
         subject=pending["subject"],
         defaults={"user": user, "email": pending["email"]},
     )
-    _clear_unverified_local_credentials(user)
+    if pending["email"] == user.email.strip().lower():
+        _clear_unverified_local_credentials(user)
     login(request, user, backend=pending["backend"])
     _notify_social_login(request, user, pending["provider"])
 
@@ -1744,10 +1745,7 @@ def social_require_idp_email_verification(
     """
     if backend.name not in IDP_SSO_BACKENDS:
         return None
-    if _sso_reauth_request(strategy):
-        # A step-up re-auth continues a signed-in session, so it is not a new identity.
-        return None
-
+    is_reauth = bool(_sso_reauth_request(strategy))
     identity = _identity_provider_identity(backend, details, response)
     email = ((details or {}).get("email") or "").strip().lower()
     if user is None or not uid or identity is None or not email:
@@ -1756,10 +1754,14 @@ def social_require_idp_email_verification(
     if IdentityProviderEmailVerification.objects.filter(
         provider=identity.provider, issuer=identity.issuer, subject=identity.subject, email=email
     ).exists():
-        # The identity proved this address before, so the account can drop local credentials it
-        # never trusted. A refused send below leaves them in place.
-        _clear_unverified_local_credentials(user)
+        if is_reauth and not UserSocialAuth.objects.filter(user=user, provider=identity.provider, uid=uid).exists():
+            raise AuthFailed(backend, "reauth_user_mismatch")
+        if email == user.email.strip().lower():
+            _clear_unverified_local_credentials(user)
         return None
+
+    if is_reauth:
+        raise AuthFailed(backend, "reauth_user_mismatch")
 
     request = strategy.request
     try:

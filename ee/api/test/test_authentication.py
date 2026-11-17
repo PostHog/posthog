@@ -355,6 +355,7 @@ class TestOIDCAuthentication(APILicensedTest):
             user=self.user, provider="oidc", uid=f"{self.config.oidc_issuer_url}:example-user"
         )
         self.user.email = "owner@example.com"
+        self.user.is_email_verified = False
         self.user.save()
         self.client.logout()
 
@@ -370,6 +371,8 @@ class TestOIDCAuthentication(APILicensedTest):
             IdentityProviderEmailVerification.objects.get(user=self.user, provider="oidc").email,
             "member@example.com",
         )
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.is_email_verified)
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_a_gated_login_leaves_the_account_alone_until_the_code_is_accepted(self) -> None:

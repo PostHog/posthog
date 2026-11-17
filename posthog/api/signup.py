@@ -1116,7 +1116,12 @@ def process_social_invite_signup(
         invite.validate(user=None, email=email)
 
         try:
-            _user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=True)
+            _user = strategy.create_user(
+                email=email,
+                first_name=full_name,
+                password=None,
+                is_email_verified=backend.name not in IDP_SSO_BACKENDS,
+            )
             invite.use(_user, prevalidated=True)
         except Exception as e:
             capture_exception(e)
