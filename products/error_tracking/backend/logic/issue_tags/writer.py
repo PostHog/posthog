@@ -33,8 +33,6 @@ def set_issue_tag(
     if not issue_tags_enabled(team_id):
         return False
     sources_above = get_issue_tag_definition(key).sources_ranked_above(source)
-    issue = ErrorTrackingIssue.objects.select_related("team").get(team_id=team_id, id=issue_id)
-    tags = ErrorTrackingIssueTag.objects.for_team(issue.team.parent_team_id or issue.team_id, canonical=True)
     fields = {
         "source": source,
         "value": answer.value,
@@ -46,6 +44,15 @@ def set_issue_tag(
     after: dict[str, object] = {"key": key, "value": answer.value, "source": source}
 
     with transaction.atomic():
+        # A merge locks its issues before it writes their tags, so this writer locks the issue first too. Without
+        # this lock, a first answer inserts its tag row and then waits for the merge's issue lock, while the merge
+        # waits for that tag row, and Postgres aborts one of them as a deadlock.
+        issue = (
+            ErrorTrackingIssue.objects.select_for_update(no_key=True, of=("self",))
+            .select_related("team")
+            .get(team_id=team_id, id=issue_id)
+        )
+        tags = ErrorTrackingIssueTag.objects.for_team(issue.team.parent_team_id or issue.team_id, canonical=True)
         # The row lock makes a concurrent writer wait until this transaction commits, so the rank check and the
         # logged before value both see the answer that this write replaces.
         tag, created = tags.select_for_update().get_or_create(
