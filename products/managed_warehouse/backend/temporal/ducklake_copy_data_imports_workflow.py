@@ -327,8 +327,7 @@ def _registers_without_duckgres(organization_id: str) -> bool:
 
 
 async def _organization_registers_without_duckgres(organization_id: object) -> bool:
-    # This workflow runs DuckDB statements on duckgres, which an organization whose data imports go to Gigahog, or
-    # register through Trino or in a hoglake catalog, does not have.
+    # This workflow runs DuckDB statements on duckgres, which a Gigahog, Trino or hoglake organization does not have.
     return await asyncio.to_thread(_registers_without_duckgres, str(organization_id))
 
 

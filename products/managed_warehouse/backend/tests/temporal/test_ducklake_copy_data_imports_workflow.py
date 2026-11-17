@@ -1805,7 +1805,6 @@ async def test_ducklake_copy_data_imports_gate_retries_an_unanswered_gigahog_fla
     )
 
     if gigahog_url is None:
-        # Where Gigahog is not deployed, a flag that is not defined must not stop duckgres copies.
         assert await gate is True
         return
     with pytest.raises(ApplicationError, match="gave no answer") as raised:
