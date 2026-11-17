@@ -28,15 +28,15 @@ describe('pin prefs', () => {
 
     test('a complete pin list of one project keeps the order and modes of another', () => {
         const store = usePinPrefs.getState()
-        store.setOrder('us|1', ['a2', 'a1'])
-        store.setDisplay('us|1', 'a1', { mode: 'chart' })
+        store.setOrder('account', 'us|1', ['a2', 'a1'])
+        store.setDisplay('account', 'us|1', 'a1', { mode: 'chart' })
 
-        store.prune('us|2', ['b1'], true)
+        store.prune('account', 'us|2', ['b1'], true)
 
-        expect(usePinPrefs.getState().projects['us|1']).toEqual({
+        expect(usePinPrefs.getState().accounts.account?.['us|1']).toEqual({
             rank: { a2: 0, a1: 1 },
             display: { a1: { mode: 'chart' } },
         })
-        usePinPrefs.getState().clear()
+        usePinPrefs.setState({ accounts: {} })
     })
 })

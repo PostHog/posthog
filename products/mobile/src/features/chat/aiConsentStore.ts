@@ -3,7 +3,7 @@ import { useSyncExternalStore } from 'react'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
-import { addSessionEndTask } from '@/auth/authStore'
+import { addAccountRemovedTask } from '@/auth/authStore'
 import { createPersistHydrationGate } from '@/lib/persistHydration'
 
 // Each person on this device agrees once that PostHog AI sends the data used by their AI actions to third-party model providers.
@@ -17,6 +17,7 @@ interface AiConsentState {
     /** Keyed by `aiConsentKey`. */
     accepted: Record<string, true>
     accept: (key: string) => void
+    forget: (key: string) => void
     clear: () => void
 }
 
@@ -28,6 +29,14 @@ export const useAiConsentStore = create<AiConsentState>()(
             accepted: {},
             accept: (key) =>
                 set((state) => (state.accepted[key] ? state : { accepted: { ...state.accepted, [key]: true } })),
+            forget: (key) =>
+                set((state) => {
+                    if (!state.accepted[key]) {
+                        return state
+                    }
+                    const { [key]: _removed, ...accepted } = state.accepted
+                    return { accepted }
+                }),
             clear: () => set({ accepted: {} }),
         }),
         {
@@ -50,5 +59,6 @@ export function waitForAiConsent(): Promise<void> {
     return hydration.wait()
 }
 
-// Consent is per-user state like the rest, so sign out and session expiry drop it, and the next sign-in asks again.
-addSessionEndTask(() => useAiConsentStore.getState().clear())
+// Consent is per-user state like the rest, so signing out of an account or its expiry drops that account's consent,
+// and its next sign-in asks again. Other accounts on the device keep theirs.
+addAccountRemovedTask(({ host, userUuid }) => useAiConsentStore.getState().forget(aiConsentKey(host, userUuid)))

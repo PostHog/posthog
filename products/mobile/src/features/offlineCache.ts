@@ -1,11 +1,11 @@
 import type { QueryKey } from '@tanstack/react-query'
-import * as Crypto from 'expo-crypto'
 import { AppState } from 'react-native'
 import { queryClient } from '@/api/queryClient'
 import { persistReadCache } from '@/api/readCache'
 import { ReadCacheStore } from '@/api/readCacheStore'
 import { missingViewsScope } from '@/api/scopeErrors'
-import { addSessionEndTask, useAuthStore } from '@/auth/authStore'
+import { accountKey as accountDigest } from '@/auth/accountKey'
+import { addAccountRemovedTask, addSessionEndTask, useAuthStore } from '@/auth/authStore'
 import { getSessionIdentity, getSessionTokens } from '@/auth/tokens'
 import { useScopeErrorStore } from '@/features/views/useViewsAccess'
 import { useItemErrors } from '@/features/views/viewsCache'
@@ -28,8 +28,7 @@ function identity(): string | null {
 }
 
 async function accountKey(host: string, userId: string): Promise<string> {
-    const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, JSON.stringify([host, userId]))
-    return `mobile-read-cache-v1-${hash}`
+    return `mobile-read-cache-v1-${await accountDigest(host, userId)}`
 }
 
 function viewsScopeDenied(): boolean {
@@ -113,14 +112,16 @@ export function installOfflineCache(): () => void {
     }
     const unsubscribeErrors = useItemErrors.subscribe(purge)
     const unsubscribeScopes = useScopeErrorStore.subscribe(purge)
-    const unsubscribeEnd = addSessionEndTask(async () => {
+    // A switch keeps the account's saved reads for its next session. Only its removal deletes them.
+    const unsubscribeEnd = addSessionEndTask(() => {
         generation++
         previous = null
         for (const session of sessions.values()) session.stop()
         sessions.clear()
         active = undefined
-        const state = useAuthStore.getState()
-        if (state.host && state.user) await store.clearAccount(await accountKey(state.host, state.user.uuid))
+    })
+    const unsubscribeRemoved = addAccountRemovedTask(async (account) => {
+        await store.clearAccount(await accountKey(account.host, account.userUuid))
     })
     const appState = AppState.addEventListener('change', (state) => {
         if (state !== 'active') void active?.flush()
@@ -134,6 +135,7 @@ export function installOfflineCache(): () => void {
         unsubscribeErrors()
         unsubscribeScopes()
         unsubscribeEnd()
+        unsubscribeRemoved()
         appState.remove()
     }
 }

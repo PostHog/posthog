@@ -1,6 +1,5 @@
-import * as Crypto from 'expo-crypto'
-
-import { addSessionEndTask, useAuthStore } from '@/auth/authStore'
+import { accountKey as accountDigest } from '@/auth/accountKey'
+import { addAccountRemovedTask, addSessionEndTask, useAuthStore } from '@/auth/authStore'
 import { getSessionTokens } from '@/auth/tokens'
 
 import { secureStorage as storage } from '@/lib/secureStorage'
@@ -16,16 +15,13 @@ export function draftIdentity(): string | null {
         : null
 }
 
+async function draftAccountKey(host: string, userUuid: string): Promise<string> {
+    return `mobile-drafts-${await accountDigest(host, userUuid)}`
+}
+
 async function accountKey(): Promise<string | null> {
     const state = useAuthStore.getState()
-    if (!state.host || !state.user) {
-        return null
-    }
-    const hash = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        JSON.stringify([state.host.replace(/\/$/, ''), state.user.uuid])
-    )
-    return `mobile-drafts-${hash}`
+    return state.host && state.user ? draftAccountKey(state.host, state.user.uuid) : null
 }
 
 async function readScopes(account: string): Promise<string[]> {
@@ -64,14 +60,15 @@ export async function draftScope(identity: string): Promise<string | null> {
     return draftIdentity() === identity ? scope : null
 }
 
+// Outstanding sends belong to the session that left, so they must not write a draft back.
 addSessionEndTask(async () => {
-    // Invalidate outstanding sends before awaiting storage, while auth still identifies the departing account.
     await chatDrafts.clear([])
-    const account = await accountKey()
+})
+
+addAccountRemovedTask(async ({ host, userUuid }) => {
+    const account = await draftAccountKey(host, userUuid)
     await registryQueue
-    if (account) {
-        const scopes = await readScopes(account)
-        await chatDrafts.clear(scopes)
-        await storage.removeItem(`${account}.scopes`)
-    }
+    const scopes = await readScopes(account)
+    await chatDrafts.remove(scopes)
+    await storage.removeItem(`${account}.scopes`)
 })

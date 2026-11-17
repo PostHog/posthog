@@ -1,23 +1,26 @@
 import * as SecureStore from 'expo-secure-store'
 import { AppState } from 'react-native'
+import { accountKey } from './accountKey'
 import { installAuthProvider, refreshAccessToken, useAuthStore } from './authStore'
-import { loadTokens, saveTokens, setSessionTokens } from './tokens'
+import { getSessionIdentity, loadTokens, saveTokens, setSessionTokens } from './tokens'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 )
-jest.mock('expo-secure-store', () => {
-    const items = new Map<string, string>()
-    return {
-        getItemAsync: async (key: string) => items.get(key) ?? null,
-        setItemAsync: async (key: string, value: string) => {
-            items.set(key, value)
-        },
-        deleteItemAsync: async (key: string) => {
-            items.delete(key)
-        },
-    }
-})
+const mockSecureItems = new Map<string, string>()
+jest.mock('expo-secure-store', () => ({
+    getItemAsync: async (key: string) => mockSecureItems.get(key) ?? null,
+    setItemAsync: async (key: string, value: string) => {
+        mockSecureItems.set(key, value)
+    },
+    deleteItemAsync: async (key: string) => {
+        mockSecureItems.delete(key)
+    },
+}))
+jest.mock('expo-crypto', () => ({
+    CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+    digestStringAsync: async (_algorithm: string, value: string) => Buffer.from(value).toString('hex'),
+}))
 
 const tokens = {
     kind: 'oauth' as const,
@@ -33,10 +36,61 @@ function json(body: unknown): Response {
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
 }
 
+function envelope(owner: { host: string; userUuid: string }, accessToken: string): string {
+    return JSON.stringify({
+        version: 1,
+        identity: { host: owner.host, clientId: 'example-client', method: 'oauth', userUuid: owner.userUuid },
+        tokens: { ...tokens, accessToken },
+    })
+}
+
 describe('stored session identity', () => {
+    beforeEach(() => {
+        mockSecureItems.clear()
+    })
+
     test('rejects credentials without a stored destination', async () => {
         await SecureStore.setItemAsync('posthog_mobile_session', JSON.stringify(tokens))
         expect(await loadTokens()).toBeNull()
+    })
+
+    test('moves the session of the single-account app into its account slot', async () => {
+        const owner = { host, userUuid: 'legacy-user' }
+        await SecureStore.setItemAsync('posthog_mobile_session', envelope(owner, 'legacy-access'))
+
+        expect(await loadTokens()).toMatchObject({ accessToken: 'legacy-access' })
+
+        const key = await accountKey(host, 'legacy-user')
+        expect(getSessionIdentity()).toMatchObject(owner)
+        expect(await SecureStore.getItemAsync('posthog_mobile_session')).toBeNull()
+        expect(JSON.parse((await SecureStore.getItemAsync('posthog_mobile_accounts')) ?? '{}')).toEqual({
+            version: 1,
+            active: key,
+            keys: [key],
+        })
+        setSessionTokens(null)
+        expect(await loadTokens()).toMatchObject({ accessToken: 'legacy-access' })
+    })
+
+    test('a slot that holds another account reads as absent and leaves the index', async () => {
+        const key = await accountKey(host, 'slot-owner')
+        await SecureStore.setItemAsync(
+            `posthog_mobile_session.${key}`,
+            envelope({ host: 'https://other.example.com', userUuid: 'slot-owner' }, 'misplaced-access')
+        )
+        await SecureStore.setItemAsync(
+            'posthog_mobile_accounts',
+            JSON.stringify({ version: 1, active: key, keys: [key] })
+        )
+
+        expect(await loadTokens()).toBeNull()
+
+        expect(getSessionIdentity()).toBeNull()
+        expect(await SecureStore.getItemAsync(`posthog_mobile_session.${key}`)).toBeNull()
+        expect(JSON.parse((await SecureStore.getItemAsync('posthog_mobile_accounts')) ?? '{}')).toMatchObject({
+            active: null,
+            keys: [],
+        })
     })
 
     test('restores a valid session before a stalled refresh and allows a later refresh to recover', async () => {
@@ -120,7 +174,8 @@ describe('stored session identity', () => {
             })
             await expect(refreshAccessToken()).resolves.toBe('example-rotated-access')
             expect(requests.filter((url) => url.endsWith('/oauth/token'))).toHaveLength(2)
-            expect(JSON.parse((await SecureStore.getItemAsync('posthog_mobile_session')) ?? '{}')).toMatchObject({
+            const slot = `posthog_mobile_session.${await accountKey(host, 'current-user')}`
+            expect(JSON.parse((await SecureStore.getItemAsync(slot)) ?? '{}')).toMatchObject({
                 identity: { host, userUuid: 'current-user' },
                 tokens: { accessToken: 'example-rotated-access' },
             })

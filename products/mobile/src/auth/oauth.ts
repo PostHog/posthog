@@ -204,7 +204,19 @@ function authResultError(result: AuthSessionResult): OAuthError {
     return new OAuthError('rejected', 'The sign-in page returned no authorization code.')
 }
 
-export async function authorize({ host, clientId }: { host: string; clientId: string }): Promise<SessionTokens> {
+/**
+ * `preferEphemeralSession` keeps the browser's cookies out of the sign-in (iOS only). `/oauth/authorize` issues a code
+ * at once for the user whose web session the browser holds, so adding a second account needs a browser without one.
+ */
+export async function authorize({
+    host,
+    clientId,
+    preferEphemeralSession = false,
+}: {
+    host: string
+    clientId: string
+    preferEphemeralSession?: boolean
+}): Promise<SessionTokens> {
     if (Platform.OS === 'web') {
         throw new OAuthError('unsupported')
     }
@@ -216,7 +228,10 @@ export async function authorize({ host, clientId }: { host: string; clientId: st
     })
     let result: AuthSessionResult
     try {
-        result = await request.promptAsync({ authorizationEndpoint: `${host}/oauth/authorize` })
+        result = await request.promptAsync(
+            { authorizationEndpoint: `${host}/oauth/authorize` },
+            { preferEphemeralSession }
+        )
     } catch (error) {
         throw new OAuthError('network', error instanceof Error ? error.message : undefined)
     }

@@ -211,15 +211,20 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
 ## Stores
 
 - `useAuthStore` (`src/auth/authStore.ts`, zustand, non-secret state persisted with AsyncStorage,
-  tokens in the secure store): `status`, `signedIn`, `region`, `host`, `clientId`, `method`,
-  `user`, `organizations`, `projects`, `projectId`, `projectName`, `signedOutReason`;
+  tokens in one secure store slot per account): `status`, `signedIn`, `region`, `signedOutReason`,
+  the active account's `host`, `clientId`, `method`, `user`, `organizations`, `projects`, `projectId`,
+  `projectName`, and `accounts`, `activeAccountKey`, `freshLoginNext`;
   actions `restore`, `signIn`, `signInWithPersonalApiKey` (dev builds), `selectProject`,
-  `reloadAccount`, `signOut`. It installs the auth provider that `src/api/client.ts` uses for
-  the base URL, bearer token and refresh.
+  `reloadAccount`, `switchAccount`, `signOut`, `signOutAccount`, `signOutAll`. It installs the auth
+  provider that `src/api/client.ts` uses for the base URL, bearer token and refresh.
+  `src/auth/tokens.ts` holds the in-memory session and the slots, `src/auth/accountKey.ts` the account key.
+  See [DECISIONS.md](DECISIONS.md#auth-and-push) for accounts and the cleanup registries.
 - `useDemoMode` (`src/demo/demoMode.ts`, persists only `enabled`): in-memory demo state for
   hand-offs, decisions, snoozes, read flags, reviewers and the activity log.
 - `useSnoozeStore` (`src/features/snooze/snoozeStore.ts`, persisted): time and signal-count
-  snoozes keyed by host, project and report, with expiry.
+  snoozes keyed by account, then by host, project and report, with expiry.
+- `usePinPrefs` and `useDeviceRecent` (`src/features/views/`, persisted): pin order and display,
+  and the views opened on this phone, keyed by account, then by host and project.
 - `useHandoffStore` (`src/features/handoff/handoffStore.ts`): the task and run a hand-off
   started on this device, pending answers and the footer notice.
 - `usePushStore` (`src/features/notifications/pushStore.ts`, persisted): permission state and
@@ -243,7 +248,8 @@ Inbox snapshots use a separate read-only query.
 - **Restoration:** Require the matching host, user, and project. Keep newer live data.
   Retry failed reads before replacement saves resume.
 - **Access:** Evict denied data from its original project, including late responses after a project switch.
-  Missing Views scopes purge Views across the account. Sign-out clears the account cache.
+  Missing Views scopes purge Views across the account. Removing an account clears its cache. A switch keeps it,
+  and the next session of that account restores it as a launch does.
 - **Storage:** Write only changed entries. Serialize operations per key and journal unfinished chunks until cleanup succeeds.
   The adapter is shared with chat drafts; cache eviction preserves drafts.
 

@@ -32,7 +32,10 @@ export function useSignOutAction(): AsyncAction<[]> & { error: string | null; cl
                 track('mobile_demo_ended', { from: 'sign_out' })
             }
             setDemo(false)
-            router.replace('/sign-in')
+            // Signing out of one of several accounts switches to another, and the root layout opens its start page.
+            if (useAuthStore.getState().status !== 'signed_in') {
+                router.replace('/sign-in')
+            }
         } catch (caught) {
             setError(toError(caught).message)
         }

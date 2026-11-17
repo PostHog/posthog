@@ -19,32 +19,71 @@ import {
     loadAccountWithCredentials,
     pickProjectId,
 } from './account'
+import { type AccountRef, accountKey } from './accountKey'
 import { authorize, OAuthError, refreshTokens, revokeToken } from './oauth'
 import { type RegionId, regionForHost, validateHost } from './regions'
-import { AccountLoadError, accountLoadKind, SignInInputError } from './signInErrors'
 import {
-    clearTokens,
-    commitSessionTokens,
+    AccountAlreadyAddedError,
+    AccountLoadError,
+    AccountNeedsSignInError,
+    accountLoadKind,
+    SignInInputError,
+} from './signInErrors'
+import {
+    activateAccountSession,
+    clearSession,
+    forgetAccountSlot,
+    getSessionAccountKey,
     getSessionIdentity,
     getSessionTokens,
-    loadTokens,
+    type LoadedAccounts,
+    loadAccounts,
+    readAccountSession,
+    type SessionIdentity,
     type SessionTokens,
+    type StoredSession,
     saveRefreshedTokens,
     sessionGeneration,
     setSessionTokens,
+    writeAccountSlot,
 } from './tokens'
 
 export type { AuthOrganization, AuthProject, AuthUser } from './account'
+export type { AccountRef } from './accountKey'
+export { AccountAlreadyAddedError, AccountNeedsSignInError } from './signInErrors'
 
 export type AuthStatus = 'loading' | 'signed_out' | 'signed_in'
 export type AuthMethod = 'oauth' | 'personal_api_key'
 export type ProjectSwitchSource = 'nav_menu' | 'settings' | 'push' | 'link'
+/** Where an account switch started. `sign_out` is the switch to another account after the active one signs out. */
+export type AccountSwitchSource = ProjectSwitchSource | 'sign_in' | 'sign_out'
+
+/** One PostHog login on this device, as the account list shows it. */
+export interface StoredAccount {
+    key: string
+    host: string
+    clientId: string | null
+    method: AuthMethod
+    region: RegionId
+    userUuid: string
+    /** Null until the account loads once, such as for a login that the keychain kept across a reinstall. */
+    user: AuthUser | null
+    organizations: AuthOrganization[]
+    projects: AuthProject[]
+    /** The project last picked in this account. */
+    projectId: number | null
+    /** Its credentials stopped working or are gone. Only a new sign-in brings it back. */
+    needsSignIn: boolean
+    /** Epoch ms of the last time it became the active account. */
+    lastUsedAt: number
+}
 
 export interface AuthState {
     status: AuthStatus
     signedIn: boolean
     /** The region of the last sign-in. Kept after sign out so the sign-in screen starts there. */
     region: RegionId
+    // The fields from `host` to `projectName` mirror the active account, so screens read one session.
     host: string | null
     clientId: string | null
     method: AuthMethod | null
@@ -56,13 +95,33 @@ export interface AuthState {
     accountLoading: boolean
     accountError: string | null
     signedOutReason: 'expired' | null
+    /** Every account on this device, the active one too. */
+    accounts: StoredAccount[]
+    /** The account that the session fields mirror. Null while signed out. */
+    activeAccountKey: string | null
+    /**
+     * The user signed out on purpose, so the next sign-in must not reuse the browser's web session, which still
+     * belongs to that account. An expiry does not set it. A successful sign-in clears it.
+     */
+    freshLoginNext: boolean
     restore: () => Promise<void>
-    signIn: (host: string, clientId: string) => Promise<void>
+    /**
+     * Signs in with the browser. With no account on the device it starts the first session. Otherwise it adds the
+     * account and switches to it, and the earlier account stays signed in. `freshLogin` asks for a browser session
+     * without the web app's cookies, so the user can pick another login.
+     */
+    signIn: (host: string, clientId: string, options?: { freshLogin?: boolean }) => Promise<void>
     /** Development builds only. The personal API key never refreshes. */
     signInWithPersonalApiKey: (host: string, key: string) => Promise<void>
     selectProject: (projectId: number, from: ProjectSwitchSource) => void
     reloadAccount: () => Promise<void>
+    /** Makes a stored account the session. `projectId` applies when that account has the project. */
+    switchAccount: (key: string, options: { projectId?: number; from: AccountSwitchSource }) => Promise<void>
+    /** Signs out of the active account, then switches to the account used most recently, if one can sign in. */
     signOut: () => Promise<void>
+    /** Signs out of one account. For an inactive account the session stays as it is. */
+    signOutAccount: (key: string) => Promise<void>
+    signOutAll: () => Promise<void>
 }
 
 const RESTORE_REFRESH_MARGIN_MS = 60_000
@@ -72,27 +131,66 @@ const FOREGROUND_REFRESH_MARGIN_MS = 24 * 60 * 60_000
 
 type SignOutTask = () => Promise<undefined | (() => void)>
 type SessionEndTask = () => void | Promise<void>
+type AccountRemovedTask = (account: AccountRef) => void | Promise<void>
+type AccountSwitchTask = () => void | Promise<void>
 
 const signOutTasks = new Set<SignOutTask>()
 const sessionEndTasks = new Set<SessionEndTask>()
+const accountRemovedTasks = new Set<AccountRemovedTask>()
+const accountSwitchTasks = new Set<AccountSwitchTask>()
 
-/** Registers work that must run while the session is still valid, before sign out drops the token. */
-export function addSignOutTask(task: SignOutTask): () => void {
-    signOutTasks.add(task)
+function register<T>(tasks: Set<T>, task: T): () => void {
+    tasks.add(task)
     return () => {
-        signOutTasks.delete(task)
+        tasks.delete(task)
     }
 }
 
 /**
- * Registers device cleanup for every end of a session: sign out and a session that expired. It runs after the token
- * is gone, so it must not call the API. Features use it to drop per-user state without the auth store importing them.
+ * Registers work that must run while the active account's session is still valid, before signing out of that account
+ * drops its token. A thrown error stops the sign out, and the returned function undoes the task's own changes.
+ */
+export function addSignOutTask(task: SignOutTask): () => void {
+    return register(signOutTasks, task)
+}
+
+/**
+ * Registers in-memory cleanup for every time the active session leaves memory: an account switch, a sign out and an
+ * expired session. It runs after the screens unmount and may run after the token is gone, so it must not call the API.
+ * It must not delete persisted data either, because a switch keeps the account and its data on the device. Use
+ * `addAccountRemovedTask` for that.
  */
 export function addSessionEndTask(task: SessionEndTask): () => void {
-    sessionEndTasks.add(task)
-    return () => {
-        sessionEndTasks.delete(task)
-    }
+    return register(sessionEndTasks, task)
+}
+
+/**
+ * Registers the purge of persisted data that belongs to exactly `account`, when that account leaves the device: a sign
+ * out of it, active or not, and an expiry of its credentials. It may run while another account is active, so it must
+ * touch only `account`'s data and must not call the API.
+ */
+export function addAccountRemovedTask(task: AccountRemovedTask): () => void {
+    return register(accountRemovedTasks, task)
+}
+
+/**
+ * Registers work for the start of an account switch, while the token of the account that is left is still valid and
+ * its screens are still mounted. The switch awaits the task and ignores its failure.
+ */
+export function addAccountSwitchTask(task: AccountSwitchTask): () => void {
+    return register(accountSwitchTasks, task)
+}
+
+async function runSessionEndTasks(): Promise<void> {
+    await Promise.allSettled([...sessionEndTasks].map(async (task) => task()))
+}
+
+async function runAccountRemovedTasks(account: AccountRef): Promise<void> {
+    await Promise.allSettled([...accountRemovedTasks].map(async (task) => task(account)))
+}
+
+async function runAccountSwitchTasks(): Promise<void> {
+    await Promise.allSettled([...accountSwitchTasks].map(async (task) => task()))
 }
 
 const SIGNED_OUT_ACCOUNT = {
@@ -110,6 +208,74 @@ const SIGNED_OUT_ACCOUNT = {
 
 function projectNameFor(projects: AuthProject[], projectId: number | null): string | null {
     return projects.find((project) => project.id === projectId)?.name ?? null
+}
+
+function mirrorOf(account: StoredAccount): Partial<AuthState> {
+    return {
+        host: account.host,
+        clientId: account.clientId,
+        method: account.method,
+        region: account.region,
+        user: account.user,
+        organizations: account.organizations,
+        projects: account.projects,
+        projectId: account.projectId,
+        projectName: projectNameFor(account.projects, account.projectId),
+    }
+}
+
+function refOf(account: StoredAccount): AccountRef {
+    return { key: account.key, host: account.host, userUuid: account.userUuid }
+}
+
+function withAccount(accounts: StoredAccount[], account: StoredAccount): StoredAccount[] {
+    return accounts.some((existing) => existing.key === account.key)
+        ? accounts.map((existing) => (existing.key === account.key ? account : existing))
+        : [...accounts, account]
+}
+
+function markNeedsSignIn(accounts: StoredAccount[], key: string): StoredAccount[] {
+    return accounts.map((account) => (account.key === key ? { ...account, needsSignIn: true } : account))
+}
+
+/** The accounts the persisted metadata and the token slots describe together, after a launch reads the slots. */
+function reconcileAccounts(state: AuthState, loaded: LoadedAccounts, now: number): StoredAccount[] {
+    if (loaded.keys === null) {
+        return state.accounts
+    }
+    const known = new Set(state.accounts.map((account) => account.key))
+    const accounts = state.accounts.map((account) =>
+        loaded.keys?.includes(account.key) ? account : { ...account, needsSignIn: true }
+    )
+    for (const { key, identity } of loaded.stored) {
+        if (known.has(key)) {
+            continue
+        }
+        // Before multi-account, the session fields were the one account's metadata. They describe this slot only
+        // when they name its owner.
+        const legacy =
+            state.host === identity.host &&
+            state.clientId === identity.clientId &&
+            state.method === identity.method &&
+            state.user?.uuid === identity.userUuid
+        accounts.push({
+            key,
+            host: identity.host,
+            clientId: identity.clientId,
+            method: identity.method,
+            region: regionForHost(identity.host),
+            userUuid: identity.userUuid,
+            user: legacy ? state.user : null,
+            organizations: legacy ? state.organizations : [],
+            projects: legacy ? state.projects : [],
+            projectId: legacy ? state.projectId : null,
+            needsSignIn: false,
+            lastUsedAt: key === loaded.active?.key ? now : 0,
+        })
+    }
+    return accounts.map((account) =>
+        loaded.stored.some((stored) => stored.key === account.key) ? { ...account, needsSignIn: false } : account
+    )
 }
 
 function accountLoadMessage(error: unknown, method: AuthMethod): string {
@@ -130,6 +296,10 @@ function accountLoadMessage(error: unknown, method: AuthMethod): string {
     return toError(error).message
 }
 
+function sameCredentials(a: SessionTokens, b: SessionTokens): boolean {
+    return a.kind === 'oauth' ? a.refreshToken === b.refreshToken : a.accessToken === b.accessToken
+}
+
 /** In-flight work that callers of one session share. A caller from another session starts its own. */
 interface SessionTask<T> {
     session: number
@@ -139,12 +309,27 @@ interface SessionTask<T> {
 let restoring: Promise<void> | null = null
 let reloading: SessionTask<void> | null = null
 let refreshing: SessionTask<string | null> | null = null
+// A switch back to an account waits for its refresh, so it reads the slot after the rotated pair lands there.
+const accountRefreshes = new Map<string, Promise<unknown>>()
 let signInIntent = 0
 let sessionTransitions: Promise<void> = Promise.resolve()
+let transitionsRunning = 0
 const hydration = createPersistHydrationGate()
+let settleLaunch: () => void = () => undefined
+const launched = new Promise<void>((resolve) => {
+    settleLaunch = resolve
+})
 
 function serializeSessionTransition<T>(work: () => Promise<T>): Promise<T> {
-    const result = sessionTransitions.then(work, work)
+    const run = async (): Promise<T> => {
+        transitionsRunning += 1
+        try {
+            return await work()
+        } finally {
+            transitionsRunning -= 1
+        }
+    }
+    const result = sessionTransitions.then(run, run)
     sessionTransitions = result.then(
         () => undefined,
         () => undefined
@@ -170,9 +355,41 @@ async function runSignOutTasks(): Promise<(() => void)[]> {
     }
 }
 
+/**
+ * Resolves after the launch restore, with the account it made active. Stores that kept data before multi-account use
+ * it to give that data to its owner.
+ */
+export async function launchAccount(): Promise<AccountRef | null> {
+    await launched
+    const { accounts, activeAccountKey, status } = useAuthStore.getState()
+    const account = status === 'signed_in' ? accounts.find((candidate) => candidate.key === activeAccountKey) : null
+    return account ? refOf(account) : null
+}
+
 export const useAuthStore = create<AuthState>()(
     persist(
         (set, get) => {
+            /** Sets session fields and copies them into the active account's entry, so both stay one record. */
+            const setActive = (patch: Partial<AuthState>): void => {
+                set((state) => {
+                    const next = { ...state, ...patch }
+                    return {
+                        ...patch,
+                        accounts: state.accounts.map((account) =>
+                            account.key === state.activeAccountKey
+                                ? {
+                                      ...account,
+                                      user: next.user,
+                                      organizations: next.organizations,
+                                      projects: next.projects,
+                                      projectId: next.projectId,
+                                  }
+                                : account
+                        ),
+                    }
+                })
+            }
+
             const accountFields = (account: Account, preferProjectId: number | null): Partial<AuthState> => {
                 const projectId = pickProjectId(account.projects, [preferProjectId, account.webTeamId])
                 return {
@@ -185,8 +402,258 @@ export const useAuthStore = create<AuthState>()(
                 }
             }
 
-            const applyAccount = (account: Account, preferProjectId: number | null): void => {
-                set(accountFields(account, preferProjectId))
+            const changeProject = (projectId: number, from: AccountSwitchSource): void => {
+                const { projects, projectId: current } = get()
+                const project = projects.find((candidate) => candidate.id === projectId)
+                if (!project || projectId === current) {
+                    return
+                }
+                setActive({ projectId, projectName: project.name })
+                track('mobile_project_switched', { from })
+                // Every cached query belongs to the previous project. Reset drops the data, so no
+                // screen shows the old project's reports, and refetches what is on screen.
+                void queryClient.resetQueries()
+            }
+
+            /** Gives the session back to the account that a failed switch started to leave. */
+            const resume = (): void => {
+                setSessionTokens(getSessionTokens(), getSessionIdentity(), getSessionAccountKey())
+                set({ status: 'signed_in', signedIn: true })
+            }
+
+            /**
+             * Replaces the in-memory session with `session`. A session that is active first runs the switch tasks,
+             * unmounts its screens and runs the session-end tasks. Returns false when `canPublish` turned false, and
+             * gives the session back to the earlier account when the switch fails.
+             */
+            const enterAccount = async ({
+                session,
+                account,
+                canPublish,
+                beforeLeave,
+            }: {
+                session: StoredSession
+                account: StoredAccount
+                canPublish: () => boolean
+                beforeLeave?: () => void
+            }): Promise<boolean> => {
+                if (!canPublish()) {
+                    return false
+                }
+                const leaving = get().status === 'signed_in' && getSessionTokens() !== null
+                if (leaving) {
+                    beforeLeave?.()
+                    await runAccountSwitchTasks()
+                    reloading = null
+                    // The root layout unmounts every screen while the status is loading.
+                    set({ status: 'loading', signedIn: false })
+                    await runSessionEndTasks()
+                }
+                let committed = false
+                try {
+                    committed = await activateAccountSession(session, canPublish, () => {
+                        // Query keys carry the host and project but not the user, so no cached read may outlive the switch.
+                        queryClient.clear()
+                        set((state) => ({
+                            ...mirrorOf(account),
+                            accounts: withAccount(state.accounts, account),
+                            activeAccountKey: account.key,
+                            status: account.user ? 'signed_in' : 'loading',
+                            signedIn: account.user !== null,
+                            signedOutReason: null,
+                            accountLoading: false,
+                            accountError: null,
+                        }))
+                    })
+                } finally {
+                    if (leaving && !committed) {
+                        resume()
+                    }
+                }
+                if (!committed) {
+                    return false
+                }
+                if (leaving) {
+                    resetAnalytics()
+                }
+                if (!account.user) {
+                    await get().reloadAccount()
+                    set({ status: 'signed_in', signedIn: true })
+                }
+                const user = get().user
+                if (user) {
+                    identify(user.distinctId)
+                }
+                return true
+            }
+
+            /** Removes an account from the device after its credentials stopped working. */
+            const expireStoredAccount = async (key: string): Promise<void> => {
+                const account = get().accounts.find((candidate) => candidate.key === key)
+                await forgetAccountSlot(key)
+                set((state) => ({ accounts: markNeedsSignIn(state.accounts, key) }))
+                if (account) {
+                    await runAccountRemovedTasks(refOf(account))
+                }
+            }
+
+            /**
+             * Reads an inactive account's slot for a switch. A token that ends within the restore margin is refreshed
+             * with that account's own host, client and refresh token, and the new pair goes back to its own slot.
+             */
+            const preflight = async (target: StoredAccount): Promise<StoredSession> => {
+                await accountRefreshes.get(target.key)?.catch(() => undefined)
+                const stored = await readAccountSession(target.key)
+                if (!stored) {
+                    await expireStoredAccount(target.key)
+                    throw new AccountNeedsSignInError(target)
+                }
+                const { tokens, identity } = stored
+                if (
+                    tokens.kind !== 'oauth' ||
+                    tokens.expiresAt === null ||
+                    tokens.expiresAt - Date.now() >= RESTORE_REFRESH_MARGIN_MS ||
+                    !tokens.refreshToken ||
+                    !identity.clientId
+                ) {
+                    return stored
+                }
+                let next: SessionTokens
+                try {
+                    next = await refreshTokens({
+                        host: identity.host,
+                        clientId: identity.clientId,
+                        refreshToken: tokens.refreshToken,
+                        grantedScopes: tokens.grantedScopes,
+                        requestedScopes: tokens.requestedScopes,
+                    })
+                } catch (error) {
+                    if (error instanceof OAuthError && error.kind === 'session_expired') {
+                        await expireStoredAccount(target.key)
+                        throw new AccountNeedsSignInError(target)
+                    }
+                    // Offline or a server error: the stored token may still work, as at launch.
+                    return stored
+                }
+                const saved = await saveRefreshedTokens({
+                    key: target.key,
+                    owner: identity,
+                    used: tokens.refreshToken,
+                    tokens: next,
+                    generation: null,
+                })
+                if (saved === 'gone') {
+                    if (next.refreshToken) {
+                        void revokeToken({ host: identity.host, clientId: identity.clientId, token: next.refreshToken })
+                    }
+                    await expireStoredAccount(target.key)
+                    throw new AccountNeedsSignInError(target)
+                }
+                return { ...stored, tokens: next }
+            }
+
+            const switchTo = async (
+                target: StoredAccount,
+                {
+                    projectId,
+                    from,
+                    canPublish,
+                }: { projectId?: number; from: AccountSwitchSource; canPublish: () => boolean }
+            ): Promise<boolean> => {
+                if (target.needsSignIn) {
+                    throw new AccountNeedsSignInError(target)
+                }
+                const session = await preflight(target)
+                const chosen =
+                    projectId !== undefined && target.projects.some((project) => project.id === projectId)
+                        ? projectId
+                        : target.projectId
+                const accountCount = get().accounts.length
+                let tracked = false
+                const entered = await enterAccount({
+                    session,
+                    account: { ...target, projectId: chosen, lastUsedAt: Date.now() },
+                    canPublish,
+                    // Before the reset, so the event belongs to the user who switched.
+                    beforeLeave: () => {
+                        tracked = true
+                        track('mobile_account_switched', { from, account_count: accountCount })
+                    },
+                })
+                if (!entered) {
+                    return false
+                }
+                if (!tracked) {
+                    track('mobile_account_switched', { from, account_count: accountCount })
+                }
+                void get().reloadAccount()
+                refreshBeforeForegroundMargin()
+                return true
+            }
+
+            /** Switches to the most recently used account that can still sign in. False when none can. */
+            const activateNext = async (canPublish: () => boolean): Promise<boolean> => {
+                const candidates = get()
+                    .accounts.filter((account) => !account.needsSignIn)
+                    .sort((a, b) => b.lastUsedAt - a.lastUsedAt)
+                for (const candidate of candidates) {
+                    try {
+                        if (await switchTo(candidate, { from: 'sign_out', canPublish })) {
+                            return true
+                        }
+                        break
+                    } catch (error) {
+                        if (!(error instanceof AccountNeedsSignInError)) {
+                            break
+                        }
+                    }
+                }
+                set({ status: 'signed_out', signedIn: false })
+                return false
+            }
+
+            /** Signs out of the active account. Runs inside a transition. */
+            const signOutActive = async (thenSwitch: boolean): Promise<void> => {
+                const { status } = get()
+                if (status === 'signed_out') {
+                    return
+                }
+                if (status === 'signed_in') {
+                    await runSignOutTasks()
+                }
+                const tokens = getSessionTokens()
+                const owner = getSessionIdentity()
+                if (tokens?.kind === 'oauth' && tokens.refreshToken && owner?.clientId) {
+                    await revokeToken({ host: owner.host, clientId: owner.clientId, token: tokens.refreshToken })
+                }
+                const next =
+                    thenSwitch &&
+                    get().accounts.some((account) => !account.needsSignIn && account.key !== get().activeAccountKey)
+                await endActiveSession('user', next ? 'loading' : 'signed_out')
+                set({ freshLoginNext: true })
+                if (next) {
+                    const intent = signInIntent
+                    await activateNext(() => intent === signInIntent)
+                }
+            }
+
+            /** Signs out of an account that is not the session. The session stays as it is. */
+            const signOutInactive = async (account: StoredAccount): Promise<void> => {
+                const stored = await readAccountSession(account.key)
+                if (stored?.tokens.kind === 'oauth' && stored.tokens.refreshToken && stored.identity.clientId) {
+                    await revokeToken({
+                        host: stored.identity.host,
+                        clientId: stored.identity.clientId,
+                        token: stored.tokens.refreshToken,
+                    })
+                }
+                await forgetAccountSlot(account.key)
+                set((state) => ({
+                    accounts: state.accounts.filter((candidate) => candidate.key !== account.key),
+                    freshLoginNext: true,
+                }))
+                track('mobile_account_removed', { account_count: get().accounts.length, region: account.region })
+                await runAccountRemovedTasks(refOf(account))
             }
 
             const completeSignIn = async (
@@ -202,72 +669,63 @@ export const useAuthStore = create<AuthState>()(
                 } catch (error) {
                     throw new AccountLoadError(accountLoadKind(error), accountLoadMessage(error, method))
                 }
+                const key = await accountKey(host, account.user.uuid)
                 await serializeSessionTransition(async () => {
                     if (intent !== signInIntent) {
                         throw new OAuthError('cancelled')
                     }
-                    const previous = get()
-                    const previousSession = sessionGeneration()
-                    let recoveries: (() => void)[] = []
-                    if (previous.status === 'signed_in') {
-                        recoveries = await runSignOutTasks()
+                    const existing = get().accounts.find((candidate) => candidate.key === key)
+                    if (existing && !existing.needsSignIn) {
+                        throw new AccountAlreadyAddedError(key, account.user.email, host)
                     }
+                    const identity: SessionIdentity = { host, clientId, method, userUuid: account.user.uuid }
+                    const region = regionForHost(host)
+                    const slot = await writeAccountSlot(key, tokens, identity)
+                    const projectId = pickProjectId(account.projects, [existing?.projectId, account.webTeamId])
+                    let entered = false
                     try {
-                        if (intent !== signInIntent) {
-                            throw new OAuthError('cancelled')
+                        entered = await enterAccount({
+                            session: { key, identity, tokens },
+                            account: {
+                                key,
+                                host,
+                                clientId,
+                                method,
+                                region,
+                                userUuid: account.user.uuid,
+                                user: account.user,
+                                organizations: account.organizations,
+                                projects: account.projects,
+                                projectId,
+                                needsSignIn: false,
+                                lastUsedAt: Date.now(),
+                            },
+                            canPublish: () => intent === signInIntent,
+                        })
+                    } finally {
+                        if (!entered) {
+                            await slot.undo()
                         }
-                        if (previous.status === 'signed_in') {
-                            await Promise.allSettled([...sessionEndTasks].map(async (task) => task()))
-                        }
-                        const previousTokens = getSessionTokens()
-                        const region = regionForHost(host)
-                        const committed = await commitSessionTokens(
-                            tokens,
-                            { host, clientId, method, userUuid: account.user.uuid },
-                            () => intent === signInIntent && sessionGeneration() === previousSession,
-                            () => {
-                                queryClient.clear()
-                                const preferProjectId =
-                                    previous.user?.uuid === account.user.uuid ? previous.projectId : null
-                                set({
-                                    ...accountFields(account, preferProjectId),
-                                    status: 'signed_in',
-                                    signedIn: true,
-                                    region,
-                                    host,
-                                    clientId,
-                                    method,
-                                    signedOutReason: null,
-                                })
-                            }
-                        )
-                        if (!committed) {
-                            throw new OAuthError('cancelled')
-                        }
-                        if (previous.status === 'signed_in') {
-                            queryClient.clear()
-                        }
-                        identify(account.user.distinctId)
-                        track('mobile_signed_in', { method, region })
-                        if (
-                            previousTokens?.kind === 'oauth' &&
-                            previousTokens.refreshToken &&
-                            previous.host &&
-                            previous.clientId
-                        ) {
-                            void revokeToken({
-                                host: previous.host,
-                                clientId: previous.clientId,
-                                token: previousTokens.refreshToken,
-                            })
-                        }
-                    } catch (error) {
-                        if (sessionGeneration() === previousSession) {
-                            for (const recover of recoveries) {
-                                recover()
-                            }
-                        }
-                        throw error
+                    }
+                    if (!entered) {
+                        throw new OAuthError('cancelled')
+                    }
+                    set({ freshLoginNext: false })
+                    track('mobile_signed_in', { method, region })
+                    if (!existing) {
+                        track('mobile_account_added', { account_count: get().accounts.length, region })
+                    }
+                    const replaced = slot.replaced
+                    if (
+                        replaced?.tokens.kind === 'oauth' &&
+                        replaced.tokens.refreshToken &&
+                        replaced.identity.clientId
+                    ) {
+                        void revokeToken({
+                            host: replaced.identity.host,
+                            clientId: replaced.identity.clientId,
+                            token: replaced.tokens.refreshToken,
+                        })
                     }
                 })
             }
@@ -287,68 +745,75 @@ export const useAuthStore = create<AuthState>()(
                 accountLoading: false,
                 accountError: null,
                 signedOutReason: null,
+                accounts: [],
+                activeAccountKey: null,
+                freshLoginNext: false,
 
                 restore: () => {
                     restoring ??= (async () => {
-                        await waitForHydration()
-                        const tokens = await loadTokens()
-                        const owner = getSessionIdentity()
-                        if (!tokens || !owner || !validateHost(owner.host).ok) {
-                            setSessionTokens(null)
-                            set(SIGNED_OUT_ACCOUNT)
-                            return
-                        }
-                        const metadata = get()
-                        const sameAccount =
-                            metadata.host === owner.host &&
-                            metadata.clientId === owner.clientId &&
-                            metadata.method === owner.method &&
-                            metadata.user?.uuid === owner.userUuid
-                        set({
-                            ...(!sameAccount ? SIGNED_OUT_ACCOUNT : {}),
-                            status: 'loading',
-                            signedIn: false,
-                            host: owner.host,
-                            clientId: owner.clientId,
-                            method: owner.method,
-                            region: regionForHost(owner.host),
-                        })
-                        let refreshedDuringRestore = false
-                        if (
-                            tokens.kind === 'oauth' &&
-                            tokens.expiresAt !== null &&
-                            tokens.expiresAt - Date.now() < RESTORE_REFRESH_MARGIN_MS
-                        ) {
-                            refreshedDuringRestore = true
-                            try {
-                                if ((await refreshAccessToken()) === null) {
-                                    return
-                                }
-                            } catch {
-                                // Offline or a server error: keep the session. The next 401 retries the refresh.
+                        try {
+                            await waitForHydration()
+                            const loaded = await loadAccounts()
+                            const now = Date.now()
+                            const accounts = reconcileAccounts(get(), loaded, now)
+                            const owner = getSessionIdentity()
+                            const active = accounts.find((account) => account.key === loaded.active?.key)
+                            if (!active || !owner || !validateHost(owner.host).ok) {
+                                clearSession()
+                                set({ ...SIGNED_OUT_ACCOUNT, accounts, activeAccountKey: null })
+                                return
                             }
-                        }
-                        const { user } = get()
-                        if (!user) {
-                            await get().reloadAccount()
-                        }
-                        set({ status: 'signed_in', signedIn: true })
-                        if (!refreshedDuringRestore && AppState.currentState === 'active') {
-                            refreshBeforeForegroundMargin()
-                        }
-                        const restored = get().user
-                        if (restored) {
-                            identify(restored.distinctId)
-                        }
-                        track('mobile_session_restored', { method: get().method })
-                        if (user) {
-                            void get().reloadAccount()
+                            set({
+                                ...(active.user ? mirrorOf(active) : SIGNED_OUT_ACCOUNT),
+                                accounts: withAccount(accounts, { ...active, lastUsedAt: now }),
+                                activeAccountKey: active.key,
+                                status: 'loading',
+                                signedIn: false,
+                                host: owner.host,
+                                clientId: owner.clientId,
+                                method: owner.method,
+                                region: regionForHost(owner.host),
+                            })
+                            const tokens = getSessionTokens()
+                            let refreshedDuringRestore = false
+                            if (
+                                tokens?.kind === 'oauth' &&
+                                tokens.expiresAt !== null &&
+                                tokens.expiresAt - Date.now() < RESTORE_REFRESH_MARGIN_MS
+                            ) {
+                                refreshedDuringRestore = true
+                                try {
+                                    if ((await refreshAccessToken()) === null) {
+                                        return
+                                    }
+                                } catch {
+                                    // Offline or a server error: keep the session. The next 401 retries the refresh.
+                                }
+                            }
+                            const { user } = get()
+                            if (!user) {
+                                await get().reloadAccount()
+                            }
+                            set({ status: 'signed_in', signedIn: true })
+                            if (!refreshedDuringRestore && AppState.currentState === 'active') {
+                                refreshBeforeForegroundMargin()
+                            }
+                            const restored = get().user
+                            if (restored) {
+                                identify(restored.distinctId)
+                            }
+                            track('mobile_session_restored', { method: get().method })
+                            if (user) {
+                                void get().reloadAccount()
+                            }
+                        } finally {
+                            settleLaunch()
                         }
                     })()
                     return restoring
                 },
 
-                signIn: async (host, clientId) => {
+                signIn: async (host, clientId, options) => {
                     const validation = validateHost(host)
                     if (!validation.ok) {
                         throw new SignInInputError(validation.error)
@@ -358,7 +823,16 @@ export const useAuthStore = create<AuthState>()(
                         throw new SignInInputError('Enter the OAuth client ID of the PostHog app on this instance.')
                     }
                     const intent = ++signInIntent
-                    const tokens = await authorize({ host: validation.host, clientId: trimmedClientId })
+                    const { accounts, freshLoginNext } = get()
+                    const tokens = await authorize({
+                        host: validation.host,
+                        clientId: trimmedClientId,
+                        // An account that can still sign in has its web session in the browser, which would return it again.
+                        preferEphemeralSession:
+                            options?.freshLogin === true ||
+                            freshLoginNext ||
+                            accounts.some((account) => !account.needsSignIn),
+                    })
                     try {
                         await completeSignIn(tokens, 'oauth', validation.host, trimmedClientId, intent)
                     } catch (error) {
@@ -403,16 +877,7 @@ export const useAuthStore = create<AuthState>()(
                 },
 
                 selectProject: (projectId, from) => {
-                    const { projects, projectId: current } = get()
-                    const project = projects.find((candidate) => candidate.id === projectId)
-                    if (!project || projectId === current) {
-                        return
-                    }
-                    set({ projectId, projectName: project.name })
-                    track('mobile_project_switched', { from })
-                    // Every cached query belongs to the previous project. Reset drops the data, so no
-                    // screen shows the old project's reports, and refetches what is on screen.
-                    void queryClient.resetQueries()
+                    changeProject(projectId, from)
                 },
 
                 reloadAccount: () => {
@@ -432,7 +897,7 @@ export const useAuthStore = create<AuthState>()(
                                 return
                             }
                             const before = get().projectId
-                            applyAccount(account, before)
+                            setActive(accountFields(account, before))
                             if (before !== null && get().projectId !== before) {
                                 void queryClient.resetQueries()
                             }
@@ -461,28 +926,61 @@ export const useAuthStore = create<AuthState>()(
                     return promise
                 },
 
-                signOut: async () => {
-                    ++signInIntent
+                switchAccount: async (key, { projectId, from }) => {
+                    const intent = ++signInIntent
                     await serializeSessionTransition(async () => {
-                        const { host, clientId, status } = get()
-                        if (status === 'signed_out') {
+                        const state = get()
+                        const target = state.accounts.find((account) => account.key === key)
+                        if (!target) {
+                            throw new Error('This account is no longer on this device.')
+                        }
+                        if (state.activeAccountKey === key && state.status === 'signed_in') {
+                            if (projectId !== undefined) {
+                                changeProject(projectId, from)
+                            }
                             return
                         }
-                        if (status === 'signed_in') {
-                            await runSignOutTasks()
+                        await switchTo(target, { projectId, from, canPublish: () => intent === signInIntent })
+                    })
+                },
+
+                signOut: async () => {
+                    ++signInIntent
+                    await serializeSessionTransition(() => signOutActive(true))
+                },
+
+                signOutAccount: async (key) => {
+                    if (key === get().activeAccountKey) {
+                        await get().signOut()
+                        return
+                    }
+                    await serializeSessionTransition(async () => {
+                        const account = get().accounts.find((candidate) => candidate.key === key)
+                        if (!account) {
+                            return
                         }
-                        const tokens = getSessionTokens()
-                        if (tokens?.kind === 'oauth' && tokens.refreshToken && host && clientId) {
-                            await revokeToken({ host, clientId, token: tokens.refreshToken })
+                        if (key === get().activeAccountKey) {
+                            await signOutActive(true)
+                            return
                         }
-                        await endSession('user')
+                        await signOutInactive(account)
+                    })
+                },
+
+                signOutAll: async () => {
+                    ++signInIntent
+                    await serializeSessionTransition(async () => {
+                        await signOutActive(false)
+                        for (const account of get().accounts) {
+                            await signOutInactive(account)
+                        }
                     })
                 },
             }
         },
         {
             name: 'posthog-mobile-auth',
-            version: 1,
+            version: 2,
             storage: createJSONStorage(() => AsyncStorage),
             partialize: (state) => ({
                 region: state.region,
@@ -494,7 +992,21 @@ export const useAuthStore = create<AuthState>()(
                 projects: state.projects,
                 projectId: state.projectId,
                 projectName: state.projectName,
+                accounts: state.accounts,
+                activeAccountKey: state.activeAccountKey,
+                freshLoginNext: state.freshLoginNext,
             }),
+            // Version 1 held one account in the session fields. Restore turns them into that account's entry once it
+            // has read the slot they belong to.
+            migrate: (persisted, version) =>
+                version === 1 && typeof persisted === 'object' && persisted !== null
+                    ? ({
+                          ...persisted,
+                          accounts: [],
+                          activeAccountKey: null,
+                          freshLoginNext: false,
+                      } as unknown as AuthState)
+                    : ({} as AuthState),
             onRehydrateStorage: () => () => hydration.settle(),
         }
     )
@@ -504,46 +1016,116 @@ function waitForHydration(): Promise<void> {
     return hydration.wait()
 }
 
-async function endSession(reason: 'user' | 'expired'): Promise<void> {
-    // Before the reset, so the event belongs to the user who signed out.
-    track('mobile_signed_out', { reason, method: useAuthStore.getState().method })
+/**
+ * Ends the active session: its slot, its metadata (kept for an expiry, so the list shows it needs a sign-in), the
+ * in-memory caches and its persisted data. `then` is the status to leave, `loading` while another account follows.
+ */
+async function endActiveSession(
+    reason: 'user' | 'expired',
+    then: 'signed_out' | 'loading' = 'signed_out'
+): Promise<void> {
+    const state = useAuthStore.getState()
+    const key = getSessionAccountKey() ?? state.activeAccountKey
+    const owner = getSessionIdentity()
+    const account = state.accounts.find((candidate) => candidate.key === key)
+    const removed: AccountRef | null =
+        key && owner ? { key, host: owner.host, userUuid: owner.userUuid } : account ? refOf(account) : null
+    // Before the reset, so the events belong to the user who signed out.
+    track('mobile_signed_out', { reason, method: state.method })
+    if (reason === 'user' && account) {
+        track('mobile_account_removed', { account_count: state.accounts.length - 1, region: account.region })
+    }
     reloading = null
     refreshing = null
-    await clearTokens()
+    clearSession()
+    const ended = sessionGeneration()
+    if (key) {
+        await forgetAccountSlot(key)
+    }
     queryClient.clear()
     resetAnalytics()
-    await Promise.allSettled([...sessionEndTasks].map(async (task) => task()))
-    useAuthStore.setState({ ...SIGNED_OUT_ACCOUNT, signedOutReason: reason === 'expired' ? 'expired' : null })
+    await runSessionEndTasks()
+    if (removed) {
+        await runAccountRemovedTasks(removed)
+    }
+    useAuthStore.setState((current) => ({
+        accounts: !key
+            ? current.accounts
+            : reason === 'expired'
+              ? markNeedsSignIn(current.accounts, key)
+              : current.accounts.filter((candidate) => candidate.key !== key),
+        // A switch that started while the cleanup ran owns the session fields now.
+        ...(sessionGeneration() === ended
+            ? {
+                  ...SIGNED_OUT_ACCOUNT,
+                  status: then,
+                  activeAccountKey: null,
+                  signedOutReason: reason === 'expired' ? 'expired' : null,
+              }
+            : {}),
+    }))
+}
+
+/**
+ * Handles credentials the server refused. While they are still the session's, the session ends as expired and no other
+ * account becomes active, so the user sees what happened. When a switch left them behind, only their account is marked.
+ */
+async function expireCredentials(key: string, failed: SessionTokens, session: number): Promise<void> {
+    const work = async (): Promise<void> => {
+        if (sessionGeneration() === session && getSessionAccountKey() === key) {
+            await endActiveSession('expired')
+            return
+        }
+        const stored = await readAccountSession(key)
+        if (stored && sameCredentials(stored.tokens, failed)) {
+            await forgetAccountSlot(key)
+            const account = useAuthStore.getState().accounts.find((candidate) => candidate.key === key)
+            useAuthStore.setState((current) => ({ accounts: markNeedsSignIn(current.accounts, key) }))
+            if (account) {
+                await runAccountRemovedTasks(refOf(account))
+            }
+        }
+    }
+    // A transition can be waiting on the request that found the expiry, so waiting for the queue here would deadlock.
+    if (transitionsRunning > 0) {
+        void serializeSessionTransition(work).catch(() => undefined)
+        return
+    }
+    await serializeSessionTransition(work)
 }
 
 async function refreshOnce(): Promise<string | null> {
     const session = sessionGeneration()
-    const { status, host, clientId } = useAuthStore.getState()
+    const key = getSessionAccountKey()
+    const owner = getSessionIdentity()
     const tokens = getSessionTokens()
     // A 401 during sign in means the new credentials are bad. Sign in reports that itself.
-    if (status === 'signed_out' || !tokens) {
+    if (useAuthStore.getState().status === 'signed_out' || !tokens || !owner || !key) {
         return null
     }
-    if (!tokens.refreshToken || !host || !clientId) {
-        await endSession('expired')
+    if (!tokens.refreshToken || !owner.clientId) {
+        await expireCredentials(key, tokens, session)
         return null
     }
+    // The refresh goes to the host and client the token belongs to, whatever the session fields show by then.
+    const { host, clientId } = owner
+    const used = tokens.refreshToken
     let next: SessionTokens
     try {
         next = await refreshTokens({
             host,
             clientId,
-            refreshToken: tokens.refreshToken,
+            refreshToken: used,
             grantedScopes: tokens.grantedScopes,
             requestedScopes: tokens.requestedScopes,
         })
     } catch (error) {
-        // A rejection from the earlier host says nothing about the current session, so it must not end it.
-        if (sessionGeneration() !== session) {
+        if (error instanceof OAuthError && error.kind === 'session_expired') {
+            await expireCredentials(key, tokens, session)
             return null
         }
-        if (error instanceof OAuthError && error.kind === 'session_expired') {
-            await endSession('expired')
+        // A failure that belongs to an earlier session says nothing about the current one.
+        if (sessionGeneration() !== session) {
             return null
         }
         if (error instanceof OAuthError && error.kind === 'network') {
@@ -551,16 +1133,14 @@ async function refreshOnce(): Promise<string | null> {
         }
         throw error
     }
-    if (sessionGeneration() !== session) {
-        // The user signed out or in again while the refresh was in flight. The caller sends the result to the
-        // earlier host, so it gets no token. The rotated refresh token is valid at that host but stored nowhere,
-        // so revoke it there.
-        if (next.refreshToken) {
-            void revokeToken({ host, clientId, token: next.refreshToken })
-        }
-        return null
+    const saved = await saveRefreshedTokens({ key, owner, used, tokens: next, generation: session })
+    if (saved === 'gone' && next.refreshToken) {
+        // The account left the device while the refresh was in flight. The rotated refresh token is valid at its
+        // host but stored nowhere, so revoke it there.
+        void revokeToken({ host, clientId, token: next.refreshToken })
     }
-    return (await saveRefreshedTokens(next, session)) ? next.accessToken : null
+    // A session that changed while the refresh was in flight gets no token: the caller sends it to the earlier host.
+    return saved === 'session' ? next.accessToken : null
 }
 
 // Concurrent callers share one request, because each refresh rotates the token and a second request with the old
@@ -570,12 +1150,19 @@ export function refreshAccessToken(): Promise<string | null> {
     if (refreshing?.session === session) {
         return refreshing.promise
     }
+    const key = getSessionAccountKey()
     const promise = refreshOnce().finally(() => {
         if (refreshing?.promise === promise) {
             refreshing = null
         }
+        if (key && accountRefreshes.get(key) === promise) {
+            accountRefreshes.delete(key)
+        }
     })
     refreshing = { session, promise }
+    if (key) {
+        accountRefreshes.set(key, promise)
+    }
     return promise
 }
 
@@ -605,9 +1192,13 @@ export function installAuthProvider(): void {
     setAuthProvider({
         getAuth: () => {
             const state = useAuthStore.getState()
+            const host = state.host ?? ''
+            const owner = getSessionIdentity()
+            // A token works only at its owner's host. While the session fields show another host, no request gets it.
+            const accessToken = owner && owner.host !== host ? null : (getSessionTokens()?.accessToken ?? null)
             return {
-                host: state.host ?? '',
-                accessToken: getSessionTokens()?.accessToken ?? null,
+                host,
+                accessToken,
                 projectId: state.projectId,
                 session: sessionGeneration(),
             }

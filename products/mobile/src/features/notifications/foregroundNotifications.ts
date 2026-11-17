@@ -77,7 +77,8 @@ function shouldShowWhileActive(data: unknown, host: string, accountKey: string):
     if (active?.reportId === reportId) {
         return false
     }
-    const snooze = useSnoozeStore.getState().entries[snoozeKey(scope, reportId)]
+    const account = useAuthStore.getState().activeAccountKey
+    const snooze = account ? useSnoozeStore.getState().accounts[account]?.[snoozeKey(scope, reportId)] : undefined
     // Signal snoozes are labels, not authoritative state: the server may already have woken the report.
     const snoozed = snooze?.kind === 'until' && new Date(snooze.until).getTime() > Date.now()
     return !snoozed

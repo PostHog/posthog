@@ -85,7 +85,11 @@ Known gaps and behavior that stays on the device.
 - **No OAuth sign in on the web.** The web build offers the demo, and a personal API key in dev builds.
 - **Web release builds keep tokens in memory**, so a reload signs out.
 - **Expo Go cannot sign in or get push.** Its redirect URI and push token belong to Expo Go. Use a development build.
-- **An expired session cannot always unregister push.** User-initiated sign out and account switch keep credentials and offer a retry if device unregistration fails. A session that has already expired may lose the credentials needed to remove its server-side token row.
+- **An expired session cannot always unregister push.** User-initiated sign out keeps credentials and offers a retry if device unregistration fails. A session that has already expired may lose the credentials needed to remove its server-side token row.
+- **Push follows one account.** A switch runs no sign-out task, so the earlier account's push token row stays on its server and its pushes keep arriving, while taps open in the active account's session. `addAccountSwitchTask()` exists for the push change that closes this.
+- **No account UI yet.** The store can add, switch and remove accounts, but the sign-in screen, menus and Settings still show one account.
+- **A crash during a sign-in can leave a slot that no index lists.** It holds the new login's token until the same login signs in again and overwrites it. SecureStore cannot list items, so launch cannot find it.
+- **A session written by an older app version after a downgrade wins.** An old version only writes `posthog_mobile_session`, so launch moves that item into its slot and makes it active, and the token it replaces in a same-account slot is not revoked.
 - **Legacy task pushes carry no project id.** Current pushes carry `projectId`; older payloads still need up to 8 project lookups when tapped. Foreground report/snooze suppression needs an explicit project and a cached task-to-report association.
 - **Local dev app is not first-party.** On a local stack the consent screen shows and access tokens last 1 hour.
 - **No proactive refresh timer.** The app refreshes at launch when the token is nearly expired and on any 401, not on a schedule.

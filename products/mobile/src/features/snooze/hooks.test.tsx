@@ -7,11 +7,13 @@ import { useSnoozeStore } from './snoozeStore'
 
 let mockEndSession: (() => Promise<void>) | undefined
 let mockFinish: ((id: string) => void) | undefined
-const mockAuth = { signedIn: true, host: 'https://example.com', projectId: 1 }
+const mockAuth = { signedIn: true, host: 'https://example.com', projectId: 1, activeAccountKey: 'example-account' }
 jest.mock('@/auth/authStore', () => ({
     addSessionEndTask: (callback: () => Promise<void>) => {
         mockEndSession = callback
     },
+    addAccountRemovedTask: jest.fn(),
+    launchAccount: () => new Promise(() => undefined),
     useAuthStore: { getState: () => mockAuth },
 }))
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => ({ host: 'https://example.com', projectId: 1 }) }))
@@ -38,7 +40,7 @@ describe('snooze lifecycle', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         mockAuth.projectId = 1
-        useSnoozeStore.getState().clear()
+        useSnoozeStore.setState({ accounts: {}, legacy: null })
     })
     test.each(['session', 'project'])('cancels a pending reminder after the %s changes', async (change) => {
         const { result, unmount } = renderHook(() => useSnoozeAction('example-report'), { wrapper })
@@ -60,7 +62,7 @@ describe('snooze lifecycle', () => {
             await pending
         })
         expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('example-reminder')
-        expect(useSnoozeStore.getState().entries).toEqual({})
+        expect(useSnoozeStore.getState().accounts['example-account'] ?? {}).toEqual({})
         unmount()
     })
 })

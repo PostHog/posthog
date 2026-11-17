@@ -1,7 +1,7 @@
 import { ApiError, NotSignedInError } from '@/api/client'
 import { TransportError } from '@/api/transport'
 
-import type { AuthMethod } from './authStore'
+import type { AuthMethod, StoredAccount } from './authStore'
 import { OAuthError, type OAuthErrorKind } from './oauth'
 
 export class SignInInputError extends Error {
@@ -37,6 +37,43 @@ export class AccountLoadError extends Error {
     }
 }
 
+/** The browser returned an account that is already on this device. It was usually still signed in to the web app. */
+export class AccountAlreadyAddedError extends Error {
+    readonly key: string
+    readonly email: string
+    readonly host: string
+
+    constructor(key: string, email: string, host: string) {
+        super(
+            `${email} is already signed in on this device. To add another account, sign out of PostHog in your browser, then try again.`
+        )
+        this.name = 'AccountAlreadyAddedError'
+        this.key = key
+        this.email = email
+        this.host = host
+    }
+}
+
+/** The account's credentials are gone or the server refused them, so it needs a new sign-in. */
+export class AccountNeedsSignInError extends Error {
+    readonly key: string
+    readonly email: string | null
+    readonly host: string
+
+    constructor(account: Pick<StoredAccount, 'key' | 'host' | 'user'>) {
+        const email = account.user?.email ?? null
+        super(
+            email
+                ? `Your session for ${email} ended. Sign in again to use this account.`
+                : 'The session for this account ended. Sign in again to use it.'
+        )
+        this.name = 'AccountNeedsSignInError'
+        this.key = account.key
+        this.email = email
+        this.host = account.host
+    }
+}
+
 export type SignInFailureReason =
     | Exclude<OAuthErrorKind, 'session_expired'>
     | 'invalid_input'
@@ -44,6 +81,7 @@ export type SignInFailureReason =
     | 'account_rejected'
     | 'account_forbidden'
     | 'account_load'
+    | 'account_already_added'
     | 'unknown'
 
 const ACCOUNT_REASONS: Record<AccountLoadKind, SignInFailureReason> = {
@@ -61,6 +99,9 @@ export function signInFailureReason(error: unknown, method: AuthMethod): SignInF
     }
     if (error instanceof OAuthError) {
         return error.kind === 'session_expired' ? 'unknown' : error.kind
+    }
+    if (error instanceof AccountAlreadyAddedError) {
+        return 'account_already_added'
     }
     if (error instanceof AccountLoadError) {
         return error.kind === 'rejected' && method === 'personal_api_key' ? 'invalid_key' : ACCOUNT_REASONS[error.kind]

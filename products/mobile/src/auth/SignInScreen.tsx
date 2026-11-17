@@ -31,13 +31,14 @@ import {
 } from './regions'
 import { SignInField } from './SignInField'
 import { signInFailureReason } from './signInErrors'
-import { signInReturnParam } from './signInReturn'
+import { signInReturnFor, signInReturnParam } from './signInReturn'
 
 export function SignInScreen(): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
-    const returnTo = signInReturnParam(useLocalSearchParams<{ next?: string }>().next)
+    const returnParams = useLocalSearchParams<{ next?: string; account?: string }>()
+    const returnTo = signInReturnParam(returnParams.next)
     const insets = useScreenInsets()
     const signIn = useAuthStore((state) => state.signIn)
     const signedOutReason = useAuthStore((state) => state.signedOutReason)
@@ -77,7 +78,10 @@ export function SignInScreen(): ReactElement {
                 track('mobile_demo_ended', { from: 'sign_in' })
             }
             setDemo(false)
-            router.replace(returnTo ?? currentDefaultPageHref())
+            router.replace(
+                signInReturnFor(returnTo, returnParams.account, useAuthStore.getState().activeAccountKey) ??
+                    currentDefaultPageHref()
+            )
         } catch (caught) {
             // Retrying cannot help when this platform has no OAuth sign-in.
             const retryable = !(caught instanceof OAuthError && caught.kind === 'unsupported')

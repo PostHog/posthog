@@ -12,7 +12,7 @@ import { getSessionIdentity, getSessionTokens, onSessionTokensChanged, sessionGe
 import { useDemoMode } from '@/demo/demoMode'
 import { READ_FLOOR_MS } from '@/features/views/freshness'
 import { listRead, readShortcuts, retryListRead } from '@/features/views/listReads'
-import { NO_PIN_PREFS, usePinPrefs } from '@/features/views/pinPrefsStore'
+import { accountPinPrefs, usePinPrefs } from '@/features/views/pinPrefsStore'
 import { discoverPinDisplays } from '@/features/views/useSmartPinDisplays'
 import { featureAccessFor, useScopeErrorStore } from '@/features/views/useViewsAccess'
 import { overrideKey, useItemErrors, viewsKeys } from '@/features/views/viewsCache'
@@ -48,6 +48,7 @@ export type CredentialsSyncReason = 'sign_in' | 'refresh' | 'project_switch' | '
 type ShortcutPage = PaginatedApi<FileSystemShortcutApi>
 
 interface WidgetSession {
+    account: string | null
     scope: ProjectScope
     projectName: string
     generation: number
@@ -92,6 +93,7 @@ function currentSession(): WidgetSession | null {
         return null
     }
     return {
+        account: state.activeAccountKey,
         scope: { host: state.host.replace(/\/$/, ''), projectId: state.projectId },
         projectName: state.projectName ?? '',
         generation,
@@ -391,7 +393,7 @@ function cachedPins(client: QueryClient, session: WidgetSession): PinView[] | nu
     const page = client.getQueryData<ShortcutPage>(viewsKeys.shortcuts(session.scope))
     // A partial page cannot replace the complete picker.
     if (!page || !isCompleteShortcutPage(page)) return null
-    const prefs = usePinPrefs.getState().projects[prefsKey(session.scope)] ?? NO_PIN_PREFS
+    const prefs = accountPinPrefs(session.account, prefsKey(session.scope))
     const automatic: Record<string, PinDisplay> = {}
     const previews = client.getQueryCache().findAll({
         queryKey: ['views', session.scope.host, session.scope.projectId, 'smart_pin_displays'],
@@ -492,7 +494,7 @@ async function writeCatalog(client: QueryClient, signal: AbortSignal): Promise<v
         publish
     )
     // Resolve picker choices even before a widget selects them. Reuse Views previews, and keep manual choices intact.
-    const prefs = usePinPrefs.getState().projects[prefsKey(session.scope)] ?? NO_PIN_PREFS
+    const prefs = accountPinPrefs(session.account, prefsKey(session.scope))
     const dashboards = pins.filter(
         (pin) => pin.kind === 'dashboard' && !pinInsightShortId(pin) && !prefs.display[pin.shortcutId]
     )
@@ -644,7 +646,7 @@ export function startChartWidgetSync(client: QueryClient): () => void {
             syncCatalog()
         }),
         usePinPrefs.subscribe((state, previous) => {
-            if (state.projects !== previous.projects) {
+            if (state.accounts !== previous.accounts) {
                 catalogController?.abort()
                 syncCatalog()
             }

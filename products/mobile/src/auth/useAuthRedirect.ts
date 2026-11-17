@@ -6,8 +6,11 @@ import { useDemoMode } from '@/demo/demoMode'
 import { useAuthStore } from './authStore'
 import { signInReturnHref } from './signInReturn'
 
-// Covers a refresh token the server rejects in the middle of a session, not only the explicit sign-out buttons.
-export function useAuthRedirect(): void {
+/**
+ * Covers a refresh token the server rejects in the middle of a session, not only the explicit sign-out buttons.
+ * `screensAccount` is the account the current screen belongs to. It travels with `next`, so only that account reopens it.
+ */
+export function useAuthRedirect(screensAccount: string | null): void {
     const router = useRouter()
     const segments = useSegments()
     const pathname = usePathname()
@@ -22,7 +25,11 @@ export function useAuthRedirect(): void {
     useEffect(() => {
         if (redirect) {
             const next = signInReturnHref(pathname, segments, params)
-            router.replace(next ? { pathname: '/sign-in', params: { next } } : '/sign-in')
+            router.replace(
+                next
+                    ? { pathname: '/sign-in', params: screensAccount ? { next, account: screensAccount } : { next } }
+                    : '/sign-in'
+            )
         }
     }, [redirect, router])
 }

@@ -51,7 +51,7 @@ describe('cold offline Views navigation', () => {
         await session.flush()
         session.stop()
         source.clear()
-        useDeviceRecent.getState().record(`${scope.host}|${scope.projectId}`, {
+        useDeviceRecent.getState().record('example-account', `${scope.host}|${scope.projectId}`, {
             kind: 'insight',
             ref: shortId,
             name: snapshot.name,
@@ -64,6 +64,7 @@ describe('cold offline Views navigation', () => {
             projectId: 1,
             method: 'personal_api_key',
             user: { uuid: 'example-user', distinctId: 'example-user', email: 'example@example.com', name: 'Example' },
+            activeAccountKey: 'example-account',
         })
         setSessionTokens({
             kind: 'personal_api_key',

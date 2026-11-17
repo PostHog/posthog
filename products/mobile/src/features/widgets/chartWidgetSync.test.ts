@@ -49,6 +49,11 @@ jest.mock('expo-secure-store', () => {
     }
 })
 
+jest.mock('expo-crypto', () => ({
+    CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+    digestStringAsync: async (_algorithm: string, value: string) => Buffer.from(value).toString('hex'),
+}))
+
 const HOST = 'https://us.posthog.com'
 const USER = { uuid: 'user-1', distinctId: 'user-1', email: 'ada@example.com', name: 'Ada' }
 const KEY: SessionTokens = {
@@ -77,9 +82,12 @@ function owner(tokens: SessionTokens): SessionIdentity {
     }
 }
 
+const ACCOUNT = 'example-account'
+
 function signIn(tokens: SessionTokens): void {
-    setSessionTokens(tokens, owner(tokens))
+    setSessionTokens(tokens, owner(tokens), ACCOUNT)
     useAuthStore.setState({
+        activeAccountKey: ACCOUNT,
         status: 'signed_in',
         signedIn: true,
         host: HOST,
@@ -133,7 +141,7 @@ describe('chart widget sync', () => {
         setSessionTokens(null)
         useAuthStore.setState({ status: 'signed_out', signedIn: false, user: null, projectId: null, projectName: null })
         useDemoMode.setState({ enabled: false })
-        usePinPrefs.getState().clear()
+        usePinPrefs.setState({ accounts: {} })
         clearWidgetState()
         mockSetCredentials.mockClear()
         mockClearCredentials.mockClear()
@@ -156,7 +164,13 @@ describe('chart widget sync', () => {
 
         expect(mockSetCredentials).toHaveBeenCalledTimes(1)
 
-        await saveRefreshedTokens({ ...OAUTH, accessToken: 'example-rotated' }, sessionGeneration())
+        await saveRefreshedTokens({
+            key: ACCOUNT,
+            owner: owner(OAUTH),
+            used: OAUTH.refreshToken as string,
+            tokens: { ...OAUTH, accessToken: 'example-rotated' },
+            generation: sessionGeneration(),
+        })
 
         expect(mockSetCredentials).toHaveBeenCalledTimes(2)
         expect(mockSetCredentials).toHaveBeenLastCalledWith({
@@ -281,7 +295,13 @@ describe('chart widget sync', () => {
         await syncWidgetCatalog(client)
 
         useDemoMode.setState({ enabled: true })
-        await saveRefreshedTokens({ ...OAUTH, accessToken: 'example-rotated' }, sessionGeneration())
+        await saveRefreshedTokens({
+            key: ACCOUNT,
+            owner: owner(OAUTH),
+            used: OAUTH.refreshToken as string,
+            tokens: { ...OAUTH, accessToken: 'example-rotated' },
+            generation: sessionGeneration(),
+        })
 
         expect(mockClearCredentials).toHaveBeenCalled()
         expect(mockSetCredentials).toHaveBeenCalledTimes(1)
@@ -456,7 +476,7 @@ describe('chart widget sync', () => {
             shortId: 'dau1',
             eligible: true,
         })
-        expect(usePinPrefs.getState().projects).toEqual({})
+        expect(usePinPrefs.getState().accounts).toEqual({})
     })
 
     it('uses cached automatic dashboard choices while preserving an explicit choice', async () => {
@@ -487,7 +507,7 @@ describe('chart widget sync', () => {
             eligible: true,
             insightId: 456,
         })
-        usePinPrefs.getState().setDisplay(`${HOST}|2`, 's-kpis', {
+        usePinPrefs.getState().setDisplay(ACCOUNT, `${HOST}|2`, 's-kpis', {
             mode: 'chart',
             tileId: 4,
             insightId: 789,

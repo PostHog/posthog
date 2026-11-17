@@ -19,6 +19,7 @@ jest.mock('./pushSupport', () => ({ notificationsSupported: () => true }))
 const SCOPE = { host: 'https://app.example.com', projectId: 2 }
 const REPORT = { type: 'report', report_id: 'report-1', project_id: 2, notificationKind: 'report_visible' }
 const TASK = { taskId: 'task-1', taskRunId: 'run-1', projectId: 2, notificationKind: 'completed' }
+const ACCOUNT = 'example-account'
 let accountNumber = 0
 let identifier = 0
 
@@ -60,8 +61,11 @@ beforeEach(() => {
         status: 'signed_in',
         host: SCOPE.host,
         user: { uuid: `user-${accountNumber}` },
+        activeAccountKey: ACCOUNT,
     } as ReturnType<typeof useAuthStore.getState>)
-    jest.mocked(useSnoozeStore.getState).mockReturnValue({ entries: {} } as ReturnType<typeof useSnoozeStore.getState>)
+    jest.mocked(useSnoozeStore.getState).mockReturnValue({ accounts: {} } as unknown as ReturnType<
+        typeof useSnoozeStore.getState
+    >)
     queryClient.setDefaultOptions({ queries: { gcTime: Infinity } })
     queryClient.clear()
     setViewedNotificationReport(null)
@@ -102,25 +106,29 @@ test.each([
 test.each([REPORT, TASK])('mutes a locally time-snoozed report in the foreground: %j', async (data) => {
     queryClient.setQueryData(reportKeys.task(SCOPE, 'task-1'), { signal_report: 'report-1' })
     jest.mocked(useSnoozeStore.getState).mockReturnValue({
-        entries: {
-            [`${SCOPE.host}|2|report-1`]: {
-                kind: 'until',
-                at: new Date().toISOString(),
-                until: new Date(Date.now() + 60_000).toISOString(),
+        accounts: {
+            [ACCOUNT]: {
+                [`${SCOPE.host}|2|report-1`]: {
+                    kind: 'until',
+                    at: new Date().toISOString(),
+                    until: new Date(Date.now() + 60_000).toISOString(),
+                },
             },
         },
-    } as ReturnType<typeof useSnoozeStore.getState>)
+    } as unknown as ReturnType<typeof useSnoozeStore.getState>)
     await expect(deliver(data)).resolves.toMatchObject({ shouldShowBanner: false, shouldShowList: false })
 })
 
 test.each(['expired', 'signals'])('allows a reminder or new activity after a %s snooze', async (kind) => {
     const at = new Date(Date.now() - 60_000).toISOString()
     jest.mocked(useSnoozeStore.getState).mockReturnValue({
-        entries: {
-            [`${SCOPE.host}|2|report-1`]:
-                kind === 'signals' ? { kind, at, threshold: 10 } : { kind: 'until', at, until: at },
+        accounts: {
+            [ACCOUNT]: {
+                [`${SCOPE.host}|2|report-1`]:
+                    kind === 'signals' ? { kind, at, threshold: 10 } : { kind: 'until', at, until: at },
+            },
         },
-    } as ReturnType<typeof useSnoozeStore.getState>)
+    } as unknown as ReturnType<typeof useSnoozeStore.getState>)
     await expect(deliver(REPORT)).resolves.toMatchObject({ shouldShowBanner: true })
 })
 
