@@ -15,6 +15,10 @@ from products.error_tracking.backend.temporal.built_in_filters_refresh.schedule 
 from products.error_tracking.backend.temporal.issue_change_cleanup.schedule import (
     create_error_tracking_issue_change_cleanup_schedule,
 )
+from products.error_tracking.backend.temporal.platform_alert_evaluate import (
+    ERROR_TRACKING_ALERT_EVALUATION_ACTIVITIES,
+    ERROR_TRACKING_ALERT_EVALUATION_WORKFLOWS,
+)
 from products.error_tracking.backend.temporal.recommendations_refresh.types import RecommendationsRefreshInputs
 from products.error_tracking.backend.temporal.spike_event_cleanup.schedule import (
     create_error_tracking_spike_event_cleanup_schedule,
@@ -46,6 +50,11 @@ TEMPORAL = TemporalRegistration(
             queue_setting="ERROR_TRACKING_LIFECYCLE_TASK_QUEUE",
             workflows=tuple(LIFECYCLE_WORKFLOWS),
             activities=tuple(LIFECYCLE_ACTIVITIES),
+        ),
+        QueueBinding(
+            queue_setting="ALERTS_PLATFORM_EVALUATION_TASK_QUEUE",
+            workflows=tuple(ERROR_TRACKING_ALERT_EVALUATION_WORKFLOWS),
+            activities=tuple(ERROR_TRACKING_ALERT_EVALUATION_ACTIVITIES),
         ),
     ),
     schedules=(
