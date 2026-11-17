@@ -1518,8 +1518,11 @@ def reconcile_static_cohort_membership(self: Task, team_id: int, cohort_id: int)
     try:
         reconcile_static_cohort(StaticCohortToReconcile(team_id=team_id, cohort_id=cohort_id))
     except Exception as err:
-        # The read-back already waited for replicas. A retry would copy the whole cohort again, up to seven times.
-        retryable = _is_transient_population_error(err) and not isinstance(err, StaticCohortReadBackIncomplete)
+        # A retry starts the copy again from the first page. The read-back already waited for replicas, and a run
+        # that hit the time limit would hit it again.
+        retryable = _is_transient_population_error(err) and not isinstance(
+            err, StaticCohortReadBackIncomplete | SoftTimeLimitExceeded
+        )
         if not _is_final_attempt(self, retryable):
             raise self.retry(
                 exc=err,

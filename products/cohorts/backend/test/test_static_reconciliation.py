@@ -9,7 +9,7 @@ from django.core.cache import cache
 from django.db import OperationalError
 from django.utils import timezone
 
-from celery.exceptions import Retry
+from celery.exceptions import Retry, SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.models.instance_setting import override_instance_config
@@ -86,6 +86,7 @@ class TestStaticCohortReconciliation(BaseTest):
             ("too_large", 0, 300, {}, False),
             ("still_calculating", 0, 3, {"is_calculating": True}, False),
             ("calculated_within_settle_delay", 0, 3, {"last_calculation_ago": timedelta(minutes=10)}, False),
+            ("errored_within_settle_delay", 0, 3, {"last_error_at_ago": timedelta(minutes=10)}, False),
             ("deleted", 0, 3, {"deleted": True}, False),
         ]
     )
@@ -99,8 +100,9 @@ class TestStaticCohortReconciliation(BaseTest):
         expected_dispatched: bool,
     ) -> None:
         fields = dict(fields)
-        if "last_calculation_ago" in fields:
-            fields["last_calculation"] = self.now - fields.pop("last_calculation_ago")
+        for field in ("last_calculation", "last_error_at"):
+            if f"{field}_ago" in fields:
+                fields[field] = self.now - fields.pop(f"{field}_ago")
         cohort = self._static_cohort(clickhouse_members=clickhouse_members, count=stored_count, **fields)
 
         expected = StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk)
@@ -149,15 +151,33 @@ class TestStaticCohortReconciliation(BaseTest):
         self.assertEqual(cohort.count, 1)
         self.assertEqual(passes, [[cohort.pk], [cohort.pk], []])
 
-    def test_repair_leaves_a_cohort_that_another_task_is_calculating(self) -> None:
+    def test_a_repair_that_finds_the_cohort_busy_copies_nothing_and_the_next_pass_retries(self) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])
-        cohort = self._static_cohort(person_uuids=(person.uuid,), is_calculating=True)
+        cohort = self._static_cohort(person_uuids=(person.uuid,))
+        [target] = self._dispatched()
 
-        reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
+        Cohort.objects.filter(pk=cohort.pk).update(is_calculating=True)
+        reconcile_static_cohort(target)
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 0)
+
+        Cohort.objects.filter(pk=cohort.pk).update(is_calculating=False)
+        self.assertEqual(self._dispatched(), [target])
+
+    def test_repair_keeps_the_count_of_an_import_that_finished_during_the_copy(self) -> None:
+        person = create_person(team=self.team, distinct_ids=["member"])
+        cohort = self._static_cohort(person_uuids=(person.uuid,))
+
+        def copy_while_an_import_finishes(*args: Any, **kwargs: Any) -> None:
+            insert_cohort_people_into_pg(*args, **kwargs)
+            Cohort.objects.filter(pk=cohort.pk).update(count=5, last_calculation=timezone.now())
+
+        with patch.object(
+            static_reconciliation, "insert_cohort_people_into_pg", side_effect=copy_while_an_import_finishes
+        ):
+            reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
 
         cohort.refresh_from_db()
-        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 0)
-        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.count, 5)
 
     def test_stuck_cohort_sweep_leaves_a_repair_in_progress_alone(self) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])
@@ -194,6 +214,7 @@ class TestStaticCohortReconciliation(BaseTest):
         [
             ("transient", OperationalError("connection reset"), True),
             ("read_back_incomplete", StaticCohortReadBackIncomplete("read 1 of 2 rows"), False),
+            ("soft_time_limit", SoftTimeLimitExceeded(), False),
         ]
     )
     @patch("posthog.tasks.calculate_cohort.reconcile_static_cohort")

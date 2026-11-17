@@ -10,6 +10,7 @@ from enum import StrEnum
 
 from django.core.cache import cache
 from django.db.models import Q, QuerySet
+from django.utils import timezone
 
 import structlog
 from prometheus_client import Counter
@@ -28,6 +29,8 @@ from products.cohorts.backend.models.util import count_cohort_members, insert_co
 logger = structlog.get_logger(__name__)
 
 RECONCILE_MAX_COHORTS_PER_RUN = 10
+# The rest of the budget stays with the backlog, so a burst of recent cohorts cannot stop the cursor.
+RECONCILE_MAX_RECENT_PER_RUN = 5
 RECONCILE_PAGE_SIZE = 200
 # A larger cohort holds the personhog insert path for too long in one task.
 RECONCILE_MAX_MEMBERS = 1_000_000
@@ -102,8 +105,14 @@ def decide(*, stored_count: int | None, clickhouse_count: int) -> ReconcileDecis
 
 def _settled_static_cohorts(now: datetime) -> QuerySet[Cohort]:
     settled_before = now - RECONCILE_SETTLE_DELAY
-    return Cohort.objects.filter(is_static=True, deleted=False, is_calculating=False).filter(
-        Q(last_calculation__lte=settled_before) | Q(last_calculation__isnull=True, created_at__lte=settled_before)
+    return (
+        Cohort.objects.filter(is_static=True, deleted=False, is_calculating=False)
+        .filter(
+            Q(last_calculation__lte=settled_before) | Q(last_calculation__isnull=True, created_at__lte=settled_before)
+        )
+        # reset_stuck_cohorts stamps last_error_at when it dispatches a population, which sets is_calculating only
+        # once its task starts.
+        .filter(Q(last_error_at__isnull=True) | Q(last_error_at__lte=settled_before))
     )
 
 
@@ -190,7 +199,7 @@ def run_reconciliation_pass(*, now: datetime, dispatch: Callable[[StaticCohortTo
             STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="dispatched").inc()
 
     for candidate in recent:
-        if dispatched >= RECONCILE_MAX_COHORTS_PER_RUN:
+        if dispatched >= RECONCILE_MAX_RECENT_PER_RUN:
             break
         consider(candidate)
 
@@ -211,11 +220,16 @@ def run_reconciliation_pass(*, now: datetime, dispatch: Callable[[StaticCohortTo
         cache.set(RECONCILE_CURSOR_CACHE_KEY, next_cursor, timeout=int(RECONCILE_CURSOR_TTL.total_seconds()))
 
 
-def _write_count(cohort: StaticCohortToReconcile, count: int) -> bool:
-    # A population or CSV import that holds the cohort writes its own count when it finishes.
+def _write_count(row: Cohort, count: int) -> bool:
+    # A population or CSV import that holds the cohort, or that finished since `row` was read, writes its own count.
     return bool(
         Cohort.objects.filter(
-            team_id=cohort.team_id, id=cohort.cohort_id, is_static=True, deleted=False, is_calculating=False
+            team_id=row.team_id,
+            id=row.pk,
+            is_static=True,
+            deleted=False,
+            is_calculating=False,
+            last_calculation=row.last_calculation,
         ).update(count=count)
     )
 
@@ -227,10 +241,10 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
     than an hour ago as a dead population. The copy skips existing members, so a population running at the same
     time is safe.
     """
-    row = Cohort.objects.filter(
-        team_id=cohort.team_id, id=cohort.cohort_id, is_static=True, deleted=False, is_calculating=False
-    ).first()
+    row = _settled_static_cohorts(timezone.now()).filter(team_id=cohort.team_id, id=cohort.cohort_id).first()
     if row is None:
+        # The next pass looks at the cohort again once whatever holds it finishes.
+        cache.delete(_hold_cache_key(cohort.cohort_id))
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="skipped_busy").inc()
         return
     # Rows deleted since the selection would make its count unreachable, and every read-back wait would copy again.
@@ -240,7 +254,7 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
     postgres_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
     decision = decide(stored_count=postgres_count, clickhouse_count=clickhouse_count)
     if decision == ReconcileDecision.IN_SYNC:
-        _write_count(cohort, postgres_count)
+        _write_count(row, postgres_count)
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="already_complete").inc()
         return
     if decision == ReconcileDecision.TOO_LARGE:
@@ -251,7 +265,7 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
     insert_cohort_people_into_pg(row, team_id=cohort.team_id, min_rows=clickhouse_count)
     # Recount here: the copy logs a failed recount and keeps the old count, which would park a repaired cohort.
     reconciled_count = count_cohort_members(cohort.team_id, cohort.cohort_id, consistency="strong")
-    _write_count(cohort, reconciled_count)
+    _write_count(row, reconciled_count)
     if reconciled_count == postgres_count:
         _park(cohort.cohort_id, clickhouse_count)
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="parked").inc()
