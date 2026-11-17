@@ -1,6 +1,5 @@
 import { IconGithub } from '@posthog/icons'
 
-/** One connected GitHub account: its name line, a hint under it, and the account's actions on the right. */
 export function GitHubAccountCard({
     title,
     hint,

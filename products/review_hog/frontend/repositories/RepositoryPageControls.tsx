@@ -2,7 +2,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { PANE_LEFT, PANE_ROW } from './paneClasses'
 
-/** The last row of a paged repository list: which repositories show, and the previous and next buttons. */
 export function RepositoryPageControls({
     first,
     last,

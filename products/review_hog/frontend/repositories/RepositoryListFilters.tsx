@@ -2,7 +2,6 @@ import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { PANE_LEFT, PANE_ROW } from './paneClasses'
 
-/** The first row of a repository list: the name filter, the view chips, and any extra control between them. */
 export function RepositoryListFilters<V extends string>({
     search,
     onSearchChange,
