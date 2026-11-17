@@ -52,8 +52,7 @@ export function SidebarSearchList({
             }}
         >
             <div className={cn('flex min-h-0 flex-1 flex-col', className)}>
-                {/* HedgehogPlatform has no styles. Hedgehog mode stands on it, so do not remove it as unused. */}
-                <div className="HedgehogPlatform flex shrink-0 items-center gap-1 [&_[data-slot=autocomplete-input-group-wrapper]]:min-w-0 [&_[data-slot=autocomplete-input-group-wrapper]]:flex-1 [&_[data-slot=autocomplete-popover-separator]]:hidden">
+                <div className="flex shrink-0 items-center gap-1 [&_[data-slot=autocomplete-input-group-wrapper]]:min-w-0 [&_[data-slot=autocomplete-input-group-wrapper]]:flex-1 [&_[data-slot=autocomplete-popover-separator]]:hidden">
                     <AutocompleteInput
                         placeholder={`${searchLabel}…`}
                         aria-label={searchLabel}

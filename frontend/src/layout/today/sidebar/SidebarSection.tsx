@@ -79,7 +79,13 @@ export function SidebarSection({
     )
     return (
         <section aria-label={label} className="flex shrink-0 flex-col">
-            <div className={cn('relative flex h-7 shrink-0 items-center gap-1', divider && 'border-t border-border')}>
+            {/* HedgehogPlatform has no styles. Hedgehog mode stands on it, so do not remove it as unused. */}
+            <div
+                className={cn(
+                    'HedgehogPlatform relative flex h-7 shrink-0 items-center gap-1',
+                    divider && 'border-t border-border'
+                )}
+            >
                 {resizer && <SidebarSectionResizeHandle label={label} active={resizing} resizer={resizer} />}
                 {heading ?? (
                     // The heading is a list option, so the arrow keys reach it with the rows.
