@@ -2,26 +2,26 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { ReviewHogReviewsTableRetrieveReviewMode, ReviewHogReviewsTableRetrieveStatus } from './generated/api.schemas'
+import { CodeReviewReviewsTableRetrieveReviewMode, CodeReviewReviewsTableRetrieveStatus } from './generated/api.schemas'
 import { REVIEW_MODE_LABEL } from './reviewDisplay'
 import { reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
 const MODE_OPTIONS = [
     { value: null, label: 'All modes' },
     {
-        value: ReviewHogReviewsTableRetrieveReviewMode.Flash,
-        label: REVIEW_MODE_LABEL[ReviewHogReviewsTableRetrieveReviewMode.Flash],
+        value: CodeReviewReviewsTableRetrieveReviewMode.Flash,
+        label: REVIEW_MODE_LABEL[CodeReviewReviewsTableRetrieveReviewMode.Flash],
     },
     {
-        value: ReviewHogReviewsTableRetrieveReviewMode.Full,
-        label: REVIEW_MODE_LABEL[ReviewHogReviewsTableRetrieveReviewMode.Full],
+        value: CodeReviewReviewsTableRetrieveReviewMode.Full,
+        label: REVIEW_MODE_LABEL[CodeReviewReviewsTableRetrieveReviewMode.Full],
     },
 ]
 
 const STATUS_OPTIONS = [
     { value: null, label: 'All statuses' },
-    { value: ReviewHogReviewsTableRetrieveStatus.Running, label: 'Running' },
-    { value: ReviewHogReviewsTableRetrieveStatus.Completed, label: 'Completed' },
+    { value: CodeReviewReviewsTableRetrieveStatus.Running, label: 'Running' },
+    { value: CodeReviewReviewsTableRetrieveStatus.Completed, label: 'Completed' },
 ]
 
 const PUBLISHED_OPTIONS = [
@@ -37,7 +37,7 @@ export function ReviewsFilters(): JSX.Element {
         useActions(reviewHogSettingsLogic)
 
     const runningCount = reviewsPage?.running_count ?? 0
-    const runningActive = reviewsStatus === ReviewHogReviewsTableRetrieveStatus.Running
+    const runningActive = reviewsStatus === CodeReviewReviewsTableRetrieveStatus.Running
 
     return (
         <div className="@container/reviews-filters">
@@ -48,7 +48,7 @@ export function ReviewsFilters(): JSX.Element {
                         size="small"
                         active={runningActive}
                         onClick={() =>
-                            setReviewsStatus(runningActive ? null : ReviewHogReviewsTableRetrieveStatus.Running)
+                            setReviewsStatus(runningActive ? null : CodeReviewReviewsTableRetrieveStatus.Running)
                         }
                         tooltip={runningActive ? 'Show every review' : 'Show only running reviews'}
                         data-attr="code-review-reviews-running-filter"
