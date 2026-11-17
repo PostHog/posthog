@@ -7,6 +7,7 @@ from posthog.schema import (
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentWarehouseNativeNode,
     StepOrderValue,
 )
 
@@ -56,6 +57,9 @@ def _metric_supports_cuped(metric: object) -> bool:
         # Session property metrics use a separate session-deduplication CTE pipeline.
         # Keep CUPED disabled there until the same single-scan windowing is implemented.
         if isinstance(metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(metric.source):
+            return False
+        # The statement that runs in the customer's warehouse returns no covariate columns.
+        if isinstance(metric.source, ExperimentWarehouseNativeNode):
             return False
         return True
 

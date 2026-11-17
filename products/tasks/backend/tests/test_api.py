@@ -42,7 +42,7 @@ from posthog.models.tag import Tag
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.ph_client import filter_scout_experiment_capture
-from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
+from posthog.scopes.catalog import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import (
@@ -2518,6 +2518,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         task = Task.objects.get(id=response.json()["id"])
+        task.runs.update(status=TaskRun.Status.COMPLETED)
         response = client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {"run_source": "agent"},
@@ -2576,6 +2577,7 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_sandbox_oauth_starts_agent_run_for_task_owner(self, path, mock_workflow, _mock_internal_team):
         parent = self.create_task()
         parent.create_run(extra_state={"agent_parent_task_id": str(uuid.uuid4())})
+        parent.runs.update(status=TaskRun.Status.COMPLETED)
         parent_run = parent.create_run(environment=TaskRun.Environment.CLOUD)
         client = self._sandbox_oauth_client(parent.id, internal_scope=True)
         target = self.create_task(title="Existing task")
@@ -9251,6 +9253,31 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_resume.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
+    def test_resume_in_cloud_rejects_a_finished_run_while_another_is_live(self, mock_resume):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "bot"},
+        )
+        TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(
+            response.json()["error"],
+            "This task already has a run in progress. Wait for it to finish or cancel it first.",
+        )
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+        mock_resume.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     def test_resume_in_cloud_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_resume):
         task = self.create_task(created_by=self.user)
         run = TaskRun.objects.create(
@@ -9260,14 +9287,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
             status=TaskRun.Status.COMPLETED,
             state={"pr_authorship_mode": "user"},
         )
+        stale = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+        TaskRun.objects.filter(id=stale.id).update(updated_at=django_timezone.now() - timedelta(days=2))
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "github_authorization_required")
         run.refresh_from_db()
+        stale.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+        self.assertEqual(stale.status, TaskRun.Status.IN_PROGRESS)
         mock_resume.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
