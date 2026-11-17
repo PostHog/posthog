@@ -677,14 +677,20 @@ class _DuckLakeConnection:
         self._connection.execute("COMMIT")
 
 
-def test_duckgres_registration_adds_declared_columns_the_files_lack(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
-    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: True)
+def _duckdb_lake(tmp_path: Path) -> duckdb.DuckDBPyConnection:
     lake = duckdb.connect()
     lake.execute("INSTALL ducklake")
     lake.execute("LOAD ducklake")
     lake.execute(f"ATTACH 'ducklake:{tmp_path / 'catalog.ducklake'}' AS ducklake (DATA_PATH '{tmp_path / 'data'}')")
     lake.execute("USE ducklake")
+    return lake
+
+
+@pytest.mark.parametrize("partitioned", [False, True])
+def test_duckgres_registration_adds_declared_columns_the_files_lack(partitioned: bool, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: True)
+    lake = _duckdb_lake(tmp_path)
     conn = cast(Any, _DuckLakeConnection(lake))
     declared = [
         DeclaredColumn(name="id", clickhouse_type="Int64"),
@@ -693,7 +699,8 @@ def test_duckgres_registration_adds_declared_columns_the_files_lack(monkeypatch,
 
     def register(job_id: str, generation: str, files: pa.Table) -> list[tuple[Any, ...]]:
         job_uri = f"{tmp_path}/landing/{job_id}"
-        landing_paths = _write_parquet_files(Path(job_uri) / generation, {"part-0.parquet": files})
+        relative_path = "_ph_partition_key=2026-07/part-0.parquet" if partitioned else "part-0.parquet"
+        landing_paths = _write_parquet_files(Path(job_uri) / generation, {relative_path: files})
         base = _activity_inputs()
         inputs = dataclasses.replace(
             base,
@@ -708,9 +715,10 @@ def test_duckgres_registration_adds_declared_columns_the_files_lack(monkeypatch,
         )
         registration_module._register_prepared_parquet_files(inputs, conn, landing_paths)
         table = "posthog_data_imports_team_1.postgres_customers"
+        selected = "id, closed_at, _ph_partition_key" if partitioned else "id, closed_at"
         return [
             *lake.execute(f"SELECT column_name, column_type FROM (DESCRIBE {table})").fetchall(),
-            *lake.execute(f"SELECT * FROM {table} ORDER BY id").fetchall(),
+            *lake.execute(f"SELECT {selected} FROM {table} ORDER BY id").fetchall(),
         ]
 
     first = register("job1", "1234567890_abcdef12", pa.table({"id": pa.array([1, 2], pa.int64())}))
@@ -721,8 +729,42 @@ def test_duckgres_registration_adds_declared_columns_the_files_lack(monkeypatch,
         pa.table({"id": pa.array([3], pa.int64()), "closed_at": pa.array(["2026-11-16"])}),
     )
 
-    assert first == [("id", "BIGINT"), ("closed_at", "TIMESTAMP WITH TIME ZONE"), (1, None), (2, None)]
-    assert second == [("id", "BIGINT"), ("closed_at", "VARCHAR"), (3, "2026-11-16")]
+    partition_type = [("_ph_partition_key", "VARCHAR")] if partitioned else []
+    partition_value = ("2026-07",) if partitioned else ()
+    assert first == [
+        ("id", "BIGINT"),
+        *partition_type,
+        ("closed_at", "TIMESTAMP WITH TIME ZONE"),
+        (1, None, *partition_value),
+        (2, None, *partition_value),
+    ]
+    assert second == [
+        ("id", "BIGINT"),
+        ("closed_at", "VARCHAR"),
+        *partition_type,
+        (3, "2026-11-16", *partition_value),
+    ]
+
+
+def test_duckgres_registration_adds_declared_columns_in_one_snapshot(tmp_path) -> None:
+    lake = _duckdb_lake(tmp_path)
+    lake.execute("CREATE TABLE shadow (id BIGINT)")
+    declared = [
+        DeclaredColumn(name="id", clickhouse_type="Int64"),
+        DeclaredColumn(name="closed_at", clickhouse_type="Nullable(String)"),
+        DeclaredColumn(name="amount", clickhouse_type="Nullable(Decimal(10, 2))"),
+        DeclaredColumn(name="growth%", clickhouse_type="Nullable(Float64)"),
+    ]
+    snapshots_before = lake.execute("SELECT count(*) FROM ducklake_snapshots('ducklake')").fetchall()[0][0]
+
+    registration_module._add_declared_columns_missing_from_files(
+        cast(Any, _DuckLakeConnection(lake)), "main", "shadow", declared, cancel_requested=None
+    )
+
+    columns = lake.execute("SELECT column_name, column_type FROM (DESCRIBE shadow)").fetchall()
+    snapshots_after = lake.execute("SELECT count(*) FROM ducklake_snapshots('ducklake')").fetchall()[0][0]
+    assert columns == [("id", "BIGINT"), ("closed_at", "VARCHAR"), ("amount", "DECIMAL(10,2)"), ("growth%", "DOUBLE")]
+    assert snapshots_after - snapshots_before == 1
 
 
 @pytest.mark.parametrize(
@@ -1735,8 +1777,8 @@ def test_trino_registration_runs_the_expected_statements(
     create = fake.statements_matching("CREATE TABLE")[0]
     columns = (
         '"id" BIGINT, "amount" DECIMAL(10, 2), "created" TIMESTAMP(6) WITH TIME ZONE, "note" VARCHAR'
-        + (', "_ph_partition_key" VARCHAR' if hive_partition_columns else "")
         + ', "closed_at" TIMESTAMP(6) WITH TIME ZONE'
+        + (', "_ph_partition_key" VARCHAR' if hive_partition_columns else "")
     )
     assert create.startswith(f'CREATE TABLE IF NOT EXISTS "lake"."schema_a"."{SHADOW_NAME}" ({columns})')
     assert "COMMENT" not in create
@@ -1869,12 +1911,13 @@ def test_trino_type_for_arrow(_name: str, arrow_type: pa.DataType, expected: str
     assert trino_module.trino_type_for_arrow(arrow_type) == expected
 
 
-_UNION_COLUMNS = (
+_FILE_COLUMNS = (
     ("id", "BIGINT"),
     ("name", "VARCHAR"),
     ("created_at", "TIMESTAMP(6)"),
-    ("_ph_partition_key", "VARCHAR"),
 )
+_PARTITION_COLUMN = ("_ph_partition_key", "VARCHAR")
+_UNION_COLUMNS = (*_FILE_COLUMNS, _PARTITION_COLUMN)
 
 
 @pytest.mark.parametrize(
@@ -1888,7 +1931,7 @@ _UNION_COLUMNS = (
                 DeclaredColumn(name="closed_at", clickhouse_type="Nullable(DateTime64(6, 'UTC'))"),
                 DeclaredColumn(name="tags", clickhouse_type="Array(String)"),
             ],
-            (*_UNION_COLUMNS, ("closed_at", "TIMESTAMP(6) WITH TIME ZONE"), ("tags", "VARCHAR")),
+            (*_FILE_COLUMNS, ("closed_at", "TIMESTAMP(6) WITH TIME ZONE"), ("tags", "VARCHAR"), _PARTITION_COLUMN),
         ),
         # A later sync whose files carry the column keeps the file type, whatever the record declares.
         ("file_type_wins", [DeclaredColumn(name="created_at", clickhouse_type="Nullable(String)")], _UNION_COLUMNS),
@@ -1900,7 +1943,7 @@ _UNION_COLUMNS = (
                 DeclaredColumn(name="Owner", clickhouse_type="Int64"),
                 DeclaredColumn(name="owner", clickhouse_type="String"),
             ],
-            (*_UNION_COLUMNS, ("Owner", "BIGINT")),
+            (*_FILE_COLUMNS, ("Owner", "BIGINT"), _PARTITION_COLUMN),
         ),
     ],
 )

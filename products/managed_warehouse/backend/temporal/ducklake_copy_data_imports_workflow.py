@@ -483,6 +483,13 @@ DELTA_REBUILD_WAIT_SECONDS = 600
 DELTA_REBUILD_POLL_SECONDS = 20
 
 
+def _quote_identifier_for_placeholder(identifier: str, parameter_placeholder: str) -> str:
+    # psycopg looks for `%` placeholders in the whole statement text, quoted identifiers included, so a literal `%`
+    # in a column name must be written as `%%` when the statement runs with `%s` parameters.
+    quoted = _quote_identifier(identifier)
+    return quoted.replace("%", "%%") if parameter_placeholder == "%s" else quoted
+
+
 def _create_table_from_delta_statement(
     conn: _VerificationConnection,
     qualified_table: str,
@@ -498,7 +505,8 @@ def _create_table_from_delta_statement(
             name for name, _ in _fetch_delta_schema(conn, source_uri, parameter_placeholder=parameter_placeholder)
         ]
         declared_only_columns = "".join(
-            f", CAST(NULL AS {duckdb_type_for_clickhouse(column.clickhouse_type)}) AS {_quote_identifier(column.name)}"
+            f", CAST(NULL AS {duckdb_type_for_clickhouse(column.clickhouse_type)}) AS "
+            f"{_quote_identifier_for_placeholder(column.name, parameter_placeholder)}"
             for column in columns_missing_from_files(declared, delta_columns)
         )
     return (

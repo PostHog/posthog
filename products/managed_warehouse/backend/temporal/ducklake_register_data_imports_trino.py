@@ -149,8 +149,8 @@ def staging_table_schema(
     hive_partition_columns: Sequence[str],
     declared_columns: Sequence[DeclaredColumn] = (),
 ) -> StagingTableSchema:
-    """Union the file columns by name, append the Hive partition columns as VARCHAR partitions, then append the
-    declared columns that no file or partition has.
+    """Union the file columns by name, add the declared columns that no file or partition has, then append the Hive
+    partition columns as VARCHAR partitions.
 
     A file may lack a column: add_files reads it as NULL. Partition values come from the paths, as
     `read_parquet(..., hive_partitioning=true)` reads them on the duckgres path. A declared column takes its type from
@@ -166,17 +166,20 @@ def staging_table_schema(
                     "for DuckLake registration through Trino"
                 )
             _add_column(columns, StagingColumn(name=field.name, trino_type=trino_type), footer.path)
+    partitions: dict[str, StagingColumn] = {}
     for name in hive_partition_columns:
         if not _PARTITION_COLUMN_PATTERN.fullmatch(name):
             raise _non_retryable(f"Hive partition column name '{name}' is not a plain identifier")
         existing = columns.get(name.lower())
         if existing is not None:
             raise _non_retryable(f"Hive partition column '{name}' collides with column '{existing.name}'")
-        columns[name.lower()] = StagingColumn(name=name, trino_type="VARCHAR")
-    for declared in columns_missing_from_files(declared_columns, (column.name for column in columns.values())):
+        partitions[name.lower()] = StagingColumn(name=name, trino_type="VARCHAR")
+    for declared in columns_missing_from_files(declared_columns, [*columns, *partitions]):
         columns[declared.name.lower()] = StagingColumn(
             name=declared.name, trino_type=trino_type_for_clickhouse(declared.clickhouse_type)
         )
+    # The partition columns stay last, as they are in the table that `read_parquet(..., hive_partitioning=true)` reads.
+    columns.update(partitions)
     return StagingTableSchema(columns=tuple(columns.values()), partition_columns=tuple(hive_partition_columns))
 
 

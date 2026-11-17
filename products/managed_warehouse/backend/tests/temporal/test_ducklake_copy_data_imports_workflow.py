@@ -586,7 +586,10 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
         ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
         staging_uri="s3://test-bucket/__posthog_staging/team_1/customers",
-        declared_columns=[DeclaredColumn(name="closed_at", clickhouse_type="Nullable(Int64)")],
+        declared_columns=[
+            DeclaredColumn(name="closed_at", clickhouse_type="Nullable(Int64)"),
+            DeclaredColumn(name="growth%", clickhouse_type="Nullable(Float64)"),
+        ],
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
@@ -619,7 +622,10 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     # Verify staging URI used, not source URI
     table_call = next(call for call in execute_calls if "CREATE OR REPLACE TABLE" in str(call))
     assert "s3://test-bucket/__posthog_staging/team_1/customers" in str(table_call)
-    assert 'CAST(NULL AS BIGINT) AS "closed_at" FROM delta_scan(%s)' in str(table_call)
+    # psycopg reads `%` in the statement text as a placeholder, so a `%` in a column name is doubled.
+    assert 'CAST(NULL AS BIGINT) AS "closed_at", CAST(NULL AS DOUBLE) AS "growth%%" FROM delta_scan(%s)' in str(
+        table_call
+    )
 
 
 def test_copy_from_delta_adds_declared_columns_and_passes_schema_verification(tmp_path):
@@ -637,6 +643,7 @@ def test_copy_from_delta_adds_declared_columns_and_passes_schema_verification(tm
             # The Delta type wins for a column that the Delta table has.
             DeclaredColumn(name="name", clickhouse_type="Int64"),
             DeclaredColumn(name="closed_at", clickhouse_type="Nullable(Decimal(10, 2))"),
+            DeclaredColumn(name="growth%", clickhouse_type="Nullable(Float64)"),
         ],
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
@@ -660,8 +667,13 @@ def test_copy_from_delta_adds_declared_columns_and_passes_schema_verification(tm
         columns = conn.execute(f"SELECT column_name, column_type FROM (DESCRIBE {table})").fetchall()
         rows = conn.execute(f"SELECT * FROM {table} ORDER BY id").fetchall()
 
-    assert columns == [("id", "BIGINT"), ("name", "VARCHAR"), ("closed_at", "DECIMAL(10,2)")]
-    assert rows == [(1, "a", None), (2, "b", None)]
+    assert columns == [
+        ("id", "BIGINT"),
+        ("name", "VARCHAR"),
+        ("closed_at", "DECIMAL(10,2)"),
+        ("growth%", "DOUBLE"),
+    ]
+    assert rows == [(1, "a", None, None), (2, "b", None, None)]
     assert verification is not None
     assert (verification.passed, verification.error) == (True, None)
 

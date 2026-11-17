@@ -999,7 +999,8 @@ def _add_declared_columns_missing_from_files(
 ) -> None:
     """Add each declared column that the table, created from the file columns, lacks.
 
-    ducklake_add_data_files with allow_missing reads a column that a file lacks as NULL.
+    ducklake_add_data_files with allow_missing reads a column that a file lacks as NULL. The additions share one
+    transaction, because on the autocommit connection each one is its own DuckLake snapshot and catalog commit.
     """
     if not declared:
         return
@@ -1008,17 +1009,21 @@ def _add_declared_columns_missing_from_files(
         psql.SQL("SELECT * FROM {}.{} LIMIT 0").format(psql.Identifier(schema_name), psql.Identifier(table_name))
     )
     file_columns = [column.name for column in cursor.description or ()]
-    for column in columns_missing_from_files(declared, file_columns):
-        _raise_if_duckgres_cancel_requested(cancel_requested)
-        conn.execute(
-            psql.SQL("ALTER TABLE {}.{} ADD COLUMN {} {}").format(
-                psql.Identifier(schema_name),
-                psql.Identifier(table_name),
-                psql.Identifier(column.name),
-                # The type comes from a fixed mapping, so it is safe to put in the statement as SQL.
-                psql.SQL(duckdb_type_for_clickhouse(column.clickhouse_type)),
+    missing = columns_missing_from_files(declared, file_columns)
+    if not missing:
+        return
+    with conn.transaction():
+        for column in missing:
+            _raise_if_duckgres_cancel_requested(cancel_requested)
+            conn.execute(
+                psql.SQL("ALTER TABLE {}.{} ADD COLUMN {} {}").format(
+                    psql.Identifier(schema_name),
+                    psql.Identifier(table_name),
+                    psql.Identifier(column.name),
+                    # The type comes from a fixed mapping, so it is safe to put in the statement as SQL.
+                    psql.SQL(duckdb_type_for_clickhouse(column.clickhouse_type)),
+                )
             )
-        )
 
 
 def _register_prepared_parquet_files(
