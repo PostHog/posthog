@@ -11,6 +11,7 @@ import {
     humanKey,
     inputValue,
     outputKeys,
+    propertyFilters,
     propertyValueText,
     templateIdOf,
 } from './stepValues'
@@ -71,7 +72,7 @@ function branchCohorts(action: ActionOf<'random_cohort_branch'>): BranchCohort[]
 function splitKey(conditions: BranchCondition[]): string | undefined {
     const keys = new Set(
         conditions.flatMap((condition) =>
-            (condition.filters?.properties ?? []).flatMap((filter) => asText(asRecord(filter).key) ?? [])
+            propertyFilters(condition.filters?.properties).flatMap((filter) => asText(asRecord(filter).key) ?? [])
         )
     )
     return keys.size === 1 ? humanKey([...keys][0]) : undefined

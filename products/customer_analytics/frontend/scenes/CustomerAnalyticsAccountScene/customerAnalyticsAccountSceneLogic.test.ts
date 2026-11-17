@@ -113,7 +113,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         expect(logic.values.account).toEqual(account)
         expect(logic.values.accountLoadError).toBeNull()
         expect(logic.values.breadcrumbs.at(-1)?.name).toBe(account.name)
-        expect(logic.values.todayPeopleRecent).toEqual({
+        expect(logic.values.todayRecent).toEqual({
             type: 'account',
             name: account.name,
             href: urls.customerAnalyticsAccount(ACCOUNT_ID),

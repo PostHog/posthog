@@ -16,6 +16,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.user import User
 
+from products.cdp.backend.internal_events import INTERNAL_EVENT_READ_SCOPES
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 
 
@@ -257,7 +258,11 @@ def _hog_function_pre_delete(context: DeletionContext, hog_function: Any) -> Non
 
 
 def _hog_function_pre_restore(context: RestoreContext, hog_function: Any) -> None:
-    hog_function.enabled = True
+    # A destination on a read-guarded internal event comes back disabled, so turning it on again goes through
+    # the destinations API, which checks the event's read access. This path checks only the destination.
+    events = (hog_function.filters or {}).get("events") or []
+    event_ids = {event.get("id") for event in events if isinstance(event, dict)}
+    hog_function.enabled = not (event_ids & INTERNAL_EVENT_READ_SCOPES.keys())
 
 
 def _hog_function_post_delete(context: DeletionContext, hog_function: Any) -> None:

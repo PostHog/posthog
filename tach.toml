@@ -124,6 +124,7 @@ depends_on = [
     "ee",
     "products.access_control",
     "products.aeo",
+    "products.ai_gateway",
     "products.analytics_platform",
     "products.approvals",
     "products.authorization",
@@ -366,6 +367,12 @@ depends_on = [
     "products.data_warehouse",
     "products.revenue_analytics",
     "products.warehouse_sources", "products.access_control",
+    # The materialization workflows and activities in backend/temporal/ call these facades.
+    "products.customer_analytics",
+    "products.data_quality",
+    "products.endpoints",
+    "products.managed_warehouse",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -728,8 +735,8 @@ depends_on = [
     # Facade-only: the recipient preferences page reads EmailTrackingConsentMode through
     # products.workflows.backend.facade.enums.
     "products.workflows",
-    # Presentation-only: the template design action wraps HTML through
-    # products.cdp.backend.presentation.hog_functions.
+    # Design helpers only: the template design action and imported templates wrap HTML through
+    # products.cdp.backend.presentation.hog_functions and products.cdp.backend.validation.
     "products.cdp",
 ]
 layer = "modules"
@@ -996,7 +1003,7 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-# Skills imports ai_observability's shared markdown_outline + API metrics helpers —
+# Skills imports ai_observability's shared markdown_outline —
 # temporary coupling from the standalone-product extraction, slated for cleanup.
 path = "products.skills"
 depends_on = [
@@ -1022,6 +1029,7 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.release",
     "products.security",
     "products.signals",
     "products.surveys",

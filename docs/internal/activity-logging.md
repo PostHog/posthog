@@ -17,6 +17,7 @@ Description changes include a two-line preview of the new value in normal text.
 The expand control on the right reveals the complete action, preview, and agent intent, along with the existing detail tabs.
 Diff compares the recorded values, and Raw shows the activity payload.
 Product-specific detail tabs remain the initial view when supplied by a describer.
+Subscription ownership events show who took ownership or transferred it; transfers include the previous and new owners from the recorded change.
 The copy-link control beside expand appears on hover or keyboard focus.
 
 Every visible describer result supplies a `summary` with `actor`, `action`, and `target` fields alongside its existing `description`.
@@ -330,6 +331,8 @@ Organization IP restriction configuration logs initial creation and changes to t
 
 - `GET /api/projects/:id/activity_log/` - the list the side panel reads.
 - `GET /api/projects/:id/advanced_activity_logs/` - filters, field discovery, and export.
+  `start_date` and `end_date` take ISO 8601 timestamps, so a range can be shorter than a day. Include a UTC offset such as `Z`. The REST API reads a value without one as UTC, but the MCP tool rejects it.
+  The Activity page reads times and days without an offset in the project timezone, as insights do.
 - Access control: resource `activity_log`, default level `viewer`.
 - Entitlement: both list endpoints are gated by `AvailableFeature.AUDIT_LOGS` on Cloud and apply the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). Writes always happen.
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).

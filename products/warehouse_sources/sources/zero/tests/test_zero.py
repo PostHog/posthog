@@ -69,6 +69,10 @@ class TestGetResource:
             ("Memberships", "memberships", "/api/memberships"),
             ("Workspaces", "workspaces", "/api/workspaces"),
             ("Users", "users", "/api/users"),
+            ("Lists", "lists", "/api/lists"),
+            ("Quotes", "quotes", "/api/quotes"),
+            ("SequenceEnrollments", "sequence_enrollments", "/api/sequenceContactStatuses"),
+            ("SequenceSteps", "sequence_steps", "/api/sequenceSteps"),
         ]
     )
     def test_endpoint_name_maps_to_table_and_path(self, endpoint: str, table_name: str, path: str) -> None:

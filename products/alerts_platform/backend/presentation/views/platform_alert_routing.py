@@ -22,7 +22,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import as_drf_validation_error
 from posthog.models import User
 from posthog.permissions import FEATURE_FLAG_REQUIRED_ERROR_CODE
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.api import redact_destination_data

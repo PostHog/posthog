@@ -16,6 +16,7 @@
  * * `Databricks` - Databricks
  * * `AzureBlob` - Azure Blob
  * * `S3` - S3
+ * * `MotherDuck` - MotherDuck
  */
 export type ExternalDataDestinationTypeEnumApi =
     (typeof ExternalDataDestinationTypeEnumApi)[keyof typeof ExternalDataDestinationTypeEnumApi]
@@ -29,6 +30,7 @@ export const ExternalDataDestinationTypeEnumApi = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 /**
@@ -70,7 +72,8 @@ export interface ExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     type: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.
@@ -133,7 +136,8 @@ export interface PatchedExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     type?: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.
@@ -211,6 +215,50 @@ export interface AddSourcesResponseApi {
     tables_resyncing: number
     /** Tables whose resync did not start. The sources are still attached. */
     resync_failures: ResyncFailureApi[]
+}
+
+export interface DestinationDeliveryFailureApi {
+    /** ID of the sync run that could not deliver to this destination. */
+    job_id: string
+    /** ID of the source the run belongs to. */
+    source_id: string
+    /** Name of the source: its prefix, if any, and its type. */
+    source_name: string
+    /** Type of the source, for example `Stripe` or `MetaAds`. */
+    source_type: string
+    /**
+     * ID of the table the run synced.
+     * @nullable
+     */
+    schema_id: string | null
+    /**
+     * Name of the table the run synced.
+     * @nullable
+     */
+    schema_name: string | null
+    /** Why the delivery failed, as the destination reported it. Stored credentials of the source and of the destination are masked. */
+    error: string
+    /** Whether the destination's own settings caused the failure, for example a wrong password or a missing permission. Configuration errors do not go away until the settings change. */
+    is_configuration_error: boolean
+    /** When the run started. */
+    created_at: string
+    /**
+     * When the run stopped.
+     * @nullable
+     */
+    finished_at: string | null
+    /**
+     * ID that the run's log lines carry, to find the logs of this run.
+     * @nullable
+     */
+    workflow_run_id: string | null
+}
+
+export interface DestinationDeliveryFailuresResponseApi {
+    /** Sync runs that could not deliver to this destination, newest first. At most 50 runs from the last 14 days, from sources you have access to. */
+    results: DestinationDeliveryFailureApi[]
+    /** How many days back the runs go. */
+    window_days: number
 }
 
 /**
@@ -3051,6 +3099,7 @@ export type ExternalDataDestinationsConnectLinkRetrieveParams = {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      * @minLength 1
      */
     destination_type: ExternalDataDestinationsConnectLinkRetrieveDestinationType
@@ -3076,6 +3125,7 @@ export const ExternalDataDestinationsConnectLinkRetrieveDestinationType = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {

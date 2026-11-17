@@ -27,7 +27,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.metrics.backend.facade.contracts import (
     DERIVED_METRIC_PREFIX,

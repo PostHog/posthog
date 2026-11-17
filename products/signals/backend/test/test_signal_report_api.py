@@ -1140,14 +1140,14 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("min_lift", {"ranking_min_lift": "fix:2"}, ["high"]),
-            ("min_lift_on_two_heads", {"ranking_min_lift": "fix:1.5,open:1.5"}, ["mid"]),
-            ("min_probability", {"ranking_min_probability": "fix:0.3"}, ["high", "mid"]),
-            ("repeated_head_lift_keeps_the_strictest", {"ranking_min_lift": "fix:2,fix:1"}, ["high"]),
+            ("min_lift", {"ranking_min_lift": "fix:2"}, ["high", "stale"]),
+            ("min_lift_on_two_heads", {"ranking_min_lift": "fix:1.5,open:1.5"}, ["mid", "stale"]),
+            ("min_probability", {"ranking_min_probability": "fix:0.3"}, ["high", "mid", "stale"]),
+            ("repeated_head_lift_keeps_the_strictest", {"ranking_min_lift": "fix:2,fix:1"}, ["high", "stale"]),
             (
                 "repeated_head_probability_keeps_the_strictest",
                 {"ranking_min_probability": "fix:0.5,fix:0.2"},
-                ["high"],
+                ["high", "stale"],
             ),
         ]
     )
@@ -1316,7 +1316,9 @@ class TestSignalReportListAPI(APIBaseTest):
             ("naive_vector_time_reads_as_not_stale", datetime(2026, 9, 20, 11, 0), 13, False),
         ]
     )
-    def test_ranking_score_is_stale_after_a_newer_edit(self, _name, embedding_inserted_at, edit_hour, expected_stale):
+    def test_ranking_score_is_marked_stale_after_a_newer_edit_and_still_sorts(
+        self, _name, embedding_inserted_at, edit_hour, expected_stale
+    ):
         self.user.is_staff = True
         self.user.save()
         edited = self._create_report(title="Edited")
@@ -1347,9 +1349,7 @@ class TestSignalReportListAPI(APIBaseTest):
         by_id = {row["id"]: row for row in rows}
         assert by_id[str(edited.id)]["ranking"]["status"] == ("stale" if expected_stale else "scored")
         assert by_id[str(other.id)]["ranking"]["status"] == "scored"
-        ids = [row["id"] for row in rows]
-        expected_order = [str(other.id), str(edited.id)] if expected_stale else [str(edited.id), str(other.id)]
-        assert ids == expected_order
+        assert [row["id"] for row in rows] == [str(edited.id), str(other.id)]
 
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{edited.id}/")
         assert response.status_code == status.HTTP_200_OK
@@ -2030,10 +2030,10 @@ class TestSignalReportListAPI(APIBaseTest):
         assert body["ranker"] == "action"
         assert body["ranking_pill"] is True
         assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
+            (str(stale_p0.id), pytest.approx(1 - 0.9876)),
             (str(high_p3.id), pytest.approx(1 - 0.8765)),
             (str(close_score_p0.id), pytest.approx(1 - 0.8123)),
             (str(low_p0.id), pytest.approx(1 - 0.1234)),
-            (str(stale_p0.id), 2),
             (str(unscored_p1.id), 3),
         ]
         assert all(r["ranking"]["status"] == "not_available" for r in body["results"])

@@ -173,6 +173,10 @@ describe('SyncFrequencySelect', () => {
 
     it('explains the range only where a per-view cadence is writable', () => {
         expect(buildExplanation(bounds())).toContain('Pick between 6 hours and 12 hours.')
+        expect(buildExplanation(bounds({ ceiling: { label: '15 minutes', blocker: blocker('daily_revenue') } }))).toBe(
+            "Upstream source stripe_invoices syncs every 6 hours, so this can't refresh more often. " +
+                'Downstream view daily_revenue refreshes every 15 minutes, but gets new data from this view only every 6 hours.'
+        )
         expect(buildExplanation(bounds({ frequency_mode: 'managed_viewset' }))).toBeNull()
         expect(buildExplanation(bounds({ floor: null, ceiling: null }))).toBeNull()
     })

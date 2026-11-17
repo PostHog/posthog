@@ -13,7 +13,7 @@ import { RecordingUniversalFilters } from '~/types'
 
 import { FilterChips } from './FilterChips'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
-import { comparableRecordingFilters } from './playlistUtils'
+import { stripSessionIds } from './playlistUtils'
 import { QuillSaveFiltersModal } from './QuillSaveFiltersModal'
 import { SavedFilterEditedBar } from './SavedFilterEditedBar'
 import { SavedFilterSelect } from './SavedFilterSelect'
@@ -21,7 +21,7 @@ import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic
 
 function withoutSort(filters: RecordingUniversalFilters): Partial<RecordingUniversalFilters> {
     const { order: _order, order_direction: _direction, ...rest } = filters
-    return comparableRecordingFilters(rest)
+    return stripSessionIds(rest)
 }
 
 export function ReplayFilterBar({
@@ -57,7 +57,7 @@ export function ReplayFilterBar({
     })
     const [saveModalOpen, setSaveModalOpen] = useState(false)
 
-    const edited = !!appliedSavedFilter && !equal(appliedSavedFilterFilters, comparableRecordingFilters(filters))
+    const edited = !!appliedSavedFilter && !equal(appliedSavedFilterFilters, stripSessionIds(filters))
     const filtersAreDefault = equal(withoutSort(filters), withoutSort(defaultFilters))
     useEffect(() => {
         if (appliedSavedFilter && filtersAreDefault) {

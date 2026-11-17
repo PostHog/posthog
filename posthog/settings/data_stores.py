@@ -840,6 +840,18 @@ CACHES["metrics_variable_options"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Prometheus API usage is deduplicated with SETNX after a query has already succeeded. Short socket
+# deadlines keep a stalled Redis from holding the query response; the event is skipped instead.
+CACHES["metrics_prometheus_usage"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SOCKET_CONNECT_TIMEOUT": 0.2,
+        "SOCKET_TIMEOUT": 0.2,
+    },
+}
+
 # Warehouse destination connect tokens are polled right after they are written, and completion claims a
 # token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
 CACHES["warehouse_destination_connect"] = {
@@ -859,6 +871,12 @@ CACHES["admin_console_results"] = {
 CACHES["aeo_prompt_suggestions"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
+}
+
+# The `@current` dedupe runs inside the request, so a stalled Redis must drop an event, not hold a worker.
+CACHES["current_alias_usage"] = {
+    **CACHES["default"],
+    "OPTIONS": {**CACHES["default"]["OPTIONS"], "SOCKET_CONNECT_TIMEOUT": 0.1, "SOCKET_TIMEOUT": 0.1},
 }
 
 # Dedicated cache for the feature flags service (if configured)
@@ -934,6 +952,7 @@ if TEST:
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
     CACHES["admin_console_results"] = CACHES["default"]
+    CACHES["current_alias_usage"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

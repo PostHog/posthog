@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Collection, Iterable, Iterator
 from datetime import datetime, timedelta
 from itertools import islice
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -19,18 +19,17 @@ from django.utils import timezone
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import AnalyticsProps
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.schema_enums import AlertState
+from posthog.schema_enums import AlertState, NodeKind
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend import platform_subscribers
-from products.alerts.backend.activity_logging import AlertConfigurationContext
 from products.alerts.backend.facade import contracts
 from products.alerts.backend.forecast.access import forecast_detector_access_error
 from products.alerts.backend.forecast.rules import forecast_rule
@@ -73,7 +72,6 @@ from products.alerts.backend.models.alert import (
 )
 from products.alerts.backend.platform_insight_alert import native_insight_alert_view
 from products.alerts_platform.backend.facade.api import (
-    assign_native_creator,
     enabled_native_configurations,
     native_configuration_team_id,
     native_source_config_values,
@@ -125,6 +123,35 @@ def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
         return team_id
     # An alert with no insight row carries its platform alert's id.
     return native_configuration_team_id(configuration_id=alert_id, source_kind=SourceKind.INSIGHT)
+
+
+def search_insight_alerts(
+    *,
+    project_id: int,
+    query: str | None,
+    access_control: UserAccessControl,
+    limit: int,
+    with_access_levels: bool = False,
+    include_count: bool = True,
+) -> tuple[list[dict[str, Any]], int]:
+    """Ranked full-text search over a project's insight alerts by name, in the result shape of core search.
+
+    Each result's id is the alert's public id, and an alert the platform holds shows its settings and
+    state from the platform. Without a query the alerts come in name order. `include_count=False`
+    reports a total of 0.
+    """
+    # Deferred: `alert_search` reads the cutover module, which imports `posthog.tasks.alerts.utils`, and
+    # that module imports this facade.
+    from products.alerts.backend import alert_search  # noqa: PLC0415
+
+    return alert_search.search_insight_alerts(
+        project_id=project_id,
+        query=query,
+        access_control=access_control,
+        limit=limit,
+        with_access_levels=with_access_levels,
+        include_count=include_count,
+    )
 
 
 def _insight_owned_rows() -> QuerySet[AlertConfiguration]:
@@ -631,48 +658,52 @@ def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> l
     return list(dict.fromkeys(short_id for _, short_id in newest_first))[:limit]
 
 
-def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_impersonated: bool) -> None:
-    """Make `user` the owner of the alert and record the takeover in the activity log.
+def validate_alert_write(
+    attrs: dict[str, Any],
+    *,
+    instance: contracts.AlertValidationState | None,
+    query: dict[str, Any] | None,
+    insight_kind: NodeKind | None,
+    team: Team,
+    actor: User,
+    owner: User | None,
+) -> dict[str, Any]:
+    from products.alerts.backend.logic.alert_validation import validate_alert_write as validate
 
-    `created_by` is excluded from the save diff, so the takeover gets its own activity. An alert with
-    no insight row is the platform's, which stores its creator.
-    """
-    alert = (
-        AlertConfiguration.objects.select_related("insight", "created_by").filter(team_id=team_id, id=alert_id).first()
+    return validate(
+        attrs,
+        instance=instance,
+        query=query,
+        insight_kind=insight_kind,
+        team=team,
+        organization=team.organization,
+        actor=actor,
+        owner=owner,
     )
-    if alert is not None:
-        previous_owner = alert.created_by
-        alert.created_by = user
-        alert.save(update_fields=["created_by"])
-    else:
-        alert = _native_alert(team_id=team_id, alert_id=alert_id)
-        previous_owner = alert.created_by
-        _assign_native_creator(team_id=team_id, alert_id=alert_id, user=user)
-    log_activity(
-        organization_id=alert.team.organization_id,
-        team_id=alert.team_id,
-        user=user,
+
+
+def take_alert_ownership(
+    *,
+    team_id: int,
+    alert_id: uuid.UUID,
+    actor: User,
+    owner: User,
+    was_impersonated: bool,
+    analytics_props: AnalyticsProps | None = None,
+    has_metrics_scope: bool = True,
+) -> None:
+    from products.alerts.backend.logic.ownership import (
+        take_alert_ownership as transfer,  # noqa: PLC0415 -- platform write helpers depend on this facade
+    )
+
+    transfer(
+        team_id=team_id,
+        alert_id=alert_id,
+        actor=actor,
+        owner=owner,
         was_impersonated=was_impersonated,
-        item_id=alert.id,
-        scope="AlertConfiguration",
-        activity="took_ownership",
-        detail=Detail(
-            name=alert.name or f"Alert for {alert.insight.name}",
-            changes=[
-                Change(
-                    type="AlertConfiguration",
-                    action="changed",
-                    field="created_by",
-                    before={"id": previous_owner.id, "email": previous_owner.email} if previous_owner else None,
-                    after={"id": user.id, "email": user.email},
-                )
-            ],
-            context=AlertConfigurationContext(
-                insight_id=alert.insight_id,
-                insight_short_id=alert.insight.short_id,
-                insight_name=alert.insight.name,
-            ),
-        ),
+        analytics_props=analytics_props,
+        has_metrics_scope=has_metrics_scope,
     )
 
 
@@ -684,13 +715,6 @@ def _native_alert(*, team_id: int, alert_id: uuid.UUID) -> AlertConfiguration:
     if alert is None:
         raise AlertConfiguration.DoesNotExist(f"No insight alert {alert_id} in team {team_id}")
     return alert
-
-
-def _assign_native_creator(*, team_id: int, alert_id: uuid.UUID, user: User) -> None:
-    if not assign_native_creator(
-        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id, created_by_id=user.id
-    ):
-        raise AlertConfiguration.DoesNotExist(f"No insight alert {alert_id} in team {team_id}")
 
 
 __all__ = [
@@ -716,10 +740,11 @@ __all__ = [
     "LLMDetectorUnavailableError",
     "UNAVAILABLE_ERRORS_BY_NAME",
     "admit_llm_alert_write",
-    "assign_alert_owner",
+    "take_alert_ownership",
     "calls_ai_gateway",
     "forecast_detector_access_error",
     "forecast_rule",
     "is_llm_detector_config",
     "llm_detector_access_error",
+    "validate_alert_write",
 ]

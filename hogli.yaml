@@ -1190,6 +1190,9 @@ utilities:
     worktrees:clean:
         click: hogli_commands.worktrees:worktrees_clean
         description: Clear out unused Claude Code / Codex / PostHog Desktop / phw worktrees by age
+    watch:
+        click: hogli_commands.watch:watch
+        description: Background housekeeping (daily worktree cleanup, ClickHouse idle stop); --ensure clickhouse starts it on demand
     pr:upload-image:
         click: hogli_commands.upload_image:upload_image
         description: Attach screenshot(s) to the PR description, or upload to PostHog/pr-assets and print markdown

@@ -130,34 +130,11 @@ describe('inboxTaskKickoffLogic', () => {
                 },
             })
             initKeaTests()
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
             logic = inboxTaskKickoffLogic()
             logic.mount()
         })
 
         afterEach(() => logic.unmount())
-
-        it.each([false, undefined])('does not launch report AI when access is %s', async (access) => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
-                ...(access === undefined ? {} : { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: access }),
-            })
-            await expectLogic(logic, () => {
-                logic.actions.openReportCheckMetricSuggestion(report, { id: 'check-1' } as SignalReportCheckApi)
-                logic.actions.openReportDiscussion(report, 'https://example.com/report')
-                logic.actions.warmReportDiscussion(report)
-                logic.actions.discussReport(report, 'https://example.com/report', 'Explain the fix')
-                logic.actions.implementReport(report, undefined, 'detail_pane')
-                logic.actions.createPrFromReport(report)
-            }).toFinishAllListeners()
-            expect(createdTasks).toEqual([])
-            expect(startedRuns).toEqual([])
-            expect(warmRequests).toEqual([])
-            expect(logic.values.reportChatContext).toBeNull()
-            expect(logic.values.isCreatingPr).toBe(false)
-            expect(logic.values.isDiscussing).toBe(false)
-        })
 
         it.each([
             { enabled: true, legacyEnabled: true },
@@ -171,7 +148,6 @@ describe('inboxTaskKickoffLogic', () => {
                     ...(legacyEnabled ? ['signals-report-checks-replace'] : []),
                 ],
                 {
-                    [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
                     'signals-report-checks-replace': legacyEnabled,
                     ...(enabled === undefined ? {} : { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled }),
                 }
@@ -884,8 +860,6 @@ describe('inboxTaskKickoffLogic', () => {
             localStorage.clear()
             initKeaTests()
             featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
-            featureFlagLogic.mount()
             logic = inboxTaskKickoffLogic()
             logic.mount()
         })
@@ -1126,8 +1100,8 @@ describe('inboxTaskKickoffLogic', () => {
             expect(prompt).toContain('inbox-reports-set-state')
             expect(prompt).toContain('fixed_outside_posthog')
             expect(prompt).toContain('suppressed')
-            // Suppressing leaves the claim standing, so the run has to drop it itself.
-            expect(prompt).toContain('then release your claim')
+            // Suppressing releases the claim, so the run must not try to release it again.
+            expect(prompt).toContain('Suppressing the report also releases its claim')
             // The claim is taken once, at task creation, so a rerun starts unclaimed.
             expect(prompt).toContain('claim it again first')
             // Resolving through the state API closes the report's open PR, so the run must not report

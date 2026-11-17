@@ -402,6 +402,7 @@ class RunState(BaseModel, extra="allow"):
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
     sandbox_template: str | None = None
+    agent_memory_locked: bool = False
 
     @property
     def model_access(self) -> ModelAccess:
@@ -425,6 +426,9 @@ class RunState(BaseModel, extra="allow"):
         mount_path = self.resume_snapshot_mount_path()
         if mount_path is not None:
             carried["snapshot_mount_path"] = mount_path
+        # The snapshot holds files written during another member's turns.
+        if self.agent_memory_locked:
+            carried["agent_memory_locked"] = True
         return carried
 
 

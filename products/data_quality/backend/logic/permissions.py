@@ -12,7 +12,7 @@ from . import posthog_tables
 from .subject_access import DenialContext, ReadableSubjects, denial_context
 
 if TYPE_CHECKING:
-    from posthog.scopes import APIScopeObject
+    from posthog.scopes.catalog import APIScopeObject
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 

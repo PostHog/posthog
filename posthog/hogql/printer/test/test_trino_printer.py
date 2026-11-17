@@ -49,7 +49,11 @@ from posthog.schema_enums import PersonsOnEventsMode
 
 
 def _trino_modifiers() -> HogQLQueryModifiers:
-    return HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
+    # A pinned events schema keeps printing off the instance setting, which these tests have no database to read.
+    return HogQLQueryModifiers(
+        personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+        useNewEventsSchema=False,
+    )
 
 
 def _context_with_trino_table() -> HogQLContext:
