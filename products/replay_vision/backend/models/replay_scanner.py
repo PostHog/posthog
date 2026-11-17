@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from posthog.schema import RecordingsQuery
 
-# Lives here, not in queries/scanner_candidate_query (which imports SamplingMode from this
+# Lives here, not in queries/scanner_candidate_query (which imports SETTLE_INTERVAL from this
 # module), so `initial_watermark`'s default callable never needs to import back up into the
 # query layer — models must stay a dependency leaf for the query layer, never the reverse.
 # 30-min inactivity timeout + 5-min merge-lag buffer.
@@ -203,7 +203,8 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         max_length=20,
         choices=SamplingMode.choices,
         default=SamplingMode.COMPREHENSIVE,
-        help_text="Quality pre-filter applied before random sampling. focused = top sessions by surfacing score, balanced = drops the lowest-quality sessions, comprehensive = no filter.",
+        db_default=SamplingMode.COMPREHENSIVE,
+        help_text="Deprecated and ignored: every scanner scans as comprehensive. Only `retire_scanner_sampling_modes` reads or writes it.",
     )
 
     provider = models.CharField(max_length=32, choices=ScannerProvider.choices, default=ScannerProvider.GOOGLE)
@@ -491,13 +492,12 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         "query",
         "experiment_targeting",
         "sampling_rate",
-        "sampling_mode",
         "provider",
         "model",
         "emits_signals",
     )
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
-    _ESTIMATE_FIELDS = frozenset({"query", "experiment_targeting", "sampling_rate", "sampling_mode"})
+    _ESTIMATE_FIELDS = frozenset({"query", "experiment_targeting", "sampling_rate"})
 
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (

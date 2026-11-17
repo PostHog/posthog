@@ -136,16 +136,17 @@ def provider(model: str | None) -> Provider | None:
     return GATEWAY_PROVIDERS.get(model) if model else None
 
 
-def build_client(team_id: int, run_id: str, model: str) -> JudgeClient:
-    """A Go gateway client for the model's provider, in privacy mode with the review's product tag and team."""
+def build_client(team_id: int, run_id: str, model: str, trigger: str) -> JudgeClient:
+    """A Go gateway client for the model's provider, in privacy mode with the review's product tag, team and
+    trigger."""
     kind = provider(model)
     if kind == "anthropic":
-        return call_review.build_client(team_id, run_id)
+        return call_review.build_client(team_id, run_id, trigger)
     if kind == "gemini":
         gemini = build_gemini_client(
             ai_product=AI_PRODUCT,
             trace_id=run_id,
-            properties={"team_id": str(team_id)},
+            properties={"team_id": str(team_id), "trigger": trigger},
             distinct_id=team_distinct_id(team_id),
             privacy_mode=True,
             timeout_ms=int(TIMEOUT_SECONDS * 1000),
@@ -160,7 +161,7 @@ def build_client(team_id: int, run_id: str, model: str) -> JudgeClient:
         "django",
         ai_product=AI_PRODUCT,
         trace_id=run_id,
-        properties={"team_id": str(team_id)},
+        properties={"team_id": str(team_id), "trigger": trigger},
         distinct_id=team_distinct_id(team_id),
         privacy_mode=True,
     )
