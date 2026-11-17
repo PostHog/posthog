@@ -19,7 +19,6 @@ from rest_framework.test import APIRequestFactory
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
-from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Project, Team, User
 from posthog.models.personal_api_key import hash_key_value
@@ -85,18 +84,9 @@ def _body(**overrides) -> dict:
 
 
 def _throttle_request(user: User, personal_api_key: str | None = None) -> Request:
-    if personal_api_key:
-        request = cast(
-            Request,
-            Request(
-                APIRequestFactory().post("/", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}"),
-                authenticators=[PersonalAPIKeyAuthentication()],
-            ),
-        )
-        assert request.user == user
-        return request
+    headers = {"HTTP_AUTHORIZATION": f"Bearer {personal_api_key}"} if personal_api_key else {}
     # ty resolves the DRF Request constructor to its wrapped HttpRequest type; the cast restores it.
-    request = cast(Request, Request(APIRequestFactory().post("/")))
+    request = cast(Request, Request(APIRequestFactory().post("/", **headers)))
     # Resolve the authenticator first. DRF resets `user` to anonymous when it finds none, which
     # would discard a user assigned before that.
     assert request.successful_authenticator is None

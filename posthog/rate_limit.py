@@ -714,7 +714,7 @@ class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
         if request.user.is_authenticated:
-            ident = getattr(request.successful_authenticator, "personal_api_key_hash", None) or request.user.pk
+            ident = hashed_personal_api_key_for_throttling(request) or request.user.pk
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
