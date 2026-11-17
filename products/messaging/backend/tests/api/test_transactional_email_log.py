@@ -17,6 +17,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Element, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.fixtures import create_app_metric2
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
@@ -45,7 +46,15 @@ RANK = {
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
 SLOW_SEND_MINUTES_AGO = 12 * 24 * 60
 DELAYED_SEND_MINUTES_AGO = 15 * 24 * 60
-IMPACT_COUNTS = {"sent": 8, "delivered": 7, "opened": 5, "clicked": 4, "window_days": 7}
+IMPACT_COUNTS = {
+    "sent": 9,
+    "delivered": 7,
+    "opened": 5,
+    "clicked": 5,
+    "not_clicked": 3,
+    "untracked": 2,
+    "window_days": 7,
+}
 LONG_ID_SENDS = 15
 SMALL_MAX_QUERY_SIZE = 16 * 1024
 
@@ -588,6 +597,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             (4_000, "reader", [*delivered, ("opened", 60, "")], timedelta(days=1)),
             (5_000, "late", delivered, timedelta(days=7, hours=1)),
             (6_000, "bounced", [("sent", 1, ""), ("bounced", 2, "")], timedelta(hours=1)),
+            (7_000, None, [("sent", 1, ""), ("clicked", 3600, "")], None),
         ]
         for minutes_ago, distinct_id, statuses, purchase_after_send in sends:
             message_id = self._send(minutes_ago, f"{distinct_id}@example.com", statuses)
@@ -601,6 +611,20 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 )
         other_workflow = create_workflow_for_test(team_id=self.team.id, name="Welcome").id
         self._send(500, "clicker@example.com", clicked_an_hour_in, workflow_id=other_workflow)
+        for workflow_id, metric_name, count in [
+            (str(self.workflow_id), "email_untracked", 2),
+            (str(self.workflow_id), "email_sent", 9),
+            (str(other_workflow), "email_untracked", 5),
+        ]:
+            create_app_metric2(
+                team_id=self.team.id,
+                app_source="hog_flow",
+                app_source_id=workflow_id,
+                timestamp=NOW - timedelta(days=1),
+                metric_kind="email",
+                metric_name=metric_name,
+                count=count,
+            )
         flush_persons_and_events()
 
     def _impact(self, **params: str) -> dict:
@@ -663,6 +687,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "delivered": 1,
             "opened": 1,
             "clicked": 1,
+            "not_clicked": 0,
+            "untracked": 0,
             "window_days": 7,
             "after_click": {"sends": 1, "converted": 1},
             "without_click": {"sends": 0, "converted": 0},

@@ -463,6 +463,8 @@ class TransactionalEmailImpact:
     delivered: int
     opened: int
     clicked: int
+    not_clicked: int
+    untracked: int
     window_days: int
     after_click: TransactionalEmailConversions | None
     without_click: TransactionalEmailConversions | None

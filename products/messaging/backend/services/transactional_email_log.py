@@ -601,14 +601,15 @@ def transactional_email_impact(
     a week of clicking, against sends that were delivered and never clicked."""
     period = _window(date_from, date_to)
     params: dict[str, Any] = {"start": period.start, "end": period.end, "workflow_id": workflow_id}
-    [(sent, delivered, opened, clicked)] = _execute(
+    [(sent, delivered, opened, clicked, not_clicked)] = _execute(
         team.id,
         f"""
         SELECT
             countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained')),
             countIf(delivery_status IN ('delivered', 'complained')),
             countIf(was_opened),
-            countIf(was_clicked)
+            countIf(was_clicked),
+            countIf(delivery_status IN ('delivered', 'complained') AND NOT was_clicked)
         FROM (
             SELECT {_MESSAGE_COLUMNS}
             FROM {EMAIL_STATUS_EVENTS_TABLE}
@@ -620,12 +621,15 @@ def transactional_email_impact(
         params,
         _GROUP_AS_READ,
     )
+    untracked = _untracked_sends(team.id, workflow_id, period)
     if not event:
         return TransactionalEmailImpact(
             sent=sent,
             delivered=delivered,
             opened=opened,
             clicked=clicked,
+            not_clicked=not_clicked,
+            untracked=untracked,
             window_days=IMPACT_WINDOW_DAYS,
             after_click=None,
             without_click=None,
@@ -637,10 +641,26 @@ def transactional_email_impact(
         delivered=delivered,
         opened=opened,
         clicked=clicked,
+        not_clicked=not_clicked,
+        untracked=untracked,
         window_days=IMPACT_WINDOW_DAYS,
         after_click=_conversions_of([send for send in sends if send.clicked], converted),
         without_click=_conversions_of([send for send in sends if not send.clicked], converted),
     )
+
+
+def _untracked_sends(team_id: int, workflow_id: str, period: _Period) -> int:
+    [(untracked,)] = _execute(
+        team_id,
+        """
+        SELECT sum(count)
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s AND app_source = 'hog_flow' AND app_source_id = %(workflow_id)s
+          AND metric_name = 'email_untracked' AND timestamp >= %(start)s AND timestamp < %(end)s
+        """,
+        {"workflow_id": workflow_id, "start": period.start, "end": period.end},
+    )
+    return untracked
 
 
 @frozen
