@@ -1,26 +1,42 @@
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { IconMessage } from '@posthog/icons'
+
+import { useSceneFileActions } from 'lib/components/Scenes/useSceneFileActions'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { SceneMenuBar, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
+import { SceneActions } from '~/layout/scenes/sceneActions/SceneActions'
+
+import { QuillFeedbackButton } from 'products/customer_analytics/frontend/components/QuillFeedbackButton'
+
+const RESOURCE_TYPE = 'persons'
+// pinned: the feedback survey targets this element id
+const FEEDBACK_BUTTON_ID = 'customer-analytics-people-list-feedback-button'
 
 export function PersonsSceneMenuBar(): JSX.Element | null {
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-
     if (!sceneMenuBarEnabled) {
         return null
     }
+    return <PersonsSceneMenuBarInner />
+}
 
-    if (todayRailNav) {
-        // This page has no project tree entry, so it has no File menu. The bar adds Help under the Today layout.
-        return <SceneMenuBar />
-    }
+function PersonsSceneMenuBarInner(): JSX.Element {
+    const fileActions = useSceneFileActions(RESOURCE_TYPE)
 
-    return (
-        <SceneMenuBar>
-            <SceneMenuBarMenu label="File" dataAttr="persons-menubar-file">
-                <SceneMenuBarFileItems dataAttrKey="persons" />
-            </SceneMenuBarMenu>
-        </SceneMenuBar>
-    )
+    const actions: SceneAction[] = [
+        ...fileActions,
+        {
+            group: 'file',
+            section: 'feedback',
+            id: `${RESOURCE_TYPE}-menubar-feedback`,
+            label: 'Feedback',
+            icon: <IconMessage />,
+            tooltip: 'Have any questions or feedback?',
+            // The survey opens from a click on the element with its id, so the row clicks the title button.
+            onSelect: () => document.getElementById(FEEDBACK_BUTTON_ID)?.click(),
+            pinned: { order: 1, variant: 'secondary', render: () => <QuillFeedbackButton id={FEEDBACK_BUTTON_ID} /> },
+        },
+    ]
+
+    return <SceneActions actions={actions} dataAttrKey={RESOURCE_TYPE} />
 }

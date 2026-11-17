@@ -16,6 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { loadNotebookFromJSON } from './loadNotebookFromJSON'
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
+import { NotebookCanvasSceneMenuBar } from './NotebookCanvasSceneMenuBar'
 import { QuillNotebookCanvasActions } from './QuillNotebookCanvasActions'
 
 export const scene: SceneExport = {
@@ -35,6 +36,7 @@ export function NotebookCanvas(): JSX.Element {
 
     return (
         <SceneContent className="h-full">
+            <NotebookCanvasSceneMenuBar logicProps={logicProps} />
             <SceneTitleSection
                 name="Canvas"
                 resourceType={{

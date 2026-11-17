@@ -87,6 +87,7 @@ import { SurveyEditIntroScreenHeader } from './SurveyEditIntroScreenHeader'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
+import { SurveySceneMenuBar } from './SurveySceneMenuBar'
 import { surveysLogic } from './surveysLogic'
 import { canUseSurveyWizard, withIntroScreenEnabled } from './utils'
 
@@ -312,6 +313,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         editingSurvey,
         loadSurvey,
         clearAiGeneratedTranslationField,
+        submitSurvey,
     } = useActions(surveyLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -445,6 +447,40 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     activeEditingLanguage || hasVisibleTranslationValidationErrors ? 'mt-1' : ''
                 }`}
             >
+                <SurveySceneMenuBar
+                    editing={{
+                        saveLabel: id === 'new' ? 'Save as draft' : 'Save',
+                        saveDisabledReason: hasVisibleTranslationValidationErrors
+                            ? 'Cannot save: please fix translation validation errors below'
+                            : undefined,
+                        busy: surveyLoading,
+                        onSave: submitSurvey,
+                        onCancel: handleCancelClick,
+                        renderSave: () => (
+                            <Button
+                                variant="primary"
+                                data-attr="save-survey"
+                                type="submit"
+                                loading={surveyLoading}
+                                form="survey"
+                                disabledReason={
+                                    hasVisibleTranslationValidationErrors
+                                        ? 'Cannot save: please fix translation validation errors below'
+                                        : undefined
+                                }
+                            >
+                                {id === 'new' ? 'Save as draft' : 'Save'}
+                            </Button>
+                        ),
+                        onOpenGuidedEditor: canUseSurveyWizard(survey)
+                            ? () => {
+                                  setPreferredEditor('guided')
+                                  router.actions.push(urls.surveyWizard(id))
+                              }
+                            : undefined,
+                        onConvertToHosted: canConvertToHosted ? convertToHostedSurvey : undefined,
+                    }}
+                />
                 <SceneTitleSection
                     name={
                         activeEditingLanguage ? (survey.translations?.[activeEditingLanguage]?.name ?? '') : survey.name

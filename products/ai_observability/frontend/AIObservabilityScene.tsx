@@ -40,6 +40,7 @@ import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
+import { AIObservabilityDocsSceneMenuBar } from './AIObservabilityDocsSceneMenuBar'
 import { AIObservabilityErrors } from './AIObservabilityErrors'
 import { AIObservabilityReloadAction } from './AIObservabilityReloadAction'
 import { AIObservabilitySessionsPlaylist } from './AIObservabilitySessionsPlaylist'
@@ -745,6 +746,10 @@ function AIObservabilityTabbedContent(): JSX.Element {
 
     return (
         <SceneContent>
+            <AIObservabilityDocsSceneMenuBar
+                dataAttrKey="ai-observability"
+                docsUrl={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
+            />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.AIObservability].name}
                 description={TAB_DESCRIPTIONS[activeTab] || sceneConfigurations[Scene.AIObservability].description}

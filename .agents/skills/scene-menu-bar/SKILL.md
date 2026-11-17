@@ -1,207 +1,129 @@
 ---
 name: scene-menu-bar
-description: Conventions for adding or editing the SceneMenuBar above a scene's <SceneTitleSection>. Use when adding new menu items, moving items between menus, gating behind feature flags, building a new scene's menubar, or wiring rich inputs (tags, combobox) into the bar.
+description: Conventions for a scene's actions, declared once as a SceneAction list that feeds the menu bar, the "More actions" menu and the title row buttons. Use when adding or moving a scene action, pinning an action to the title row, building a new scene's action list, gating actions behind feature flags, or wiring rich inputs (tags, comboboxes) into a scene's menu.
 ---
 
-# SceneMenuBar conventions
+# Scene action conventions
 
-PostHog scenes render a Mac-style menu bar above `<SceneTitleSection>` that consolidates
-ScenePanel actions into a discoverable, keyboard-navigable surface. This skill documents
-the taxonomy, the available primitives, and the wiring rules.
+A scene declares its actions once, as a `SceneAction[]` list, and renders `<SceneActions actions={actions} dataAttrKey={RESOURCE_TYPE} />` above `<SceneTitleSection>`.
+The list renders as the Mac-style menu bar, as the "More actions" menu after the scene name under `today-rail-nav`, and, under `scene-actions`, as the title row buttons too.
+`frontend/src/layout/scenes/AGENTS.md` says which flag draws which surface.
 
-The whole bar is gated by the `SCENE_MENU_BAR` feature flag (see `lib/constants.tsx`).
+| File                                                         | Holds                                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `layout/scenes/sceneActions/sceneActionModel.ts`             | `SceneAction`, groups, pinning caps, and the tree the menu renders |
+| `packages/quill/packages/components/src/action-menu-tree.ts` | The item kinds a `SceneAction` extends, and the search             |
+| `layout/scenes/sceneActions/SceneActions.tsx`                | The component a scene renders                                      |
+| `layout/scenes/sceneActions/SceneActions.stories.tsx`        | Every item kind in one list, rendered under both flags             |
 
-## Today layout: one "More actions" menu
+Reference scenes: `products/dashboards/frontend/DashboardSceneMenuBar.tsx` (large File menu, submenus, toggles, conditional pins) and `products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueSceneMenuBar.tsx` (radios, panels, pins with a custom title control).
 
-Under the `today-rail-nav` flag, a scene with a `<SceneTitleSection>` shows no menu bar.
-Instead the title row holds one "More actions" button after the scene name (`SceneActionsMenu.tsx`).
-Scenes declare their menus once with the same primitives.
-The primitives read `SceneMenuBarRenderContext` and render the menu's shape, so do not branch on the flag in a scene's menu bar.
-A Today-layout scene without a title, and every scene with `today-rail-nav` off, keep the menu bar.
+## An action
 
-The menu opens on a search field ("Search actions") and a short top level:
+```tsx
+const actions: SceneAction[] = [
+    {
+        group: 'file',
+        section: 'share',
+        id: `${RESOURCE_TYPE}-menubar-subscribe`, // also the data-attr and the captured analytics item
+        label: 'Subscribe',
+        icon: <IconBell />,
+        onSelect: subscribe,
+        pinned: { order: 2, variant: 'secondary' },
+    },
+    ...(canDelete
+        ? ([
+              {
+                  group: 'file',
+                  section: 'delete',
+                  id: `${RESOURCE_TYPE}-menubar-delete`,
+                  label: 'Delete dashboard',
+                  icon: <IconTrash />,
+                  destructive: true,
+                  disabledReason: getAccessControlDisabledReason(…) ?? undefined,
+                  onSelect: remove,
+              },
+          ] satisfies SceneAction[])
+        : []),
+]
+```
 
-- **Each menu is one row that opens a submenu**, in the order the scene declares them, labeled with its own label (File, Edit, View, Staff only, Help, or any other label as written).
-  A disabled menu, or one whose rows all render nothing, is left out, not grayed out.
-- **A `SceneMenuBarSubMenu` inside a menu** renders as a labeled group in that menu's submenu, so the menu never nests two levels deep.
-  Pass `keepAsSubmenu` to keep a real submenu, the one allowed second level: use it for a long list of toggles (Web analytics' visible tiles) and for a submenu that holds another submenu (Dashboard's Customize).
-- **Destructive items** (`variant="destructive"`) stay at the top level, last, after a separator, whichever menu declares them, so "Delete" never hides inside File.
-  Keep them at the bottom of File for the menu bar, and keep any `AccessControlAction` wrapper.
-  Destructive rows inside a kept submenu stay in that submenu.
-- **A `SceneMenuBarPopover`** is one row, its label plus "…" ("Metadata…"), in its declared place.
-  The row closes the menu and opens the same content in a popover anchored to the button, so text inputs work there.
-- **Help** (Settings, Docs, Support) is the last menu.
-  A titled scene that renders no menu bar gets the button with the Help rows directly in it, and no search field.
+| `type`             | Use for                                                                  | Fields                                                             |
+| ------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `action` (default) | A command or a navigation                                                | `onSelect`, `destructive`, `opensFloatingUi`, `shortcut`           |
+| `checkbox`         | A toggle. Use a stable label (`Pinned`, not `Pin/Unpin`)                 | `checked`, `onCheckedChange`                                       |
+| `radio`            | One of several. `label` names the choice ("Tile density")                | `value`, `options`, `onValueChange`                                |
+| `submenu`          | Create, Export, Add to notebook                                          | `items`, `display: 'submenu'`, `searchable: false`, `onOpenChange` |
+| `panel`            | Rich inputs: tags, comboboxes, forms. Opens a popover; inputs work there | `render`, `panelClassName`                                         |
 
-Typing a query replaces the top level with one flat list of the matching rows from every menu and group.
-Each row shows its path in front of its label ("File › Export › CSV"), and the path takes part in the match.
-A menu whose label matches is listed as a row that opens its submenu, before its rows.
-A kept submenu is one row that opens it, and the search does not reach its rows.
-Destructive rows stay last.
-Escape clears the query first, then closes the menu.
+Every kind takes `disabledReason`, `tooltip`, `section` and `keywords` (extra search words).
+`id` is a wire string: keep it when you move or relabel an action.
 
-## Components
+## Groups and order
 
-All primitives live in `frontend/src/layout/scenes/components/SceneMenuBar.tsx`.
+`group` picks the menu. Known groups render in this order with these labels; any other string becomes a menu with that label, after View.
 
-| Component                                              | Use for                                                                                                                                                                                                                                                                                                                  |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `<SceneMenuBar>`                                       | Top-level wrapper; renders above `<SceneTitleSection>`. Includes the universal right cluster (PostHog AI / Docs / Support).                                                                                                                                                                                              |
-| `<SceneMenuBarMenu label>`                             | Top-level menu (File / Edit / View / Metadata / Staff only).                                                                                                                                                                                                                                                             |
-| `<SceneMenuBarSubMenu label>`                          | Nested sub-menu inside a `SceneMenuBarMenu` (e.g. `Create`, `Export`, `Add to notebook`). Auto-prepends a blank icon slot to the trigger so the label aligns with icon-bearing siblings — pass `withIconBlank={false}` to opt out. Under the Today layout it renders as a labeled group unless you pass `keepAsSubmenu`. |
-| `<SceneMenuBarItem>`                                   | Standard menu item (action / navigation).                                                                                                                                                                                                                                                                                |
-| `<SceneMenuBarCheckboxItem>`                           | Toggle item — reflects boolean state via checkmark.                                                                                                                                                                                                                                                                      |
-| `<SceneMenuBarRadioGroup>` + `<SceneMenuBarRadioItem>` | One-of-many mutually-exclusive options.                                                                                                                                                                                                                                                                                  |
-| `<SceneMenuBarSeparator>`                              | Horizontal divider between groups.                                                                                                                                                                                                                                                                                       |
-| `<SceneMenuBarShortcut>`                               | Right-aligned keyboard shortcut hint.                                                                                                                                                                                                                                                                                    |
-| `<SceneMenuBarPopover label>`                          | Drop-in alternative to `SceneMenuBarMenu` when content needs rich form controls (text inputs, comboboxes). Uses Popover under the hood — Menu.Popup intercepts keystrokes and blocks inputs. Trigger does NOT participate in CompositeRoot keyboard nav.                                                                 |
+| Group                 | Holds                                                                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `file`                | A `Create` submenu first (section `create`), then project tree items, copy to project, Terraform, scene file ops, an `Export` submenu, then destructive rows (section `delete`) |
+| `edit`                | Duplicate, rename, scene edits, state changes (Pause/Resume, Activate/Deactivate, status), then toggles (section `toggles`)                                                     |
+| `view` (when needed)  | Navigation to see something related: recordings, metalytics, related insights                                                                                                   |
+| `metadata`            | `panel` actions. They sit on the top level of the menu, not in a submenu: "Metadata…" for tags, activity, references, comments                                                  |
+| `staff` (when needed) | Debug panels and internal toggles. Add only for staff, impersonated or self-hosted users                                                                                        |
 
-## Canonical menu set (in order)
-
-| Menu                                       | Items                                                                                                                                                                                                                                  |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **File**                                   | `+ Create` sub-menu (top), ── , project tree items (Open / Move / Star), Copy to another project, Manage with Terraform, scene-specific file ops, Export sub-menu, ──, **Delete / Archive / Restore** (destructive at the very bottom) |
-| **Edit**                                   | Duplicate, Rename, Edit in SQL editor, scene-specific edits, state mutations (Pause/Resume, Activate/Deactivate), ──, toggle group (checkbox/radio items, separated by `<SceneMenuBarSeparator>` from regular items)                   |
-| **View** _(conditional)_                   | Cross-resource viewing — View recordings, View metalytics, View related insights, etc. Anything that navigates to _see_ something tangentially related to the current resource. Skip when empty.                                       |
-| **Metadata** _(use `SceneMenuBarPopover`)_ | Tags, Evaluation contexts, Stage, Activity indicator, External references, Comments, etc.                                                                                                                                              |
-| **Staff only** _(conditional)_             | Debug panels, staff-only toggles. Only render for staff / superpowers / impersonated / non-cloud users.                                                                                                                                |
-
-> **State lives in Edit.** Pause/Resume, Activate/Deactivate, Favorite/Pin toggles and similar
-> state mutations all live inside the Edit menu — usually at the bottom, after a
-> `<SceneMenuBarSeparator>` if there's a toggle group. Don't create a separate `State` menu.
-
-Right cluster is fixed and universal: **PostHog AI · Docs · Support**. Do not add to it.
-Under the Today layout Docs and Support move to the Help menu, which the bar adds itself.
+State lives in Edit: no separate State menu.
+Help (Settings, Docs, Support) is added to every scene. Never declare a `help` action.
 
 ## Rules
 
-### Destructive actions (Delete / Archive / Restore)
+- **Sections, not separators.** Rows next to each other with different `section` values get a separator. A labeled group or radio starts its own section.
+- **Destructive rows** (Delete, Archive, Restore) set `destructive: true`, sit last in File, and carry their access control as `disabledReason`. The "More actions" menu moves them to the end of its top level.
+- **`opensFloatingUi`** appends "…" to rows that open a modal, popover, dialog or side panel. Skip it for navigations, direct actions, toggles and destructive rows.
+- **Empty menus need no handling.** A menu or submenu with no rows is left out.
+- **Submenus nest one level.** Inside a menu, a submenu is a labeled group of rows. `display: 'submenu'` keeps a real submenu, for a long toggle list (Web analytics' visible tiles) or one that holds another choice (Dashboard's Customize).
+- **`searchable: false`** keeps a long data list, such as notebooks, out of the search. Load such a list in `onOpenChange`, never on mount.
+- **Conditional actions** spread an empty array; never put `false` or `null` in the list.
+- **Hooks before returns.** Shared action hooks are hooks: call them before any early return.
 
-- Live at the **bottom of File**, separated from the file ops above by a `<SceneMenuBarSeparator>`.
-- Pass `variant="destructive"` for visual treatment (red text + icon).
-- Do **not** add `opensFloatingUi` to destructive items even when they open a confirmation dialog — the destructive variant + clear label are signal enough.
-- Wrap with `<AccessControlAction>` where the resource has access control levels.
+## Pinning to the title row
 
-### Toggle groups
+`pinned: { order, variant }` shows an action in the title row as well as in the menu.
+One `primary`, at most two `secondary`, at most two `icon`; the model drops the rest, so the menu stays the only home of everything else.
+A narrow scene keeps only the last pinned action: the primary, when there is one.
+Pick pins on usage data, not on how important an action looks.
 
-- Group all `<SceneMenuBarCheckboxItem>` and `<SceneMenuBarRadioGroup>` items together.
-- Separate them from regular action items with `<SceneMenuBarSeparator>` above and (if more items follow) below.
-- Use stable labels — the checkmark conveys state: `Pinned` not `Pin/Unpin`, `Show debug panel` not `Show/Hide debug panel`.
-- Radios for mutually-exclusive choices (`<SceneMenuBarRadioGroup value onValueChange>`).
+The default title control follows the kind: a button for an action, a toggle for a checkbox, a dropdown for a radio or submenu, a popover for a panel.
+`pinned.render` replaces it for a control the default cannot draw, such as a select with custom visuals.
+A pin can be conditional: `pinned: canUndo ? { order: 0, variant: 'icon' } : undefined`.
 
-### `opensFloatingUi` prop
+The scene keeps its `actions` prop on `<SceneTitleSection>` for the flag-off title row. Every action in it must also be in the list.
 
-Append `…` to the item label as a Mac-style affordance for items that open additional floating UI:
+## Shared action hooks
 
-- ✅ **Use** for: modal, popover, dialog, side panel openers
-- ❌ **Skip** for: same-page navigations, direct actions, destructive items (the destructive style already signals consequence), toggle items
+| Hook                                                            | Returns                                                      |
+| --------------------------------------------------------------- | ------------------------------------------------------------ |
+| `useSceneFileActions(key, { group, section })`                  | Open in project tree, Move, Star. Empty without a tree entry |
+| `useScenePinAction(key, { group, section })`                    | Pin to sidebar, under `today-rail-nav`                       |
+| `useAddToNotebookAction(key, { notebookSelectButtonProps, … })` | The "Add to notebook" submenu                                |
+| `useAnalyticsCollectionActions(target, key, { … })`             | Add to, move between, or remove from a collection            |
 
-### `+ Create` cross-sells
+The first three live in `lib/components/Scenes/`, the last in `scenes/analytics/`.
 
-- Nest inside a `<SceneMenuBarSubMenu label="Create">` at the **top of File**.
-- Place a `<SceneMenuBarSeparator>` between Create and the rest of File.
-- Cross-sells: Cohort, Survey, Dashboard, Notebook, Endpoint, Subscription, Alert, Share or embed.
+## Rich inputs and optimistic saves
 
-### Empty menus
+Put text inputs, comboboxes and tag pickers in a `panel`, never in a row: menu rows intercept keystrokes.
+Use `<SceneTagsCombobox>` (`lib/components/Scenes/SceneTagsCombobox.tsx`) for tags.
 
-The "More actions" menu leaves an empty or disabled menu out.
-The rest of this section is about the menu bar.
+Autosave from a panel with a kea listener that:
 
-`SceneMenuBarMenu` auto-disables its trigger when its children render nothing at compile
-time — e.g. `{false && <Item/>}`, `{null}`, or an empty fragment. The trigger stays
-visible (greyed out, `cursor-not-allowed`) so the menu set still communicates the bar's
-capabilities to the user.
+1. Updates optimistically before the API call.
+2. Debounces with `await breakpoint(250)`.
+3. Calls `breakpoint()` after the response, to bail when a newer call superseded this one.
+4. Compares as sets before reconciling, so a reordered server response does not reorder the chips.
+5. Re-throws `error.isBreakpoint`.
 
-For menus whose children may render null at runtime (the most common case is
-`<SceneMenuBarFileItems>`, which returns null when `sceneFileLogic.hasFileItems` is false: no project-tree
-entry is registered, or the Today layout is on),
-the parent **cannot detect** that the popup will be empty. You must either:
-
-1. **Pass `disabled` explicitly** based on the same value the children depend on, e.g.:
-
-   ```tsx
-   const { hasFileItems } = useValues(sceneFileLogic)
-   <SceneMenuBarMenu label="File" disabled={!hasFileItems}>
-       {hasFileItems && <SceneMenuBarFileItems dataAttrKey="…" />}
-   </SceneMenuBarMenu>
-   ```
-
-2. **Gate the whole menu** at the parent if it can't render anything useful:
-
-   ```tsx
-   {
-     hasAnyEditItem && <SceneMenuBarMenu label="Edit">…</SceneMenuBarMenu>
-   }
-   ```
-
-Prefer (1) when the menu's presence is part of the scene's identity (File should always
-be visible even if disabled), and (2) when the menu is genuinely optional (View, Staff
-only).
-
-### Tags / Evaluation contexts / other rich inputs
-
-- Must live inside a `<SceneMenuBarPopover>`, not a `<SceneMenuBarMenu>`. Menu popups
-  intercept keystrokes (typeahead, arrow nav) and prevent text inputs from receiving
-  input.
-- Use `<TagsCombobox>` (`lib/components/Scenes/TagsCombobox.tsx`) for multi-select chip
-  inputs — selection-only by default; pass `allowCustomValues` to surface a
-  "Create new {noun} '...'" item at the bottom.
-- Use `<SceneTagsCombobox>` (`lib/components/Scenes/SceneTagsCombobox.tsx`) as the
-  ready-made wrapper that swaps in for `<SceneTags>` under `SCENE_MENU_BAR`.
-
-### Optimistic saves with debounce
-
-When autosaving from menubar inputs (tags, toggles), use a kea listener with:
-
-1. **Optimistic update** (`setX` + `updateX`) immediately, before the API call.
-2. **`await breakpoint(250)`** to debounce rapid changes.
-3. **`breakpoint()` after the API response** to bail if a newer call has superseded this one.
-4. **Set-equality check** before reconciling with server response to avoid re-ordering
-   when the server returns differently-ordered values.
-5. Re-throw `error.isBreakpoint` so kea swallows it silently.
-
-See `saveTagsInline` in `frontend/src/scenes/feature-flags/featureFlagLogic.ts`.
-
-### File menu — project tree items
-
-Use `<SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />` at the bottom of File
-(before the destructive separator) to render Open in project tree, Move to folder,
-Add/Remove starred. It auto-hides when `sceneFileLogic.hasFileItems` is false.
-
-### Right cluster
-
-Lives outside the `<Menubar>` wrapper to keep CompositeRoot keyboard nav working for
-the actual menus. Do not add items here without UX review.
-
-### Layout-aware bleed
-
-`<SceneMenuBar>` reads `sceneLayoutLogic.sceneLayoutConfig.layout` and bleeds past the
-scene container's padding (`-mx-4 -mt-4`) **only** when the layout is padded:
-`app`, `app-container`, or `app-full-scene-height`. For unpadded layouts (`app-raw`,
-`app-raw-no-header`, `plain`) the negatives would overshoot and visually break the
-header, so they're skipped. You don't need to do anything in your scene — just register
-the right `SceneConfig.layout` and the bar adapts. Sentinel: a `data-scene-layout`
-attribute is set on the wrapper for debugging.
-
-## Scenes already migrated
-
-- Feature Flag — `frontend/src/scenes/feature-flags/FeatureFlag.tsx`
-- Insight — `products/product_analytics/frontend/insights/insightScene/sidePanel/InsightSceneMenuBar.tsx`
-- Dashboard — `products/dashboards/frontend/DashboardSceneMenuBar.tsx`
-
-When migrating a new scene, follow the `<Scene>SceneMenuBar.tsx` pattern (component
-that reads `featureFlagLogic`, early-returns null if the flag is off, otherwise renders
-the bar). Mount it directly above `<SceneTitleSection>`.
+`saveTagsInline` in `frontend/src/scenes/feature-flags/featureFlagLogic.ts` is the reference.
 
 ## Auditing a scene
 
-When migrating a scene, take its existing ScenePanel and map every item to:
-
-1. Which menu it belongs to (File / Edit / View / Metadata / Staff only).
-2. Whether it needs `variant="destructive"` (delete/archive/remove).
-3. Whether it needs `opensFloatingUi` (opens modal/popover/dialog/side panel).
-4. Whether it's a toggle (use `SceneMenuBarCheckboxItem`).
-5. What gates apply (saved state, FF, AccessControl, multi-project).
-
-See `/Users/adamleithp/Desktop/scene-menu-bar-grouping.md` for the running inventory of
-all ScenePanel items across PostHog and their proposed menu placement.
+Map every `ScenePanel` item and every title action to: its group, whether it is destructive, whether it opens floating UI, whether it is a toggle or a choice, its gates (saved state, flags, access control, multi-project), and whether the title row pins it.

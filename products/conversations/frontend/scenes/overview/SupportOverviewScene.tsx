@@ -11,6 +11,7 @@ import { SupportOverviewCharts } from '../../components/SupportOverviewCharts/Su
 import { SupportOverviewNumbers } from '../../components/SupportOverviewNumbers/SupportOverviewNumbers'
 import { supportEmptyState } from '../../emptyState/supportEmptyState'
 import { supportOverviewSceneLogic } from './supportOverviewSceneLogic'
+import { SupportOverviewSceneMenuBar } from './SupportOverviewSceneMenuBar'
 
 export const scene: SceneExport = {
     component: SupportOverviewScene,
@@ -24,6 +25,7 @@ export function SupportOverviewScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-4">
+            <SupportOverviewSceneMenuBar />
             <SceneTitleSection
                 name={supportTitle?.name ?? 'Support'}
                 description=""

@@ -54,6 +54,7 @@ import { ProductAnalyticsNotifications } from 'products/product_analytics/fronte
 import { productAnalyticsNotificationsLogic } from 'products/product_analytics/frontend/notifications/productAnalyticsNotificationsLogic'
 
 import { DraftInsightMoreMenu, DraftInsightNameCell } from './DraftInsightRow'
+import { SavedInsightsSceneMenuBar } from './SavedInsightsSceneMenuBar'
 
 export const scene: SceneExport = {
     component: SavedInsights,
@@ -356,6 +357,7 @@ export function SavedInsights(): JSX.Element {
             )}
         >
             <NewInsightShortcuts />
+            <SavedInsightsSceneMenuBar isHomeTab={tab === SavedInsightsTabs.Home && showHomeTab} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.SavedInsights].name}
                 description={sceneConfigurations[Scene.SavedInsights].description}

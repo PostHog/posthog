@@ -14,6 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { cohortsStaffToolsLogic, parseCohortIds } from './cohortsStaffToolsLogic'
+import { CohortsStaffToolsSceneMenuBar } from './CohortsStaffToolsSceneMenuBar'
 import { StaffCohortsTable } from './StaffCohortsTable'
 
 export const scene: SceneExport = {
@@ -113,6 +114,7 @@ export function CohortsStaffToolsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <CohortsStaffToolsSceneMenuBar />
             <SceneTitleSection
                 name="Cohorts staff tools"
                 description="Look up cohorts across all teams, inspect their calculation state, and force recalculation of stuck cohorts."

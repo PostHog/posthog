@@ -1,10 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconLetter, IconPlus, IconRefresh, IconSend, IconTrash } from '@posthog/icons'
+import {
+    IconClock,
+    IconCopy,
+    IconLetter,
+    IconPlus,
+    IconPlusSmall,
+    IconRefresh,
+    IconSend,
+    IconTrash,
+} from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
-import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { useAddToNotebookAction } from 'lib/components/Scenes/useAddToNotebookAction'
+import { useSceneFileActions } from 'lib/components/Scenes/useSceneFileActions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -19,13 +29,9 @@ import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    SceneMenuBar,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarSeparator,
-    SceneMenuBarSubMenu,
-} from '~/layout/scenes/components/SceneMenuBar'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
+import { SceneActions } from '~/layout/scenes/sceneActions/SceneActions'
+import { useTodayPeoplePinAction } from '~/layout/today/useTodayPeoplePinAction'
 import { CohortType } from '~/types'
 
 import {
@@ -47,13 +53,21 @@ export function CohortSceneMenuBar({ id }: { id?: CohortType['id'] }): JSX.Eleme
 }
 
 function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element | null {
+    const peoplePinActions = useTodayPeoplePinAction()
     const logic = cohortEditLogic({ id })
     const { cohort, cohortLoading, hasAddUsersMenu } = useValues(logic)
-    const { duplicateCohort, deleteCohort, restoreCohort, setCsvUploadModalOpen } = useActions(logic)
+    const { duplicateCohort, deleteCohort, restoreCohort, setCsvUploadModalOpen, submitCohort } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic({ id })
     const { showAddPersonToCohortModal } = useActions(modalLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const cohortIdNumber = typeof cohort?.id === 'number' ? cohort.id : undefined
+    const addToNotebookAction = useAddToNotebookAction(RESOURCE_TYPE, {
+        notebookSelectButtonProps: {
+            resource: { type: NotebookNodeType.Cohort, attrs: { id: cohortIdNumber } },
+        },
+    })
+    const fileActions = useSceneFileActions(RESOURCE_TYPE, { section: 'project' })
 
     if (!cohort) {
         return null
@@ -62,162 +76,204 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const isDeleted = cohort.deleted
 
-    const cohortIdNumber = typeof cohort.id === 'number' ? cohort.id : undefined
     const accessDisabledReason = messageAudienceAccessDisabledReason()
     const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort) ?? accessDisabledReason
+    const savingDisabledReason = cohortLoading ? 'Saving cohort...' : undefined
 
-    return (
-        <SceneMenuBar>
-            <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
-                {!isNewCohort && cohortIdNumber !== undefined && (
-                    <>
-                        <SceneMenuBarSubMenu label="Create">
-                            <SceneMenuBarItem
-                                onClick={() => {
-                                    captureMessageAudienceClicked('cohort', 'broadcast')
-                                    void openMessageAudience(cohortBroadcastAudience(cohort), 'broadcast')
-                                }}
-                                disabled={!!broadcastDisabledReason}
-                                tooltip={broadcastDisabledReason ?? undefined}
-                                data-attr={`${RESOURCE_TYPE}-menubar-send-broadcast`}
-                            >
-                                <IconLetter />
-                                Email this cohort
-                            </SceneMenuBarItem>
-                            <SceneMenuBarItem
-                                onClick={() => {
-                                    captureMessageAudienceClicked('cohort', 'workflow')
-                                    router.actions.push(urlForCohortWorkflow(cohort))
-                                }}
-                                disabled={!!accessDisabledReason}
-                                tooltip={accessDisabledReason ?? undefined}
-                                data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
-                            >
-                                <IconSend />
-                                Build a custom workflow
-                            </SceneMenuBarItem>
-                            {/* Adding to notebooks is deprecated under the rail redesign. */}
-                            {!todayRailNav && (
-                                <SceneMenuBarAddToNotebook
-                                    dataAttrKey={RESOURCE_TYPE}
-                                    notebookSelectButtonProps={{
-                                        resource: {
-                                            type: NotebookNodeType.Cohort,
-                                            attrs: { id: cohortIdNumber },
-                                        },
-                                    }}
-                                />
-                            )}
-                        </SceneMenuBarSubMenu>
-                        <SceneMenuBarSeparator />
-                    </>
-                )}
-                <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                {!isNewCohort && canCopyToProject && (
-                    <SceneMenuBarItem
-                        onClick={() => router.actions.push(urls.resourceTransfer('Cohort', cohort.id))}
-                        data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
-                    >
-                        <IconCopy />
-                        Copy to another project
-                    </SceneMenuBarItem>
-                )}
-                {!isNewCohort && (
-                    <SceneMenuBarItem
-                        onClick={() => router.actions.push(urls.cohortCalculationHistory(cohort.id))}
-                        data-attr={`${RESOURCE_TYPE}-menubar-calculation-history`}
-                    >
-                        <IconClock />
-                        Calculation history
-                    </SceneMenuBarItem>
-                )}
-                {(isDeleted || !isNewCohort) && <SceneMenuBarSeparator />}
-                {isDeleted && (
-                    <SceneMenuBarItem
-                        disabled={cohortLoading}
-                        onClick={() => restoreCohort()}
-                        data-attr={`${RESOURCE_TYPE}-menubar-restore`}
-                    >
-                        <IconRefresh />
-                        Restore
-                    </SceneMenuBarItem>
-                )}
-                {!isNewCohort && !isDeleted && (
-                    <SceneMenuBarItem
-                        variant="destructive"
-                        onClick={() => {
-                            openDeleteCohortDialog({
-                                cohortId: cohort.id,
-                                cohortName: cohort.name,
-                                onConfirm: () => deleteCohort(),
-                            })
-                        }}
-                        data-attr={`${RESOURCE_TYPE}-menubar-delete`}
-                    >
-                        <IconTrash />
-                        Delete
-                    </SceneMenuBarItem>
-                )}
-            </SceneMenuBarMenu>
-            {!isDeleted && (
-                <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
-                    {hasAddUsersMenu && (
-                        <>
-                            <SceneMenuBarSubMenu label="Add users">
-                                <SceneMenuBarItem
-                                    onClick={() => setCsvUploadModalOpen(true)}
-                                    opensFloatingUi
-                                    data-attr={`${RESOURCE_TYPE}-menubar-upload-csv`}
-                                >
-                                    <IconPlus />
-                                    Upload a CSV
-                                </SceneMenuBarItem>
-                                <SceneMenuBarItem
-                                    onClick={showAddPersonToCohortModal}
-                                    opensFloatingUi
-                                    data-attr={`${RESOURCE_TYPE}-menubar-add-users-manually`}
-                                >
-                                    <IconPlus />
-                                    Add users manually
-                                </SceneMenuBarItem>
-                            </SceneMenuBarSubMenu>
-                            <SceneMenuBarSeparator />
-                        </>
-                    )}
-                    <SceneMenuBarItem
-                        onClick={() => duplicateCohort(false)}
-                        disabled={isNewCohort || cohort.is_static === true || (cohort.is_calculating ?? false)}
-                        tooltip={
-                            isNewCohort
-                                ? 'Save the cohort first'
-                                : cohort.is_static === true
-                                  ? 'Cohort must be dynamic to duplicate'
-                                  : cohort.is_calculating
-                                    ? 'Cohort is still calculating'
-                                    : undefined
-                        }
-                        data-attr={`${RESOURCE_TYPE}-menubar-duplicate-dynamic`}
-                    >
-                        <IconCopy />
-                        Duplicate as dynamic cohort
-                    </SceneMenuBarItem>
-                    <SceneMenuBarItem
-                        onClick={() => duplicateCohort(true)}
-                        disabled={isNewCohort || (cohort.is_calculating ?? false)}
-                        tooltip={
-                            isNewCohort
-                                ? 'Save the cohort first'
-                                : cohort.is_calculating
-                                  ? 'Cohort is still calculating'
-                                  : undefined
-                        }
-                        data-attr={`${RESOURCE_TYPE}-menubar-duplicate-static`}
-                    >
-                        <IconCopy />
-                        Duplicate as static cohort
-                    </SceneMenuBarItem>
-                </SceneMenuBarMenu>
-            )}
-        </SceneMenuBar>
-    )
+    const actions: SceneAction[] = [
+        ...peoplePinActions,
+        ...(!isNewCohort && cohortIdNumber !== undefined
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'create',
+                      type: 'submenu',
+                      id: `${RESOURCE_TYPE}-menubar-create`,
+                      label: 'Create',
+                      icon: <IconPlusSmall />,
+                      items: [
+                          {
+                              id: `${RESOURCE_TYPE}-menubar-send-broadcast`,
+                              label: 'Email this cohort',
+                              icon: <IconLetter />,
+                              disabledReason: broadcastDisabledReason ?? undefined,
+                              onSelect: () => {
+                                  captureMessageAudienceClicked('cohort', 'broadcast')
+                                  void openMessageAudience(cohortBroadcastAudience(cohort), 'broadcast')
+                              },
+                          },
+                          {
+                              id: `${RESOURCE_TYPE}-menubar-message-with-workflow`,
+                              label: 'Build a custom workflow',
+                              icon: <IconSend />,
+                              disabledReason: accessDisabledReason ?? undefined,
+                              onSelect: () => {
+                                  captureMessageAudienceClicked('cohort', 'workflow')
+                                  router.actions.push(urlForCohortWorkflow(cohort))
+                              },
+                          },
+                          // Adding to notebooks is deprecated under the rail redesign.
+                          ...(!todayRailNav ? [addToNotebookAction] : []),
+                      ],
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...fileActions,
+        ...(!isNewCohort && canCopyToProject
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'project',
+                      id: `${RESOURCE_TYPE}-menubar-copy-to-project`,
+                      label: 'Copy to another project',
+                      icon: <IconCopy />,
+                      onSelect: () => router.actions.push(urls.resourceTransfer('Cohort', cohort.id)),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(!isNewCohort
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'project',
+                      id: `${RESOURCE_TYPE}-menubar-calculation-history`,
+                      label: 'Calculation history',
+                      icon: <IconClock />,
+                      onSelect: () => router.actions.push(urls.cohortCalculationHistory(cohort.id)),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(isDeleted
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'delete',
+                      id: `${RESOURCE_TYPE}-menubar-restore`,
+                      label: 'Restore',
+                      icon: <IconRefresh />,
+                      disabledReason: cohortLoading ? 'Wait for the cohort to finish loading' : undefined,
+                      onSelect: () => restoreCohort(),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(!isNewCohort && !isDeleted
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'delete',
+                      id: `${RESOURCE_TYPE}-menubar-delete`,
+                      label: 'Delete',
+                      icon: <IconTrash />,
+                      destructive: true,
+                      onSelect: () => {
+                          openDeleteCohortDialog({
+                              cohortId: cohort.id,
+                              cohortName: cohort.name,
+                              onConfirm: () => deleteCohort(),
+                          })
+                      },
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(!isDeleted
+            ? ([
+                  ...(isNewCohort
+                      ? ([
+                            {
+                                group: 'edit',
+                                section: 'save',
+                                id: `${RESOURCE_TYPE}-menubar-cancel`,
+                                label: 'Cancel',
+                                disabledReason: cohortLoading ? 'Wait for the cohort to finish saving' : undefined,
+                                onSelect: () => router.actions.push(urls.cohorts()),
+                                pinned: { order: 1, variant: 'secondary', dataAttr: 'cancel-cohort' },
+                            },
+                        ] satisfies SceneAction[])
+                      : []),
+                  {
+                      group: 'edit',
+                      section: 'save',
+                      id: `${RESOURCE_TYPE}-menubar-save`,
+                      label: 'Save',
+                      disabledReason: savingDisabledReason,
+                      onSelect: () => submitCohort(),
+                      pinned: {
+                          order: 2,
+                          variant: 'primary',
+                          render: () => (
+                              <Button
+                                  variant="primary"
+                                  data-attr="save-cohort"
+                                  type="submit"
+                                  loading={cohortLoading}
+                                  disabledReason={savingDisabledReason}
+                                  form="cohort"
+                              >
+                                  Save
+                              </Button>
+                          ),
+                      },
+                  },
+                  ...(hasAddUsersMenu
+                      ? ([
+                            {
+                                group: 'edit',
+                                section: 'add-users',
+                                type: 'submenu',
+                                id: `${RESOURCE_TYPE}-menubar-add-users`,
+                                label: 'Add users',
+                                icon: <IconPlus />,
+                                items: [
+                                    {
+                                        id: `${RESOURCE_TYPE}-menubar-upload-csv`,
+                                        label: 'Upload a CSV',
+                                        icon: <IconPlus />,
+                                        opensFloatingUi: true,
+                                        onSelect: () => setCsvUploadModalOpen(true),
+                                    },
+                                    {
+                                        id: `${RESOURCE_TYPE}-menubar-add-users-manually`,
+                                        label: 'Add users manually',
+                                        icon: <IconPlus />,
+                                        opensFloatingUi: true,
+                                        onSelect: showAddPersonToCohortModal,
+                                    },
+                                ],
+                                pinned: { order: 3, variant: 'secondary', dataAttr: 'cohort-add-users-menu' },
+                            },
+                        ] satisfies SceneAction[])
+                      : []),
+                  {
+                      group: 'edit',
+                      section: 'duplicate',
+                      id: `${RESOURCE_TYPE}-menubar-duplicate-dynamic`,
+                      label: 'Duplicate as dynamic cohort',
+                      icon: <IconCopy />,
+                      disabledReason: isNewCohort
+                          ? 'Save the cohort first'
+                          : cohort.is_static === true
+                            ? 'Cohort must be dynamic to duplicate'
+                            : cohort.is_calculating
+                              ? 'Cohort is still calculating'
+                              : undefined,
+                      onSelect: () => duplicateCohort(false),
+                  },
+                  {
+                      group: 'edit',
+                      section: 'duplicate',
+                      id: `${RESOURCE_TYPE}-menubar-duplicate-static`,
+                      label: 'Duplicate as static cohort',
+                      icon: <IconCopy />,
+                      disabledReason: isNewCohort
+                          ? 'Save the cohort first'
+                          : cohort.is_calculating
+                            ? 'Cohort is still calculating'
+                            : undefined,
+                      onSelect: () => duplicateCohort(true),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+    ]
+
+    return <SceneActions actions={actions} dataAttrKey={RESOURCE_TYPE} />
 }

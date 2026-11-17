@@ -30,6 +30,7 @@ import { ChannelDTOApi } from '../generated/api.schemas'
 import { newSpaceLogic } from './newSpaceLogic'
 import { SpacesIndexRow } from './SpacesIndexRow'
 import { spacesSceneLogic } from './spacesSceneLogic'
+import { SpacesSceneMenuBar } from './SpacesSceneMenuBar'
 
 export const scene: SceneExport = {
     component: SpacesScene,
@@ -68,6 +69,7 @@ export function SpacesScene(): JSX.Element {
     return (
         <TooltipProvider>
             <SceneContent>
+                <SpacesSceneMenuBar />
                 <SceneTitleSection
                     name="Spaces"
                     resourceType={{ type: 'task' }}

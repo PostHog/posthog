@@ -15,6 +15,7 @@ import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
 import { ReleasesGate } from './ReleasesGate'
+import { ReleasesSceneMenuBar } from './ReleasesSceneMenuBar'
 import { ReleaseTimeline } from './ReleaseTimeline'
 
 export const scene: SceneExport = {
@@ -27,6 +28,7 @@ function ReleaseCalendarContent(): JSX.Element {
     const { showAutoImport } = useValues(releaseImportLogic)
     return (
         <SceneContent>
+            <ReleasesSceneMenuBar />
             <SceneTitleSection
                 name="Release calendar"
                 description="One row for each release, with its flags, experiments, early access and scheduled changes."

@@ -19,6 +19,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ContactBillingSupportLink } from '../components/ContactBillingSupportLink'
 import { LegalDocumentsPreview } from '../components/LegalDocumentsPreview'
+import { LegalDocumentNewSceneMenuBar } from './LegalDocumentNewSceneMenuBar'
 import { FIELD_IDS } from './legalDocumentsConstants'
 import { BAA_BLOCK_REASON_MESSAGES, DPAMode, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
 
@@ -146,6 +147,7 @@ export function LegalDocumentNewScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <LegalDocumentNewSceneMenuBar submitDisabledReason={submitDisabledReason} />
             <SceneTitleSection
                 name={headingLabel}
                 description="Fill in your company details. We'll send the signing envelope through PandaDoc so you can counter-sign from email."

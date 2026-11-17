@@ -51,6 +51,7 @@ import { GroupNotebookCard } from '../cards/GroupNotebookCard'
 import { GroupCaption } from '../components/GroupCaption'
 import { GroupOverview } from '../components/GroupOverview'
 import { RelatedGroups } from '../components/RelatedGroups'
+import { GroupSceneMenuBar } from './GroupSceneMenuBar'
 
 export const scene: SceneExport<GroupLogicProps> = {
     component: Group,
@@ -92,6 +93,7 @@ export function Group(): JSX.Element {
 
     return (
         <SceneContent>
+            <GroupSceneMenuBar groupKey={groupKey} groupTypeIndex={groupTypeIndex} />
             <SceneTitleSection
                 nameAction={<TodayPeoplePinButton />}
                 name={groupDisplayId(groupData.group_key, groupData.group_properties)}

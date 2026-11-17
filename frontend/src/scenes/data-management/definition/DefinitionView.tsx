@@ -47,14 +47,10 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition, getFilterLabel, getVirtualPropertyDefinition } from '~/taxonomy/helpers'
-import {
-    EventDefinition,
-    FilterLogicalOperator,
-    PropertyDefinition,
-    PropertyDefinitionVerificationStatus,
-} from '~/types'
+import { EventDefinition, PropertyDefinition, PropertyDefinitionVerificationStatus } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
+import { DefinitionViewSceneMenuBar, eventRecordingFilters } from './DefinitionViewSceneMenuBar'
 import { DefinitionUsageSection } from './usage/DefinitionUsageSection'
 import { PropertyDefinitionUsage } from './usage/PropertyDefinitionUsage'
 import { propertyUsageEntry } from './usage/propertyUsageEntry'
@@ -273,6 +269,13 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
 
     return (
         <SceneContent>
+            <DefinitionViewSceneMenuBar
+                eventName={definition.name}
+                isEvent={isEvent}
+                isVirtual={isVirtual}
+                openEditDefinition={openEditDefinition}
+                openDeleteDialog={openDeleteDialog}
+            />
             <SceneTitleSection
                 name={formattedName}
                 resourceType={
@@ -290,24 +293,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                     <>
                         {isEvent && (
                             <ViewRecordingsPlaylistButton
-                                filters={{
-                                    filter_group: {
-                                        type: FilterLogicalOperator.And,
-                                        values: [
-                                            {
-                                                type: FilterLogicalOperator.And,
-                                                values: [
-                                                    {
-                                                        id: definition.name,
-                                                        type: 'events',
-                                                        order: 0,
-                                                        name: definition.name,
-                                                    },
-                                                ],
-                                            },
-                                        ],
-                                    },
-                                }}
+                                filters={eventRecordingFilters(definition.name)}
                                 type="secondary"
                                 size="small"
                                 data-attr="event-definition-view-recordings"

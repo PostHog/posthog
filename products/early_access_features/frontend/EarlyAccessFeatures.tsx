@@ -28,6 +28,7 @@ import {
 import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
 
 import { earlyAccessFeaturesLogic, waitlistSurveyId } from './earlyAccessFeaturesLogic'
+import { EarlyAccessFeaturesSceneMenuBar } from './EarlyAccessFeaturesSceneMenuBar'
 import { earlyAccessFeaturesEmptyState } from './emptyState/earlyAccessFeaturesEmptyState'
 
 // Features with no waitlist survey sort below a real count of 0.
@@ -69,6 +70,7 @@ export function EarlyAccessFeatures(): JSX.Element {
 
     return (
         <SceneContent>
+            <EarlyAccessFeaturesSceneMenuBar />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.EarlyAccessFeatures].name}
                 description={sceneConfigurations[Scene.EarlyAccessFeatures].description}

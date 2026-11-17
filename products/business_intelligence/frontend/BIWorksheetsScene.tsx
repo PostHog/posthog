@@ -20,6 +20,7 @@ import { buildBIAgentContext } from './biAgentContext'
 import { biAgentSyncLogic } from './biAgentSyncLogic'
 import { BIStarters } from './BIStarters'
 import { biWorksheetsLogic } from './biWorksheetsLogic'
+import { BIWorksheetsSceneMenuBar } from './BIWorksheetsSceneMenuBar'
 
 const LIBRARY_CONTEXT = buildBIAgentContext()
 
@@ -40,6 +41,7 @@ export function BIWorksheetsScene(): JSX.Element {
     })
     return (
         <SceneContent>
+            <BIWorksheetsSceneMenuBar />
             <SceneTitleSection
                 name="Business intelligence"
                 description="Explore your data with visual worksheets."

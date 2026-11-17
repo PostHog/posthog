@@ -24,6 +24,7 @@ import { SessionEventsList } from './components/SessionEventsList'
 import { SessionMetricsCard } from './components/SessionMetricsCard'
 import { SessionRecordingSection } from './components/SessionRecordingSection'
 import { SessionProfileLogicProps, sessionProfileLogic } from './sessionProfileLogic'
+import { SessionProfileSceneMenuBar } from './SessionProfileSceneMenuBar'
 
 export const scene: SceneExport<SessionProfileLogicProps> = {
     component: SessionProfileScene,
@@ -47,6 +48,7 @@ export function SessionProfileScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <SessionProfileSceneMenuBar />
             <SceneTitleSection
                 name="Session Profile"
                 resourceType={{

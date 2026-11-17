@@ -33,6 +33,7 @@ import {
     ErrorTrackingSceneActiveTab,
     errorTrackingSceneLogic,
 } from './errorTrackingSceneLogic'
+import { ErrorTrackingSceneMenuBar } from './ErrorTrackingSceneMenuBar'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesList } from './tabs/issues/IssuesList'
 
@@ -167,6 +168,13 @@ const Header = (): JSX.Element => {
 
     return (
         <>
+            <ErrorTrackingSceneMenuBar
+                onFeedbackClick={() => posthog.displaySurvey('019cbd35-c91c-0000-9997-9259dc4cc2ef')}
+                onSendException={() =>
+                    posthog.captureException(new Error('Kaboom !'), { $exception_steps: buildExceptionSteps() })
+                }
+                onStartExceptionLoop={onClick}
+            />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.ErrorTracking].name}
                 description={null}

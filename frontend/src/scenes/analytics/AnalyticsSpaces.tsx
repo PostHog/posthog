@@ -39,6 +39,7 @@ import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { AnalyticsSearchInput } from './AnalyticsSearchInput'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsSpace, analyticsSpacesLogic } from './analyticsSpacesLogic'
+import { AnalyticsSpacesSceneMenuBar } from './AnalyticsSpacesSceneMenuBar'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import { ANALYTICS_TYPES } from './analyticsUtils'
 
@@ -139,6 +140,7 @@ function AnalyticsSpacesContent(): JSX.Element {
 
     return (
         <SceneContent>
+            <AnalyticsSpacesSceneMenuBar />
             <SceneTitleSection
                 name="Collections"
                 description="Where teams keep the work they share."

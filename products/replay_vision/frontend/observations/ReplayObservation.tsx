@@ -46,6 +46,7 @@ import {
     scannerReturnParams,
 } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
+import { ReplayObservationSceneMenuBar } from './ReplayObservationSceneMenuBar'
 
 const ObservationRecording = lazyWithRetry(() => import('./ObservationRecording'))
 const ObservationTimeline = lazyWithRetry(() => import('./ObservationTimeline'))
@@ -154,6 +155,15 @@ export function ReplayObservationSceneComponent(): JSX.Element {
 
     return (
         <SceneContent>
+            <ReplayObservationSceneMenuBar
+                previousUrl={previousObservationId ? observationUrl(previousObservationId) : undefined}
+                nextUrl={nextObservationId ? observationUrl(nextObservationId) : undefined}
+                neighborsPending={neighborsPending}
+                neighborsFiltered={neighborsFiltered}
+                observationId={observation.id}
+                sessionRecordingId={observation.session_id}
+                playerKey={playerKey}
+            />
             <SceneTitleSection
                 name={scannerName}
                 description={observation.recording_subject_email ?? undefined}

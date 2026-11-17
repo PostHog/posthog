@@ -3,20 +3,14 @@ import { router } from 'kea-router'
 
 import { IconCopy, IconDownload, IconOpenSidebar, IconShare, IconTrash } from '@posthog/icons'
 
-import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
+import { useScenePinAction } from 'lib/components/Scenes/useScenePinAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
-import {
-    SceneMenuBar,
-    SceneMenuBarCheckboxItem,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarSeparator,
-    SceneMenuBarSubMenu,
-} from '~/layout/scenes/components/SceneMenuBar'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
+import { SceneActions } from '~/layout/scenes/sceneActions/SceneActions'
 import { notebooksModel } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -46,125 +40,137 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
     const { setIsMarkdownExpanded, setShowKernelInfo, setShowVariables, setIsJupyterMode } =
         useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
+    const pinActions = useScenePinAction(RESOURCE_TYPE)
     const canDelete = !isLocalOnly && !notebook?.is_template
     // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
-    const showKernelToggle = isMarkdownNotebookContent(content)
-    const showJupyterModeToggle = isMarkdownNotebookContent(content)
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
         AccessControlLevel.Viewer
     )
 
-    return (
-        <SceneMenuBar>
-            <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
-                <SceneMenuBarSubMenu label="Export">
-                    <SceneMenuBarItem onClick={preparePrint} data-attr="notebook-menubar-print-pdf">
-                        <IconDownload />
-                        Print / save PDF
-                    </SceneMenuBarItem>
-                    <SceneMenuBarItem
-                        onClick={() => downloadMarkdown()}
-                        data-attr={`${RESOURCE_TYPE}-menubar-download-markdown`}
-                    >
-                        <IconDownload />
-                        Download .md
-                    </SceneMenuBarItem>
-                    <SceneMenuBarItem
-                        onClick={() => copyMarkdown()}
-                        data-attr={`${RESOURCE_TYPE}-menubar-copy-markdown`}
-                    >
-                        <IconCopy />
-                        Copy markdown
-                    </SceneMenuBarItem>
-                </SceneMenuBarSubMenu>
-                <SceneMenuBarItem
-                    opensFloatingUi
-                    onClick={() => openShareModal()}
-                    data-attr={`${RESOURCE_TYPE}-menubar-share`}
-                    disabled={!!sharingDisabledReason}
-                    tooltip={sharingDisabledReason ?? undefined}
-                >
-                    <IconShare />
-                    Share
-                </SceneMenuBarItem>
-                {canDelete && (
-                    <>
-                        <SceneMenuBarSeparator />
-                        <SceneMenuBarItem
-                            variant="destructive"
-                            onClick={() => {
-                                notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
-                                router.actions.push(urls.notebooks())
-                            }}
-                            data-attr={`${RESOURCE_TYPE}-menubar-delete`}
-                        >
-                            <IconTrash />
-                            Delete
-                        </SceneMenuBarItem>
-                    </>
-                )}
-            </SceneMenuBarMenu>
-            <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
-                <SceneMenuBarItem onClick={() => duplicateNotebook()} data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}>
-                    <IconCopy />
-                    Duplicate
-                </SceneMenuBarItem>
-                <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
-                <SceneMenuBarSeparator />
-                <SceneMenuBarCheckboxItem
-                    checked={showHistory}
-                    onCheckedChange={(checked) => setShowHistory(checked)}
-                    data-attr={`${RESOURCE_TYPE}-menubar-show-history`}
-                >
-                    Show history
-                </SceneMenuBarCheckboxItem>
-            </SceneMenuBarMenu>
-            <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
-                <SceneMenuBarCheckboxItem
-                    checked={isMarkdownExpanded}
-                    onCheckedChange={(checked) => setIsMarkdownExpanded(checked)}
-                    data-attr={`${RESOURCE_TYPE}-menubar-fill-width`}
-                >
-                    Fill content width
-                </SceneMenuBarCheckboxItem>
-                {showKernelToggle && (
-                    <SceneMenuBarCheckboxItem
-                        checked={showKernelInfo}
-                        onCheckedChange={(checked) => setShowKernelInfo(checked)}
-                        data-attr={`${RESOURCE_TYPE}-menubar-kernel-info`}
-                    >
-                        Kernel info
-                    </SceneMenuBarCheckboxItem>
-                )}
-                {showKernelToggle && (
-                    <SceneMenuBarCheckboxItem
-                        checked={showVariables}
-                        onCheckedChange={(checked) => setShowVariables(checked)}
-                        data-attr={`${RESOURCE_TYPE}-menubar-variables`}
-                    >
-                        Variables
-                    </SceneMenuBarCheckboxItem>
-                )}
-                {showJupyterModeToggle && (
-                    <SceneMenuBarCheckboxItem
-                        checked={isJupyterMode}
-                        onCheckedChange={(checked) => setIsJupyterMode(checked)}
-                        data-attr={`${RESOURCE_TYPE}-menubar-jupyter-mode`}
-                    >
-                        Jupyter mode
-                    </SceneMenuBarCheckboxItem>
-                )}
-                <SceneMenuBarSeparator />
-                <SceneMenuBarItem
-                    opensFloatingUi
-                    onClick={() => selectNotebook(shortId)}
-                    data-attr={`${RESOURCE_TYPE}-menubar-open-in-panel`}
-                >
-                    <IconOpenSidebar />
-                    Open in context panel
-                </SceneMenuBarItem>
-            </SceneMenuBarMenu>
-        </SceneMenuBar>
-    )
+    const actions: SceneAction[] = [
+        {
+            group: 'file',
+            section: 'export',
+            type: 'submenu',
+            id: `${RESOURCE_TYPE}-menubar-export`,
+            label: 'Export',
+            items: [
+                {
+                    id: 'notebook-menubar-print-pdf',
+                    label: 'Print / save PDF',
+                    icon: <IconDownload />,
+                    onSelect: preparePrint,
+                },
+                {
+                    id: `${RESOURCE_TYPE}-menubar-download-markdown`,
+                    label: 'Download .md',
+                    icon: <IconDownload />,
+                    onSelect: () => downloadMarkdown(),
+                },
+                {
+                    id: `${RESOURCE_TYPE}-menubar-copy-markdown`,
+                    label: 'Copy markdown',
+                    icon: <IconCopy />,
+                    onSelect: () => copyMarkdown(),
+                },
+            ],
+        },
+        {
+            group: 'file',
+            section: 'export',
+            id: `${RESOURCE_TYPE}-menubar-share`,
+            label: 'Share',
+            icon: <IconShare />,
+            opensFloatingUi: true,
+            disabledReason: sharingDisabledReason ?? undefined,
+            onSelect: () => openShareModal(),
+        },
+        ...(canDelete
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'delete',
+                      id: `${RESOURCE_TYPE}-menubar-delete`,
+                      label: 'Delete',
+                      icon: <IconTrash />,
+                      destructive: true,
+                      onSelect: () => {
+                          notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
+                          router.actions.push(urls.notebooks())
+                      },
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        {
+            group: 'edit',
+            section: 'actions',
+            id: `${RESOURCE_TYPE}-menubar-duplicate`,
+            label: 'Duplicate',
+            icon: <IconCopy />,
+            onSelect: () => duplicateNotebook(),
+        },
+        ...pinActions.map((action) => ({ ...action, section: 'actions' })),
+        {
+            group: 'edit',
+            section: 'toggles',
+            type: 'checkbox',
+            id: `${RESOURCE_TYPE}-menubar-show-history`,
+            label: 'Show history',
+            checked: showHistory,
+            onCheckedChange: (checked) => setShowHistory(checked),
+        },
+        {
+            group: 'view',
+            section: 'toggles',
+            type: 'checkbox',
+            id: `${RESOURCE_TYPE}-menubar-fill-width`,
+            label: 'Fill content width',
+            checked: isMarkdownExpanded,
+            onCheckedChange: (checked) => setIsMarkdownExpanded(checked),
+        },
+        ...(isMarkdownNotebook
+            ? ([
+                  {
+                      group: 'view',
+                      section: 'toggles',
+                      type: 'checkbox',
+                      id: `${RESOURCE_TYPE}-menubar-kernel-info`,
+                      label: 'Kernel info',
+                      checked: showKernelInfo,
+                      onCheckedChange: (checked) => setShowKernelInfo(checked),
+                  },
+                  {
+                      group: 'view',
+                      section: 'toggles',
+                      type: 'checkbox',
+                      id: `${RESOURCE_TYPE}-menubar-variables`,
+                      label: 'Variables',
+                      checked: showVariables,
+                      onCheckedChange: (checked) => setShowVariables(checked),
+                  },
+                  {
+                      group: 'view',
+                      section: 'toggles',
+                      type: 'checkbox',
+                      id: `${RESOURCE_TYPE}-menubar-jupyter-mode`,
+                      label: 'Jupyter mode',
+                      checked: isJupyterMode,
+                      onCheckedChange: (checked) => setIsJupyterMode(checked),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        {
+            group: 'view',
+            section: 'panel',
+            id: `${RESOURCE_TYPE}-menubar-open-in-panel`,
+            label: 'Open in context panel',
+            icon: <IconOpenSidebar />,
+            opensFloatingUi: true,
+            onSelect: () => selectNotebook(shortId),
+        },
+    ]
+
+    return <SceneActions actions={actions} dataAttrKey={RESOURCE_TYPE} />
 }

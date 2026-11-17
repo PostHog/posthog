@@ -13,6 +13,7 @@ import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { canEditNodeDescription } from './nodeDescriptionState'
 import { NodeDetailActions } from './NodeDetailActions'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailSceneMenuBar } from './NodeDetailSceneMenuBar'
 import { NodeDetailTitleTags } from './NodeDetailTitleTags'
 import { nodeTypeForDisplay } from './nodeTypeForDisplay'
 
@@ -36,23 +37,26 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
     const nodeType = nodeTypeForDisplay(node, savedQuery)
     const canEdit = canEditNodeDescription(node, savedQuery)
 
+    const titleActions =
+        node && savedQuery ? <NodeDetailActions id={id} node={node} savedQuery={savedQuery} /> : undefined
+
     return (
         <>
+            <NodeDetailSceneMenuBar id={id} titleActions={titleActions} />
             <SceneTitleSection
                 name={node?.name}
                 nameSuffix={<NodeDetailTitleTags nodeType={nodeType} node={node} />}
                 actions={
                     // A failed saved query never resolves on its own, so the placeholder must not
                     // outlive it. The Materialization and Query tabs carry the retry.
-                    node && savedQuery ? (
-                        <NodeDetailActions id={id} node={node} savedQuery={savedQuery} />
-                    ) : node?.saved_query_id && !savedQueryError ? (
+                    titleActions ??
+                    (node?.saved_query_id && !savedQueryError ? (
                         todayRailNav ? (
                             <Skeleton className="h-8 w-56" />
                         ) : (
                             <LemonSkeleton className="h-8 w-56" />
                         )
-                    ) : undefined
+                    ) : undefined)
                 }
                 description={node?.description}
                 resourceType={{ type: 'sql_editor' }}

@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconPullRequest, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
@@ -11,6 +12,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { CIExplorerActivity } from '../components/ciExplorer/CIExplorerActivity'
@@ -62,10 +64,23 @@ export function CIExplorerScene(): JSX.Element {
     const viewUrl = (target: CIExplorerView): string => locationUrl({ view: target, headSha: null, nodeId: null })
     const busy = refreshing || prRunsLoading
 
+    const sceneActions: SceneAction[] = [
+        {
+            group: 'view',
+            section: 'pull-request',
+            id: 'engineering-analytics-menubar-open-pull-request',
+            label: 'Open pull request',
+            icon: <IconPullRequest />,
+            onSelect: () => router.actions.push(pullRequestUrl),
+            pinned: { order: 1, variant: 'secondary', dataAttr: 'ci-explorer-open-pull-request' },
+        },
+    ]
+
     return (
         <SceneContent className="pb-4">
             <RepoSceneTitle
                 repo={`${repoOwner}/${repoName}`}
+                sceneActions={sceneActions}
                 actions={
                     todayRailNav ? (
                         <Button

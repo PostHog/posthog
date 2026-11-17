@@ -53,6 +53,7 @@ import {
     marketingAnalyticsTilesLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import { setupPlanLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
+import { MarketingAnalyticsSceneMenuBar } from './MarketingAnalyticsSceneMenuBar'
 import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
 import { SetupTab } from './Setup/SetupTab'
 
@@ -448,6 +449,7 @@ export function MarketingAnalyticsScene(): JSX.Element {
         <BindLogic logic={marketingAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <SceneContent className="MarketingAnalyticsDashboard gap-y-2">
+                    <MarketingAnalyticsSceneMenuBar />
                     <SceneTitleSection
                         name={sceneConfigurations[Scene.MarketingAnalytics]?.name || 'Marketing analytics'}
                         description={

@@ -23,6 +23,7 @@ import { TicketListFilters } from '../../components/TicketListFilters/TicketList
 import { supportEmptyState } from '../../emptyState/supportEmptyState'
 import { type Ticket } from '../../types'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
+import { SupportTicketsSceneMenuBar } from './SupportTicketsSceneMenuBar'
 import { buildTicketColumns } from './ticketColumns'
 import { ticketColumnsLogic } from './ticketColumnsLogic'
 
@@ -202,6 +203,7 @@ export function SupportTicketsScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-4">
+            <SupportTicketsSceneMenuBar />
             <SceneTitleSection
                 name={ticketsTitle?.name ?? 'Support'}
                 description=""

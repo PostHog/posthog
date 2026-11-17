@@ -30,6 +30,7 @@ import { WidgetArtifactFrame } from '../NotebookNodeGeneratedWidget/WidgetArtifa
 import { WIDGET_MODEL_OPTIONS } from '../NotebookNodeGeneratedWidget/widgetModels'
 import { ReusableWidgetDemoDataModal } from './ReusableWidgetDemoDataModal'
 import { ReusableWidgetLogicProps, reusableWidgetLogic } from './reusableWidgetLogic'
+import { ReusableWidgetSceneMenuBar } from './ReusableWidgetSceneMenuBar'
 import { ReusableWidgetSourceModal } from './ReusableWidgetSourceModal'
 
 export const scene: SceneExport<ReusableWidgetLogicProps> = {
@@ -116,6 +117,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
 
     return (
         <SceneContent className="@container/reusable-widget flex-1 min-h-0">
+            <ReusableWidgetSceneMenuBar widgetId={widgetId} />
             <SceneTitleSection
                 name={reusableWidget.name}
                 nameSuffix={

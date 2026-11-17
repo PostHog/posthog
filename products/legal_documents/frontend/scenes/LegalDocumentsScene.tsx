@@ -19,6 +19,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ContactBillingSupportLink } from '../components/ContactBillingSupportLink'
 import { getLegalDocumentsDownloadRetrieveUrl } from '../generated/api'
 import { BAA_BLOCK_REASON_MESSAGES, LegalDocument, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
+import { LegalDocumentsSceneMenuBar } from './LegalDocumentsSceneMenuBar'
 import { QuillNewLegalDocumentMenu } from './QuillNewLegalDocumentMenu'
 
 function buildNewMenuItems(existingTypes: Set<LegalDocumentType>, baaBlockedReason?: string): LemonMenuItems {
@@ -127,6 +128,10 @@ export function LegalDocumentsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <LegalDocumentsSceneMenuBar
+                existingDocumentTypes={existingDocumentTypes}
+                baaBlockedReason={baaBlockedReason}
+            />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.LegalDocuments].name}
                 description={sceneConfigurations[Scene.LegalDocuments].description}

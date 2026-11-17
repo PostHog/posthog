@@ -1,30 +1,26 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconBalance, IconTrash } from '@posthog/icons'
+import { IconBalance, IconCheck, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, Link, Spinner } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
+import { useSceneFileActions } from 'lib/components/Scenes/useSceneFileActions'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import {
-    SceneMenuBar,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarPopover,
-    SceneMenuBarSeparator,
-} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
+import { SceneActions } from '~/layout/scenes/sceneActions/SceneActions'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -100,7 +96,7 @@ export function SharedMetric(): JSX.Element {
         useActions(sharedMetricLogic)
 
     const { currentTeam, currentProjectId } = useValues(teamLogic)
-    const { hasFileItems } = useValues(sceneFileLogic)
+    const fileActions = useSceneFileActions('shared-metric')
     const [deleteCheckLoading, setDeleteCheckLoading] = useState(false)
 
     const runningExperiments = (sharedMetric?.linked_experiments || []).filter((experiment) => experiment.is_running)
@@ -159,47 +155,71 @@ export function SharedMetric(): JSX.Element {
         )
     }
 
+    const accessDisabledReason =
+        getAccessControlDisabledReason(
+            AccessControlResourceType.ExperimentSavedMetric,
+            AccessControlLevel.Editor,
+            sharedMetric.user_access_level
+        ) ?? undefined
+    const saveActionDisabledReason = accessDisabledReason ?? saveDisabledReason
+    const sceneActions: SceneAction[] = [
+        ...fileActions,
+        ...(action === 'update'
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'delete',
+                      id: 'shared-metric-menubar-delete',
+                      label: 'Delete',
+                      icon: <IconTrash />,
+                      destructive: true,
+                      disabledReason:
+                          accessDisabledReason ?? (deleteCheckLoading ? 'Checking linked experiments' : undefined),
+                      onSelect: () => void handleDelete(),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        {
+            group: 'edit',
+            id: 'shared-metric-menubar-save',
+            label: 'Save',
+            icon: <IconCheck />,
+            disabledReason: saveActionDisabledReason ?? (metricSaving ? 'Saving the metric' : undefined),
+            onSelect: handleSave,
+            pinned: {
+                order: 1,
+                variant: 'primary',
+                render: () => (
+                    <Button
+                        disabledReason={saveActionDisabledReason}
+                        loading={metricSaving}
+                        variant="primary"
+                        onClick={handleSave}
+                    >
+                        Save
+                    </Button>
+                ),
+            },
+        },
+        {
+            group: 'metadata',
+            type: 'panel',
+            id: 'shared-metric-menubar-metadata',
+            label: 'Metadata',
+            render: () => (
+                <SceneTagsCombobox
+                    onSave={saveTags}
+                    canEdit={!isLegacy}
+                    tags={sharedMetric.tags}
+                    dataAttrKey="shared-metric"
+                />
+            ),
+        },
+    ]
+
     return (
         <SceneContent>
-            {sceneMenuBarEnabled && (
-                <SceneMenuBar>
-                    <SceneMenuBarMenu
-                        label="File"
-                        dataAttr="shared-metric-menubar-file"
-                        disabled={!hasFileItems && action !== 'update'}
-                    >
-                        <SceneMenuBarFileItems dataAttrKey="shared-metric" />
-                        <SceneMenuBarSeparator />
-                        {action === 'update' && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.ExperimentSavedMetric}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={sharedMetric.user_access_level}
-                            >
-                                {({ disabledReason }) => (
-                                    <SceneMenuBarItem
-                                        variant="destructive"
-                                        disabled={!!disabledReason || deleteCheckLoading}
-                                        onClick={() => void handleDelete()}
-                                        data-attr="shared-metric-menubar-delete"
-                                    >
-                                        <IconTrash />
-                                        Delete
-                                    </SceneMenuBarItem>
-                                )}
-                            </AccessControlAction>
-                        )}
-                    </SceneMenuBarMenu>
-                    <SceneMenuBarPopover label="Metadata" dataAttr="shared-metric-menubar-metadata">
-                        <SceneTagsCombobox
-                            onSave={saveTags}
-                            canEdit={!isLegacy}
-                            tags={sharedMetric.tags}
-                            dataAttrKey="shared-metric"
-                        />
-                    </SceneMenuBarPopover>
-                </SceneMenuBar>
-            )}
+            {sceneMenuBarEnabled && <SceneActions actions={sceneActions} dataAttrKey="shared-metric" />}
             <ScenePanel>
                 <ScenePanelInfoSection>
                     <SceneTags

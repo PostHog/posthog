@@ -3,16 +3,19 @@ import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { Button, cn } from '@posthog/quill'
+import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
 import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { TodaySidebarBreadcrumb } from '~/layout/today/TodaySidebarBreadcrumb'
 
+import { SceneActionMenu } from '../sceneActions/SceneActionMenu'
+import { useSceneHelpActions } from '../sceneActions/useSceneHelpActions'
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { QuillSceneHeader } from './QuillSceneHeader'
 import { QuillSceneName } from './QuillSceneName'
@@ -20,7 +23,12 @@ import { QuillSceneTrail } from './QuillSceneTrail'
 import { SceneActionsMenu } from './SceneActionsMenu'
 import { SceneDescription } from './SceneDescription'
 import { SceneMenuBarHelpMenu } from './SceneMenuBar'
-import { useRegisterSceneMenuBarSlot, useSceneMenuBarSlotFilled } from './SceneMenuBarSlotProvider'
+import {
+    useRegisterSceneMenuBarSlot,
+    useRegisterScenePinnedSlot,
+    useSceneMenuBarSlotFilled,
+    useScenePinnedSlotFilled,
+} from './SceneMenuBarSlotProvider'
 import { sceneResourceIcon } from './sceneResourceIcon'
 import type { SceneMainTitleProps } from './SceneTitleSection'
 
@@ -68,17 +76,31 @@ export function QuillSceneTitleSection({
     const descriptionShown =
         hasDescription &&
         (descriptionAlwaysVisible || (showDescription && !titleInPhoneHeader && !staticName) || descriptionForceEdit)
-    const descriptionToggle = hasDescription && !descriptionAlwaysVisible && (
-        <Button
-            variant="default"
-            size="icon-sm"
-            aria-label={showDescription ? 'Hide description' : 'Show description'}
-            onClick={toggleShowDescription}
-            data-attr={showDescription ? 'toggle-description-button-collapse' : 'toggle-description-button-expand'}
-        >
-            {showDescription || descriptionForceEdit ? <IconCollapse /> : <IconExpand />}
-        </Button>
-    )
+    const descriptionToggleLabel = showDescription ? 'Hide description' : 'Show description'
+    const descriptionToggle = hasDescription &&
+        !descriptionAlwaysVisible && (
+            // A hint only: the tooltip takes no hover, so it closes as soon as the pointer leaves the button.
+            <Tooltip disableHoverablePopup>
+                <TooltipTrigger
+                    render={
+                        <Button
+                            variant="default"
+                            size="icon-sm"
+                            aria-label={descriptionToggleLabel}
+                            onClick={toggleShowDescription}
+                            data-attr={
+                                showDescription
+                                    ? 'toggle-description-button-collapse'
+                                    : 'toggle-description-button-expand'
+                            }
+                        />
+                    }
+                >
+                    {showDescription || descriptionForceEdit ? <IconCollapse /> : <IconExpand />}
+                </TooltipTrigger>
+                <TooltipContent>{descriptionToggleLabel}</TooltipContent>
+            </Tooltip>
+        )
     const backTo = forceBackTo || (breadcrumbs.length > 2 ? breadcrumbs[breadcrumbs.length - 2] : undefined)
     const backPath = !titleInPhoneHeader && backTo && 'path' in backTo ? backTo.path : undefined
     const resourceIcon = name !== null && !titleInPhoneHeader ? sceneResourceIcon(resourceType) : undefined
@@ -92,12 +114,21 @@ export function QuillSceneTitleSection({
     const [menuBarSlot, setMenuBarSlot] = useState<HTMLDivElement | null>(null)
     useRegisterSceneMenuBarSlot(menuBarSlot)
     const menuBarShown = useSceneMenuBarSlotFilled()
+    const [pinnedSlot, setPinnedSlot] = useState<HTMLDivElement | null>(null)
+    useRegisterScenePinnedSlot(pinnedSlot)
+    const pinnedShown = useScenePinnedSlotFilled()
+    const sceneActionsEnabled = useFeatureFlag('SCENE_ACTIONS')
+    const helpActions = useSceneHelpActions()
     const helpOnlyMenu =
         menuBarSlot && !menuBarShown
             ? createPortal(
-                  <SceneActionsMenu helpOnly>
-                      <SceneMenuBarHelpMenu />
-                  </SceneActionsMenu>,
+                  sceneActionsEnabled ? (
+                      <SceneActionMenu actions={helpActions} helpOnly />
+                  ) : (
+                      <SceneActionsMenu helpOnly>
+                          <SceneMenuBarHelpMenu />
+                      </SceneActionsMenu>
+                  ),
                   menuBarSlot
               )
             : null
@@ -134,8 +165,8 @@ export function QuillSceneTitleSection({
                     <>
                         {staticName && (
                             <>
-                                {nameAction}
                                 {nameSuffixes}
+                                {nameAction}
                             </>
                         )}
                         {name !== null && !titleInPhoneHeader && !staticName && (
@@ -152,8 +183,8 @@ export function QuillSceneTitleSection({
                                 fieldSuffix={descriptionIgnoresForceEdit && descriptionToggle}
                                 suffix={
                                     <>
-                                        {nameAction}
                                         {nameSuffixes}
+                                        {nameAction}
                                         {descriptionToggle}
                                     </>
                                 }
@@ -165,7 +196,16 @@ export function QuillSceneTitleSection({
                         />
                     </>
                 }
-                actions={actions}
+                actions={
+                    sceneActionsEnabled ? (
+                        <>
+                            {!pinnedShown && actions}
+                            <div ref={setPinnedSlot} className="contents" />
+                        </>
+                    ) : (
+                        actions
+                    )
+                }
             />
             {helpOnlyMenu}
             {descriptionShown && (

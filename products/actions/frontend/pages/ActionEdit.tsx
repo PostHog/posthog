@@ -3,17 +3,17 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect, useMemo } from 'react'
 
-import { IconCopy, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
+import { IconCheck, IconCopy, IconPlus, IconRewindPlay, IconTrash, IconX } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { useSceneFileActions } from 'lib/components/Scenes/useSceneFileActions'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -37,14 +37,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import {
-    SceneMenuBar,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarPopover,
-    SceneMenuBarSeparator,
-} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
+import { SceneActions } from '~/layout/scenes/sceneActions/SceneActions'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -149,11 +144,135 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
         ref: actionId,
         enabled: Boolean(actionId && !actionLoading),
     })
+    const fileActions = useSceneFileActions(RESOURCE_TYPE)
 
     // Handle 404 when loading is done and action is missing
     if (id && !actionLoading && !loadedAction) {
         return <NotFound object="action" />
     }
+
+    const saveAction = (): void => {
+        if (!id) {
+            setActionValue('_create_in_folder', 'Unfiled/Insights')
+        }
+        submitAction()
+    }
+    const cancelNewAction = (): void => router.actions.push(urls.actions())
+    const saveDisabledReason = isActionSubmitting ? 'Saving…' : !actionChanged ? 'No changes to save' : undefined
+
+    const sceneActions: SceneAction[] = [
+        ...fileActions,
+        ...(actionId && canCopyToProject
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'project-tree',
+                      id: `${RESOURCE_TYPE}-menubar-copy-to-project`,
+                      label: 'Copy to another project',
+                      icon: <IconCopy />,
+                      onSelect: () => router.actions.push(urls.resourceTransfer('Action', actionId)),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        {
+            group: 'file',
+            section: 'delete',
+            id: `${RESOURCE_TYPE}-menubar-delete`,
+            label: 'Delete',
+            icon: <IconTrash />,
+            destructive: true,
+            disabledReason:
+                getAccessControlDisabledReason(AccessControlResourceType.Action, AccessControlLevel.Editor) ??
+                undefined,
+            onSelect: () => deleteAction(),
+        },
+        {
+            group: 'edit',
+            section: 'save',
+            id: `${RESOURCE_TYPE}-menubar-save`,
+            label: 'Save',
+            icon: <IconCheck />,
+            disabledReason: saveDisabledReason,
+            onSelect: saveAction,
+            pinned: {
+                order: 2,
+                variant: 'primary',
+                render: () => (
+                    <Button
+                        data-attr="save-action-button"
+                        variant="primary"
+                        type="submit"
+                        loading={isActionSubmitting}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            saveAction()
+                        }}
+                        disabledReason={saveDisabledReason}
+                    >
+                        {actionChanged ? 'Save' : 'No changes'}
+                    </Button>
+                ),
+            },
+        },
+        ...(!id
+            ? ([
+                  {
+                      group: 'edit',
+                      section: 'save',
+                      id: `${RESOURCE_TYPE}-menubar-cancel`,
+                      label: 'Cancel',
+                      icon: <IconX />,
+                      tooltip: 'Cancel and return to the list of actions',
+                      onSelect: cancelNewAction,
+                      pinned: {
+                          order: 1,
+                          variant: 'secondary',
+                          render: () => (
+                              <Button
+                                  data-attr="cancel-action-bottom"
+                                  variant="destructive-outline"
+                                  onClick={cancelNewAction}
+                                  tooltip="Cancel and return to the list of actions"
+                              >
+                                  Cancel
+                              </Button>
+                          ),
+                      },
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(recordingsFilters
+            ? ([
+                  {
+                      group: 'view',
+                      id: `${RESOURCE_TYPE}-menubar-view-recordings`,
+                      label: 'View recordings',
+                      icon: <IconRewindPlay />,
+                      onSelect: () => {
+                          addViewRecordingsIntent()
+                          newInternalTab(urls.replay(ReplayTabs.Home, recordingsFilters))
+                      },
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        {
+            group: 'metadata',
+            type: 'panel',
+            id: `${RESOURCE_TYPE}-menubar-metadata`,
+            label: 'Metadata',
+            render: () => (
+                <>
+                    <SceneTagsCombobox
+                        onSave={saveTags}
+                        tags={action.tags || []}
+                        dataAttrKey={RESOURCE_TYPE}
+                        canEdit={canEdit}
+                    />
+                    <SceneActivityIndicator at={action.created_at} by={action.created_by} prefix="Created" />
+                </>
+            ),
+        },
+    ]
 
     const cancelButton = (): JSX.Element => (
         <LemonButton
@@ -179,66 +298,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                 enableFormOnSubmit
                 className="flex flex-col gap-y-4"
             >
-                {sceneMenuBarEnabled && action && (
-                    <SceneMenuBar>
-                        <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
-                            <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                            {actionId && canCopyToProject && (
-                                <SceneMenuBarItem
-                                    onClick={() => router.actions.push(urls.resourceTransfer('Action', actionId))}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
-                                >
-                                    <IconCopy />
-                                    Copy to another project
-                                </SceneMenuBarItem>
-                            )}
-                            <SceneMenuBarSeparator />
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Action}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                {({ disabledReason }) => (
-                                    <SceneMenuBarItem
-                                        variant="destructive"
-                                        disabled={!!disabledReason}
-                                        onClick={() => deleteAction()}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-delete`}
-                                    >
-                                        <IconTrash />
-                                        Delete
-                                    </SceneMenuBarItem>
-                                )}
-                            </AccessControlAction>
-                        </SceneMenuBarMenu>
-                        {recordingsFilters && (
-                            <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
-                                <SceneMenuBarItem
-                                    onClick={() => {
-                                        addViewRecordingsIntent()
-                                        newInternalTab(urls.replay(ReplayTabs.Home, recordingsFilters))
-                                    }}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-view-recordings`}
-                                >
-                                    <IconRewindPlay />
-                                    View recordings
-                                </SceneMenuBarItem>
-                            </SceneMenuBarMenu>
-                        )}
-                        <SceneMenuBarPopover
-                            label="Metadata"
-                            dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
-                            contentClassName="flex flex-col gap-2"
-                        >
-                            <SceneTagsCombobox
-                                onSave={saveTags}
-                                tags={action.tags || []}
-                                dataAttrKey={RESOURCE_TYPE}
-                                canEdit={canEdit}
-                            />
-                            <SceneActivityIndicator at={action.created_at} by={action.created_by} prefix="Created" />
-                        </SceneMenuBarPopover>
-                    </SceneMenuBar>
-                )}
+                {sceneMenuBarEnabled && action && <SceneActions actions={sceneActions} dataAttrKey={RESOURCE_TYPE} />}
                 <ScenePanel>
                     <ScenePanelInfoSection>
                         <SceneTags

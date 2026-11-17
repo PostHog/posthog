@@ -21,6 +21,7 @@ import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/
 
 import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { LLMPromptSceneMenuBar } from './LLMPromptSceneMenuBar'
 import {
     PromptCode,
     PromptEditForm,
@@ -107,6 +108,7 @@ export function LLMPromptScene(): JSX.Element {
 
     const content = isViewMode ? (
         <SceneContent>
+            <LLMPromptSceneMenuBar openInPlaygroundUrl={openInPlaygroundUrl} />
             <SceneTitleSection
                 name={prompt && 'name' in prompt ? prompt.name : 'Prompt'}
                 resourceType={{ type: 'llm_analytics' }}
@@ -272,6 +274,7 @@ export function LLMPromptScene(): JSX.Element {
     ) : (
         <Form id="prompt-form" formKey="promptForm" logic={llmPromptLogic}>
             <SceneContent>
+                <LLMPromptSceneMenuBar openInPlaygroundUrl={openInPlaygroundUrl} />
                 <SceneTitleSection
                     name={promptForm.name || 'New prompt'}
                     resourceType={{ type: 'llm_analytics' }}

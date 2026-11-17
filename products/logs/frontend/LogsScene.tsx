@@ -28,6 +28,7 @@ import { logsEmptyState } from './emptyState/logsEmptyState'
 import { LogsAgentIntegration } from './LogsAgentIntegration'
 import { LogsAnomalies } from './LogsAnomalies'
 import { LOGS_SCENE_VIEWER_ID, LogsSceneActiveTab, logsSceneLogic } from './logsSceneLogic'
+import { LogsSceneMenuBar } from './LogsSceneMenuBar'
 
 export const LOGS_LOGIC_KEY = 'logs'
 
@@ -69,6 +70,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     return (
         <>
             <LogsAgentIntegration activeTabIsViewer={activeTab === 'viewer'} />
+            <LogsSceneMenuBar hasData={logsSetupStatus === 'has-data'} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Logs].name}
                 resourceType={{

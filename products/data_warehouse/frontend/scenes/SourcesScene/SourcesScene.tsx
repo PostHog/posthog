@@ -17,6 +17,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { dataWarehouseEmptyState } from '../../emptyState/dataWarehouseEmptyState'
 import { SourcesList } from './SourcesList'
 import { sourcesSceneLogic } from './sourcesSceneLogic'
+import { SourcesSceneMenuBar } from './SourcesSceneMenuBar'
 
 export const scene: SceneExport = {
     component: SourcesScene,
@@ -62,6 +63,7 @@ export function SourcesScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-4">
+            <SourcesSceneMenuBar newButton={action} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Sources].name}
                 description={sceneConfigurations[Scene.Sources].description}

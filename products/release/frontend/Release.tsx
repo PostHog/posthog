@@ -26,6 +26,7 @@ import { ReleaseLinkedCard } from './ReleaseLinkedCard'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
+import { ReleaseSceneMenuBar } from './ReleaseSceneMenuBar'
 import { ReleaseScheduleButton } from './ReleaseScheduleButton'
 import { ReleaseScheduleDialog } from './ReleaseScheduleDialog'
 import { ReleasesGate } from './ReleasesGate'
@@ -109,6 +110,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
 
     return (
         <SceneContent>
+            <ReleaseSceneMenuBar row={row} />
             <SceneTitleSection
                 name={row.name}
                 description={row.description}

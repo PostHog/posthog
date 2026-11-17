@@ -34,6 +34,7 @@ import { pageHistoryLogic } from '../../history/pageHistoryLogic'
 import { PageHistoryStrip } from '../../history/PageHistoryStrip'
 import { formatCaptureDay } from '../../history/pageHistoryUtils'
 import { heatmapLogic } from './heatmapLogic'
+import { HeatmapSceneMenuBar } from './HeatmapSceneMenuBar'
 import { QuillHeatmapActions } from './QuillHeatmapActions'
 
 const HedgehogDirector = pngHoggie(directorPng)
@@ -147,6 +148,28 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
     return (
         <BindLogic logic={heatmapLogic} props={logicProps}>
             <SceneContent>
+                <HeatmapSceneMenuBar
+                    showSaveButtons={(hasUnsavedChanges || saving) && !editDisabledReason}
+                    saving={saving}
+                    saveDisabledReason={saveDisabledReason}
+                    onDiscard={() => {
+                        discardChanges()
+                        focusExport()
+                    }}
+                    onSave={() => void saveAndRefocus()}
+                    displayUrl={displayUrl}
+                    openInToolbarDisabledReason={toolbarAccessDisabledReason}
+                    exportRef={exportRef}
+                    onExport={exportHeatmap}
+                    exportDisabledReason={
+                        historySelectionActive
+                            ? 'Exit history to export your current view.'
+                            : previewType === 'screenshot' &&
+                                (!screenshotUrl || !screenshotLoaded || generatingScreenshot)
+                              ? 'Screenshot is not ready'
+                              : undefined
+                    }
+                />
                 <SceneTitleSection
                     name={name}
                     resourceType={{

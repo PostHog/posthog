@@ -16,6 +16,7 @@ import { QuillSceneName } from '~/layout/scenes/components/QuillSceneName'
 import { QuillSceneTrail } from '~/layout/scenes/components/QuillSceneTrail'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -38,6 +39,7 @@ import { TaskDebugLogsPanelToggle } from './TaskDebugLogsPanelToggle'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
 import { TaskErrorBanner } from './TaskErrorBanner'
 import { TaskRunMetadata } from './TaskRunMetadata'
+import { TaskRunSceneMenuBar } from './TaskRunSceneMenuBar'
 
 export interface TaskRunSceneShellProps {
     /** The loaded task, or `null` while loading (or during an optimistic create, before it exists). */
@@ -48,6 +50,8 @@ export interface TaskRunSceneShellProps {
     isHeaderLoading?: boolean
     /** Title-bar action buttons (or their skeleton). Supplied by the caller so the shell stays presentational. */
     titleActions?: JSX.Element
+    /** The same title actions as data, so the scene menu lists them too. */
+    titleSceneActions?: SceneAction[]
     /** Omitting this leaves the title read-only, which is what the create thread needs: it renders this shell before the task exists. */
     onRename?: (title: string) => void
     onArchive: () => void
@@ -70,6 +74,7 @@ export function TaskRunSceneShell({
     selectedRun,
     isHeaderLoading = false,
     titleActions,
+    titleSceneActions,
     onRename,
     onArchive,
     taskError,
@@ -211,6 +216,7 @@ export function TaskRunSceneShell({
                         />
                     ) : (
                         <header className={cn('flex flex-col gap-y-2 px-4 pt-2', taskError && 'mt-4')}>
+                            <TaskRunSceneMenuBar task={task} onArchive={onArchive} titleActions={titleSceneActions} />
                             <SceneTitleSection
                                 className="-mt-2"
                                 name={task?.title || 'Task'}

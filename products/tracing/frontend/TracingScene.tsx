@@ -44,6 +44,7 @@ import { TracingDisplayBar } from './TracingDisplayBar'
 import { TracingFilterBar } from './TracingFilterBar'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { type TracingSceneTab, tracingSceneLogic } from './tracingSceneLogic'
+import { TracingSceneMenuBar } from './TracingSceneMenuBar'
 import { TracingSparkline } from './TracingSparkline'
 import { traceViewId, tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
@@ -234,6 +235,7 @@ function TracingSceneContents(): JSX.Element {
 
     return (
         <SceneContent className="@container/facet-rail-host h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+            <TracingSceneMenuBar onFeedbackClick={onFeedbackClick} onDocsLinkClick={onDocsLinkClick} />
             <SceneTitleSection
                 name="Tracing"
                 description="Monitor and analyze distributed traces to understand service performance and debug issues."

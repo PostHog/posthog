@@ -17,13 +17,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import {
-    SceneMenuBar,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarSeparator,
-} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
+import { SceneActions } from '~/layout/scenes/sceneActions/SceneActions'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
 import { InsightShortId } from '~/types'
@@ -201,38 +197,27 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
 
     const nonDestructive = actions.filter((action) => !action.destructive)
     const destructive = actions.filter((action) => action.destructive)
+    const sceneActions: SceneAction[] = [...nonDestructive, ...destructive].map((action) => ({
+        group: 'Metric',
+        section: action.destructive ? 'delete' : 'actions',
+        id: `data-catalog-metric-menubar-${action.key}`,
+        label: action.label,
+        icon: action.icon,
+        disabledReason: action.disabledReason,
+        destructive: action.destructive,
+        opensFloatingUi: action.opensFloatingUi,
+        onSelect: action.onClick,
+    }))
 
     return (
         <BindLogic logic={dataCatalogMetricSceneLogic} props={{ name }}>
             <SceneContent>
                 {sceneMenuBarEnabled && (
-                    <SceneMenuBar>
-                        <SceneMenuBarMenu label="Metric" dataAttr="data-catalog-metric-menubar">
-                            {nonDestructive.map((action) => (
-                                <SceneMenuBarItem
-                                    key={action.key}
-                                    onClick={action.onClick}
-                                    disabled={!!action.disabledReason}
-                                    data-attr={`data-catalog-metric-menubar-${action.key}`}
-                                >
-                                    {action.icon}
-                                    {action.label}
-                                </SceneMenuBarItem>
-                            ))}
-                            <SceneMenuBarSeparator />
-                            {destructive.map((action) => (
-                                <SceneMenuBarItem
-                                    key={action.key}
-                                    variant="destructive"
-                                    onClick={action.onClick}
-                                    data-attr={`data-catalog-metric-menubar-${action.key}`}
-                                >
-                                    {action.icon}
-                                    {action.label}
-                                </SceneMenuBarItem>
-                            ))}
-                        </SceneMenuBarMenu>
-                    </SceneMenuBar>
+                    <SceneActions
+                        actions={sceneActions}
+                        dataAttrKey="data-catalog-metric"
+                        menuDataAttrs={{ Metric: 'data-catalog-metric-menubar' }}
+                    />
                 )}
 
                 <SceneTitleSection

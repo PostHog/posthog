@@ -9,6 +9,7 @@ import { ActionsTable } from '../components/ActionsTable'
 import { NewActionButton } from '../components/NewActionButton'
 import { actionsEmptyState } from '../emptyState/actionsEmptyState'
 import { actionsLogic } from '../logics/actionsLogic'
+import { ActionsSceneMenuBar } from './ActionsSceneMenuBar'
 
 export const scene: SceneExport = {
     component: Actions,
@@ -20,6 +21,7 @@ export const scene: SceneExport = {
 export function Actions(): JSX.Element {
     return (
         <SceneContent>
+            <ActionsSceneMenuBar />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Actions].name}
                 description={sceneConfigurations[Scene.Actions].description}

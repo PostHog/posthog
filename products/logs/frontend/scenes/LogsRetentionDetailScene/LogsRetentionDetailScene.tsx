@@ -17,6 +17,7 @@ import { retentionFormSaveDisabledReason } from 'products/logs/frontend/componen
 import { LogsRetentionRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsRetentionDetailSceneLogicProps, logsRetentionDetailSceneLogic } from './logsRetentionDetailSceneLogic'
+import { LogsRetentionDetailSceneMenuBar } from './LogsRetentionDetailSceneMenuBar'
 
 export const scene: SceneExport<LogsRetentionDetailSceneLogicProps> = {
     component: LogsRetentionDetailScene,
@@ -74,6 +75,7 @@ function LogsRetentionDetailFormBody({ rule }: { rule: LogsRetentionRuleApi }): 
 
     return (
         <SceneContent>
+            <LogsRetentionDetailSceneMenuBar onDelete={confirmDelete} />
             <Form logic={logsRetentionFormLogic} props={formProps} formKey="retentionForm" enableFormOnSubmit>
                 <SceneTitleSection
                     name={retentionForm.name || rule.name}

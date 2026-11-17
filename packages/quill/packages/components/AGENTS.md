@@ -4,12 +4,44 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 
 ## Exports
 
+- `ActionMenu` — a menu driven by an item tree: search field, one submenu level, search that reaches into submenus with a muted path, destructive rows last, and panel rows that open rich content in a popover. Pure helpers `searchActionMenu`, `hasRows`, `collectDestructive`
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`, with an opt-in `selectable` checkbox variant
 - `FilterMenuTrigger`, `FilterRadioSubMenu`, `FilterCheckboxSubMenu`, `FilterSearchSubMenu`, `FilterSubMenu`, `FilterClearItem`, `filterSummary` — the parts of a list's one filter menu
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
 - `Metric` — composable stat tile (`Card` + `Badge` pill + `Sparkline`); marries primitives with `@posthog/quill-charts`. Import from the `@posthog/quill-components/metric` subpath (not the main barrel)
+
+## ActionMenu
+
+```tsx
+import { ActionMenu, type ActionMenuItem } from '@posthog/quill-components'
+
+const items: ActionMenuItem[] = [
+  {
+    type: 'submenu',
+    id: 'file',
+    label: 'File',
+    items: [
+      { type: 'submenu', id: 'export', label: 'Export', items: [{ id: 'csv', label: 'CSV', onSelect: exportCsv }] },
+      { id: 'delete', label: 'Delete insight', destructive: true, onSelect: remove },
+    ],
+  },
+  { type: 'panel', id: 'metadata', label: 'Metadata', render: () => <TagsField /> },
+]
+
+<ActionMenu items={items} trigger={<Button size="icon" aria-label="More actions" />} triggerChildren={<IconEllipsis />} />
+```
+
+Rules:
+
+- Items are data, never JSX children. Kinds: `action` (default), `checkbox`, `radio` (`options`), `submenu` (`items`), `panel` (`render`).
+- Top-level submenus are menus: each is one row that opens it. Inside one, a submenu renders as a labeled group; `display: 'submenu'` keeps a real submenu, for a long toggle list or a submenu that holds another.
+- Rows with different `section` values get a separator between them. Empty submenus are left out.
+- Destructive rows from anywhere outside a kept submenu move to the end of the top level, after a separator.
+- A query replaces the top level with one flat list of matches from every level, each prefixed with its path. A submenu whose label matches comes first, as a row that opens it. `searchable: false` keeps a submenu's rows out of the search (a list of notebooks, say). Destructive results stay last. Escape clears the query before it closes the menu.
+- A `panel` row closes the menu and opens `render()` in a popover anchored to the trigger, so text inputs work. The popover returns focus to the trigger.
+- `searchable={false}` drops the search field for a short menu. `onItemSelect`, `onSubmenuOpenChange`, `onOpenChange` and `onSearch` are the analytics hooks.
 
 ## DataTable
 

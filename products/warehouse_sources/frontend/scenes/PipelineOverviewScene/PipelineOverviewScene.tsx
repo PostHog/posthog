@@ -24,6 +24,7 @@ import { ManagedSourcesTable } from 'products/data_warehouse/frontend/shared/com
 import { PipelineHealth } from './PipelineHealth'
 import type { PipelineStatsWindow } from './pipelineOverviewSceneLogic'
 import { pipelineOverviewSceneLogic } from './pipelineOverviewSceneLogic'
+import { PipelineOverviewSceneMenuBar } from './PipelineOverviewSceneMenuBar'
 import { PipelineStatTiles } from './PipelineStatTiles'
 import { RecentRuns } from './RecentRuns'
 import { RowsByDestination } from './RowsByDestination'
@@ -48,6 +49,7 @@ export function PipelineOverviewScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-4">
+            <PipelineOverviewSceneMenuBar />
             <SceneTitleSection
                 name="ELT"
                 description="Every source you import from and every destination you write to, with the health of each."

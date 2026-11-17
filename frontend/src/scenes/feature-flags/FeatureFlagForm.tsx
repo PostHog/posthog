@@ -85,6 +85,7 @@ import {
     validateVariantRolloutSum,
 } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { FeatureFlagSceneMenuBar } from './FeatureFlagSceneMenuBar'
 import { BULK_COPY_MAX_TARGET_PROJECTS } from './flagSelectionLogic'
 import { PercentageInput } from './PercentageInput'
 
@@ -204,6 +205,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         resetEncryptedPayload,
         setAlsoCreateInProjects,
         startNewFlagDisabled,
+        submitFeatureFlag,
     } = useActions(featureFlagLogic)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const { allCohorts } = useValues(cohortsModel)
@@ -429,6 +431,20 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                 enableFormOnSubmit
                 className="flex flex-col gap-4"
             >
+                <FeatureFlagSceneMenuBar
+                    editing={{
+                        saveLabel: 'Save',
+                        saveDataAttr: 'save-feature-flag',
+                        cancelDataAttr: 'cancel-feature-flag',
+                        onSave: submitFeatureFlag,
+                        onCancel: cancelEditing,
+                        renderSave: () => (
+                            <Button variant="primary" data-attr="save-feature-flag" type="submit" form="feature-flag">
+                                Save
+                            </Button>
+                        ),
+                    }}
+                />
                 <SceneTitleSection
                     name={featureFlag.key || 'New feature flag'}
                     resourceType={{

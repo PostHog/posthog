@@ -22,6 +22,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType, ExportedAssetType, ExporterFormat } from '~/types'
 
 import { exportsSceneLogic } from './exportsSceneLogic'
+import { ExportsSceneMenuBar } from './ExportsSceneMenuBar'
 
 const ROW_LIMIT_IN_THOUSANDS = 300
 
@@ -150,6 +151,7 @@ export function ExportsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <ExportsSceneMenuBar />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Exports].name}
                 description={sceneConfigurations[Scene.Exports].description}

@@ -1,10 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -16,7 +14,6 @@ import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TagSelect } from 'lib/components/TagSelect'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -26,13 +23,10 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -79,8 +73,10 @@ import {
     getShippedVariantKey,
     isSingleVariantShipped,
 } from 'products/experiments/frontend/scenes/experimentsLogic'
+import { ExperimentsSceneMenuBar } from 'products/experiments/frontend/scenes/ExperimentsSceneMenuBar'
 import { ExperimentsSettingsScene } from 'products/experiments/frontend/scenes/ExperimentsSettingsScene'
 import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
+import { NewExperimentButton } from 'products/experiments/frontend/scenes/NewExperimentButton'
 import { SetupInspectorButton } from 'products/experiments/frontend/setupInspector/SetupInspectorButton'
 
 // "Experiments open feedback" in project 2: https://us.posthog.com/project/2/surveys/01a08364-270e-0000-585b-147d32bf96ed
@@ -712,12 +708,10 @@ const ExperimentsTable = ({
 
 export function ExperimentsScene(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
-    const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
-    const { reportExperimentsListAiBadgeClicked } = useActions(eventUsageLogic)
+    const { setExperimentsTab } = useActions(experimentsLogic)
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
     const [copyToProjectModalExperiment, setCopyToProjectModalExperiment] = useState<Experiment | null>(null)
     const [surveyModalExperiment, setSurveyModalExperiment] = useState<Experiment | null>(null)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Register feature flag creation tool so that it's always available on experiments page
     useMaxTool({
@@ -731,6 +725,7 @@ export function ExperimentsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <ExperimentsSceneMenuBar feedbackSurveyId={EXPERIMENTS_FEEDBACK_SURVEY_ID} />
             <SceneTitleSection
                 name="Experiments"
                 resourceType={{
@@ -744,71 +739,7 @@ export function ExperimentsScene(): JSX.Element {
                             data-attr="experiments-feedback-button"
                         />
                         {tab !== ExperimentsTabs.SharedMetrics && tab !== ExperimentsTabs.Holdouts ? (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Experiment}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <div className="flex items-center gap-2">
-                                    <MaxTool
-                                        identifier="create_experiment"
-                                        initialMaxPrompt="Create an experiment for "
-                                        suggestions={[
-                                            'Create an experiment to test…',
-                                            'Set up an A/B test with a 70/30 split between control and test for…',
-                                        ]}
-                                        callback={(toolOutput: {
-                                            experiment_id?: string | number
-                                            experiment_name?: string
-                                            feature_flag_key?: string
-                                            error?: string
-                                        }) => {
-                                            if (toolOutput?.error || !toolOutput?.experiment_id) {
-                                                lemonToast.error(
-                                                    `Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`
-                                                )
-                                                return
-                                            }
-                                            // Refresh experiments list to show new experiment, then redirect to it
-                                            loadExperiments()
-                                            router.actions.push(urls.experiment(toolOutput.experiment_id))
-                                        }}
-                                        position="bottom-right"
-                                        active={true}
-                                        onMaxOpen={reportExperimentsListAiBadgeClicked}
-                                        // Recorded as `ai_entry_point` on `experiment created`
-                                        context={{ entry_point: 'experiments_list' }}
-                                    >
-                                        <Shortcut
-                                            name="NewExperiment"
-                                            keybind={[keyBinds.new]}
-                                            intent="New experiment"
-                                            interaction="click"
-                                            scope={Scene.Experiments}
-                                        >
-                                            {todayRailNav ? (
-                                                <Button
-                                                    variant="primary"
-                                                    data-attr="create-experiment"
-                                                    render={<LinkPrimitive to={urls.experiment('new')} />}
-                                                    tooltip="New experiment"
-                                                >
-                                                    <span className="pr-3">New experiment</span>
-                                                </Button>
-                                            ) : (
-                                                <LemonButton
-                                                    size="small"
-                                                    type="primary"
-                                                    data-attr="create-experiment"
-                                                    to={urls.experiment('new')}
-                                                    tooltip="New experiment"
-                                                >
-                                                    <span className="pr-3">New experiment</span>
-                                                </LemonButton>
-                                            )}
-                                        </Shortcut>
-                                    </MaxTool>
-                                </div>
-                            </AccessControlAction>
+                            <NewExperimentButton />
                         ) : undefined}
                     </>
                 }

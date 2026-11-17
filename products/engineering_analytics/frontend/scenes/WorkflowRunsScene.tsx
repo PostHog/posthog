@@ -26,6 +26,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
@@ -137,6 +138,17 @@ export function WorkflowRunsScene(): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
+    const sceneActions: SceneAction[] = [
+        {
+            group: 'view',
+            section: 'workflow',
+            id: 'engineering-analytics-menubar-view-workflow-on-github',
+            label: 'View workflow on GitHub',
+            icon: <IconExternal />,
+            onSelect: () => window.open(githubUrl, '_blank', 'noopener,noreferrer'),
+            pinned: { order: 1, variant: 'secondary' },
+        },
+    ]
     // The rim spinner means "these numbers are updating", so each read only counts once it has data on
     // screen to update. A first load shows the sections' own skeletons instead.
     const healthBusy = refreshing(runActivityLoading, activityRuns)
@@ -312,6 +324,7 @@ export function WorkflowRunsScene(): JSX.Element {
         <SceneContent className="pb-16">
             <RepoSceneTitle
                 repo={`${repoOwner}/${repoName}`}
+                sceneActions={sceneActions}
                 actions={
                     todayRailNav ? (
                         <Button variant="outline" render={<LinkPrimitive to={githubUrl} target="_blank" />}>

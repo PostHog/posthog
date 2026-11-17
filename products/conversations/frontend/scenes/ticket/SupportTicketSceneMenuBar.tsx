@@ -5,9 +5,13 @@ import { IconTrash } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
+import { SceneActions } from '~/layout/scenes/sceneActions/SceneActions'
+import { useTodayPeoplePinAction } from '~/layout/today/useTodayPeoplePinAction'
 
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
+
+const RESOURCE_TYPE = 'ticket'
 
 export function SupportTicketSceneMenuBar({ ticketId }: { ticketId: string }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -18,24 +22,26 @@ export function SupportTicketSceneMenuBar({ ticketId }: { ticketId: string }): J
 }
 
 function SupportTicketSceneMenuBarInner({ ticketId }: { ticketId: string }): JSX.Element {
+    const peoplePinActions = useTodayPeoplePinAction()
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const { ticket, ticketDeleting, deleteDisabledReason } = useValues(logic)
     const { deleteTicket } = useActions(logic)
 
-    return (
-        <SceneMenuBar>
-            <SceneMenuBarMenu label="File" dataAttr="ticket-menubar-file">
-                <SceneMenuBarItem
-                    variant="destructive"
-                    disabled={!ticket || ticketDeleting || !!deleteDisabledReason}
-                    tooltip={deleteDisabledReason}
-                    onClick={() => deleteTicket()}
-                    data-attr="ticket-menubar-delete"
-                >
-                    <IconTrash />
-                    Delete ticket
-                </SceneMenuBarItem>
-            </SceneMenuBarMenu>
-        </SceneMenuBar>
-    )
+    const actions: SceneAction[] = [
+        ...peoplePinActions,
+        {
+            group: 'file',
+            section: 'delete',
+            id: `${RESOURCE_TYPE}-menubar-delete`,
+            label: 'Delete ticket',
+            icon: <IconTrash />,
+            destructive: true,
+            disabledReason:
+                deleteDisabledReason ??
+                (!ticket ? 'Ticket is loading' : ticketDeleting ? 'Deleting ticket' : undefined),
+            onSelect: () => deleteTicket(),
+        },
+    ]
+
+    return <SceneActions actions={actions} dataAttrKey={RESOURCE_TYPE} />
 }

@@ -7,6 +7,8 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
+
 import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { nextTaskTitle } from '../../../lib/task-title'
 import { isPiTaskRuntime } from '../../../types/taskTypes'
@@ -110,6 +112,46 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             </div>
         )
 
+    const titleSceneActions: SceneAction[] =
+        isHeaderLoading || !task
+            ? []
+            : [
+                  ...(canRun
+                      ? ([
+                            {
+                                group: 'edit',
+                                id: 'task-menubar-run',
+                                label: runButtonText,
+                                icon: <IconPlay />,
+                                disabledReason: runTaskInFlight ? 'Starting the run' : undefined,
+                                onSelect: runTask,
+                            },
+                        ] satisfies SceneAction[])
+                      : []),
+                  ...(prUrl
+                      ? ([
+                            {
+                                group: 'view',
+                                id: 'task-menubar-view-pr',
+                                label: 'View PR',
+                                icon: <IconGithub />,
+                                onSelect: () => window.open(prUrl, '_blank'),
+                            },
+                        ] satisfies SceneAction[])
+                      : []),
+                  ...(hasDesktopAccess
+                      ? ([
+                            {
+                                group: 'view',
+                                id: 'task-menubar-open-in-desktop',
+                                label: 'Open in PostHog Desktop',
+                                icon: <IconExternal />,
+                                onSelect: () => window.open(urls.codeTaskLink(task.id), '_blank'),
+                            },
+                        ] satisfies SceneAction[])
+                      : []),
+              ]
+
     // When this task was just created optimistically, the seeded run stream lives under the creation's client
     // `streamKey`. Hand it to the run log so it adopts that instance (and renders the thread immediately)
     // instead of cold-bootstrapping a fresh, skeleton-flashing one.
@@ -132,6 +174,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             selectedRun={selectedRun}
             isHeaderLoading={isHeaderLoading && !isActiveCreation}
             headerDivider={!artifactsTabEnabled}
+            titleSceneActions={titleSceneActions}
             titleActions={
                 <div className="flex flex-wrap items-center gap-2">
                     {todayRailNav && task && <QuillTaskShareControl taskId={task.id} />}

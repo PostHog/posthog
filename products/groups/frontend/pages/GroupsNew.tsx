@@ -16,6 +16,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { GroupsNewLogicProps, groupsNewLogic } from 'products/groups/frontend/logics/groupsNewLogic'
 
+import { GroupsNewSceneMenuBar } from './GroupsNewSceneMenuBar'
+
 export const scene: SceneExport<GroupsNewLogicProps> = {
     component: GroupsNew,
     logic: groupsNewLogic,
@@ -32,6 +34,7 @@ export function GroupsNew(): JSX.Element {
     return (
         <Form id="group" logic={groupsNewLogic} props={logicProps} formKey="group" enableFormOnSubmit>
             <SceneContent className="groups-new">
+                <GroupsNewSceneMenuBar />
                 <SceneTitleSection
                     name={`New ${groupTypeName} group`}
                     resourceType={{ type: 'group' }}

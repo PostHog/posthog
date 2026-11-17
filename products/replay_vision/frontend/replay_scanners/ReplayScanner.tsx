@@ -26,6 +26,7 @@ import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { ReplayScannerSceneMenuBar } from './ReplayScannerSceneMenuBar'
 import { scannerEditUrl } from './scannerEditorSceneLogic'
 
 const ScannerAlertsTab = lazyWithRetry(() =>
@@ -80,6 +81,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
     return (
         <SceneContent>
+            <ReplayScannerSceneMenuBar
+                editUrl={editUrl}
+                editDisabledReason={editDisabledReason}
+                scannerType={scanner.scanner_type}
+            />
             <SceneTitleSection
                 name={scanner.name || 'Untitled scanner'}
                 description={scanner.description}

@@ -23,6 +23,7 @@ import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
 import { ReleasesGate } from './ReleasesGate'
+import { ReleasesSceneMenuBar } from './ReleasesSceneMenuBar'
 import { ReleaseRow, STAGE_LABEL, STAGE_TONE } from './releaseUtils'
 import { useInfiniteRows } from './useInfiniteRows'
 
@@ -159,6 +160,7 @@ function ReleaseListContent(): JSX.Element {
 
     return (
         <SceneContent>
+            <ReleasesSceneMenuBar />
             <SceneTitleSection
                 name="Releases"
                 description="Each release with its stage, its audience and its next step."

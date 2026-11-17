@@ -22,6 +22,7 @@ import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScript
 
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 import { webScriptsSceneLogic } from './webScriptsSceneLogic'
+import { WebScriptsSceneMenuBar } from './WebScriptsSceneMenuBar'
 
 export const scene: SceneExport = {
     component: WebScriptsScene,
@@ -83,6 +84,7 @@ export function WebScriptsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <WebScriptsSceneMenuBar newButton={action} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.WebScripts].name}
                 description={sceneConfigurations[Scene.WebScripts].description}

@@ -157,7 +157,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
-                                <ErrorTrackingIssueSceneMenuBar issue={issue} />
+                                <ErrorTrackingIssueSceneMenuBar
+                                    issue={issue}
+                                    openRecordings={openRecordings}
+                                    setUpVisionScanner={setUpVisionScanner}
+                                />
                                 <SceneTitleSection
                                     noPadding
                                     canEdit

@@ -11,6 +11,7 @@ import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { NODE_TYPE_TAG_SETTINGS } from '../lineage/nodeStyles'
 import { canEditNodeDescription, isAiWrittenDescription } from './nodeDescriptionState'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailSceneMenuBar } from './NodeDetailSceneMenuBar'
 import { nodeTypeForDisplay } from './nodeTypeForDisplay'
 import { QuillNodeDetailActions } from './QuillNodeDetailActions'
 
@@ -32,8 +33,12 @@ export function QuillNodeDetailHeader({ id }: { id: string }): JSX.Element {
     const nodeType = nodeTypeForDisplay(node, savedQuery)
     const canEdit = canEditNodeDescription(node, savedQuery)
 
+    const titleActions =
+        node && savedQuery ? <QuillNodeDetailActions id={id} node={node} savedQuery={savedQuery} /> : undefined
+
     return (
         <>
+            <NodeDetailSceneMenuBar id={id} titleActions={titleActions} />
             <SceneTitleSection
                 name={node?.name}
                 nameSuffix={
@@ -43,11 +48,8 @@ export function QuillNodeDetailHeader({ id }: { id: string }): JSX.Element {
                     </span>
                 }
                 actions={
-                    node && savedQuery ? (
-                        <QuillNodeDetailActions id={id} node={node} savedQuery={savedQuery} />
-                    ) : node?.saved_query_id && !savedQueryError ? (
-                        <Skeleton className="h-7 w-56" />
-                    ) : undefined
+                    titleActions ??
+                    (node?.saved_query_id && !savedQueryError ? <Skeleton className="h-7 w-56" /> : undefined)
                 }
                 description={node?.description}
                 resourceType={{ type: 'sql_editor' }}

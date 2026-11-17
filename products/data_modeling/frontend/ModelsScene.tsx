@@ -25,6 +25,7 @@ import { DataQualityOverview } from 'products/data_quality/frontend/overview/Dat
 import { ModelsLineageTab } from './lineage/ModelsLineageTab'
 import { ModelsOverviewTab } from './ModelsOverviewTab'
 import { ModelsSceneTab, modelsSceneLogic } from './modelsSceneLogic'
+import { ModelsSceneMenuBar } from './ModelsSceneMenuBar'
 import { ModelsUsageDateFilter } from './ModelsUsageDateFilter'
 import { ModelsUsageTab } from './ModelsUsageTab'
 import { ViewsTab } from './ViewsTab'
@@ -102,51 +103,46 @@ export function ModelsScene(): JSX.Element {
         },
     ]
 
+    const createViewButton = (
+        <Shortcut name="NewModel" keybind={[keyBinds.new]} intent="New view" interaction="click" scope={Scene.Models}>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.WarehouseObjects}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                {todayRailNav ? (
+                    <Button
+                        variant="primary"
+                        render={<LinkPrimitive to={urls.sqlEditor({ source: 'view' })} />}
+                        tooltip="Create view"
+                        data-attr="new-view-button"
+                    >
+                        Create view
+                    </Button>
+                ) : (
+                    <LemonButton
+                        type="primary"
+                        to={urls.sqlEditor({ source: 'view' })}
+                        size="small"
+                        tooltip="Create view"
+                        data-attr="new-view-button"
+                    >
+                        Create view
+                    </LemonButton>
+                )}
+            </AccessControlAction>
+        </Shortcut>
+    )
+
     return (
         <SceneContent>
+            <ModelsSceneMenuBar createViewButton={createViewButton} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Models].name}
                 description={sceneConfigurations[Scene.Models].description}
                 resourceType={{
                     type: sceneConfigurations[Scene.Models].iconType || 'default_icon_type',
                 }}
-                actions={
-                    <div className="flex gap-2">
-                        <Shortcut
-                            name="NewModel"
-                            keybind={[keyBinds.new]}
-                            intent="New view"
-                            interaction="click"
-                            scope={Scene.Models}
-                        >
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.WarehouseObjects}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                {todayRailNav ? (
-                                    <Button
-                                        variant="primary"
-                                        render={<LinkPrimitive to={urls.sqlEditor({ source: 'view' })} />}
-                                        tooltip="Create view"
-                                        data-attr="new-view-button"
-                                    >
-                                        Create view
-                                    </Button>
-                                ) : (
-                                    <LemonButton
-                                        type="primary"
-                                        to={urls.sqlEditor({ source: 'view' })}
-                                        size="small"
-                                        tooltip="Create view"
-                                        data-attr="new-view-button"
-                                    >
-                                        Create view
-                                    </LemonButton>
-                                )}
-                            </AccessControlAction>
-                        </Shortcut>
-                    </div>
-                }
+                actions={<div className="flex gap-2">{createViewButton}</div>}
             />
             <LemonTabs activeKey={activeTab} tabs={tabs} sceneInset />
         </SceneContent>

@@ -31,6 +31,7 @@ import { SourcesTab } from './components/tabs/SourcesTab'
 import { InboxTriageView } from './components/triage/InboxTriageView'
 import { captureInboxPanelViewed } from './inboxAnalytics'
 import { inboxSceneLogic } from './inboxSceneLogic'
+import { InboxSceneMenuBar } from './InboxSceneMenuBar'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
 import { scoutFleetLogic } from './logics/scoutFleetLogic'
 import { INBOX_TAB_DESCRIPTION, InboxTabKey, SignalReport } from './types'
@@ -275,6 +276,7 @@ export function InboxScene(): JSX.Element {
     return (
         <SceneContent className="@container/inbox gap-y-0 border-b-0 flex-1 min-h-0">
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
+                <InboxSceneMenuBar />
                 <SceneTitleSection
                     name="Self-driving inbox"
                     // The description explains the active tab so new users can orient themselves.

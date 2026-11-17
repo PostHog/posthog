@@ -27,6 +27,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { llmPromptsEmptyState } from '../emptyState/llmPromptsEmptyState'
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
+import { LLMPromptsSceneMenuBar } from './LLMPromptsSceneMenuBar'
 import { PromptLabelChip } from './PromptLabelChip'
 import { LLMPrompt } from './types'
 import { openArchivePromptDialog, openDuplicatePromptDialog, stripPromptSceneSearchParams } from './utils'
@@ -204,6 +205,7 @@ export function LLMPromptsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <LLMPromptsSceneMenuBar newPromptUrl={promptUrl('new')} feedbackSurveyId={PROMPTS_FEEDBACK_SURVEY_ID} />
             <SceneTitleSection
                 name="Prompts"
                 description="Track and manage your LLM prompts."

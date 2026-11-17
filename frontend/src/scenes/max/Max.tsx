@@ -51,6 +51,7 @@ import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { mainFocusUrl } from './mainFocusUrl'
 import { MaxLogicProps, maxLogic } from './maxLogic'
+import { MaxSceneMenuBar } from './MaxSceneMenuBar'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { SandboxComposerSurfaces, Thread } from './Thread'
 
@@ -380,6 +381,12 @@ export const MaxInstance = React.memo(function MaxInstance({
         </>
     ) : (
         <SceneContent className="pt-4 px-4 min-h-[calc(100vh-var(--scene-layout-header-height))]">
+            <MaxSceneMenuBar
+                canCopyLink={!!tabId && !!conversationId}
+                canOpenInContextPanel={!!tabId}
+                copyChatLink={copyChatLink}
+                openInContextPanel={openInContextPanel}
+            />
             <SceneTitleSection
                 name={null}
                 resourceType={{ type: 'chat' }}

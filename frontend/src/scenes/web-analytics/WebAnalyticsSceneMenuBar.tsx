@@ -1,25 +1,31 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
-import { IconBolt, IconDownload, IconGear, IconSearch, IconSparkles, IconStar, IconTarget, IconX } from '@posthog/icons'
-import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import {
+    IconBolt,
+    IconDownload,
+    IconGear,
+    IconPulse,
+    IconSearch,
+    IconSparkles,
+    IconStar,
+    IconTarget,
+    IconX,
+} from '@posthog/icons'
 
-import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { LiveUserCount } from 'lib/components/LiveUserCount'
+import { useSceneFileActions } from 'lib/components/Scenes/useSceneFileActions'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import {
-    SceneMenuBar,
-    SceneMenuBarCheckboxItem,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarSeparator,
-    SceneMenuBarSubMenu,
-} from '~/layout/scenes/components/SceneMenuBar'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
+import { SceneActions } from '~/layout/scenes/sceneActions/SceneActions'
 
 import { isWebAnalyticsAchievementsEnabled } from './achievements/gating'
 import { webAnalyticsAchievementsLogic } from './achievements/webAnalyticsAchievementsLogic'
@@ -27,6 +33,8 @@ import { webAnalyticsAchievementsPreferencesLogic } from './achievements/webAnal
 import { PRECOMPUTE_TOGGLE_DESCRIPTION, ProductTab, TILE_LABELS, TileId } from './common'
 import { shareNudgeLogic } from './shareNudgeLogic'
 import { exportAllTilesAsCsvZip } from './webAnalyticsExportUtils'
+
+const RESOURCE_TYPE = 'web-analytics'
 
 const ANALYTICS_TILES = [
     TileId.OVERVIEW,
@@ -43,43 +51,8 @@ const ANALYTICS_TILES = [
     TileId.FRUSTRATING_PAGES,
 ]
 
-function NewQueryEngineTooltipBody(): JSX.Element {
-    return (
-        <div className="max-w-100 p-1 text-xs">
-            <div className="mb-2 flex items-center gap-2">
-                <strong>About the new query engine</strong>
-                <Badge variant="info" className="uppercase">
-                    Beta
-                </Badge>
-            </div>
-            <p className="mb-2">
-                Our new web analytics query engine powers faster queries using pre-aggregated data, giving you quicker
-                access to insights and it's much better at handling large datasets.
-            </p>
-            <div className="mb-2">
-                <strong>A few things to note:</strong>
-                <ul className="list-disc ml-4 mt-1 space-y-1">
-                    <li>Some filters may not yet be supported, but we're working on expanding coverage.</li>
-                    <li>
-                        We use smart approximation techniques to keep performance high, and we aim for less than 1%
-                        difference compared to exact results.
-                    </li>
-                    <li>Results are currently tied to UTC timezone for query and display.</li>
-                </ul>
-            </div>
-            <div>
-                <strong>Coming soon:</strong>
-                <ul className="list-disc ml-4 mt-1 space-y-1">
-                    <li>Use the new engine for chart visualizations</li>
-                    <li>Support for channel types in breakdowns</li>
-                    <li>Enable conversion goals</li>
-                    <li>Further improvements in accuracy</li>
-                    <li>More filters!</li>
-                </ul>
-            </div>
-        </div>
-    )
-}
+const LIVE_USER_COUNT_DOC_LINK =
+    'https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user'
 
 export function WebAnalyticsSceneMenuBar(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -113,174 +86,225 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
     } = useActions(webAnalyticsLogic)
     const { exportTriggered } = useActions(shareNudgeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasFileItems } = useValues(sceneFileLogic)
     const { currentTeam } = useValues(teamLogic)
     const { achievementsOptOut } = useValues(webAnalyticsAchievementsPreferencesLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { openModal: openAchievementsModal } = useActions(webAnalyticsAchievementsLogic)
+    const fileActions = useSceneFileActions(RESOURCE_TYPE)
 
     const showAchievements = isWebAnalyticsAchievementsEnabled(featureFlags, achievementsOptOut)
     const showRecap = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RECAP]
     const showTileToggles = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
     const showQueryEngineToggle = !!featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
+    const filtersV2 =
+        !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || !!featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
     const isUsingNewEngine = !!currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
     const availableTiles = productTab === ProductTab.ANALYTICS ? ANALYTICS_TILES : []
 
-    const handleToggleEngine = (checked: boolean): void => {
-        updateCurrentTeam({
-            modifiers: {
-                ...currentTeam?.modifiers,
-                useWebAnalyticsPreAggregatedTables: checked,
+    const actions: SceneAction[] = [
+        {
+            group: 'file',
+            section: 'export',
+            id: `${RESOURCE_TYPE}-menubar-export-all-csv`,
+            label: 'Export all as CSV (.zip)',
+            icon: <IconDownload />,
+            disabledReason: exportAllDisabledReason ?? undefined,
+            onSelect: () => {
+                if (exportAllTilesAsCsvZip(tiles)) {
+                    exportTriggered()
+                }
             },
-        })
-    }
+        },
+        ...(!filtersV2
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'export',
+                      id: `${RESOURCE_TYPE}-menubar-share`,
+                      label: 'Share',
+                      keywords: ['copy link'],
+                      icon: <IconLink />,
+                      onSelect: () => {
+                          void copyToClipboard(window.location.href, 'link')
+                          posthog.capture('web analytics share link copied', { source: 'header_button' })
+                      },
+                      pinned: { order: 2, variant: 'icon', dataAttr: 'web-analytics-share-button' },
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...fileActions,
+        ...(showQueryEngineToggle
+            ? ([
+                  {
+                      group: 'edit',
+                      type: 'checkbox',
+                      id: `${RESOURCE_TYPE}-menubar-query-engine`,
+                      label: 'New query engine',
+                      keywords: ['beta', 'pre-aggregated'],
+                      icon: <IconBolt />,
+                      tooltip: 'Beta. Faster queries from pre-aggregated data, with results in UTC.',
+                      checked: isUsingNewEngine,
+                      onCheckedChange: (checked) =>
+                          updateCurrentTeam({
+                              modifiers: { ...currentTeam?.modifiers, useWebAnalyticsPreAggregatedTables: checked },
+                          }),
+                      pinned: { order: 4, variant: 'secondary' },
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(showRecap
+            ? ([
+                  {
+                      group: 'view',
+                      section: 'navigate',
+                      id: `${RESOURCE_TYPE}-menubar-weekly-recap`,
+                      label: 'Weekly recap',
+                      icon: <IconSparkles />,
+                      onSelect: () => router.actions.push(urls.webAnalyticsRecap()),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        {
+            group: 'view',
+            section: 'navigate',
+            id: `${RESOURCE_TYPE}-menubar-session-attribution`,
+            label: 'Session Attribution Explorer',
+            icon: <IconSearch />,
+            onSelect: () => window.location.assign(urls.sessionAttributionExplorer()),
+        },
+        ...(showFocusMode
+            ? ([
+                  {
+                      group: 'view',
+                      section: 'navigate',
+                      id: `${RESOURCE_TYPE}-menubar-focus-mode-settings`,
+                      label: 'Focus mode settings',
+                      icon: <IconGear />,
+                      opensFloatingUi: true,
+                      onSelect: () => openFocusModeModal(),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(showFocusMode && isFocusModeActive
+            ? ([
+                  {
+                      group: 'view',
+                      section: 'navigate',
+                      id: `${RESOURCE_TYPE}-menubar-exit-focus-mode`,
+                      label: 'Exit focus mode',
+                      icon: <IconX />,
+                      onSelect: exitFocusMode,
+                  },
+              ] satisfies SceneAction[])
+            : showFocusMode && hasSavedFocusMode
+              ? ([
+                    {
+                        group: 'view',
+                        section: 'navigate',
+                        id: `${RESOURCE_TYPE}-menubar-enter-focus-mode`,
+                        label: 'Enter focus mode',
+                        icon: <IconTarget />,
+                        onSelect: enterFocusMode,
+                    },
+                ] satisfies SceneAction[])
+              : []),
+        ...(showAchievements
+            ? ([
+                  {
+                      group: 'view',
+                      section: 'navigate',
+                      id: 'web-analytics-achievements-open',
+                      label: 'Achievements',
+                      icon: <IconStar />,
+                      opensFloatingUi: true,
+                      onSelect: () => openAchievementsModal(),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(filtersV2
+            ? ([
+                  {
+                      group: 'view',
+                      section: 'navigate',
+                      type: 'panel',
+                      id: `${RESOURCE_TYPE}-menubar-live-users`,
+                      label: 'Live users',
+                      icon: <IconPulse />,
+                      render: () => (
+                          <LiveUserCount docLink={LIVE_USER_COUNT_DOC_LINK} dataAttr="web-analytics-live-user-count" />
+                      ),
+                      pinned: {
+                          order: 1,
+                          variant: 'icon',
+                          render: () => (
+                              <LiveUserCount
+                                  docLink={LIVE_USER_COUNT_DOC_LINK}
+                                  dataAttr="web-analytics-live-user-count"
+                              />
+                          ),
+                      },
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        {
+            group: 'view',
+            section: 'toggles',
+            type: 'checkbox',
+            id: `${RESOURCE_TYPE}-menubar-filter-test`,
+            label: 'Filter test accounts',
+            tooltip: 'Filter out internal and test users',
+            checked: shouldFilterTestAccounts,
+            onCheckedChange: (checked) => setShouldFilterTestAccounts(checked),
+            pinned: { order: 3, variant: 'secondary', dataAttr: 'web-analytics-filter-test-accounts' },
+        },
+        ...(featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE]
+            ? ([
+                  {
+                      group: 'view',
+                      section: 'toggles',
+                      type: 'checkbox',
+                      id: `${RESOURCE_TYPE}-menubar-allow-precompute`,
+                      label: 'Allow precompute',
+                      tooltip: PRECOMPUTE_TOGGLE_DESCRIPTION,
+                      checked: isPrecomputeAllowed,
+                      onCheckedChange: (checked) => setUseWebAnalyticsPrecompute(checked),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_QUERY_MODIFIERS]
+            ? ([
+                  {
+                      group: 'view',
+                      section: 'toggles',
+                      type: 'checkbox',
+                      id: `${RESOURCE_TYPE}-menubar-dimensional-tables`,
+                      label: 'Use dimensional tables',
+                      checked: !!webQueryModifiers.useDimensionalTables,
+                      onCheckedChange: (checked) =>
+                          setWebQueryModifiers({ useDimensionalTables: checked || undefined }),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(showTileToggles && availableTiles.length > 0
+            ? ([
+                  {
+                      group: 'view',
+                      section: 'toggles',
+                      type: 'submenu',
+                      id: `${RESOURCE_TYPE}-menubar-visible-tiles`,
+                      label: 'Visible tiles',
+                      display: 'submenu',
+                      items: availableTiles.map((tileId) => ({
+                          type: 'checkbox' as const,
+                          id: `${RESOURCE_TYPE}-menubar-tile-${tileId}`,
+                          label: TILE_LABELS[tileId],
+                          checked: !hiddenTiles.includes(tileId),
+                          onCheckedChange: (checked: boolean) => setTileVisibility(tileId, checked),
+                      })),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+    ]
 
-    return (
-        <SceneMenuBar>
-            <SceneMenuBarMenu label="File" dataAttr="web-analytics-menubar-file">
-                <SceneMenuBarItem
-                    disabled={!!exportAllDisabledReason}
-                    tooltip={exportAllDisabledReason ?? undefined}
-                    onClick={() => {
-                        if (exportAllTilesAsCsvZip(tiles)) {
-                            exportTriggered()
-                        }
-                    }}
-                    data-attr="web-analytics-menubar-export-all-csv"
-                >
-                    <IconDownload />
-                    Export all as CSV (.zip)
-                </SceneMenuBarItem>
-                {hasFileItems && (
-                    <>
-                        <SceneMenuBarSeparator />
-                        <SceneMenuBarFileItems dataAttrKey="web-analytics" />
-                    </>
-                )}
-            </SceneMenuBarMenu>
-            {showQueryEngineToggle && (
-                <SceneMenuBarMenu label="Edit" dataAttr="web-analytics-menubar-edit">
-                    <Tooltip>
-                        <TooltipTrigger
-                            render={
-                                <SceneMenuBarCheckboxItem
-                                    checked={isUsingNewEngine}
-                                    onCheckedChange={handleToggleEngine}
-                                    data-attr="web-analytics-menubar-query-engine"
-                                >
-                                    <IconBolt />
-                                    New query engine
-                                    <Badge variant="info" className="ml-1 uppercase">
-                                        Beta
-                                    </Badge>
-                                </SceneMenuBarCheckboxItem>
-                            }
-                        />
-                        <TooltipContent>
-                            <NewQueryEngineTooltipBody />
-                        </TooltipContent>
-                    </Tooltip>
-                </SceneMenuBarMenu>
-            )}
-            <SceneMenuBarMenu label="View" dataAttr="web-analytics-menubar-view">
-                {showRecap && (
-                    <SceneMenuBarItem
-                        onClick={() => router.actions.push(urls.webAnalyticsRecap())}
-                        data-attr="web-analytics-menubar-weekly-recap"
-                    >
-                        <IconSparkles />
-                        Weekly recap
-                    </SceneMenuBarItem>
-                )}
-                <SceneMenuBarItem
-                    onClick={() => window.location.assign(urls.sessionAttributionExplorer())}
-                    data-attr="web-analytics-menubar-session-attribution"
-                >
-                    <IconSearch />
-                    Session Attribution Explorer
-                </SceneMenuBarItem>
-                {showFocusMode && (
-                    <SceneMenuBarItem
-                        onClick={() => openFocusModeModal()}
-                        data-attr="web-analytics-menubar-focus-mode-settings"
-                        opensFloatingUi
-                    >
-                        <IconGear />
-                        Focus mode settings
-                    </SceneMenuBarItem>
-                )}
-                {showFocusMode &&
-                    (isFocusModeActive ? (
-                        <SceneMenuBarItem onClick={exitFocusMode} data-attr="web-analytics-menubar-exit-focus-mode">
-                            <IconX />
-                            Exit focus mode
-                        </SceneMenuBarItem>
-                    ) : hasSavedFocusMode ? (
-                        <SceneMenuBarItem onClick={enterFocusMode} data-attr="web-analytics-menubar-enter-focus-mode">
-                            <IconTarget />
-                            Enter focus mode
-                        </SceneMenuBarItem>
-                    ) : null)}
-                {showAchievements && (
-                    <SceneMenuBarItem
-                        onClick={() => openAchievementsModal()}
-                        data-attr="web-analytics-achievements-open"
-                        opensFloatingUi
-                    >
-                        <IconStar />
-                        Achievements
-                    </SceneMenuBarItem>
-                )}
-                <SceneMenuBarSeparator />
-                <SceneMenuBarCheckboxItem
-                    checked={shouldFilterTestAccounts}
-                    onCheckedChange={(checked) => setShouldFilterTestAccounts(checked)}
-                    data-attr="web-analytics-menubar-filter-test"
-                >
-                    Filter test accounts
-                </SceneMenuBarCheckboxItem>
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
-                    <Tooltip>
-                        <TooltipTrigger
-                            render={
-                                <SceneMenuBarCheckboxItem
-                                    checked={isPrecomputeAllowed}
-                                    onCheckedChange={(checked) => setUseWebAnalyticsPrecompute(checked)}
-                                    data-attr="web-analytics-menubar-allow-precompute"
-                                >
-                                    Allow precompute
-                                </SceneMenuBarCheckboxItem>
-                            }
-                        />
-                        <TooltipContent className="max-w-80">{PRECOMPUTE_TOGGLE_DESCRIPTION}</TooltipContent>
-                    </Tooltip>
-                )}
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_QUERY_MODIFIERS] && (
-                    <SceneMenuBarCheckboxItem
-                        checked={!!webQueryModifiers.useDimensionalTables}
-                        onCheckedChange={(checked) =>
-                            setWebQueryModifiers({ useDimensionalTables: checked || undefined })
-                        }
-                        data-attr="web-analytics-menubar-dimensional-tables"
-                    >
-                        Use dimensional tables
-                    </SceneMenuBarCheckboxItem>
-                )}
-                {showTileToggles && availableTiles.length > 0 && (
-                    <SceneMenuBarSubMenu label="Visible tiles" keepAsSubmenu>
-                        {availableTiles.map((tileId) => (
-                            <SceneMenuBarCheckboxItem
-                                key={tileId}
-                                checked={!hiddenTiles.includes(tileId)}
-                                onCheckedChange={(checked) => setTileVisibility(tileId, checked)}
-                                data-attr={`web-analytics-menubar-tile-${tileId}`}
-                            >
-                                {TILE_LABELS[tileId]}
-                            </SceneMenuBarCheckboxItem>
-                        ))}
-                    </SceneMenuBarSubMenu>
-                )}
-            </SceneMenuBarMenu>
-        </SceneMenuBar>
-    )
+    return <SceneActions actions={actions} dataAttrKey={RESOURCE_TYPE} />
 }

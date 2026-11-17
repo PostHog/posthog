@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconCopy, IconExternal, IconFlag, IconPulse, IconQuestion, IconTrash, IconX } from '@posthog/icons'
+import { IconCopy, IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -18,19 +18,15 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FlagSelector } from 'lib/components/FlagSelector'
-import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneSelect } from 'lib/components/Scenes/SceneSelect'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -41,16 +37,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import {
-    SceneMenuBar,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarPopover,
-    SceneMenuBarSeparator,
-} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
@@ -77,7 +65,6 @@ import {
     PropertyOperator,
     RecordingUniversalFilters,
     ReplayTabs,
-    SidePanelTab,
 } from '~/types'
 
 import {
@@ -91,6 +78,7 @@ import { MessageAudienceButton } from 'products/workflows/frontend/MessageAudien
 import { EarlyAccessFeatureImageInput } from './EarlyAccessFeatureImageInput'
 import { EarlyAccessFeatureImagePreview } from './EarlyAccessFeatureImagePreview'
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
+import { EarlyAccessFeatureSceneMenuBar } from './EarlyAccessFeatureSceneMenuBar'
 import { enrolledPeopleAudience } from './enrolledPeopleAudience'
 import { InstructionsModal } from './InstructionsModal'
 import { QuillEarlyAccessFeatureActions } from './QuillEarlyAccessFeatureActions'
@@ -182,14 +170,9 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
     } = useActions(earlyAccessFeatureLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
-    const showMetalytics = metalyticsInstanceId != null && !!featureFlags[FEATURE_FLAGS.METALYTICS]
 
     const cancelEditing = (): void => {
         if (isEditingFeature) {
@@ -335,91 +318,19 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <SceneContent>
-                {sceneMenuBarEnabled && (
-                    <SceneMenuBar>
-                        <SceneMenuBarMenu
-                            label="File"
-                            dataAttr={`${RESOURCE_TYPE}-menubar-file`}
-                            disabled={isNewEarlyAccessFeature}
-                        >
-                            <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                            {canCopyToProject && earlyAccessFeatureId && (
-                                <SceneMenuBarItem
-                                    onClick={() =>
-                                        router.actions.push(
-                                            urls.resourceTransfer('EarlyAccessFeature', earlyAccessFeatureId)
-                                        )
-                                    }
-                                    data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
-                                >
-                                    <IconCopy />
-                                    Copy to another project
-                                </SceneMenuBarItem>
-                            )}
-                            <SceneMenuBarSeparator />
-                            <SceneMenuBarItem
-                                variant="destructive"
-                                disabled={!!accessControlDisabledReason}
-                                tooltip={accessControlDisabledReason ?? undefined}
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Permanently delete feature?',
-                                        description:
-                                            'Doing so will remove any opt in conditions from the feature flag.',
-                                        primaryButton: {
-                                            children: 'Delete',
-                                            type: 'primary',
-                                            status: 'danger',
-                                            'data-attr': 'confirm-delete-feature',
-                                            onClick: () => {
-                                                deleteEarlyAccessFeature(
-                                                    (earlyAccessFeature as EarlyAccessFeatureType)?.id
-                                                )
-                                            },
-                                        },
-                                        secondaryButton: {
-                                            children: 'Close',
-                                            type: 'secondary',
-                                        },
-                                    })
-                                }}
-                                data-attr={`${RESOURCE_TYPE}-menubar-delete`}
-                            >
-                                <IconTrash />
-                                Delete
-                            </SceneMenuBarItem>
-                        </SceneMenuBarMenu>
-                        <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
-                            {showMetalytics && (
-                                <SceneMenuBarItem
-                                    opensFloatingUi
-                                    onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
-                                >
-                                    <IconPulse />
-                                    View metalytics
-                                </SceneMenuBarItem>
-                            )}
-                            <SceneMenuBarItem
-                                onClick={() => window.open(EARLY_ACCESS_FEATURES_DOCS_URL, '_blank', 'noopener')}
-                                data-attr={`${RESOURCE_TYPE}-menubar-docs`}
-                            >
-                                <IconExternal />
-                                Early access features docs
-                            </SceneMenuBarItem>
-                        </SceneMenuBarMenu>
-                        {!isNewEarlyAccessFeature && (
-                            <SceneMenuBarPopover
-                                label="Metadata"
-                                dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
-                                contentClassName="flex flex-col gap-2"
-                            >
-                                {stageSelect}
-                                {assigneeField}
-                            </SceneMenuBarPopover>
-                        )}
-                    </SceneMenuBar>
-                )}
+                <EarlyAccessFeatureSceneMenuBar
+                    isNewEarlyAccessFeature={isNewEarlyAccessFeature}
+                    canShowSaveButtons={canShowSaveButtons}
+                    earlyAccessFeatureId={earlyAccessFeatureId}
+                    accessControlDisabledReason={accessControlDisabledReason}
+                    metadata={
+                        <>
+                            {stageSelect}
+                            {assigneeField}
+                        </>
+                    }
+                    onCancel={cancelEditing}
+                />
                 <SceneTitleSection
                     name={earlyAccessFeature.name}
                     description={earlyAccessFeature.description}

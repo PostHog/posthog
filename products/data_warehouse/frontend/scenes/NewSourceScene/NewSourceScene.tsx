@@ -46,6 +46,7 @@ import { DestinationStep } from './components/DestinationStep'
 import { FileUploadSourceForm } from './components/FileUploadSourceForm'
 import { WebhookStepFallback } from './components/WebhookStepFallback'
 import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
+import { NewSourceSceneMenuBar } from './NewSourceSceneMenuBar'
 import { SourceCatalog } from './SourceCatalog'
 import { SourceCatalogSkeleton } from './SourceCatalogSkeleton'
 import { WIZARD_DESTINATION_STEP, type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
@@ -181,6 +182,7 @@ function InternalNewSourceScene({
 
     return (
         <SceneContent>
+            <NewSourceSceneMenuBar closeWizard={closeWizard} />
             <SceneTitleSection
                 name="New data warehouse source"
                 resourceType={{ type: 'data_pipeline' }}

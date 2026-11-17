@@ -8,7 +8,6 @@ import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSelect, Lemon
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -18,12 +17,6 @@ import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagRe
 import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import {
-    SceneMenuBar,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarSeparator,
-} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
@@ -51,6 +44,7 @@ import {
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
 import { productTourDialogHandlers } from './productTourDialogHandlers'
 import { productTourLogic } from './productTourLogic'
+import { ProductTourSceneMenuBar } from './ProductTourSceneMenuBar'
 import { getProductTourStatus, isAnnouncement, isProductTourRunning, productToursLogic } from './productToursLogic'
 import { QuillProductTourViewActions } from './QuillProductTourViewActions'
 
@@ -77,7 +71,6 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
     const { deleteProductTour } = useActions(productToursLogic)
 
     const [tabKey, setTabKey] = useState(() => (router.values.searchParams.activity ? 'history' : 'overview'))
-    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { handleLaunch, handleStop, handleResume } = productTourDialogHandlers({
         launchValidationIssues,
@@ -96,43 +89,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
 
     return (
         <SceneContent>
-            {sceneMenuBarEnabled && (
-                <SceneMenuBar>
-                    <SceneMenuBarMenu label="File" dataAttr="product_tour-menubar-file">
-                        <SceneMenuBarFileItems dataAttrKey="product_tour" />
-                        <SceneMenuBarSeparator />
-                        <SceneMenuBarItem
-                            variant="destructive"
-                            opensFloatingUi
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Delete this product tour?',
-                                    content: (
-                                        <div className="text-sm text-secondary">
-                                            This action cannot be undone. All tour data will be permanently removed.
-                                        </div>
-                                    ),
-                                    primaryButton: {
-                                        children: 'Delete',
-                                        type: 'primary',
-                                        onClick: () => deleteProductTour(id),
-                                        size: 'small',
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                        type: 'tertiary',
-                                        size: 'small',
-                                    },
-                                })
-                            }}
-                            data-attr="product_tour-menubar-delete"
-                        >
-                            <IconTrash />
-                            Delete product tour
-                        </SceneMenuBarItem>
-                    </SceneMenuBarMenu>
-                </SceneMenuBar>
-            )}
+            <ProductTourSceneMenuBar id={id} productTour={productTour} />
             <ScenePanel>
                 <ScenePanelInfoSection>
                     <SceneFile dataAttrKey="product_tour" />

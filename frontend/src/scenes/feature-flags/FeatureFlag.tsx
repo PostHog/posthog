@@ -14,10 +14,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
-import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -38,7 +35,6 @@ import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
-import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneContentFallback } from 'scenes/SceneContentFallback'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
@@ -49,14 +45,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import {
-    SceneMenuBar,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarPopover,
-    SceneMenuBarSeparator,
-    SceneMenuBarSubMenu,
-} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
@@ -99,7 +87,6 @@ import { featureFlagContextItems } from './featureFlagAiContext'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
-import { FeatureFlagEvaluationContextsCombobox } from './FeatureFlagEvaluationContextsCombobox'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import { FeatureFlagLoadError } from './FeatureFlagLoadError'
@@ -112,6 +99,7 @@ import {
 import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagRulesV2Editor } from './FeatureFlagRulesV2Editor'
+import { EVALUATION_CONTEXTS_UNAVAILABLE_DISABLED_REASON, FeatureFlagSceneMenuBar } from './FeatureFlagSceneMenuBar'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
@@ -120,8 +108,6 @@ import { FLAG_EVALUATIONS_RETENTION_DAYS, readsFlagEvaluationsTable } from './fl
 import { useFeatureFlagAgentRefresh } from './useFeatureFlagAgentRefresh'
 
 const RESOURCE_TYPE = 'feature_flag'
-
-const EVALUATION_CONTEXTS_UNAVAILABLE_DISABLED_REASON = "Evaluation contexts can't be changed on this flag yet."
 
 const VIEW_ONLY_DISABLED_REASON =
     "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
@@ -194,9 +180,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         findOrCreateBroadcastCohort,
         setSelectedTab,
         saveDescriptionInline,
-        saveTagsInline,
         saveSidebarTags,
-        saveEvaluationContextsInline,
         updateFeatureFlagArchived,
         refreshFeatureFlagAfterAgentChange,
     } = useActions(featureFlagLogic)
@@ -302,6 +286,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         [ARCHIVE_UNAVAILABLE_DISABLED_REASON]: !canArchiveFeatureFlag(featureFlag.filters),
         ...(featureFlag.archived && deletedCohortReason ? { [deletedCohortReason]: true } : {}),
         'Updating…': featureFlagActiveUpdateLoading,
+    })
+
+    const deleteDisabledReasons = (accessDisabledReason: string | null | undefined): Record<string, boolean> => ({
+        ...(accessDisabledReason ? { [accessDisabledReason]: true } : {}),
+        [VIEW_ONLY_DISABLED_REASON]: !featureFlag.can_edit,
+        [RESTORE_UNAVAILABLE_DISABLED_REASON]: restoreUnavailable,
+        ...(restoreBlockedReason ? { [restoreBlockedReason]: true } : {}),
+        'Restoring…': featureFlagRestoreLoading,
     })
 
     const editButton = (
@@ -578,13 +570,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 )
                                             }
                                         }}
-                                        disabledReasons={{
-                                            ...(disabledReason ? { [disabledReason]: true } : {}),
-                                            [VIEW_ONLY_DISABLED_REASON]: !featureFlag.can_edit,
-                                            [RESTORE_UNAVAILABLE_DISABLED_REASON]: restoreUnavailable,
-                                            ...(restoreBlockedReason ? { [restoreBlockedReason]: true } : {}),
-                                            'Restoring…': featureFlagRestoreLoading,
-                                        }}
+                                        disabledReasons={deleteDisabledReasons(disabledReason)}
                                     >
                                         {featureFlag.deleted ? <IconRewind /> : <IconTrash />}
                                         {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
@@ -636,162 +622,28 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             to this feature flag when you're ready to release to your early access users.
                         </LemonBanner>
                     )}
-                    {featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR] && (
-                        <SceneMenuBar>
-                            <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
-                                <SceneMenuBarSubMenu label="Create">
-                                    {/* Adding to notebooks is deprecated under the rail redesign; gated here so an emptied menu can disable itself. */}
-                                    {featureFlag.id && !todayRailNav && (
-                                        <SceneMenuBarAddToNotebook
-                                            dataAttrKey={RESOURCE_TYPE}
-                                            notebookSelectButtonProps={{
-                                                resource: {
-                                                    type: NotebookNodeType.FeatureFlag,
-                                                    attrs: { id: featureFlag.id },
-                                                },
-                                            }}
-                                        />
-                                    )}
-                                    {canCreateFlagCohort && (
-                                        <SceneMenuBarItem
-                                            onClick={() => createStaticCohort()}
-                                            data-attr={`${RESOURCE_TYPE}-menubar-create-cohort`}
-                                        >
-                                            <IconPlusSmall />
-                                            Cohort
-                                        </SceneMenuBarItem>
-                                    )}
-                                    {canCreateFlagCohort && (
-                                        <SceneMenuBarItem
-                                            onClick={() => findOrCreateBroadcastCohort()}
-                                            disabled={!!broadcastDisabledReason}
-                                            tooltip={broadcastDisabledReason}
-                                            data-attr={`${RESOURCE_TYPE}-menubar-message-audience-broadcast`}
-                                        >
-                                            <IconSend />
-                                            Broadcast
-                                        </SceneMenuBarItem>
-                                    )}
-                                    <SceneMenuBarItem
-                                        opensFloatingUi
-                                        onClick={() => handleGetFeedback()}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-create-survey`}
-                                    >
-                                        <IconPlusSmall />
-                                        Survey
-                                    </SceneMenuBarItem>
-                                </SceneMenuBarSubMenu>
-                                <SceneMenuBarSeparator />
-                                <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                                <SceneMenuBarSeparator />
-                                {!featureFlag.deleted && (
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.FeatureFlag}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                    >
-                                        {({ disabledReason }) => {
-                                            const archiveReason = firstDisabledReason(
-                                                archiveDisabledReasons(disabledReason)
-                                            )
-                                            return (
-                                                <SceneMenuBarItem
-                                                    variant="destructive"
-                                                    disabled={!!archiveReason}
-                                                    tooltip={archiveReason}
-                                                    data-attr={
-                                                        featureFlag.archived
-                                                            ? `${RESOURCE_TYPE}-menubar-unarchive`
-                                                            : `${RESOURCE_TYPE}-menubar-archive`
-                                                    }
-                                                    onClick={toggleArchived}
-                                                >
-                                                    {featureFlag.archived ? <IconRewind /> : <IconArchive />}
-                                                    {featureFlag.archived ? 'Unarchive' : 'Archive'} feature flag
-                                                </SceneMenuBarItem>
-                                            )
-                                        }}
-                                    </AccessControlAction>
-                                )}
-                                {configFormat !== 'unsupported' && (
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.FeatureFlag}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                    >
-                                        {({ disabledReason }) => (
-                                            <SceneMenuBarItem
-                                                variant="destructive"
-                                                disabled={
-                                                    !!disabledReason ||
-                                                    !featureFlag.can_edit ||
-                                                    featureFlagRestoreLoading ||
-                                                    restoreUnavailable ||
-                                                    !!restoreBlockedReason
-                                                }
-                                                tooltip={
-                                                    !featureFlag.can_edit
-                                                        ? VIEW_ONLY_DISABLED_REASON
-                                                        : restoreUnavailable
-                                                          ? RESTORE_UNAVAILABLE_DISABLED_REASON
-                                                          : restoreBlockedReason
-                                                }
-                                                data-attr={
-                                                    featureFlag.deleted
-                                                        ? `${RESOURCE_TYPE}-menubar-restore`
-                                                        : `${RESOURCE_TYPE}-menubar-delete`
-                                                }
-                                                onClick={() => {
-                                                    if (featureFlag.deleted) {
-                                                        restoreFeatureFlag(featureFlag)
-                                                    } else {
-                                                        openFeatureFlagDeleteDialog(
-                                                            featureFlag,
-                                                            () => deleteFeatureFlag(featureFlag),
-                                                            dependentFlags
-                                                        )
-                                                    }
-                                                }}
-                                            >
-                                                {featureFlag.deleted ? <IconRewind /> : <IconTrash />}
-                                                {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
-                                            </SceneMenuBarItem>
-                                        )}
-                                    </AccessControlAction>
-                                )}
-                            </SceneMenuBarMenu>
-                            {isV1Config && (
-                                <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
-                                    <SceneMenuBarItem
-                                        onClick={() => {
-                                            router.actions.push(urls.featureFlagNew({ sourceId: featureFlag.id }))
-                                        }}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
-                                    >
-                                        <IconCopy />
-                                        Duplicate
-                                    </SceneMenuBarItem>
-                                </SceneMenuBarMenu>
-                            )}
-                            <SceneMenuBarPopover label="Metadata" dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}>
-                                <SceneTagsCombobox
-                                    onSave={(updatedTags) => saveTagsInline(updatedTags)}
-                                    canEdit
-                                    tags={featureFlag.tags}
-                                    dataAttrKey={RESOURCE_TYPE}
-                                />
-                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
-                                    <div className="mt-2">
-                                        <FeatureFlagEvaluationContextsCombobox
-                                            evaluationContexts={featureFlag.evaluation_contexts || []}
-                                            onSave={saveEvaluationContextsInline}
-                                            disabledReason={
-                                                isV1Config ? null : EVALUATION_CONTEXTS_UNAVAILABLE_DISABLED_REASON
-                                            }
-                                        />
-                                    </div>
-                                )}
-                            </SceneMenuBarPopover>
-                        </SceneMenuBar>
-                    )}
+                    <FeatureFlagSceneMenuBar
+                        canCreateFlagCohort={canCreateFlagCohort}
+                        broadcastDisabledReason={broadcastDisabledReason}
+                        archiveDisabledReason={firstDisabledReason(
+                            archiveDisabledReasons(
+                                getAccessControlDisabledReason(
+                                    AccessControlResourceType.FeatureFlag,
+                                    AccessControlLevel.Editor
+                                )
+                            )
+                        )}
+                        deleteDisabledReason={firstDisabledReason(
+                            deleteDisabledReasons(
+                                getAccessControlDisabledReason(
+                                    AccessControlResourceType.FeatureFlag,
+                                    AccessControlLevel.Editor
+                                )
+                            )
+                        )}
+                        onGetFeedback={() => handleGetFeedback()}
+                        onToggleArchived={toggleArchived}
+                    />
                     <SceneTitleSection
                         name={featureFlag.key}
                         description={featureFlag.name}

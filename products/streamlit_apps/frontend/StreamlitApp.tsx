@@ -15,6 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { StreamlitAppLoading } from './StreamlitAppLoading'
 import { StreamlitAppLogicProps, streamlitAppLogic } from './streamlitAppLogic'
+import { StreamlitAppSceneMenuBar } from './StreamlitAppSceneMenuBar'
 
 export const scene: SceneExport = {
     component: StreamlitAppViewer,
@@ -85,6 +86,7 @@ export function StreamlitAppViewer(props: Record<string, any>): JSX.Element {
 
     return (
         <div className="flex flex-col h-full">
+            <StreamlitAppSceneMenuBar shortId={streamlitApp.short_id} />
             <SceneTitleSection
                 name={streamlitApp.name}
                 resourceType={{ type: 'streamlit_app' }}

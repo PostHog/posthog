@@ -10,6 +10,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CrossProjectDashboardsList } from './CrossProjectDashboardsList'
 import { crossProjectDashboardsListLogic } from './crossProjectDashboardsListLogic'
+import { CrossProjectDashboardsSceneMenuBar } from './CrossProjectDashboardsSceneMenuBar'
 import { NewCrossProjectDashboardButton } from './NewCrossProjectDashboardButton'
 
 export const scene: SceneExport = {
@@ -26,6 +27,7 @@ export function CrossProjectDashboardsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <CrossProjectDashboardsSceneMenuBar />
             <SceneTitleSection
                 name="Cross-project dashboards"
                 description="Put insights from several projects on one page. Each tile shows one project."

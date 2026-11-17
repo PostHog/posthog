@@ -16,6 +16,8 @@ import {
     useDirection,
 } from '@posthog/quill'
 
+import { SCENE_ACTIONS_TRIGGER_DATA_ATTR } from '~/layout/scenes/sceneActions/SceneActionMenu'
+
 import { QuillSurveyDetailsPanel } from './QuillSurveyDetailsPanel'
 import { QuillSurveyExportPanel } from './QuillSurveyExportPanel'
 
@@ -35,7 +37,7 @@ type SurveyDetailsDrawerProps = {
  * closes. Focus goes to the scene's "More actions" button instead, which is where the person opened the drawer from.
  */
 function sceneMenuTrigger(): HTMLElement | true {
-    return document.querySelector<HTMLElement>('[data-attr="scene-menu-bar-trigger"]') ?? true
+    return document.querySelector<HTMLElement>(`[data-attr="${SCENE_ACTIONS_TRIGGER_DATA_ATTR}"]`) ?? true
 }
 
 /**

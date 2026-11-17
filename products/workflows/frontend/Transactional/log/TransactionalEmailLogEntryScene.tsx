@@ -18,6 +18,7 @@ import {
     TransactionalEmailLogEntryLogicProps,
     transactionalEmailLogEntryLogic,
 } from './transactionalEmailLogEntryLogic'
+import { TransactionalEmailLogEntrySceneMenuBar } from './TransactionalEmailLogEntrySceneMenuBar'
 import { TransactionalEmailPersonCard } from './TransactionalEmailPersonCard'
 import { TransactionalEmailRendered } from './TransactionalEmailRendered'
 
@@ -65,6 +66,7 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
     return (
         <SceneContent>
             <div className="ph-no-capture contents">
+                <TransactionalEmailLogEntrySceneMenuBar templateId={email?.template_id} />
                 <SceneTitleSection
                     name={email?.recipient || 'Email'}
                     description={email ? email.subject || email.template_name || null : null}

@@ -320,7 +320,7 @@ type SceneMenuBarMenuProps = {
 /**
  * True when no direct child of the menu would render anything visible. Catches
  * `{false && <Item/>}` / `{null}` / empty fragments. Components that return null at
- * render (e.g. SceneMenuBarFileItems with no tree entry) cannot be detected from the
+ * render (a child component that returns null) cannot be detected from the
  * parent — gate those at the caller or pass `disabled` explicitly.
  */
 function hasNoRenderableChildren(children: ReactNode): boolean {
@@ -561,6 +561,7 @@ type SceneMenuBarSubMenuProps = {
      * The legacy menu bar always renders a submenu and ignores this prop.
      */
     keepAsSubmenu?: boolean
+    onOpenChange?: (open: boolean) => void
 }
 
 export function SceneMenuBarSubMenu({
@@ -568,6 +569,7 @@ export function SceneMenuBarSubMenu({
     children,
     withIconBlank = true,
     keepAsSubmenu = false,
+    onOpenChange,
 }: SceneMenuBarSubMenuProps): JSX.Element | null {
     const render = useContext(SceneMenuBarRenderContext)
     if (render.kind === 'popover-host') {
@@ -580,6 +582,7 @@ export function SceneMenuBarSubMenu({
                 <SceneActionsSubmenu
                     trigger={withPath(render, withIconBlank ? [ROW_ICON_SPACER, label] : label)}
                     render={{ ...rowsRender, level: 'kept' }}
+                    onOpenChange={onOpenChange}
                 >
                     {children}
                 </SceneActionsSubmenu>
@@ -595,7 +598,7 @@ export function SceneMenuBarSubMenu({
         )
     }
     return (
-        <MenubarSub>
+        <MenubarSub onOpenChange={onOpenChange}>
             <MenubarSubTrigger>
                 {withIconBlank && <IconBlank />}
                 {label}

@@ -27,7 +27,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { tryDecodeURIComponent } from 'lib/utils/url'
-import { getEuUserId, getUserAdminUrl } from 'lib/utils/userAdmin'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -50,7 +49,6 @@ import {
     PersonType,
     PersonsTabType,
     PropertyDefinitionType,
-    Region,
 } from '~/types'
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket/ComposeTicketButton'
@@ -68,6 +66,8 @@ import { RelatedFeatureFlags } from '../components/RelatedFeatureFlags'
 import { personDeleteModalLogic } from '../logics/personDeleteModalLogic'
 import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from '../logics/personsLogic'
 import { asDisplay, pickBestPersonDistinctId } from '../person-utils'
+import { openInAdminPanelDisabledReason, openPersonInAdminPanel } from './openPersonInAdminPanel'
+import { PersonSceneMenuBar } from './PersonSceneMenuBar'
 
 export const scene: SceneExport<PersonsLogicProps> = {
     component: PersonScene,
@@ -264,6 +264,13 @@ export function PersonScene(): JSX.Element | null {
 
     return (
         <SceneContent>
+            <PersonSceneMenuBar
+                person={person}
+                primaryDistinctId={primaryDistinctId}
+                onDelete={() => showPersonDeleteModal(person, () => loadPersons())}
+                deleting={deletedPersonLoading}
+                onSplitIds={() => setSplitMergeModalShown(true)}
+            />
             <SceneTitleSection
                 nameAction={<TodayPeoplePinButton />}
                 name={asDisplay(person, undefined, true)}
@@ -614,35 +621,11 @@ const PersonFeatureFlagsTab = memo(function PersonFeatureFlagsTab({
 function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
-
-    const openInAdminPanel = async (email: string): Promise<void> => {
-        try {
-            const response = await api.users.list(email)
-            const userId = response.results?.[0]?.id
-            if (userId) {
-                window.open(`/admin/posthog/user/${userId}/change/`, '_blank')
-                return
-            }
-
-            const euUserId = await getEuUserId(person?.distinct_ids ?? [], { productKey: ProductKey.PERSONS })
-            if (euUserId === null) {
-                throw new Error('User not found')
-            }
-            window.open(getUserAdminUrl(Region.EU, euUserId), '_blank')
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
-            lemonToast.error(`Failed to open admin panel: ${message}`)
-        }
-    }
+    const disabledReason = openInAdminPanelDisabledReason(person)
 
     if (todayRailNav) {
         return (
-            <Button
-                variant="outline"
-                onClick={() => openInAdminPanel(person?.properties.email)}
-                disabledReason={disabledReason}
-            >
+            <Button variant="outline" onClick={() => openPersonInAdminPanel(person)} disabledReason={disabledReason}>
                 Open in admin panel
             </Button>
         )
@@ -651,7 +634,7 @@ function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['s
     return (
         <LemonButton
             type="secondary"
-            onClick={() => openInAdminPanel(person?.properties.email)}
+            onClick={() => openPersonInAdminPanel(person)}
             disabledReason={disabledReason}
             size={size}
         >

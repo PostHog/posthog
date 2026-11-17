@@ -38,6 +38,7 @@ import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesL
 import { workflowsLogic } from './Workflows/workflowsLogic'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 import { templateTypeForListType } from './Workflows/workflowTypeFilters'
+import { WorkflowsSceneMenuBar } from './WorkflowsSceneMenuBar'
 import { WorkflowsTemplates } from './WorkflowsTemplates'
 
 // pinned: URL path segments under /workflows - renaming breaks bookmarks
@@ -228,6 +229,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
 
     return (
         <SceneContent className="workflows">
+            <WorkflowsSceneMenuBar currentTab={currentTab} onNewWorkflow={onNewWorkflow} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Workflows].name}
                 description={sceneConfigurations[Scene.Workflows].description}

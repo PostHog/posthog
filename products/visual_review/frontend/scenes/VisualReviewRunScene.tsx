@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
-import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { IconCheck, IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
@@ -17,6 +17,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
 
 import { CleanQuarantinedSnapshots } from '../components/CleanQuarantinedSnapshots'
 import { CleanQuarantinedToggle } from '../components/CleanQuarantinedToggle'
@@ -47,14 +48,23 @@ function RunSceneHeader({
     repoFullName,
     branch,
     actions,
+    sceneActions,
 }: {
     repoFullName: string | null
     branch: string | null
     actions?: JSX.Element
+    sceneActions?: SceneAction[]
 }): JSX.Element {
     return (
         <>
-            {repoFullName && <VisualReviewSceneTitle repoFullName={repoFullName} activeTab="runs" actions={actions} />}
+            {repoFullName && (
+                <VisualReviewSceneTitle
+                    repoFullName={repoFullName}
+                    activeTab="runs"
+                    actions={actions}
+                    sceneActions={sceneActions}
+                />
+            )}
             {repoFullName && <VisualReviewTabs activeKey="runs" repoFullName={repoFullName} />}
             <VisualReviewTrail
                 crumbs={[
@@ -453,11 +463,54 @@ export function VisualReviewRunScene(): JSX.Element {
         }
     }
 
+    const canFinalize = !isReportingOnly && !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0)
+    const finalizingReason = isFinalizing ? 'Finalizing…' : undefined
+    const sceneActions: SceneAction[] = canFinalize
+        ? [
+              {
+                  group: 'edit',
+                  section: 'finalize',
+                  id: 'visual-review-menubar-finalize-run',
+                  label: reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run',
+                  icon: <IconCheck />,
+                  disabledReason: finalizingReason,
+                  onSelect: finalizeRun,
+                  pinned: {
+                      order: 1,
+                      variant: 'primary',
+                      dataAttr: 'visual-review-finalize-run',
+                      render: () => (
+                          <QuillFinalizeRunActions
+                              addImagesToComment={addImagesToComment}
+                              setAddImagesToComment={setAddImagesToComment}
+                              isFinalizing={isFinalizing}
+                              finalizeRun={finalizeRun}
+                              reviewPending={reviewPending}
+                          />
+                      ),
+                  },
+              },
+              {
+                  group: 'edit',
+                  section: 'toggles',
+                  type: 'checkbox',
+                  id: 'visual-review-menubar-add-images-to-comment',
+                  label: 'Add snapshots to the PR comment',
+                  tooltip:
+                      'The PR comment is always posted; tick this to attach the before/after snapshot images to it. Remembered for next time.',
+                  checked: addImagesToComment,
+                  disabledReason: finalizingReason,
+                  onCheckedChange: setAddImagesToComment,
+              },
+          ]
+        : []
+
     return (
         <SceneContent>
             <RunSceneHeader
                 repoFullName={repoFullName}
                 branch={run.branch}
+                sceneActions={sceneActions}
                 actions={
                     !isReportingOnly && !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
                         todayRailNav ? (

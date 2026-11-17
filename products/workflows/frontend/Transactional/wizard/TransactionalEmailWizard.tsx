@@ -13,6 +13,7 @@ import { NameStep } from './steps/NameStep'
 import { SenderStep } from './steps/SenderStep'
 import { SendStep } from './steps/SendStep'
 import { TransactionalEmailWizardStep, transactionalEmailWizardLogic } from './transactionalEmailWizardLogic'
+import { TransactionalEmailWizardSceneMenuBar } from './TransactionalEmailWizardSceneMenuBar'
 
 const STEPS: GuidedWizardStep<TransactionalEmailWizardStep>[] = [
     { step: 'name', label: 'Name', dataAttr: 'transactional-email-wizard-step-name' },
@@ -38,6 +39,7 @@ export function TransactionalEmailWizard(): JSX.Element {
 
     return (
         <SceneContent data-attr="transactional-email-wizard">
+            <TransactionalEmailWizardSceneMenuBar />
             <SceneTitleSection
                 name="New transactional email"
                 description="Write the email once, then send it from your code with one API call"

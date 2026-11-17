@@ -22,6 +22,7 @@ import { PlatformAlertGroupsTable } from './PlatformAlertGroupsTable'
 import { PlatformAlertLogicProps, platformAlertLogic } from './platformAlertLogic'
 import { PlatformAlertRuleMetadata } from './PlatformAlertRuleMetadata'
 import { PlatformAlertRuleMetadataModal } from './PlatformAlertRuleMetadataModal'
+import { PlatformAlertSceneMenuBar } from './PlatformAlertSceneMenuBar'
 import { PlatformAlertRoutingSection } from './routing/PlatformAlertRoutingSection'
 
 export const scene: SceneExport = {
@@ -71,6 +72,7 @@ export function PlatformAlertScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <PlatformAlertSceneMenuBar sourceUrl={sourceUrl} sourceLabel={sourceLabel} />
             <SceneTitleSection
                 name={configuration.name}
                 description={`${sourceLabel} alert`}

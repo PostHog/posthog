@@ -29,6 +29,7 @@ import { SendCalendarTabLabel } from '../SendCalendar/SendCalendarTabLabel'
 import { NewWorkflowModal } from '../Workflows/NewWorkflowModal'
 import { BroadcastAudienceSuggestions } from './audienceSuggestions/BroadcastAudienceSuggestions'
 import { BroadcastsFeaturePreview } from './BroadcastsFeaturePreview'
+import { BroadcastsSceneMenuBar } from './BroadcastsSceneMenuBar'
 import { BroadcastsTable } from './BroadcastsTable'
 import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
 
@@ -65,6 +66,7 @@ export function BroadcastsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <BroadcastsSceneMenuBar currentTab={currentTab} />
             <SceneTitleSection
                 name="Broadcasts"
                 description="Send a one-time or scheduled email to a group of people"

@@ -39,7 +39,7 @@ import { llmSkillsEmptyState } from './emptyState/llmSkillsEmptyState'
 import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
 import { ShareSkillMenuItem } from './ShareSkillMenuItem'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
-import { openArchiveSkillDialog } from './skillSceneComponents'
+import { openArchiveSkillDialog } from './skillDialogs'
 import { SkillsSceneShell } from './SkillsSceneShell'
 
 export const scene: SceneExport = {

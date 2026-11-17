@@ -16,6 +16,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { JourneyBuilder } from '../../components/CustomerJourneys/JourneyBuilder'
 import { journeyBuilderLogic } from '../../components/CustomerJourneys/journeyBuilderLogic'
 import { customerAnalyticsFeaturePreviewGate } from '../../featurePreviewGate'
+import { CustomerJourneyBuilderSceneMenuBar } from './CustomerJourneyBuilderSceneMenuBar'
 
 export const scene: SceneExport = {
     component: CustomerJourneyBuilderScene,
@@ -43,6 +44,7 @@ function CustomerJourneyBuilderSceneContent(): JSX.Element {
 
     return (
         <SceneContent>
+            <CustomerJourneyBuilderSceneMenuBar />
             <SceneTitleSection
                 name={journeyName}
                 description={journeyDescription}

@@ -14,6 +14,7 @@ import {
     AutoresearchPipelineTab,
     autoresearchPipelineLogic,
 } from './autoresearchPipelineLogic'
+import { AutoresearchPipelineSceneMenuBar } from './AutoresearchPipelineSceneMenuBar'
 import { AgentResearchTab } from './pipeline/AgentResearchTab'
 import { LifecycleStrip } from './pipeline/LifecycleStrip'
 import { OnlinePerformanceTab } from './pipeline/OnlinePerformanceTab'
@@ -55,6 +56,7 @@ export function AutoresearchPipelineScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <AutoresearchPipelineSceneMenuBar />
             <SceneTitleSection
                 name={heading}
                 description={pipeline ? pipelineSubtitle(pipeline) : null}

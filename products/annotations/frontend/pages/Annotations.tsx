@@ -2,13 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
 
 import { LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
-import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
-import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -30,8 +26,10 @@ import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/annotationsEmptyState'
 
 import { AnnotationModal } from '../components/AnnotationModal'
-import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from '../logics/annotationModalLogic'
+import { NewAnnotationButton } from '../components/NewAnnotationButton'
+import { annotationScopeToLevel, annotationScopeToName } from '../logics/annotationModalLogic'
 import { annotationScopesMenuOptions, annotationsLogic } from '../logics/annotationsLogic'
+import { AnnotationsSceneMenuBar } from './AnnotationsSceneMenuBar'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -45,14 +43,11 @@ export function Annotations(): JSX.Element {
 
     const { currentOrganization } = useValues(organizationLogic)
 
-    const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
-
     const { filteredAnnotations, annotationsLoading, scope } = useValues(annotationsLogic)
     const { setScope } = useActions(annotationsLogic)
 
     const { loadingNext, next } = useValues(annotationsModel)
     const { loadAnnotationsNext } = useActions(annotationsModel)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -158,42 +153,14 @@ export function Annotations(): JSX.Element {
 
     return (
         <SceneContent>
+            <AnnotationsSceneMenuBar />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Annotations].name}
                 description={sceneConfigurations[Scene.Annotations].description}
                 resourceType={{
                     type: sceneConfigurations[Scene.Annotations].iconType || 'default_icon_type',
                 }}
-                actions={
-                    <Shortcut
-                        name="NewAnnotation"
-                        keybind={[keyBinds.new]}
-                        intent="New annotation"
-                        interaction="click"
-                        scope={Scene.Annotations}
-                    >
-                        {todayRailNav ? (
-                            <Button
-                                variant="primary"
-                                data-attr="create-annotation"
-                                onClick={() => openModalToCreateAnnotation()}
-                                tooltip="New annotation"
-                            >
-                                New annotation
-                            </Button>
-                        ) : (
-                            <LemonButton
-                                type="primary"
-                                data-attr="create-annotation"
-                                onClick={() => openModalToCreateAnnotation()}
-                                size="small"
-                                tooltip="New annotation"
-                            >
-                                New annotation
-                            </LemonButton>
-                        )}
-                    </Shortcut>
-                }
+                actions={<NewAnnotationButton />}
             />
             <div className="flex flex-row items-center gap-2 justify-end">
                 <div>Scope:</div>

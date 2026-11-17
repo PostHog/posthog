@@ -18,6 +18,7 @@ import { transformationsEmptyState } from 'products/cdp/frontend/emptyState/tran
 
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 import { transformationsSceneLogic } from './transformationsSceneLogic'
+import { TransformationsSceneMenuBar } from './TransformationsSceneMenuBar'
 
 export const scene: SceneExport = {
     component: TransformationsScene,
@@ -63,6 +64,7 @@ export function TransformationsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <TransformationsSceneMenuBar newButton={action} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Transformations].name}
                 description={sceneConfigurations[Scene.Transformations].description}

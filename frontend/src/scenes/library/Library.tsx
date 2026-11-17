@@ -14,6 +14,7 @@ import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-gen
 
 import { LibraryCreateButton } from './LibraryCreateButton'
 import { libraryLogic } from './libraryLogic'
+import { LibrarySceneMenuBar } from './LibrarySceneMenuBar'
 import { baseObjectType, libraryObjectHref, libraryObjectName } from './libraryUtils'
 
 export const scene: SceneExport = {
@@ -84,6 +85,7 @@ function LibraryContent(): JSX.Element {
 
     return (
         <SceneContent>
+            <LibrarySceneMenuBar objectType={selectedType?.value} />
             <SceneTitleSection
                 name={title}
                 description={

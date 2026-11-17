@@ -17,6 +17,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { autoresearchLogic } from './autoresearchLogic'
 import { AutoresearchModelCard } from './AutoresearchModelCard'
+import { AutoresearchSceneMenuBar } from './AutoresearchSceneMenuBar'
 import { autoresearchEmptyState } from './emptyState/autoresearchEmptyState'
 import { MODEL_LIST_SORT_OPTIONS } from './modelList'
 
@@ -40,6 +41,7 @@ export function AutoresearchScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <AutoresearchSceneMenuBar />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Autoresearch].name ?? 'Autoresearch'}
                 description={sceneConfigurations[Scene.Autoresearch].description}

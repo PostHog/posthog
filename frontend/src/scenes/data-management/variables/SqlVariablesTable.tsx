@@ -16,6 +16,7 @@ import { Variable } from '~/queries/nodes/DataVisualization/types'
 
 import { VARIABLE_TYPE_LABELS, formatVariableReference } from './constants'
 import { sqlVariablesLogic } from './sqlVariablesLogic'
+import { SqlVariablesSceneMenuBar } from './SqlVariablesSceneMenuBar'
 
 export function SqlVariablesTable(): JSX.Element {
     const { filteredVariables, variablesLoading, searchTerm } = useValues(sqlVariablesLogic)
@@ -107,6 +108,7 @@ export function SqlVariablesTable(): JSX.Element {
 
     return (
         <SceneContent>
+            <SqlVariablesSceneMenuBar />
             <SceneTitleSection
                 name="SQL variables"
                 description="Create reusable variables for your SQL queries. Use variables to parameterize your queries and make them dynamic."

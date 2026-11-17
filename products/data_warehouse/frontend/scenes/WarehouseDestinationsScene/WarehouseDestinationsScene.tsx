@@ -21,6 +21,7 @@ import { WarehouseAlertsSection } from '../../shared/alerts/WarehouseAlertsSecti
 import { DestinationModal } from '../../shared/components/DestinationModal'
 import { destinationModalLogic } from '../../shared/logics/destinationModalLogic'
 import { warehouseDestinationsSceneLogic } from './warehouseDestinationsSceneLogic'
+import { WarehouseDestinationsSceneMenuBar } from './WarehouseDestinationsSceneMenuBar'
 import { WarehouseDestinationsTable } from './WarehouseDestinationsTable'
 
 const MODAL_KEY = 'warehouse-destinations-scene'
@@ -65,6 +66,7 @@ export function WarehouseDestinationsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <WarehouseDestinationsSceneMenuBar openForCreate={openForCreate} />
             <SceneTitleSection
                 name="Warehouse destinations"
                 description="Destinations are where your warehouse sources write the rows they sync. Pick which ones a source or a single table uses from that source's Destinations tab. To export PostHog events to a warehouse, use a batch export."

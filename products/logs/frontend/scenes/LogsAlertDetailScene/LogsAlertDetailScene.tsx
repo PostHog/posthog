@@ -38,6 +38,7 @@ import {
     SNOOZE_DURATIONS,
     logsAlertDetailSceneLogic,
 } from './logsAlertDetailSceneLogic'
+import { LogsAlertDetailSceneMenuBar } from './LogsAlertDetailSceneMenuBar'
 import { openDeleteLogsAlertDialog } from './openDeleteLogsAlertDialog'
 import { QuillLogsAlertDetailActions } from './QuillLogsAlertDetailActions'
 
@@ -166,74 +167,33 @@ function AlertHeader(): JSX.Element {
     const isSnoozed = alert?.state === LogsAlertConfigurationStateEnumApi.Snoozed
 
     return (
-        <SceneTitleSection
-            name={alert ? alertForm.name : undefined}
-            resourceType={{ type: 'logs' }}
-            isLoading={alertLoading && !alert}
-            canEdit={!!alert}
-            forceEdit={isDraft}
-            onNameChange={(name) => setAlertFormValue('name', name)}
-            renameDebounceMs={0}
-            actions={
-                alert && todayRailNav ? (
-                    <QuillLogsAlertDetailActions
-                        alert={alert}
-                        primaryDisabledReason={primaryDisabledReason({
-                            isDraft,
-                            alertForm,
-                            alertFormChanged,
-                            nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
-                            maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
-                            hasPendingNotifications: pendingDestinations.length > 0,
-                        })}
-                    />
-                ) : alert ? (
-                    <div className="flex items-center gap-2">
-                        {(!isEnabled || alert.state !== LogsAlertConfigurationStateEnumApi.NotFiring) && (
-                            <LogsAlertStateIndicator
-                                state={alert.state}
-                                enabled={isEnabled}
-                                firstEnabledAt={alert.first_enabled_at}
-                                lastErrorMessage={alert.last_error_message}
-                                snoozeUntil={alert.snooze_until}
-                            />
-                        )}
-                        {!isDraft && (
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                status={isEnabled ? 'danger' : undefined}
-                                onClick={toggleEnabled}
-                                disabledReason={isBroken ? 'Reset this alert to re-enable checks' : undefined}
-                                data-attr="logs-alert-toggle-enabled"
-                            >
-                                {isEnabled ? 'Disable' : 'Enable'}
-                            </LemonButton>
-                        )}
-                        {isEnabled &&
-                            (isSnoozed ? (
-                                <LemonButton size="small" type="secondary" onClick={unsnoozeAlert}>
-                                    Unsnooze
-                                </LemonButton>
-                            ) : (
-                                <LemonMenu
-                                    placement="bottom-end"
-                                    items={SNOOZE_DURATIONS.map((d) => ({
-                                        label: d.label,
-                                        onClick: () => snoozeAlert(d.minutes),
-                                    }))}
-                                >
-                                    <LemonButton size="small" type="secondary" sideIcon={<IconChevronDown />}>
-                                        Snooze
-                                    </LemonButton>
-                                </LemonMenu>
-                            ))}
-                        <LemonButton
-                            size="small"
-                            type="primary"
-                            onClick={isDraft ? enableAlert : submitAlertForm}
-                            loading={isAlertFormSubmitting}
-                            disabledReason={primaryDisabledReason({
+        <>
+            {alert && (
+                <LogsAlertDetailSceneMenuBar
+                    alert={alert}
+                    primaryDisabledReason={primaryDisabledReason({
+                        isDraft,
+                        alertForm,
+                        alertFormChanged,
+                        nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
+                        maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
+                        hasPendingNotifications: pendingDestinations.length > 0,
+                    })}
+                />
+            )}
+            <SceneTitleSection
+                name={alert ? alertForm.name : undefined}
+                resourceType={{ type: 'logs' }}
+                isLoading={alertLoading && !alert}
+                canEdit={!!alert}
+                forceEdit={isDraft}
+                onNameChange={(name) => setAlertFormValue('name', name)}
+                renameDebounceMs={0}
+                actions={
+                    alert && todayRailNav ? (
+                        <QuillLogsAlertDetailActions
+                            alert={alert}
+                            primaryDisabledReason={primaryDisabledReason({
                                 isDraft,
                                 alertForm,
                                 alertFormChanged,
@@ -241,30 +201,87 @@ function AlertHeader(): JSX.Element {
                                 maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
                                 hasPendingNotifications: pendingDestinations.length > 0,
                             })}
-                            data-attr={isDraft ? 'logs-alert-enable-primary' : 'logs-alert-save-primary'}
-                        >
-                            {isDraft ? 'Enable alert' : 'Save'}
-                        </LemonButton>
-                        <More
-                            overlay={
-                                <LemonMenuOverlay
-                                    items={[
-                                        ...(isBroken ? [{ label: 'Reset alert', onClick: resetAlert }] : []),
-                                        {
-                                            'data-attr': 'logs-alert-detail-delete',
-                                            label: 'Delete',
-                                            status: 'danger' as const,
-                                            onClick: () =>
-                                                openDeleteLogsAlertDialog({ alertName: alert.name, deleteAlert }),
-                                        },
-                                    ]}
-                                />
-                            }
                         />
-                    </div>
-                ) : undefined
-            }
-        />
+                    ) : alert ? (
+                        <div className="flex items-center gap-2">
+                            {(!isEnabled || alert.state !== LogsAlertConfigurationStateEnumApi.NotFiring) && (
+                                <LogsAlertStateIndicator
+                                    state={alert.state}
+                                    enabled={isEnabled}
+                                    firstEnabledAt={alert.first_enabled_at}
+                                    lastErrorMessage={alert.last_error_message}
+                                    snoozeUntil={alert.snooze_until}
+                                />
+                            )}
+                            {!isDraft && (
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    status={isEnabled ? 'danger' : undefined}
+                                    onClick={toggleEnabled}
+                                    disabledReason={isBroken ? 'Reset this alert to re-enable checks' : undefined}
+                                    data-attr="logs-alert-toggle-enabled"
+                                >
+                                    {isEnabled ? 'Disable' : 'Enable'}
+                                </LemonButton>
+                            )}
+                            {isEnabled &&
+                                (isSnoozed ? (
+                                    <LemonButton size="small" type="secondary" onClick={unsnoozeAlert}>
+                                        Unsnooze
+                                    </LemonButton>
+                                ) : (
+                                    <LemonMenu
+                                        placement="bottom-end"
+                                        items={SNOOZE_DURATIONS.map((d) => ({
+                                            label: d.label,
+                                            onClick: () => snoozeAlert(d.minutes),
+                                        }))}
+                                    >
+                                        <LemonButton size="small" type="secondary" sideIcon={<IconChevronDown />}>
+                                            Snooze
+                                        </LemonButton>
+                                    </LemonMenu>
+                                ))}
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                onClick={isDraft ? enableAlert : submitAlertForm}
+                                loading={isAlertFormSubmitting}
+                                disabledReason={primaryDisabledReason({
+                                    isDraft,
+                                    alertForm,
+                                    alertFormChanged,
+                                    nameError:
+                                        typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
+                                    maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
+                                    hasPendingNotifications: pendingDestinations.length > 0,
+                                })}
+                                data-attr={isDraft ? 'logs-alert-enable-primary' : 'logs-alert-save-primary'}
+                            >
+                                {isDraft ? 'Enable alert' : 'Save'}
+                            </LemonButton>
+                            <More
+                                overlay={
+                                    <LemonMenuOverlay
+                                        items={[
+                                            ...(isBroken ? [{ label: 'Reset alert', onClick: resetAlert }] : []),
+                                            {
+                                                'data-attr': 'logs-alert-detail-delete',
+                                                label: 'Delete',
+                                                status: 'danger' as const,
+                                                onClick: () =>
+                                                    openDeleteLogsAlertDialog({ alertName: alert.name, deleteAlert }),
+                                            },
+                                        ]}
+                                    />
+                                }
+                            />
+                        </div>
+                    ) : undefined
+                }
+            />
+        </>
     )
 }
 

@@ -14,6 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { AIObservabilityDocsSceneMenuBar } from '../AIObservabilityDocsSceneMenuBar'
 import { providerKeyStateLabel, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationsTabs } from './EvaluationsTabs'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
@@ -163,6 +164,10 @@ export function AIObservabilityEvaluationsScene(): JSX.Element {
     return (
         <BindLogic logic={llmEvaluationsLogic} props={{}}>
             <SceneContent>
+                <AIObservabilityDocsSceneMenuBar
+                    dataAttrKey="llm-evaluations"
+                    docsUrl="https://posthog.com/docs/ai-evals/evaluations"
+                />
                 <SceneTitleSection
                     name="Evaluations"
                     description="Configure and monitor automated LLM output evaluations."

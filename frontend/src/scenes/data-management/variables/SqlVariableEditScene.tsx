@@ -25,6 +25,7 @@ import {
     sqlVariableEditSceneLogic,
     variableToFormValues,
 } from './sqlVariableEditSceneLogic'
+import { SqlVariableEditSceneMenuBar } from './SqlVariableEditSceneMenuBar'
 
 export const scene: SceneExport<SqlVariableEditSceneLogicProps> = {
     component: SqlVariableEditScene,
@@ -92,6 +93,7 @@ export function SqlVariableEditScene(): JSX.Element {
     return (
         <Form logic={sqlVariableEditSceneLogic} formKey="variableForm" enableFormOnSubmit>
             <SceneContent>
+                <SqlVariableEditSceneMenuBar discardChanges={discardChanges} />
                 <SceneTitleSection
                     name={title}
                     resourceType={{ type: 'variable' }}

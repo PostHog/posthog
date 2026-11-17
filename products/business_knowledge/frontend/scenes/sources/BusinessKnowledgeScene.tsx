@@ -30,6 +30,7 @@ import {
     LIBRARY_SCOPE_UNFILED,
     businessKnowledgeLogic,
 } from './businessKnowledgeLogic'
+import { BusinessKnowledgeSceneMenuBar } from './BusinessKnowledgeSceneMenuBar'
 import { KnowledgeSourceNameCell } from './KnowledgeSourceNameCell'
 import { LibraryDialog } from './LibraryDialog'
 import { LibraryRow } from './LibraryRow'
@@ -69,6 +70,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <BusinessKnowledgeSceneMenuBar />
             <SceneTitleSection
                 name="Business knowledge"
                 description="Upload text, public URLs, or files so AI can understand your business context, vision, and policies."

@@ -95,7 +95,16 @@ export function EvaluationSceneHeader({
 
     return (
         <>
-            {sceneMenuBarEnabled && <EvaluationSceneMenuBar playgroundUrl={playgroundUrl} />}
+            {sceneMenuBarEnabled && (
+                <EvaluationSceneMenuBar
+                    playgroundUrl={playgroundUrl}
+                    unsaved={unsaved}
+                    showSaveAction={showSaveAction}
+                    saveDisabledReason={saveDisabledReason}
+                    onSave={onSave}
+                    onCancel={onCancel}
+                />
+            )}
             <SceneTitleSection
                 name={evaluation.name}
                 description={evaluation.description || null}

@@ -6,17 +6,21 @@ import {
     IconCopy,
     IconDashboard,
     IconExternal,
+    IconFlask,
     IconLock,
     IconMessage,
     IconPause,
     IconPeople,
     IconPlay,
+    IconPlusSmall,
     IconRefresh,
+    IconRocket,
     IconTrash,
     IconUnlock,
 } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { useSceneFileActions } from 'lib/components/Scenes/useSceneFileActions'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,14 +31,8 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    SceneMenuBar,
-    SceneMenuBarCheckboxItem,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarSeparator,
-    SceneMenuBarSubMenu,
-} from '~/layout/scenes/components/SceneMenuBar'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
+import { SceneActions } from '~/layout/scenes/sceneActions/SceneActions'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -49,10 +47,12 @@ import {
 } from 'products/experiments/frontend/experimentActions'
 import { isExperimentExposureFrozen, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
 import { getTotalExposures } from 'products/experiments/frontend/health/exposureHealth'
+import { experimentUsesWarehouseNativeSources } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
+import { FinishExperimentModal } from './ExperimentModals'
 
 const RESOURCE_TYPE = 'experiment'
 
@@ -67,6 +67,7 @@ export function ExperimentSceneMenuBar(): JSX.Element | null {
 function ExperimentSceneMenuBarInner(): JSX.Element | null {
     const {
         experiment,
+        isExperimentDraft,
         isExperimentRunning,
         isExperimentLaunched,
         isExperimentStopped,
@@ -75,6 +76,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         freezeExposureLoading,
         unfreezeExposureLoading,
         showDebugPanel,
+        launchExperimentLoading,
     } = useValues(experimentLogic)
     const {
         archiveExperiment,
@@ -83,6 +85,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         createExperimentDashboard,
         resetRunningExperiment,
         toggleDebugPanel,
+        launchExperiment,
     } = useActions(experimentLogic)
     // Promise-returning dispatch so the confirm dialogs can await completion (shouldAwaitSubmit).
     const { freezeExposure, unfreezeExposure } = useAsyncActions(experimentLogic)
@@ -94,8 +97,10 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         openDuplicateExperimentModal,
         openCopyToProjectModal,
         openQuickSurveyModal,
+        openFinishExperimentModal,
     } = useActions(modalsLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
+    const fileActions = useSceneFileActions(RESOURCE_TYPE, { section: 'project' })
 
     if (!experiment) {
         return null
@@ -113,6 +118,11 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
     const showRunningState = isExperimentRunning && !isExperimentStopped && !!experiment.feature_flag
     const paused = isExperimentPaused(experiment)
     const showFreezeExposure = canFreezeExposure(experiment)
+    const canEnd = isExperimentRunning && !isExperimentStopped
+    const launchDisabledReason = experimentUsesWarehouseNativeSources(experiment)
+        ? 'Warehouse-native experiments cannot run yet. You can keep this one as a draft.'
+        : undefined
+    const endTooltip = 'Conclude this experiment and decide which variant to keep'
 
     const handleArchive = (): void =>
         confirmArchiveExperiment(experiment, (disableFlag) => archiveExperiment(disableFlag))
@@ -122,194 +132,267 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
             experiment,
             onDelete: () => router.actions.push(urls.experiments()),
         })
-
     const handleReset = (): void => confirmResetExperiment(experiment, resetRunningExperiment)
 
-    const showCreateMenu = isExperimentLaunched
-    const showStateMenu = showRunningState
-    const showStaffMenu = superpowersEnabled
+    const actions: SceneAction[] = [
+        ...(isExperimentLaunched
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'create',
+                      type: 'submenu',
+                      id: `${RESOURCE_TYPE}-menubar-create`,
+                      label: 'Create',
+                      icon: <IconPlusSmall />,
+                      items: [
+                          exposureCohortId
+                              ? {
+                                    id: `${RESOURCE_TYPE}-menubar-view-exposure-cohort`,
+                                    label: 'View exposure cohort',
+                                    icon: <IconPeople />,
+                                    shortcut: <IconExternal />,
+                                    onSelect: () => newInternalTab(urls.cohort(exposureCohortId)),
+                                }
+                              : {
+                                    id: `${RESOURCE_TYPE}-menubar-create-exposure-cohort`,
+                                    label: 'Exposure cohort',
+                                    icon: <IconPeople />,
+                                    onSelect: () => createExposureCohort(),
+                                },
+                          {
+                              id: `${RESOURCE_TYPE}-menubar-create-dashboard`,
+                              label: 'Dashboard',
+                              icon: <IconDashboard />,
+                              disabledReason: isCreatingExperimentDashboard ? 'Creating dashboard…' : undefined,
+                              onSelect: () => createExperimentDashboard(),
+                          },
+                          ...(experiment.feature_flag
+                              ? [
+                                    {
+                                        id: `${RESOURCE_TYPE}-menubar-create-survey`,
+                                        label: 'Survey',
+                                        icon: <IconMessage />,
+                                        opensFloatingUi: true,
+                                        onSelect: () => {
+                                            openQuickSurveyModal()
+                                            void addProductIntentForCrossSell({
+                                                from: ProductKey.EXPERIMENTS,
+                                                to: ProductKey.SURVEYS,
+                                                intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
+                                            })
+                                        },
+                                    },
+                                ]
+                              : []),
+                      ],
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...fileActions,
+        ...(hasMultipleProjects
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'project',
+                      id: `${RESOURCE_TYPE}-menubar-copy-to-project`,
+                      label: 'Copy to another project',
+                      icon: <IconCopy />,
+                      opensFloatingUi: true,
+                      disabledReason: isLegacyExperiment(experiment)
+                          ? 'Copying is not supported for experiments using legacy metrics.'
+                          : undefined,
+                      onSelect: () => openCopyToProjectModal(),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(canEdit && experiment.archived
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'archive',
+                      id: `${RESOURCE_TYPE}-menubar-unarchive`,
+                      label: 'Unarchive experiment',
+                      icon: <IconArchive />,
+                      onSelect: () => unarchiveExperiment(),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(canArchive
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'delete',
+                      id: `${RESOURCE_TYPE}-menubar-archive`,
+                      label: 'Archive experiment',
+                      icon: <IconArchive />,
+                      destructive: true,
+                      onSelect: handleArchive,
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(canDelete
+            ? ([
+                  {
+                      group: 'file',
+                      section: 'delete',
+                      id: `${RESOURCE_TYPE}-menubar-delete`,
+                      label: 'Delete experiment',
+                      icon: <IconTrash />,
+                      destructive: true,
+                      onSelect: handleDelete,
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(isExperimentDraft
+            ? ([
+                  {
+                      group: 'edit',
+                      section: 'lifecycle',
+                      id: `${RESOURCE_TYPE}-menubar-launch`,
+                      label: 'Launch',
+                      icon: <IconRocket />,
+                      disabledReason: launchDisabledReason ?? (launchExperimentLoading ? 'Launching…' : undefined),
+                      onSelect: () => launchExperiment(),
+                      pinned: {
+                          order: 1,
+                          variant: 'primary',
+                          render: () => (
+                              <Button
+                                  variant="primary"
+                                  data-attr="launch-experiment"
+                                  onClick={() => launchExperiment()}
+                                  loading={launchExperimentLoading}
+                                  disabledReason={launchDisabledReason}
+                              >
+                                  Launch
+                              </Button>
+                          ),
+                      },
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(canEnd
+            ? ([
+                  {
+                      group: 'edit',
+                      section: 'lifecycle',
+                      id: `${RESOURCE_TYPE}-menubar-end`,
+                      label: 'End experiment',
+                      icon: <IconFlask />,
+                      tooltip: endTooltip,
+                      opensFloatingUi: true,
+                      onSelect: () => openFinishExperimentModal(),
+                      pinned: {
+                          order: 1,
+                          variant: 'primary',
+                          // The title row's own button mounts the modal, and the pinned row replaces it.
+                          render: () => (
+                              <>
+                                  <Button
+                                      variant="primary"
+                                      tooltip={endTooltip}
+                                      onClick={() => openFinishExperimentModal()}
+                                  >
+                                      <IconFlask />
+                                      <b>End experiment</b>
+                                  </Button>
+                                  <FinishExperimentModal />
+                              </>
+                          ),
+                      },
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(showRunningState && paused
+            ? ([
+                  {
+                      group: 'edit',
+                      section: 'lifecycle',
+                      id: `${RESOURCE_TYPE}-menubar-resume`,
+                      label: 'Resume experiment',
+                      icon: <IconPlay />,
+                      opensFloatingUi: true,
+                      onSelect: () => openResumeExperimentModal(),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(showRunningState && !paused && showFreezeExposure
+            ? ([
+                  {
+                      group: 'edit',
+                      section: 'lifecycle',
+                      id: `${RESOURCE_TYPE}-menubar-freeze-exposure`,
+                      label: 'Freeze exposure',
+                      icon: <IconLock />,
+                      opensFloatingUi: true,
+                      disabledReason: freezeExposureLoading ? 'Freezing exposure…' : undefined,
+                      onSelect: () => confirmFreezeExposure(() => freezeExposure(), getTotalExposures(exposures)),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(showRunningState && !paused && isExperimentExposureFrozen(experiment)
+            ? ([
+                  {
+                      group: 'edit',
+                      section: 'lifecycle',
+                      id: `${RESOURCE_TYPE}-menubar-unfreeze-exposure`,
+                      label: 'Unfreeze exposure',
+                      icon: <IconUnlock />,
+                      opensFloatingUi: true,
+                      disabledReason: unfreezeExposureLoading ? 'Unfreezing exposure…' : undefined,
+                      onSelect: () => confirmUnfreezeExposure(() => unfreezeExposure()),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        {
+            group: 'edit',
+            section: 'copy',
+            id: `${RESOURCE_TYPE}-menubar-duplicate`,
+            label: 'Duplicate',
+            icon: <IconCopy />,
+            opensFloatingUi: true,
+            onSelect: () => openDuplicateExperimentModal(),
+        },
+        ...(isExperimentLaunched
+            ? ([
+                  {
+                      group: 'edit',
+                      section: 'copy',
+                      id: `${RESOURCE_TYPE}-menubar-reset`,
+                      label: 'Reset analysis',
+                      icon: <IconRefresh />,
+                      opensFloatingUi: true,
+                      onSelect: handleReset,
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(showRunningState && !paused
+            ? ([
+                  {
+                      group: 'edit',
+                      section: 'delete',
+                      id: `${RESOURCE_TYPE}-menubar-pause`,
+                      label: 'Pause experiment',
+                      icon: <IconPause />,
+                      destructive: true,
+                      opensFloatingUi: true,
+                      onSelect: () => openPauseExperimentModal(),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+        ...(superpowersEnabled
+            ? ([
+                  {
+                      group: 'staff',
+                      type: 'checkbox',
+                      id: `${RESOURCE_TYPE}-menubar-debug-panel`,
+                      label: 'Show debug panel',
+                      checked: showDebugPanel,
+                      onCheckedChange: () => toggleDebugPanel(),
+                  },
+              ] satisfies SceneAction[])
+            : []),
+    ]
 
-    return (
-        <SceneMenuBar>
-            <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
-                {showCreateMenu && (
-                    <>
-                        <SceneMenuBarSubMenu label="Create">
-                            {exposureCohortId ? (
-                                <SceneMenuBarItem
-                                    onClick={() => newInternalTab(urls.cohort(exposureCohortId))}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-view-exposure-cohort`}
-                                >
-                                    <IconPeople />
-                                    View exposure cohort
-                                    <IconExternal />
-                                </SceneMenuBarItem>
-                            ) : (
-                                <SceneMenuBarItem
-                                    onClick={() => createExposureCohort()}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-create-exposure-cohort`}
-                                >
-                                    <IconPeople />
-                                    Exposure cohort
-                                </SceneMenuBarItem>
-                            )}
-                            <SceneMenuBarItem
-                                onClick={() => createExperimentDashboard()}
-                                disabled={isCreatingExperimentDashboard}
-                                data-attr={`${RESOURCE_TYPE}-menubar-create-dashboard`}
-                            >
-                                <IconDashboard />
-                                Dashboard
-                            </SceneMenuBarItem>
-                            {experiment.feature_flag && (
-                                <SceneMenuBarItem
-                                    opensFloatingUi
-                                    onClick={() => {
-                                        openQuickSurveyModal()
-                                        void addProductIntentForCrossSell({
-                                            from: ProductKey.EXPERIMENTS,
-                                            to: ProductKey.SURVEYS,
-                                            intent_context: ProductIntentContext.QUICK_SURVEY_STARTED,
-                                        })
-                                    }}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-create-survey`}
-                                >
-                                    <IconMessage />
-                                    Survey
-                                </SceneMenuBarItem>
-                            )}
-                        </SceneMenuBarSubMenu>
-                        <SceneMenuBarSeparator />
-                    </>
-                )}
-                <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                {hasMultipleProjects && (
-                    <SceneMenuBarItem
-                        opensFloatingUi
-                        onClick={() => openCopyToProjectModal()}
-                        disabled={isLegacyExperiment(experiment)}
-                        tooltip={
-                            isLegacyExperiment(experiment)
-                                ? 'Copying is not supported for experiments using legacy metrics.'
-                                : undefined
-                        }
-                        data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
-                    >
-                        <IconCopy />
-                        Copy to another project
-                    </SceneMenuBarItem>
-                )}
-                {(canArchive || (canEdit && experiment.archived) || canDelete) && <SceneMenuBarSeparator />}
-                {canArchive && (
-                    <SceneMenuBarItem
-                        variant="destructive"
-                        onClick={handleArchive}
-                        data-attr={`${RESOURCE_TYPE}-menubar-archive`}
-                    >
-                        <IconArchive />
-                        Archive experiment
-                    </SceneMenuBarItem>
-                )}
-                {canEdit && experiment.archived && (
-                    <SceneMenuBarItem
-                        onClick={() => unarchiveExperiment()}
-                        data-attr={`${RESOURCE_TYPE}-menubar-unarchive`}
-                    >
-                        <IconArchive />
-                        Unarchive experiment
-                    </SceneMenuBarItem>
-                )}
-                {canDelete && (
-                    <SceneMenuBarItem
-                        variant="destructive"
-                        onClick={handleDelete}
-                        data-attr={`${RESOURCE_TYPE}-menubar-delete`}
-                    >
-                        <IconTrash />
-                        Delete experiment
-                    </SceneMenuBarItem>
-                )}
-            </SceneMenuBarMenu>
-            <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
-                <SceneMenuBarItem
-                    opensFloatingUi
-                    onClick={() => openDuplicateExperimentModal()}
-                    data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
-                >
-                    <IconCopy />
-                    Duplicate
-                </SceneMenuBarItem>
-                {isExperimentLaunched && (
-                    <SceneMenuBarItem
-                        opensFloatingUi
-                        onClick={handleReset}
-                        data-attr={`${RESOURCE_TYPE}-menubar-reset`}
-                    >
-                        <IconRefresh />
-                        Reset analysis
-                    </SceneMenuBarItem>
-                )}
-                {showStateMenu &&
-                    (paused ? (
-                        <SceneMenuBarItem
-                            opensFloatingUi
-                            onClick={() => openResumeExperimentModal()}
-                            data-attr={`${RESOURCE_TYPE}-menubar-resume`}
-                        >
-                            <IconPlay />
-                            Resume experiment
-                        </SceneMenuBarItem>
-                    ) : (
-                        <>
-                            {showFreezeExposure && (
-                                <SceneMenuBarItem
-                                    opensFloatingUi
-                                    onClick={() =>
-                                        confirmFreezeExposure(() => freezeExposure(), getTotalExposures(exposures))
-                                    }
-                                    disabled={freezeExposureLoading}
-                                    tooltip={freezeExposureLoading ? 'Freezing exposure…' : undefined}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-freeze-exposure`}
-                                >
-                                    <IconLock />
-                                    Freeze exposure
-                                </SceneMenuBarItem>
-                            )}
-                            {isExperimentExposureFrozen(experiment) && (
-                                <SceneMenuBarItem
-                                    opensFloatingUi
-                                    onClick={() => confirmUnfreezeExposure(() => unfreezeExposure())}
-                                    disabled={unfreezeExposureLoading}
-                                    tooltip={unfreezeExposureLoading ? 'Unfreezing exposure…' : undefined}
-                                    data-attr={`${RESOURCE_TYPE}-menubar-unfreeze-exposure`}
-                                >
-                                    <IconUnlock />
-                                    Unfreeze exposure
-                                </SceneMenuBarItem>
-                            )}
-                            <SceneMenuBarItem
-                                opensFloatingUi
-                                variant="destructive"
-                                onClick={() => openPauseExperimentModal()}
-                                data-attr={`${RESOURCE_TYPE}-menubar-pause`}
-                            >
-                                <IconPause />
-                                Pause experiment
-                            </SceneMenuBarItem>
-                        </>
-                    ))}
-            </SceneMenuBarMenu>
-            {showStaffMenu && (
-                <SceneMenuBarMenu label="Staff only" dataAttr={`${RESOURCE_TYPE}-menubar-staff`}>
-                    <SceneMenuBarCheckboxItem
-                        checked={showDebugPanel}
-                        onCheckedChange={toggleDebugPanel}
-                        data-attr={`${RESOURCE_TYPE}-menubar-debug-panel`}
-                    >
-                        Show debug panel
-                    </SceneMenuBarCheckboxItem>
-                </SceneMenuBarMenu>
-            )}
-        </SceneMenuBar>
-    )
+    return <SceneActions actions={actions} dataAttrKey={RESOURCE_TYPE} />
 }

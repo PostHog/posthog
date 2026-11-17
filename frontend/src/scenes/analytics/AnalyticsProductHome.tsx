@@ -10,6 +10,7 @@ import { HomeDashboardModals } from 'products/product_analytics/frontend/insight
 import { HomeTab } from 'products/product_analytics/frontend/insights/home/HomeTab'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
+import { AnalyticsProductHomeSceneMenuBar } from './AnalyticsProductHomeSceneMenuBar'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 
 export const scene: SceneExport = {
@@ -27,12 +28,15 @@ export function AnalyticsProductHome(): JSX.Element {
             <HomeTab
                 page={{
                     title: (
-                        <SceneTitleSection
-                            name="Product analytics"
-                            description="How people use your product, ready-made by PostHog."
-                            resourceType={{ type: 'analytics', forceIcon: <AnalyticsTypeIcon type="insight" /> }}
-                            actions={<HomeDashboardMenu />}
-                        />
+                        <>
+                            <AnalyticsProductHomeSceneMenuBar />
+                            <SceneTitleSection
+                                name="Product analytics"
+                                description="How people use your product, ready-made by PostHog."
+                                resourceType={{ type: 'analytics', forceIcon: <AnalyticsTypeIcon type="insight" /> }}
+                                actions={<HomeDashboardMenu />}
+                            />
+                        </>
                     ),
                     dashboardHeaderActions: <HomeDashboardMenu inDashboardHeader />,
                 }}

@@ -23,6 +23,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { membersLogic } from '~/models/membersLogic'
 import { ApprovalDecision, ChangeRequest, ChangeRequestState } from '~/types'
 
+import { ApprovalDetailSceneMenuBar } from './ApprovalDetailSceneMenuBar'
 import { ApprovalLogicProps, ProposedChangesTab, approvalLogic } from './approvalLogic'
 import { ChangeRequestActions } from './ChangeRequestActions'
 import { generateDecisionAnalysis } from './decisionAnalysis'
@@ -59,9 +60,24 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
 
     const decisionAnalysis = generateDecisionAnalysis(changeRequest)
     const ChangeRequestActionsComponent = todayRailNav ? QuillChangeRequestActions : ChangeRequestActions
+    const onApprove = (): void => approveChangeRequest()
+    const onReject = (_: string, reason: string): void => {
+        if (reason) {
+            rejectChangeRequest(reason)
+        } else {
+            lemonToast.error('Please provide a reason for rejection')
+        }
+    }
+    const onCancel = (_: string, reason?: string): void => cancelChangeRequest(reason)
 
     return (
         <SceneContent>
+            <ApprovalDetailSceneMenuBar
+                changeRequest={changeRequest}
+                onApprove={onApprove}
+                onReject={onReject}
+                onCancel={onCancel}
+            />
             <SceneTitleSection
                 name={getApprovalActionLabel(changeRequest.action_key)}
                 description={changeRequest.intent_display?.description}
@@ -69,15 +85,9 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
                 actions={
                     <ChangeRequestActionsComponent
                         changeRequest={changeRequest}
-                        onApprove={() => approveChangeRequest()}
-                        onReject={(_, reason) => {
-                            if (reason) {
-                                rejectChangeRequest(reason)
-                            } else {
-                                lemonToast.error('Please provide a reason for rejection')
-                            }
-                        }}
-                        onCancel={(_, reason) => cancelChangeRequest(reason)}
+                        onApprove={onApprove}
+                        onReject={onReject}
+                        onCancel={onCancel}
                         showViewButton={false}
                         showDisabledApproveButton
                     />

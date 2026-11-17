@@ -21,6 +21,7 @@ import { BriefConfigModal } from './BriefConfigModal'
 import { BriefsView } from './BriefsView'
 import { pulseEmptyState } from './emptyState/pulseEmptyState'
 import { pulseLogic } from './pulseLogic'
+import { PulseSceneMenuBar } from './PulseSceneMenuBar'
 import { RunBriefButton } from './RunBriefButton'
 
 export const scene: SceneExport = {
@@ -45,6 +46,7 @@ export function PulseScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <PulseSceneMenuBar />
             <SceneTitleSection
                 name="Pulse"
                 description={PULSE_DESCRIPTION}

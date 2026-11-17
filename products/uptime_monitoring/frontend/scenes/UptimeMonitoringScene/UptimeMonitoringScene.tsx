@@ -8,6 +8,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { UptimeMonitoringSceneMenuBar } from './UptimeMonitoringSceneMenuBar'
+
 export const scene: SceneExport = {
     component: UptimeMonitoringScene,
 }
@@ -33,6 +35,7 @@ export function UptimeMonitoringScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <UptimeMonitoringSceneMenuBar />
             <SceneTitleSection
                 name="Uptime monitoring"
                 description="Check that your sites and endpoints respond, and find out when they go down."

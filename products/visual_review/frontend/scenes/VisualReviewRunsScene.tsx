@@ -154,6 +154,7 @@ export function VisualReviewRunsScene(): JSX.Element {
             <VisualReviewSceneTitle
                 repoFullName={repoFullName}
                 activeTab="runs"
+                settingsPinned={{ order: 1, variant: 'secondary' }}
                 actions={
                     todayRailNav ? (
                         <Button variant="outline" render={<LinkPrimitive to={urls.visualReviewSettings()} />}>

@@ -16,6 +16,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { urls } from '../urls'
+import { CustomCssSceneMenuBar } from './CustomCssSceneMenuBar'
 
 export const scene: SceneExport = {
     component: CustomCssScene,
@@ -105,6 +106,7 @@ export function CustomCssScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <CustomCssSceneMenuBar onPreview={onPreview} onSaveAndSet={saveAndSet} />
             <SceneTitleSection
                 name="Custom CSS"
                 resourceType={{

@@ -15,6 +15,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { CITimeline } from '../components/CITimeline'
@@ -79,6 +80,19 @@ export function WorkflowRunDetailScene(): JSX.Element {
     }
 
     const githubUrl = run?.ci_engine === 'github_actions' ? githubRunUrl(run.repo.owner, run.repo.name, run.id) : null
+    const sceneActions: SceneAction[] = githubUrl
+        ? [
+              {
+                  group: 'view',
+                  section: 'run',
+                  id: 'engineering-analytics-menubar-view-run-on-github',
+                  label: 'View run on GitHub',
+                  icon: <IconExternal />,
+                  onSelect: () => window.open(githubUrl, '_blank', 'noopener,noreferrer'),
+                  pinned: { order: 1, variant: 'secondary' },
+              },
+          ]
+        : []
     const verdict = run ? verdictTag(run.conclusion) : null
     const prNumber = run ? runPrNumber(run.pr_number, run.commit_pr_number) : null
     const prUrl =
@@ -133,6 +147,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
         <SceneContent className="pb-16">
             <RepoSceneTitle
                 repo={`${repoOwner}/${repoName}`}
+                sceneActions={sceneActions}
                 actions={
                     githubUrl ? (
                         todayRailNav ? (

@@ -110,6 +110,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
             <VisualReviewSceneTitle
                 repoFullName={repoFullName}
                 activeTab="flakiness"
+                settingsPinned={{ order: 1, variant: 'secondary' }}
                 actions={
                     todayRailNav ? (
                         <Button variant="outline" render={<LinkPrimitive to={urls.visualReviewSettings()} />}>

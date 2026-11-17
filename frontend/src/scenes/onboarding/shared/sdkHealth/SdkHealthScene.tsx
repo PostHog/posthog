@@ -21,6 +21,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SdkSection } from './SdkHealthComponents'
 import { SdkType, sdkHealthLogic } from './sdkHealthLogic'
 import { sdkHealthSceneLogic } from './sdkHealthSceneLogic'
+import { SdkHealthSceneMenuBar } from './SdkHealthSceneMenuBar'
 
 export const scene: SceneExport = {
     component: SdkHealthScene,
@@ -73,6 +74,7 @@ export function SdkHealthScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <SdkHealthSceneMenuBar scanEvents={scanEvents} trackAlertsClick={trackAlertsClick} />
             <SceneTitleSection
                 name="SDK Health"
                 description="Monitor and maintain your PostHog SDK integrations by automatically detecting version issues, configuration problems, and implementation patterns across your applications."

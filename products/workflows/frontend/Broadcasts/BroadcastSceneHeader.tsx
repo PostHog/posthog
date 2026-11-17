@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { BroadcastSceneMenuBar } from './BroadcastSceneMenuBar'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 
 export interface BroadcastSceneHeaderProps {
@@ -19,6 +20,7 @@ export function BroadcastSceneHeader({ canEdit = false, nameSuffix, actions }: B
     return (
         // Blur from the name field saves a draft's rename. Actions in the header blur other elements.
         <div onBlur={(e) => (e.target as HTMLElement).getAttribute('name') === 'name' && saveName()}>
+            <BroadcastSceneMenuBar mode={canEdit ? 'wizard' : 'summary'} titleActions={actions} />
             <SceneTitleSection
                 name={name}
                 description={null}

@@ -49,6 +49,7 @@ import { isCoreFilter } from '~/taxonomy/helpers'
 import { AvailableFeature, ObjectMediaPreview } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
+import { DefinitionEditSceneMenuBar } from './DefinitionEditSceneMenuBar'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionEdit,
@@ -96,6 +97,7 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
     return (
         <Form logic={definitionEditLogic} props={props} formKey="editDefinition">
             <SceneContent>
+                <DefinitionEditSceneMenuBar {...props} />
                 <SceneTitleSection
                     name={editDefinition.name}
                     resourceType={{

@@ -27,7 +27,7 @@ import {
     Link,
     LemonDivider,
 } from '@posthog/lemon-ui'
-import { Button, Spinner as QuillSpinner } from '@posthog/quill'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
@@ -53,6 +53,7 @@ import { getModelPickerFooterActions, ModelPicker, parsePlaygroundProviderKeyId 
 import { modelPickerLogic } from '../modelPickerLogic'
 import { AddKeyModal } from '../settings/AddKeyModal'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { AIObservabilityPlaygroundSceneMenuBar } from './AIObservabilityPlaygroundSceneMenuBar'
 import { CollapsibleChevronIcon } from './CollapsibleChevronIcon'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
@@ -69,6 +70,7 @@ import { PlaygroundDecisionAnswers } from './PlaygroundDecisionAnswers'
 import { PlaygroundDecisionEditor } from './PlaygroundDecisionEditor'
 import { PlaygroundSaveMenu } from './PlaygroundSaveMenu'
 import { PlaygroundVariablesPanel } from './PlaygroundVariablesPanel'
+import { QuillPlaygroundRunButton } from './QuillPlaygroundRunButton'
 import { TemplateVariableTextArea } from './TemplateVariableTextArea'
 import { ToolCallDisplay } from './ToolCallDisplay'
 
@@ -119,6 +121,7 @@ export function AIObservabilityPlaygroundScene(): JSX.Element {
             <BindLogic logic={llmPlaygroundModelLogic} props={{}}>
                 <BindLogic logic={llmPlaygroundRunLogic} props={{}}>
                     <SceneContent className="h-full">
+                        <AIObservabilityPlaygroundSceneMenuBar />
                         <SceneTitleSection
                             name={sceneConfigurations[Scene.AIObservabilityPlayground].name}
                             description="Test and experiment with LLM prompts in a sandbox environment."
@@ -168,26 +171,7 @@ function PlaygroundHeaderActions(): JSX.Element {
                     <IconPlus />
                     Add prompt
                 </Button>
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.LlmPlayground}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <Button
-                        variant={playgroundSubmitting ? 'destructive-outline' : 'primary'}
-                        onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
-                        disabledReason={
-                            playgroundSubmitting
-                                ? undefined
-                                : !hasRunnablePrompts
-                                  ? 'Add messages to at least one prompt'
-                                  : undefined
-                        }
-                        data-attr="llma-playground-run-button"
-                    >
-                        {playgroundSubmitting ? <QuillSpinner /> : <IconPlay />}
-                        <span>{playgroundSubmitting ? 'Stop' : 'Run'}</span>
-                    </Button>
-                </AccessControlAction>
+                <QuillPlaygroundRunButton />
             </>
         )
     }

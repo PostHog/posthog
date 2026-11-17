@@ -45,6 +45,7 @@ import {
 
 import { FeatureFlagLogicProps, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
+import { FeatureFlagSceneMenuBar } from './FeatureFlagSceneMenuBar'
 import { RulesV2RuleEditor } from './RulesV2RuleEditor'
 import { RulesV2ValueInput } from './RulesV2ValueInput'
 
@@ -279,6 +280,27 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
 
     return (
         <div className="flex flex-col gap-4 pb-16" data-attr="feature-flag-rules-v2-editor">
+            <FeatureFlagSceneMenuBar
+                editing={{
+                    saveLabel: isNew ? 'Create flag' : 'Save',
+                    saveDisabledReason,
+                    saveDataAttr: 'save-rules-v2-flag',
+                    cancelDataAttr: 'cancel-rules-v2-flag',
+                    onSave: saveRulesV2Flag,
+                    onCancel: cancel,
+                    renderSave: () => (
+                        <Button
+                            variant="primary"
+                            data-attr="save-rules-v2-flag"
+                            loading={saving}
+                            disabledReason={saveDisabledReason}
+                            onClick={saveRulesV2Flag}
+                        >
+                            {isNew ? 'Create flag' : 'Save'}
+                        </Button>
+                    ),
+                }}
+            />
             <SceneTitleSection
                 name={draft.key || (isNew ? 'New rules v2 flag' : featureFlag.key)}
                 resourceType={{ type: !isNew && featureFlag.active ? 'feature_flag' : 'feature_flag_off' }}

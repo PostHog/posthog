@@ -21,6 +21,7 @@ import {
     TracingRetentionDetailSceneLogicProps,
     tracingRetentionDetailSceneLogic,
 } from './tracingRetentionDetailSceneLogic'
+import { TracingRetentionDetailSceneMenuBar } from './TracingRetentionDetailSceneMenuBar'
 
 export const scene: SceneExport<TracingRetentionDetailSceneLogicProps> = {
     component: TracingRetentionDetailScene,
@@ -78,6 +79,7 @@ function TracingRetentionDetailFormBody({ rule }: { rule: LogsRetentionRuleApi }
 
     return (
         <SceneContent>
+            <TracingRetentionDetailSceneMenuBar onDelete={confirmDelete} />
             <Form logic={logsRetentionFormLogic} props={formProps} formKey="retentionForm" enableFormOnSubmit>
                 <SceneTitleSection
                     name={retentionForm.name || rule.name}

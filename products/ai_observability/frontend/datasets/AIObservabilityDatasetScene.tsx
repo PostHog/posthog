@@ -3,14 +3,13 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconArchive, IconArrowLeft, IconDownload, IconInfo } from '@posthog/icons'
+import { IconArchive, IconArrowLeft, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -20,12 +19,6 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import {
-    SceneMenuBar,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarSeparator,
-} from '~/layout/scenes/components/SceneMenuBar'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -42,6 +35,7 @@ import { OfflineEvaluationsTabs } from '../offline-evaluations/OfflineEvaluation
 import { DatasetLogicProps, DatasetTab, isDataset, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
 import { getDatasetListUrl } from './aiObservabilityDatasetsLogic'
 import { DatasetContents } from './DatasetContents'
+import { DatasetSceneMenuBar } from './DatasetSceneMenuBar'
 import { EditDatasetForm } from './EditDatasetForm'
 
 const RESOURCE_TYPE = 'dataset'
@@ -69,9 +63,6 @@ export function AIObservabilityDatasetScene(): JSX.Element {
         canEditDataset,
         canManageDataset,
         isHistoricalRevision,
-        filters,
-        datasetExportLoading,
-        datasetExportDisabledReason,
         datasetLoadError,
     } = useValues(aiObservabilityDatasetLogic)
     const {
@@ -80,7 +71,6 @@ export function AIObservabilityDatasetScene(): JSX.Element {
         editDataset,
         archiveDataset,
         restoreDataset,
-        exportDataset,
         setDatasetFormValue,
         onUnmount,
         setActiveTab,
@@ -177,37 +167,10 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                     </LemonBanner>
                 )}
                 {isDataset(dataset) && sceneMenuBarEnabled && (
-                    <SceneMenuBar>
-                        <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
-                            <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
-                            <SceneMenuBarSeparator />
-                            <SceneMenuBarItem
-                                disabled={datasetExportLoading || !!datasetExportDisabledReason}
-                                tooltip={datasetExportDisabledReason}
-                                onClick={() => exportDataset(filters.revision ?? undefined)}
-                                data-attr={`${RESOURCE_TYPE}-menubar-export`}
-                            >
-                                <IconDownload />
-                                Export
-                            </SceneMenuBarItem>
-                            {canChangeDatasetStatus && (
-                                <>
-                                    <SceneMenuBarSeparator />
-                                    <SceneMenuBarItem
-                                        variant={dataset.archived ? undefined : 'destructive'}
-                                        disabled={datasetLoading || isArchivingDataset}
-                                        onClick={archiveOrRestoreDataset}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-${
-                                            dataset.archived ? 'unarchive' : 'archive'
-                                        }`}
-                                    >
-                                        <IconArchive />
-                                        {dataset.archived ? 'Unarchive' : 'Archive'}
-                                    </SceneMenuBarItem>
-                                </>
-                            )}
-                        </SceneMenuBarMenu>
-                    </SceneMenuBar>
+                    <DatasetSceneMenuBar
+                        showTitleActions={!displayEditForm}
+                        onArchiveOrRestore={archiveOrRestoreDataset}
+                    />
                 )}
                 {isDataset(dataset) && (
                     <ScenePanel>

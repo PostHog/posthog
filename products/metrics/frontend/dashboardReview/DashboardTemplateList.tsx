@@ -12,6 +12,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type { MetricsDashboardTemplateApi } from 'products/metrics/frontend/generated/api.schemas'
 
+import { DashboardTemplateListSceneMenuBar } from './DashboardTemplateListSceneMenuBar'
 import { DashboardTemplateStatusTag } from './DashboardTemplateStatusTag'
 import { InternalTag } from './InternalTag'
 import { ReviewStatusFilter, metricsDashboardReviewSceneLogic } from './metricsDashboardReviewSceneLogic'
@@ -32,6 +33,7 @@ export function DashboardTemplateList(): JSX.Element {
 
     return (
         <>
+            <DashboardTemplateListSceneMenuBar />
             <SceneTitleSection
                 name="Dashboard review"
                 nameSuffix={<InternalTag />}

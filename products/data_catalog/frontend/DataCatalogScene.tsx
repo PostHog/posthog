@@ -21,6 +21,7 @@ import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
 import { certificationsLogic } from './certificationsLogic'
 import { buildDataCatalogAgentContext, DATA_CATALOG_AGENT_HEADLINES } from './dataCatalogAgentContext'
 import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
+import { DataCatalogSceneMenuBar } from './DataCatalogSceneMenuBar'
 import { dataCatalogEmptyState } from './emptyState/dataCatalogEmptyState'
 import { metricsLogic } from './metricsLogic'
 import { relationshipsLogic } from './relationshipsLogic'
@@ -107,6 +108,7 @@ export function DataCatalogScene(): JSX.Element {
     return (
         <BindLogic logic={metricsLogic} props={{}}>
             <SceneContent>
+                <DataCatalogSceneMenuBar />
                 <SceneTitleSection
                     name="Data catalog"
                     description="Define each metric once. PostHog AI and agents compute it from the definition you approve here."

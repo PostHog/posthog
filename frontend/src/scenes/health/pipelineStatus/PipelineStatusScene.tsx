@@ -19,6 +19,7 @@ import { pipelineHealthLogic } from './pipelineHealthLogic'
 import type { DataHealthIssue } from './pipelineHealthLogic'
 import { PipelineStatusIssueCard } from './PipelineStatusIssueCard'
 import { pipelineStatusSceneLogic } from './pipelineStatusSceneLogic'
+import { PipelineStatusSceneMenuBar } from './PipelineStatusSceneMenuBar'
 import { PipelineStatusSummary } from './PipelineStatusSummary'
 import { PipelineStatusToolbar } from './PipelineStatusToolbar'
 
@@ -40,6 +41,7 @@ export function PipelineStatusScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <PipelineStatusSceneMenuBar />
             <SceneTitleSection
                 name="Pipeline status"
                 description="Monitor the status of your data pipelines."

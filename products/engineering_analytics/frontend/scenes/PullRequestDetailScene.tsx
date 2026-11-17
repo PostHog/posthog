@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconExternal, IconPullRequest } from '@posthog/icons'
 import {
@@ -23,6 +23,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
@@ -472,6 +473,35 @@ export function PullRequestDetailScene(): JSX.Element {
     const latestRound = commitGroups[0] ? pushRoundOf(commitGroups[0].headSha, commitGroups[0].runs) : null
     const tilesLoading = prRunsLoading && commitGroups.length === 0
 
+    const sceneActions: SceneAction[] =
+        githubUrl && pullRequest
+            ? [
+                  {
+                      group: 'view',
+                      section: 'pull-request',
+                      id: 'engineering-analytics-menubar-open-ci-explorer',
+                      label: 'View in CI explorer',
+                      onSelect: () =>
+                          router.actions.push(
+                              withCurrentScope(
+                                  urls.engineeringAnalyticsCIExplorer(repoOwner, repoName, pullRequest.number),
+                                  sourceId
+                              )
+                          ),
+                      pinned: { order: 1, variant: 'secondary', dataAttr: 'pull-request-open-ci-explorer' },
+                  },
+                  {
+                      group: 'view',
+                      section: 'pull-request',
+                      id: 'engineering-analytics-menubar-view-pull-request-on-github',
+                      label: 'View pull request on GitHub',
+                      icon: <IconExternal />,
+                      onSelect: () => window.open(githubUrl, '_blank', 'noopener,noreferrer'),
+                      pinned: { order: 2, variant: 'secondary' },
+                  },
+              ]
+            : []
+
     if (loadFailed) {
         return (
             <SceneContent className="pb-16">
@@ -492,6 +522,7 @@ export function PullRequestDetailScene(): JSX.Element {
         <SceneContent className="pb-16">
             <RepoSceneTitle
                 repo={`${repoOwner}/${repoName}`}
+                sceneActions={sceneActions}
                 actions={
                     githubUrl && pullRequest ? (
                         todayRailNav ? (

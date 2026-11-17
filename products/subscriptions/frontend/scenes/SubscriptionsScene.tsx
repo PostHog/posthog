@@ -31,6 +31,7 @@ import {
     subscriptionName,
 } from './components/SubscriptionsTable'
 import { SubscriptionsTab, subscriptionsSceneLogic } from './subscriptionsSceneLogic'
+import { SubscriptionsSceneMenuBar } from './SubscriptionsSceneMenuBar'
 
 function SubscriptionEnabledSwitch({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { setSubscriptionEnabled } = useActions(subscriptionsSceneLogic)
@@ -123,6 +124,7 @@ export function SubscriptionsScene(): JSX.Element {
     ]
     return (
         <SceneContent>
+            <SubscriptionsSceneMenuBar />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Subscriptions].name}
                 description={sceneConfigurations[Scene.Subscriptions].description}

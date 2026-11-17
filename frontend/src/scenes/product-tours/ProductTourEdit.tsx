@@ -16,6 +16,7 @@ import { ProductTourStatusTag } from './components/ProductToursTable'
 import { QuillProductTourStatusBadge } from './components/QuillProductTourStatusBadge'
 import { ProductTourStepsEditor } from './editor'
 import { productTourLogic } from './productTourLogic'
+import { ProductTourSceneMenuBar } from './ProductTourSceneMenuBar'
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     const {
@@ -38,6 +39,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     return (
         <Form logic={productTourLogic} props={{ id }} formKey="productTourForm">
             <SceneContent>
+                <ProductTourSceneMenuBar id={id} productTour={productTour} editing />
                 <SceneTitleSection
                     name={productTourForm.name}
                     resourceType={{ type: 'product_tour' }}

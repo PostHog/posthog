@@ -25,6 +25,7 @@ import { AddCrossProjectTileModal } from './AddCrossProjectTileModal'
 import { CrossProjectDashboardGrid } from './CrossProjectDashboardGrid'
 import { CrossProjectDashboardLayoutActions } from './CrossProjectDashboardLayoutActions'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
+import { CrossProjectDashboardSceneMenuBar } from './CrossProjectDashboardSceneMenuBar'
 import { openCrossProjectTileOverrideDialog } from './openCrossProjectTileOverrideDialog'
 import { QuillCrossProjectDashboardActions } from './QuillCrossProjectDashboardActions'
 
@@ -70,6 +71,7 @@ export function CrossProjectDashboardScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <CrossProjectDashboardSceneMenuBar />
             <SceneTitleSection
                 name={dashboard?.name ?? ''}
                 description={dashboard?.description ?? null}

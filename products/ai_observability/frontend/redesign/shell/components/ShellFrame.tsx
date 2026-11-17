@@ -8,6 +8,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AIObservabilityDocsSceneMenuBar } from '../../../AIObservabilityDocsSceneMenuBar'
 import {
     SHELL_TABS,
     ShellLocation,
@@ -43,6 +44,7 @@ export function ShellFrame({
 
     return (
         <SceneContent>
+            <AIObservabilityDocsSceneMenuBar dataAttrKey="ai-observability" docsUrl={docsUrl} />
             <SceneTitleSection
                 name={scene.name}
                 description={tab?.description ?? scene.description}

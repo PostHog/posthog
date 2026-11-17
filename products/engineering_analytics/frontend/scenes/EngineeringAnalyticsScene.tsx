@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
@@ -8,6 +9,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import type { SceneAction } from '~/layout/scenes/sceneActions/sceneActionModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductNav } from '../components/ProductNav'
@@ -97,8 +99,26 @@ function EngineeringAnalyticsTabs(): JSX.Element {
 
 export function EngineeringAnalyticsScene(): JSX.Element {
     const { activeView } = useValues(engineeringAnalyticsSceneLogic)
-    const { scopeRepo } = useValues(engineeringAnalyticsLogic)
+    const { scopeRepo, anyLoading } = useValues(engineeringAnalyticsLogic)
+    const { refresh } = useActions(engineeringAnalyticsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const sceneActions: SceneAction[] = [
+        {
+            group: 'view',
+            section: 'refresh',
+            id: 'engineering-analytics-menubar-refresh',
+            label: 'Refresh',
+            icon: <IconRefresh />,
+            disabledReason: anyLoading ? 'Loading…' : undefined,
+            onSelect: refresh,
+            pinned: {
+                order: 2,
+                variant: 'secondary',
+                render: () => (activeView === 'deploys' ? <DeploysRefreshButton /> : <RefreshButton />),
+            },
+        },
+    ]
 
     return (
         <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
@@ -106,6 +126,12 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                 <RepoSceneTitle
                     repo={scopeRepo}
                     description={viewDescription(activeView, scopeRepo)}
+                    sceneActions={sceneActions}
+                    viewOnGitHubPinned={{
+                        order: 1,
+                        variant: 'secondary',
+                        dataAttr: 'engineering-analytics-view-on-github',
+                    }}
                     actions={
                         todayRailNav ? (
                             <div className="flex flex-wrap items-center gap-2">

@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { SkillsSceneMenuBar } from './SkillsSceneMenuBar'
 import { DEFAULT_SKILLS_TAB_KEY, skillTabUrl, skillTabsLogic, visibleCategoryTabs } from './skillTabsLogic'
 
 /** Tab key for the Community scene, and its `/skills/<key>` URL segment. */
@@ -61,6 +62,7 @@ export function SkillsSceneShell({
 
     return (
         <SceneContent>
+            <SkillsSceneMenuBar isCommunity={activeTabKey === COMMUNITY_SKILLS_TAB_KEY} />
             <SceneTitleSection
                 name="Skills"
                 description={description}

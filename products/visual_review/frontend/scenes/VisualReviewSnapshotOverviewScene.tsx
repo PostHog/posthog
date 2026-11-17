@@ -73,6 +73,7 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
             <VisualReviewSceneTitle
                 repoFullName={repoFullName}
                 activeTab="snapshots"
+                settingsPinned={{ order: 1, variant: 'secondary' }}
                 actions={
                     todayRailNav ? (
                         <Button variant="outline" render={<LinkPrimitive to={urls.visualReviewSettings()} />}>

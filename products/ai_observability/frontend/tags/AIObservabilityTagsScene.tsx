@@ -36,6 +36,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey, providerKeyStateIssueDescription } from '../settings/providerKeyStateUtils'
+import { AIObservabilityTagsSceneMenuBar } from './AIObservabilityTagsSceneMenuBar'
 import { llmTaggersLogic } from './llmTaggersLogic'
 import { TaggerCreationRetiredModal } from './TaggerCreationRetiredModal'
 import { TaggersDeprecationBanner } from './TaggersDeprecationBanner'
@@ -350,6 +351,7 @@ export function AIObservabilityTagsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <AIObservabilityTagsSceneMenuBar onCreateTagger={() => setIsCreationRetiredModalOpen(true)} />
             <SceneTitleSection
                 name="Taggers"
                 description="Set up taggers to automatically add custom tags to your AI generations."

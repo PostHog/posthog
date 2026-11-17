@@ -29,6 +29,7 @@ import {
     LogsAlertNotificationDetailSceneLogicProps,
     logsAlertNotificationDetailSceneLogic,
 } from './logsAlertNotificationDetailSceneLogic'
+import { LogsAlertNotificationDetailSceneMenuBar } from './LogsAlertNotificationDetailSceneMenuBar'
 
 export const scene: SceneExport<LogsAlertNotificationDetailSceneLogicProps> = {
     component: LogsAlertNotificationDetailScene,
@@ -93,6 +94,7 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
     if (hogFunctionsError) {
         return (
             <SceneContent>
+                <LogsAlertNotificationDetailSceneMenuBar alertId={alertId} onRetry={() => loadHogFunctions()} />
                 <SceneTitleSection
                     name="Couldn't load destination"
                     resourceType={{ type: 'logs' }}
@@ -131,6 +133,7 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
     if (hasLoaded && !destinationGroup) {
         return (
             <SceneContent>
+                <LogsAlertNotificationDetailSceneMenuBar alertId={alertId} />
                 <SceneTitleSection
                     name="Destination not found"
                     resourceType={{ type: 'logs' }}
@@ -166,6 +169,18 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <LogsAlertNotificationDetailSceneMenuBar
+                alertId={alertId}
+                onRemove={destinationGroup ? confirmRemoveDestination : undefined}
+                removeDisabledReason={isDeleting ? 'Removing…' : undefined}
+                statusBadge={
+                    destinationGroup ? (
+                        <Badge variant={destinationGroup.enabled ? 'success' : 'default'}>
+                            {destinationGroup.enabled ? 'Active' : 'Paused'}
+                        </Badge>
+                    ) : undefined
+                }
+            />
             <SceneTitleSection
                 name={destinationGroup ? displayLabel : 'Destination'}
                 description={alert ? `Notifications fired for alert "${alert.name}".` : undefined}

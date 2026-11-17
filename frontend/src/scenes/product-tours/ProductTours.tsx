@@ -21,6 +21,7 @@ import { productToursEmptyState } from 'products/product_tours/frontend/emptySta
 import { NewProductTourModal } from './components/NewProductTourModal'
 import { ProductToursTable } from './components/ProductToursTable'
 import { ProductToursTabs, productToursLogic } from './productToursLogic'
+import { ProductToursSceneMenuBar } from './ProductToursSceneMenuBar'
 
 export const scene: SceneExport = {
     component: ProductTours,
@@ -76,6 +77,7 @@ function ProductTours(): JSX.Element {
 
     return (
         <SceneContent>
+            <ProductToursSceneMenuBar />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.ProductTours].name}
                 description={sceneConfigurations[Scene.ProductTours].description}

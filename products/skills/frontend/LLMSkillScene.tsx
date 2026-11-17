@@ -49,6 +49,7 @@ import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from 'product
 
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
+import { LLMSkillSceneMenuBar } from './LLMSkillSceneMenuBar'
 import { llmSkillsLogic } from './llmSkillsLogic'
 import { QuillLLMSkillActions } from './QuillLLMSkillActions'
 import {
@@ -56,15 +57,11 @@ import {
     SKILL_NAME_MAX_LENGTH,
     SKILL_DESCRIPTION_MAX_LENGTH,
 } from './skillConstants'
+import { openArchiveSkillDialog, openRenameSkillDialog } from './skillDialogs'
 import { skillFileLogic } from './skillFileLogic'
 import { collectFilesFromDrop } from './skillFileUpload'
 import { SkillOwners } from './SkillOwners'
-import {
-    SkillPublishReviewModal,
-    openArchiveSkillDialog,
-    openRenameSkillDialog,
-    publishToCommunityDisabledReason,
-} from './skillSceneComponents'
+import { SkillPublishReviewModal, publishToCommunityDisabledReason } from './skillSceneComponents'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
 
@@ -202,6 +199,12 @@ export function LLMSkillScene(): JSX.Element {
     const content =
         isViewMode || !canEditSkill ? (
             <SceneContent>
+                <LLMSkillSceneMenuBar
+                    view={true}
+                    communitySkillsEnabled={communitySkillsEnabled}
+                    publishDisabledReason={publishDisabledReason}
+                    renameDisabledReason={renameDisabledReason}
+                />
                 <SceneTitleSection
                     name={skill && 'name' in skill ? skill.name : 'Skill'}
                     resourceType={{ type: 'llm_skill' }}
@@ -347,6 +350,12 @@ export function LLMSkillScene(): JSX.Element {
         ) : (
             <Form id="skill-form" formKey="skillForm" logic={llmSkillLogic}>
                 <SceneContent>
+                    <LLMSkillSceneMenuBar
+                        view={false}
+                        communitySkillsEnabled={communitySkillsEnabled}
+                        publishDisabledReason={publishDisabledReason}
+                        renameDisabledReason={renameDisabledReason}
+                    />
                     <SceneTitleSection
                         name={skillForm.name || 'New skill'}
                         resourceType={{ type: 'llm_analytics' }}

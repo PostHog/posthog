@@ -33,6 +33,7 @@ import {
     CustomerAnalyticsAccountSceneLogicProps,
     customerAnalyticsAccountSceneLogic,
 } from './customerAnalyticsAccountSceneLogic'
+import { CustomerAnalyticsAccountSceneMenuBar } from './CustomerAnalyticsAccountSceneMenuBar'
 import { parseExternalAccountPath } from './customerAnalyticsAccountSceneUtils'
 
 export const scene: SceneExport<CustomerAnalyticsAccountSceneLogicProps> = {
@@ -106,6 +107,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
 
     return (
         <SceneContent className="h-full min-h-0" data-attr="customer-analytics-account-scene">
+            <CustomerAnalyticsAccountSceneMenuBar projectId={projectId} />
             <SceneTitleSection
                 nameAction={<TodayPeoplePinButton />}
                 name={account.name}

@@ -29,6 +29,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { TRIAL_RECORD_LIMIT_MAX, type ManagedMigrationForm, managedMigrationLogic } from './managedMigrationLogic'
+import { ManagedMigrationSceneMenuBar } from './ManagedMigrationSceneMenuBar'
+import { ManagedMigrationsSceneMenuBar } from './ManagedMigrationsSceneMenuBar'
 import { TrialResultsModal } from './TrialResultsModal'
 import { type ManagedMigration as ManagedMigrationData } from './types'
 
@@ -152,6 +154,7 @@ export function ManagedMigration(): JSX.Element {
     return (
         <Form logic={managedMigrationLogic} formKey="managedMigration" enableFormOnSubmit className="space-y-4">
             <SceneContent>
+                <ManagedMigrationSceneMenuBar />
                 <SceneTitleSection
                     name="New managed migration"
                     resourceType={{ type: 'managed_migration', forceIcon: <IconSort /> }}
@@ -505,6 +508,7 @@ export function ManagedMigrations(): JSX.Element {
                 <ManagedMigration />
             ) : (
                 <>
+                    <ManagedMigrationsSceneMenuBar />
                     <SceneTitleSection
                         name="Managed migrations"
                         description={sceneConfigurations[Scene.ManagedMigration].description}

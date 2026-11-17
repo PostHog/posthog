@@ -29,6 +29,7 @@ import { MetricsDashboardImportModal } from './dashboardImport/MetricsDashboardI
 import { metricsEmptyState } from './emptyState/metricsEmptyState'
 import { metricsFeaturePreviewGate } from './featurePreviewGate'
 import { DEFAULT_ACTIVE_TAB, MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
+import { MetricsSceneMenuBar } from './MetricsSceneMenuBar'
 
 export const METRICS_LOGIC_KEY = 'metrics'
 
@@ -100,6 +101,7 @@ const MetricsSceneContent = (): JSX.Element => {
 
     return (
         <>
+            <MetricsSceneMenuBar onFeedbackClick={onFeedbackClick} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Metrics].name}
                 description={sceneConfigurations[Scene.Metrics].description}

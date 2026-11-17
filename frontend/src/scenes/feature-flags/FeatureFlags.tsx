@@ -91,6 +91,7 @@ import {
     featureFlagsLogic,
     flagMatchesType,
 } from './featureFlagsLogic'
+import { FeatureFlagsSceneMenuBar } from './FeatureFlagsSceneMenuBar'
 import { BULK_ARCHIVE_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
@@ -939,6 +940,12 @@ export function FeatureFlags(): JSX.Element {
 
     return (
         <SceneContent className="feature_flags">
+            <FeatureFlagsSceneMenuBar
+                feedbackSurveyId={FEATURE_FLAGS_FEEDBACK_SURVEY_ID}
+                showRulesV2Editor={showRulesV2Editor}
+                rulesV2DisabledReason={rulesV2CreateDisabledReason(currentTeam, enabledFeatureFlags)}
+                newFeatureFlagUrl={newFeatureFlagUrl}
+            />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.FeatureFlags].name}
                 description={sceneConfigurations[Scene.FeatureFlags].description}

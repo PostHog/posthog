@@ -14,6 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { featureFlagsStaffToolsLogic } from './featureFlagsStaffToolsLogic'
+import { FeatureFlagsStaffToolsSceneMenuBar } from './FeatureFlagsStaffToolsSceneMenuBar'
 import { StaffCacheToolsTab } from './StaffCacheToolsTab'
 
 export const scene: SceneExport = {
@@ -31,6 +32,7 @@ export function FeatureFlagsStaffToolsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <FeatureFlagsStaffToolsSceneMenuBar />
             <SceneTitleSection
                 name="Flags staff tools"
                 description="Look up any team across all organizations to inspect and rebuild its flag caches, or adjust its feature-flags config."

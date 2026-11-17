@@ -11,7 +11,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { llmSkillsLogic } from './llmSkillsLogic'
-import { openArchiveSkillDialog, openRenameSkillDialog } from './skillSceneComponents'
+import { openArchiveSkillDialog, openRenameSkillDialog } from './skillDialogs'
 
 export interface QuillLLMSkillActionsProps {
     /** The read-only view, as opposed to the edit form. */

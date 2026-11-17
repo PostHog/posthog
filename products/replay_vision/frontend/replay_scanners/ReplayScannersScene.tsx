@@ -56,6 +56,7 @@ import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
+import { ReplayScannersSceneMenuBar } from './ReplayScannersSceneMenuBar'
 import { disabledReasonDetail, limitReachedTooltip } from './scannerCopy'
 import { scannerStatus } from './scannerStatus'
 import { ScannerTagsFilter } from './ScannerTagsFilter'
@@ -308,6 +309,7 @@ export function ReplayScannersScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <ReplayScannersSceneMenuBar />
             <SceneTitleSection
                 name="Replay vision"
                 description="Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event."

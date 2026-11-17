@@ -27,6 +27,7 @@ import { HeatmapsPricingNotice } from '../../components/HeatmapsPricingNotice'
 import { HeatmapsWarnings } from '../../components/HeatmapsWarnings'
 import { heatmapsEmptyState } from '../../emptyState/heatmapsEmptyState'
 import { HEATMAPS_PER_PAGE, heatmapsSceneLogic } from './heatmapsSceneLogic'
+import { HeatmapsSceneMenuBar } from './HeatmapsSceneMenuBar'
 
 export const scene: SceneExport = {
     component: HeatmapsScene,
@@ -126,6 +127,7 @@ export function HeatmapsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <HeatmapsSceneMenuBar />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Heatmaps].name}
                 description={sceneConfigurations[Scene.Heatmaps].description}

@@ -27,3 +27,18 @@ export { useCalendar, Day, Month, type UseCalendarOptions, type UseCalendarRetur
 // `Metric` is intentionally NOT re-exported here: it pulls `@posthog/quill-charts` (d3), and this
 // barrel is inlined into the always-eager `@posthog/quill` bundle. Import it from its own entry —
 // `@posthog/quill-components/metric` — so charts only loads where a metric tile is actually used.
+export { ActionMenu, type ActionMenuProps, type ActionMenuSelectDetails } from './action-menu'
+export {
+    type ActionMenuAction,
+    type ActionMenuCheckbox,
+    type ActionMenuItem,
+    type ActionMenuPanel,
+    type ActionMenuRadio,
+    type ActionMenuRadioOption,
+    type ActionMenuSearchResult,
+    type ActionMenuSubmenu,
+    collectDestructive,
+    hasRows,
+    isDestructive,
+    searchActionMenu,
+} from './action-menu-tree'

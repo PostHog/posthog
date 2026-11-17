@@ -24,6 +24,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
 import { TraceDrawerRowProps, TraceDrawerRowsSync, useTraceDrawerRows } from '../redesign/trace/TraceDrawerRowsHost'
 import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
+import { AIObservabilityClusterSceneMenuBar } from './AIObservabilityClusterSceneMenuBar'
 import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
 import { ClusterDetailScatterPlot } from './ClusterDetailScatterPlot'
@@ -106,6 +107,7 @@ export function AIObservabilityClusterScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <AIObservabilityClusterSceneMenuBar />
             <SceneTitleSection
                 name={cluster.title}
                 resourceType={{ type: 'llm_analytics' }}

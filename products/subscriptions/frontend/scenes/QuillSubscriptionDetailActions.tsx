@@ -3,38 +3,19 @@ import { router } from 'kea-router'
 
 import { Button, Label, Switch } from '@posthog/quill'
 
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { urls } from 'scenes/urls'
-
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { isSubscriptionEnabled, subscriptionEditHref, subscriptionName } from './components/SubscriptionsTable'
+import { isSubscriptionEnabled, subscriptionEditHref } from './components/SubscriptionsTable'
+import { deleteSubscriptionWithUndo } from './deleteSubscriptionWithUndo'
 import { subscriptionSceneLogic } from './subscriptionSceneLogic'
-import { subscriptionsSceneLogic } from './subscriptionsSceneLogic'
+import { SubscriptionTestDeliveryButton } from './SubscriptionTestDeliveryButton'
 
 export function QuillSubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
-    const { setEnabled, deliverSubscription } = useActions(subscriptionSceneLogic)
-    const { subscriptionLoading, deliveringSubscriptionId } = useValues(subscriptionSceneLogic)
+    const { setEnabled } = useActions(subscriptionSceneLogic)
+    const { subscriptionLoading } = useValues(subscriptionSceneLogic)
     const editHref = subscriptionEditHref(sub)
     const enabled = isSubscriptionEnabled(sub)
-    const isDelivering = deliveringSubscriptionId === sub.id
-
-    const deleteSubscription = (): void => {
-        const name = subscriptionName(sub)
-        void deleteWithUndo({
-            endpoint: `projects/${String(getCurrentTeamId())}/subscriptions`,
-            object: {
-                id: sub.id,
-                name,
-            },
-            callback: () => {
-                subscriptionsSceneLogic.findMounted()?.actions.deleteSubscriptionSuccess()
-                push(urls.subscriptions())
-            },
-        })
-    }
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -53,16 +34,12 @@ export function QuillSubscriptionDetailActions({ sub }: { sub: SubscriptionApi }
                     Edit subscription
                 </Button>
             ) : null}
+            <SubscriptionTestDeliveryButton sub={sub} />
             <Button
-                variant="primary"
-                onClick={() => deliverSubscription(sub.id)}
-                loading={isDelivering}
-                disabledReason={isDelivering ? 'Sending test delivery…' : null}
-                data-attr="subscription-detail-header-test-delivery"
+                variant="destructive-outline"
+                data-attr="subscription-detail-delete"
+                onClick={() => deleteSubscriptionWithUndo(sub)}
             >
-                Test delivery
-            </Button>
-            <Button variant="destructive-outline" data-attr="subscription-detail-delete" onClick={deleteSubscription}>
                 Delete
             </Button>
         </div>

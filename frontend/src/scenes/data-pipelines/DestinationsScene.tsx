@@ -24,6 +24,7 @@ import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 import { DestinationsBatchExportsTab } from './DestinationsBatchExportsTab'
 import { DestinationsNotificationsTab } from './DestinationsNotificationsTab'
 import { DestinationsSceneTab, destinationsSceneLogic } from './destinationsSceneLogic'
+import { DestinationsSceneMenuBar } from './DestinationsSceneMenuBar'
 
 export const scene: SceneExport = {
     component: DestinationsScene,
@@ -103,6 +104,7 @@ export function DestinationsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <DestinationsSceneMenuBar newButton={action} />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Destinations].name}
                 description={sceneConfigurations[Scene.Destinations].description}

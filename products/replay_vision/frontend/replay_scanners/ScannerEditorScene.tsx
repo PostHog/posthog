@@ -59,6 +59,7 @@ import {
     scannerEditorStepOrder,
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
+import { ScannerEditorSceneMenuBar } from './ScannerEditorSceneMenuBar'
 import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
 import { isUnusableScannerTag } from './scannerTags'
 import { type ModelNaming, SCANNER_TYPE_OPTIONS, modelOptions, scannerTypeOptions } from './types'
@@ -183,6 +184,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         <SceneContent>
             <div className="flex flex-col items-center pt-16 pb-8">
                 <div className="w-full max-w-5xl px-4 flex flex-col gap-6">
+                    <ScannerEditorSceneMenuBar />
                     <SceneTitleSection
                         name={title}
                         resourceType={{ type: 'replay_vision' }}

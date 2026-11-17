@@ -20,6 +20,7 @@ import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api
 import type { RepoApi } from '../generated/api.schemas'
 import { QuillAddRepoDropdown } from './QuillAddRepoDropdown'
 import { visualReviewSettingsSceneLogic } from './visualReviewSettingsSceneLogic'
+import { VisualReviewSettingsSceneMenuBar } from './VisualReviewSettingsSceneMenuBar'
 
 export const scene: SceneExport = {
     component: VisualReviewSettingsScene,
@@ -338,6 +339,7 @@ export function VisualReviewSettingsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <VisualReviewSettingsSceneMenuBar hasGitHub={hasGitHub} />
             <SceneTitleSection
                 name="Visual review settings"
                 resourceType={{ type: 'visual_review' }}

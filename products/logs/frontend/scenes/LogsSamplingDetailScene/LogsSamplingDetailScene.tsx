@@ -20,6 +20,7 @@ import { samplingFormSaveDisabledReason } from 'products/logs/frontend/component
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsSamplingDetailSceneLogicProps, logsSamplingDetailSceneLogic } from './logsSamplingDetailSceneLogic'
+import { LogsSamplingDetailSceneMenuBar } from './LogsSamplingDetailSceneMenuBar'
 
 export const scene: SceneExport<LogsSamplingDetailSceneLogicProps> = {
     component: LogsSamplingDetailScene,
@@ -80,6 +81,7 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
 
     return (
         <SceneContent>
+            <LogsSamplingDetailSceneMenuBar onDelete={confirmDelete} />
             <Form logic={logsSamplingFormLogic} props={formProps} formKey="samplingForm" enableFormOnSubmit>
                 <SceneTitleSection
                     name={samplingForm.name || rule.name}

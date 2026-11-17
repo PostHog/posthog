@@ -33,6 +33,10 @@ jest.mock('~/layout/scenes/components/SceneTitleSection', () => ({
     SceneTitleSection: (): null => null,
 }))
 
+jest.mock('./BusinessKnowledgeSceneMenuBar', () => ({
+    BusinessKnowledgeSceneMenuBar: (): null => null,
+}))
+
 jest.mock('../../components/BusinessKnowledgeTabs/BusinessKnowledgeTabs', () => ({
     BusinessKnowledgeTabs: (): null => null,
 }))
