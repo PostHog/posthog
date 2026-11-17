@@ -317,7 +317,7 @@ interface NativeResumeTestServer {
   ): Promise<{ sessionId: string; warm: boolean } | null>;
 }
 
-let nextTestPort = 20000;
+let nextTestPort = 20000 + Math.floor(Math.random() * 20000);
 
 function getNextTestPort(): number {
   const port = nextTestPort;

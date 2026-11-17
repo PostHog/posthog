@@ -5,6 +5,9 @@ import path from 'path'
 import { AwsError, awsCli } from './aws'
 
 const FAKE_CLI = `#!/bin/sh
+if [ "$2" = "get-metric-data" ]; then
+  exec sleep 30
+fi
 if [ "$2" = "describe-db-clusters" ]; then
   echo "An error occurred (DBClusterNotFoundFault) when calling the DescribeDBClusters operation: not found" >&2
   exit 254
@@ -37,5 +40,14 @@ describe('awsCli', () => {
 
         await expect(failure).rejects.toBeInstanceOf(AwsError)
         await expect(failure).rejects.toMatchObject({ exitCode: 254, code: 'DBClusterNotFoundFault' })
+    })
+
+    it('stops a call once its signal aborts', async () => {
+        const cancelled = new AbortController()
+        const call = awsCli(env).call(['cloudwatch', 'get-metric-data'], cancelled.signal)
+
+        cancelled.abort()
+
+        await expect(call).rejects.toThrow('aws cloudwatch get-metric-data was cancelled')
     })
 })

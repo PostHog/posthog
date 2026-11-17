@@ -11,7 +11,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 
 from ..models.evaluation_config import EvaluationConfig
 from ..models.provider_keys import LLMProvider, LLMProviderKey

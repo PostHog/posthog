@@ -10,6 +10,7 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework.exceptions import ErrorDetail, ValidationError
 
+from posthog.hogql.direct_sql.adapter import DirectQueryTimeoutError, DirectQueryUnavailableError
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -212,6 +213,8 @@ class TestExperimentErrorHandling(BaseTest):
             ("zero_division", ZeroDivisionError(), "insufficient_data"),
             ("validation_error", ValidationError("bad metric config"), "validation_error"),
             ("exposed_hogql_error", ExposedHogQLError("unknown property"), "validation_error"),
+            ("warehouse_timeout", DirectQueryTimeoutError("BigQuery query timed out."), "timeout"),
+            ("warehouse_unavailable", DirectQueryUnavailableError("backend error"), "server_error"),
             ("ch_not_an_aggregate_code", ServerException("not under aggregate", code=215), "validation_error"),
             (
                 "wrapped_not_an_aggregate",

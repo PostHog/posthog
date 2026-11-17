@@ -373,6 +373,16 @@ describe('Hono App Routes', () => {
             expect(res.status).toBe(401)
             expect(await res.text()).toContain('Invalid token')
         })
+
+        it('asks a project secret API key for its project instead of rejecting the key', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request('/mcp', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer phs_test_key' },
+            })
+            expect(res.status).toBe(400)
+            expect(await res.text()).toContain('project_id')
+        })
     })
 
     describe('OAuth redirect routes', () => {

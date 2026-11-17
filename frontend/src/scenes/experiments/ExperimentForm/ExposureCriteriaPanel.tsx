@@ -289,19 +289,21 @@ function ExposureCriteriaFields({
                 </div>
             </div>
 
-            {/* Test Account Filtering */}
-            <div>
-                <TestAccountFilterSwitch
-                    checked={hasFilters && resolveFilterTestAccounts(experiment.exposure_criteria)}
-                    onChange={(checked: boolean) => {
-                        onChange({ filterTestAccounts: checked })
-                    }}
-                    bordered={false}
-                    fullWidth
-                    settingsLinkIcon="new-tab"
-                    className="p-0"
-                />
-            </div>
+            {/* Test account filters read PostHog person and event properties, which warehouse rows do not have */}
+            {!getWarehouseNativeExposure(experiment.exposure_criteria) && (
+                <div>
+                    <TestAccountFilterSwitch
+                        checked={hasFilters && resolveFilterTestAccounts(experiment.exposure_criteria)}
+                        onChange={(checked: boolean) => {
+                            onChange({ filterTestAccounts: checked })
+                        }}
+                        bordered={false}
+                        fullWidth
+                        settingsLinkIcon="new-tab"
+                        className="p-0"
+                    />
+                </div>
+            )}
         </div>
     )
 }

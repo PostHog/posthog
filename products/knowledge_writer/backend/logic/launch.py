@@ -16,6 +16,7 @@ from ..task_profiles import WRITER
 from .caps import WriterRerunTaken, claim_section
 from .records import (
     BRANCH_REFUSALS,
+    DOCS_CONTENT_ROOT_STATE_KEY,
     HEAD_BRANCH_STATE_KEY,
     JOIN_STATE_KEY,
     PULL_REQUEST_FAILURE_STATE_KEY,
@@ -94,6 +95,9 @@ def build_writer_prompt(request: DocsRequest, routing: SectionRouting, *, head_b
         "Address every finding in your docs change. If you leave one out, say which and why in your commit message.",
         "Change only what the change requires. "
         "Keep each page's existing structure, headings and wording where they are still true.",
+        "Keep changes inside the docs folder. A change to any other file is published only when that file already "
+        "exists and links many docs pages, such as a nav or redirect file, and each changed block names a page "
+        "this branch adds, removes or renames.",
         "If the repository documents a style guide or writing rules, for example in AGENTS.md, CONTRIBUTING "
         "or a docs README, follow them. If it documents a lint or format command for docs, run it on the files "
         "you changed before you push. Do not assume either exists, and do not add one.",
@@ -131,7 +135,8 @@ def start_writer(
 ) -> UUID:
     head_branch = issued_head_branch(joining, rerun_task_id, team.id)
     state_entries = {
-        REQUEST_STATE_KEY: request_json.dump_python(request, mode="json"),
+        REQUEST_STATE_KEY: request_json.dump_python(request, mode="json", exclude={"docs_content_root"}),
+        DOCS_CONTENT_ROOT_STATE_KEY: request.docs_content_root,
         SECTION_STATE_KEY: routing.section,
         JOIN_STATE_KEY: pull_request_json.dump_python(joining, mode="json") if joining is not None else None,
         HEAD_BRANCH_STATE_KEY: head_branch,

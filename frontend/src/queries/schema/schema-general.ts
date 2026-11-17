@@ -569,7 +569,7 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored. */
     useNewEventsSchema?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
@@ -1557,6 +1557,7 @@ export enum HeatmapSortOrder {
 
 export interface HeatmapSettings {
     xAxisColumn?: string
+    xAxisSortOrder?: HeatmapSortOrder
     yAxisColumn?: string
     valueColumn?: string
     xAxisLabel?: string
@@ -4937,7 +4938,12 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     filterTestAccounts?: boolean
     /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string
-    volumeResolution: integer
+    /**
+     * @asType integer
+     * @minimum 0
+     * @maximum 200
+     */
+    volumeResolution: number
     withAggregations?: boolean
     withFirstEvent?: boolean
     withLastEvent?: boolean
@@ -9154,6 +9160,8 @@ export interface MarketingAnalyticsRecommendationsSource {
     searchTermKeywordTable?: string
     /** Google Ads search term table for Performance Max campaigns. */
     performanceMaxSearchTermTable?: string
+    /** Google Ads ad table, used to read the ad copy of each ad group. */
+    adTable?: string
     /** Google Ads daily campaign conversions split by conversion action. */
     campaignConversionActionTable?: string
     /** Google Ads daily search term conversions split by conversion action. */
