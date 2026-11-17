@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -6,8 +8,11 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { Node } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
@@ -257,6 +262,20 @@ describe('ReportExpectedImpact', () => {
         await userEvent.setup().click(screen.getByText('Start monitoring now'))
 
         await waitFor(() => expect(stateRequests).toEqual([{ state: 'monitoring' }]))
+    })
+
+    it.each([
+        ['opens an available query as a new insight', reportMetricsFixture[0].query as Record<string, unknown>],
+        ['offers no link for an unavailable query', null],
+    ])('%s', (_name, query) => {
+        renderMeasurements([{ ...check, config: { ...check.config, query } }])
+
+        // The authored query, not the embedded chart node, so the insight opens with its filter bar.
+        expect(
+            document.querySelector('[data-attr="report-expected-impact-open"]')?.getAttribute('href') ?? null
+        ).toEqual(
+            query ? addProjectIdIfMissing(urls.insightNew({ query: query as unknown as Node }), MOCK_TEAM_ID) : null
+        )
     })
 
     it('caps visible measurements after skipping malformed check configs', () => {
