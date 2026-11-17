@@ -117,6 +117,11 @@ echo "docker $*" >>/dry-run/stand-ins.log
 real=/usr/bin/docker
 daemon() {
     "$real" info >/dev/null 2>&1 && return
+    if [ -f /sys/fs/cgroup/cgroup.controllers ] && [ ! -d /sys/fs/cgroup/init ]; then
+        mkdir /sys/fs/cgroup/init
+        xargs -rn1 </sys/fs/cgroup/cgroup.procs >/sys/fs/cgroup/init/cgroup.procs 2>/dev/null || true
+        sed -e 's/ / +/g' -e 's/^/+/' </sys/fs/cgroup/cgroup.controllers >/sys/fs/cgroup/cgroup.subtree_control
+    fi
     (setsid dockerd >>/dry-run/dockerd.log 2>&1 &)
     for _ in $(seq 60); do "$real" info >/dev/null 2>&1 && return; sleep 1; done
     echo "dry run: dockerd did not start; see dockerd.log" >&2
@@ -177,6 +182,10 @@ done=/dry-run/bucket/runs/$RUN_ID/host/done
 cat "$done" || { echo "The card wrote no done marker."; exit 1; }
 [ "$(jq -r .uploaded "$done")" = true ] || { echo "The card did not upload its evidence."; exit 1; }
 if [ "$stopped" = 124 ]; then
+    [ -d "/dry-run/bucket/runs/$RUN_ID/evidence/run/$RUN_ID" ] || {
+        echo "The card was stopped after $CARD_SECONDS s before its run started."
+        exit 1
+    }
     echo "The card was still running after $CARD_SECONDS s, as intended."
     exit 0
 fi
