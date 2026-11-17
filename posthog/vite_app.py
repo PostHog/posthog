@@ -5,13 +5,9 @@ Serving of the app build that Vite makes.
 (see frontend/bin/viteAppBuild.mjs). It is the same app from a second bundler, and it runs
 alongside the esbuild build until it has proven itself.
 
-Only a staff member can choose it, with `?frontend_build=vite`. The choice is kept in a signed
-cookie, so it also holds on the pages that the staff member sees while signed out, such as the
-login page. `?frontend_build=default` clears it.
-
-The cookie is signed but not tied to a user, so any browser that holds it gets this build for 30 days,
-also after logout or after the staff member loses access. That is accepted: the cookie only picks
-the bundler for the same app and grants nothing else.
+Only a staff member can choose it, with `?frontend_build=vite`. A cookie keeps the choice, and
+`?frontend_build=default` clears it. The cookie counts only on a request from a signed-in staff
+member, so a copied or forged cookie picks nothing, and a signed-out page gets the default build.
 
 A page on this build that fails to load a chunk reloads with `?stable_chunks=fallback`, as a page on
 the stable chunk build does, and gets the default esbuild build.
@@ -39,7 +35,6 @@ FRONTEND_BUILD_COOKIE = "ph_frontend_build"
 VITE_BUILD: Final = "vite"
 DEFAULT_BUILD: Final = "default"
 
-_COOKIE_SALT = "posthog.vite_app.frontend_build"
 _COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 
 VITE_APP_SHELL_COUNTER = Counter(
@@ -191,11 +186,7 @@ def _wants_vite_app(request: HttpRequest) -> bool:
     chosen = _chosen(request)
     if chosen is not None:
         return chosen == VITE_BUILD
-    # The signature shows that a staff member's request set this cookie. It does not show that the holder is staff now.
-    remembered = request.get_signed_cookie(
-        FRONTEND_BUILD_COOKIE, default=None, salt=_COOKIE_SALT, max_age=_COOKIE_MAX_AGE_SECONDS
-    )
-    return remembered == VITE_BUILD
+    return _may_choose(request) and request.COOKIES.get(FRONTEND_BUILD_COOKIE) == VITE_BUILD
 
 
 def app_build_for_request(request: HttpRequest) -> tuple[Optional[ViteApp], Optional[StableChunks]]:
@@ -220,10 +211,9 @@ def remember_frontend_build_choice(request: HttpRequest, response: HttpResponse)
     """Keeps a build chosen in the query string for the visitor's later page loads."""
     chosen = _chosen(request)
     if chosen == VITE_BUILD:
-        response.set_signed_cookie(
+        response.set_cookie(
             FRONTEND_BUILD_COOKIE,
             VITE_BUILD,
-            salt=_COOKIE_SALT,
             max_age=_COOKIE_MAX_AGE_SECONDS,
             httponly=True,
             samesite="Lax",

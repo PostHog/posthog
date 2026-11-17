@@ -134,9 +134,10 @@ class TestViteApp(SimpleTestCase):
             ("a customer who asks for it", "customer", "?frontend_build=vite", None, False, "stable"),
             ("a signed-out visitor who asks for it", "anonymous", "?frontend_build=vite", None, False, "stable"),
             ("anyone in local development", "anonymous", "?frontend_build=vite", None, True, "vite"),
-            ("a signed-out page after a staff member chose it", "anonymous", "", "staff choice", False, "vite"),
-            ("a customer after a staff member chose it", "customer", "", "staff choice", False, "vite"),
-            ("a cookie nobody signed", "anonymous", "", "vite", False, "stable"),
+            ("a staff member on a later page load", "staff", "", "staff choice", False, "vite"),
+            ("a signed-out visitor who holds the cookie", "anonymous", "", "staff choice", False, "stable"),
+            ("a customer who holds the cookie", "customer", "", "staff choice", False, "stable"),
+            ("anyone in local development on a later page load", "anonymous", "", "staff choice", True, "vite"),
             ("a staff member who goes back", "staff", "?frontend_build=default", "staff choice", False, "stable"),
             ("a page that fell back", "staff", "?stable_chunks=fallback", "staff choice", False, "default"),
         ]
