@@ -435,40 +435,29 @@ async fn test_secret_api_token_authentication_invalid_token() {
     assert_eq!(body["attr"], Value::Null);
 }
 
-/// ACCEPT_TEAM_SECRET_TOKENS is the kill switch for legacy team secret tokens (#66179).
-/// When it is false, the lookup skips posthog_team.
-/// A legacy token then authenticates only through a backfilled PSAK mirror row with the same string.
-/// `test_secret_api_token_authentication_valid_token` covers the default (true) path.
+/// A phs_ token authenticates only through a PSAK row with the same string (#66179):
+/// for migrated legacy tokens the backfilled mirror row — deleting it kills the token.
 #[rstest::rstest]
 #[case::with_mirror_row(true, 200)]
 #[case::without_mirror_row(false, 401)]
 #[tokio::test]
-async fn test_kill_switch_off_legacy_token_only_matches_mirror_row(
+async fn test_legacy_token_only_matches_mirror_row(
     #[case] mirror_row: bool,
     #[case] expected_status: u16,
 ) {
-    use feature_flags::{
-        config::{Config, FlexBool},
-        utils::test_utils::TestContext,
-    };
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
 
-    let mut config = Config::default_test_config();
-    config.accept_team_secret_tokens = FlexBool(false);
+    let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;
 
     let (team, secret_token, _) = context
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
-    if mirror_row {
+    if !mirror_row {
         context
-            .create_project_secret_api_key_with_value(
-                team.id,
-                "Migrated legacy secret API key",
-                Some(vec!["feature_flag:read", "support_ticket:read"]),
-                &secret_token,
-            )
+            .delete_project_secret_api_keys_for_token(team.id, &secret_token)
             .await
             .unwrap();
     }
