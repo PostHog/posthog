@@ -24,7 +24,7 @@ async fn insert_cohort_members_chunk(
 ) -> StorageResult<i64> {
     let mut conn = PostgresStorage::acquire_timed(pool, "bulk_primary").await?;
     let result = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='insert_cohort_members_chunk' */
         INSERT INTO posthog_cohortpeople (person_id, cohort_id, version)
         SELECT pid, $1::bigint, $3
         FROM UNNEST($2::bigint[]) AS t(pid)
@@ -98,7 +98,7 @@ impl CohortStorage for PostgresStorage {
         // cohort_id to bigint (out-of-band), while prod-eu and the tracked schema have it as
         // integer. sqlx decodes i64 from the cast either way, so one binary works on both.
         let member_ids: Vec<i64> = sqlx::query_scalar!(
-            r#"
+            r#"/* service='personhog-replica', operation='check_cohort_membership' */
             SELECT cohort_id::bigint AS "cohort_id!"
             FROM posthog_cohortpeople
             WHERE person_id = $1 AND cohort_id = ANY($2::bigint[])
@@ -157,7 +157,7 @@ impl CohortStorage for PostgresStorage {
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let count: i64 = sqlx::query_scalar!(
-            r#"
+            r#"/* service='personhog-replica', operation='count_cohort_members' */
             SELECT COUNT(*) as "count!"
             FROM posthog_cohortpeople
             WHERE cohort_id = ANY($1::bigint[])
@@ -184,7 +184,7 @@ impl CohortStorage for PostgresStorage {
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
         let result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_cohort_member' */
             DELETE FROM posthog_cohortpeople
             WHERE cohort_id = $1::bigint AND person_id = $2
             "#,
@@ -223,7 +223,7 @@ impl CohortStorage for PostgresStorage {
             PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
 
         let result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_cohort_members_bulk' */
             DELETE FROM posthog_cohortpeople
             WHERE id IN (
                 SELECT id FROM posthog_cohortpeople
@@ -402,7 +402,7 @@ impl CohortStorage for PostgresStorage {
         let fetch_limit = (limit as i64) + 1;
 
         let rows: Vec<i64> = sqlx::query_scalar!(
-            r#"
+            r#"/* service='personhog-replica', operation='list_cohort_member_ids' */
             SELECT person_id
             FROM posthog_cohortpeople
             WHERE cohort_id = $1::bigint AND person_id > $2

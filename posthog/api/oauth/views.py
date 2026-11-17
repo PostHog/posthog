@@ -71,7 +71,6 @@ from posthog.api.oauth.device import (
     token_server_kwargs,
 )
 from posthog.api.oauth.ema_issuer import (
-    EMA_ISSUER_MANAGE_SCOPE,
     EMA_SETUP_TOKEN_EXPIRES_SECONDS,
     EmaSetupError,
     client_may_manage_ema_issuer,
@@ -89,6 +88,7 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
+from posthog.api.oauth.oauthlib_core import translate_scope_param
 from posthog.api.oauth.step_up import resolve_step_up_grant
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
@@ -112,10 +112,9 @@ from posthog.models.oauth import (
     revoke_oauth_token_family,
 )
 from posthog.permissions import TimeSensitiveActionPermission
-from posthog.scopes import (
-    ALWAYS_ALLOWED_SCOPES,
+from posthog.scopes.catalog import translate_renamed_scopes
+from posthog.scopes.ceilings import (
     clamp_scopes_to_ceiling,
-    downgrade_scopes_to_read_only,
     effective_ceiling,
     grantable_ceiling,
     is_truncated_scope_request,
@@ -124,6 +123,8 @@ from posthog.scopes import (
     resolve_requested_scopes,
     scopes_outside_ceiling,
 )
+from posthog.scopes.checks import downgrade_scopes_to_read_only
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_ip, render_template
@@ -449,6 +450,9 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
         if "user" not in context:
             raise ValueError("OAuthAuthorizationSerializer requires 'user' in context")
         super().__init__(*args, **kwargs)
+
+    def validate_scope(self, scope: str) -> str:
+        return translate_scope_param(scope)
 
     def validate(self, attrs: dict) -> dict:
         # A denial needs no scope, so the field accepts a blank one. A grant still does.
@@ -857,10 +861,14 @@ class OAuthValidator(OAuth2Validator):
         `*` is still accepted verbatim under an empty ceiling here (legacy PostHog
         Desktop CLI) but never on the provisioning paths — see the flag.
 
-        `ema_issuer:manage` is the one exception to clamping, and the only case that returns
-        `False`. A client not allowed to request it gets `invalid_scope` rather than a
-        consent screen for some other set of scopes, and an allowed one gets a grant that
+        An EMA setup request (`ema_issuer:manage` alone or with identity scopes, see
+        `requests_ema_issuer`) is the one exception to clamping, and the only case that
+        returns `False`. A client not allowed to request it gets `invalid_scope` rather than
+        a consent screen for some other set of scopes, and an allowed one gets a grant that
         carries nothing else, so its token can do nothing but the EMA setup call.
+        `ema_issuer:manage` mixed with resource scopes is clamped away like any scope outside
+        the ceiling, because a client that copies the advertised `scopes_supported` into its
+        request sends it that way.
 
         Otherwise this never returns `False`. `/authorize` does not reject on scope grounds:
         scopes are retired and renamed routinely, and a client pinning a hardcoded
@@ -1702,7 +1710,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        requested_scope_tokens = (request.query_params.get("scope") or "").split()
+        requested_scope_tokens = translate_renamed_scopes((request.query_params.get("scope") or "").split())
         scope_was_truncated = is_truncated_scope_request(requested_scope_tokens)
 
         # `validate_scopes` clamps a request whose every resource token is unknown down to
@@ -1734,10 +1742,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         # `validate_scopes` narrows a `*` request to the app's ceiling instead of rejecting it
         # (only when the ceiling is seeded); track that volume so `*` can be retired once it drains.
-        if (
-            "*" in (request.query_params.get("scope") or "").split()
-            and resolve_ceiling(application.ceiling_scopes) is not None
-        ):
+        if "*" in requested_scope_tokens and resolve_ceiling(application.ceiling_scopes) is not None:
             posthoganalytics.capture(
                 distinct_id=str(request.user.distinct_id),
                 event="oauth_wildcard_scopes_narrowed",
@@ -2167,7 +2172,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             # raise), so the requested scope is always in the query string here.
             requested_scope = self.request.query_params.get("scope") or ""
             rejected_scopes = scopes_outside_ceiling(
-                requested_scope.split(),
+                translate_renamed_scopes(requested_scope.split()),
                 application.ceiling_scopes,
                 allow_wildcard_under_empty_ceiling=True,
             )

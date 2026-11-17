@@ -56,7 +56,6 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
         this.cyclotron = new CyclotronV2Manager({
             pool: {
                 dbUrl: config.CYCLOTRON_NODE_DATABASE_URL,
-                statementTimeoutMs: ATTEMPT_TIMEOUT_MS,
                 connectionTimeoutMs: ATTEMPT_TIMEOUT_MS,
             },
             depthLimit: config.CYCLOTRON_SHARD_DEPTH_LIMIT,
@@ -77,6 +76,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
                 deadLetters: this.deadLetters,
                 invocationResults: this.invocationResultsService.invocationResultsRowsService,
                 emailStatus: this.invocationResultsService.emailStatusService,
+                stateOpener: this.deps.encryptedFields,
             },
             { kind: this.kind, claimRetry: CLAIM_RETRY }
         )

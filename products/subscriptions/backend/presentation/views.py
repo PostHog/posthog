@@ -33,7 +33,7 @@ from posthog.api.pagination import (
     facade_page_response,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import ImageSizeSerializer, UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX, INTEGER_FIELD_MIN
@@ -205,6 +205,10 @@ class AIPromptConfigSerializer(serializers.Serializer):
 class DeliveryConfigSerializer(serializers.Serializer):
     """Typed view over the Subscription.delivery_config JSON blob."""
 
+    image_size = ImageSizeSerializer(
+        required=False,
+        help_text="PNG size for each image in an insight or dashboard subscription. Omit for automatic sizing.",
+    )
     post_all_insights_in_main_message = serializers.BooleanField(
         required=False,
         default=False,

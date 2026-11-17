@@ -1,5 +1,6 @@
 import re
 import json
+import socket
 import dataclasses
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -8,12 +9,15 @@ import pytest
 from unittest.mock import MagicMock
 
 from requests import Response
-from requests.exceptions import HTTPError, ProxyError, RequestException
+from requests.exceptions import ConnectionError, HTTPError, ProxyError, RequestException, Timeout
+from urllib3.exceptions import MaxRetryError, NewConnectionError
 
 from products.warehouse_sources.sources.mailchimp._config import MailchimpSourceConfig
 from products.warehouse_sources.sources.mailchimp.mailchimp import (
     EVENT_TABLE_APPEND_ERROR,
     INVALID_API_KEY_FORMAT_ERROR,
+    INVALID_DATA_CENTER_ERROR,
+    MAILCHIMP_UNREACHABLE_ERROR,
     MAX_RETRY_ATTEMPTS,
     MailchimpResumeConfig,
     MailchimpRetryableError,
@@ -21,6 +25,7 @@ from products.warehouse_sources.sources.mailchimp.mailchimp import (
     _format_incremental_value,
     _get_with_retry,
     _incremental_query_params,
+    _is_dns_resolution_failure,
     extract_data_center,
     validate_credentials,
 )
@@ -58,6 +63,66 @@ class TestExtractDataCenter:
             extract_data_center(malicious_key)
 
 
+def _raised_from(outer: BaseException, inner: BaseException) -> BaseException:
+    try:
+        try:
+            raise inner
+        except BaseException as caught:
+            raise outer from caught
+    except BaseException as raised:
+        return raised
+
+
+def _raised_during(outer: BaseException, inner: BaseException) -> BaseException:
+    try:
+        try:
+            raise inner
+        except BaseException:
+            raise outer
+    except BaseException as raised:
+        return raised
+
+
+_GAIERROR = socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+
+class TestIsDnsResolutionFailure:
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            (_GAIERROR, True),
+            (ConnectionError(_GAIERROR), True),
+            (ConnectionError(MaxRetryError(MagicMock(), "/3.0/ping", _GAIERROR)), True),
+            (
+                ConnectionError(MaxRetryError(MagicMock(), "/3.0/ping", reason=NewConnectionError(None, "no host"))),
+                False,
+            ),
+            (_raised_from(ConnectionError("failed"), _GAIERROR), True),
+            (_raised_during(ConnectionError("failed"), _GAIERROR), True),
+            (_raised_from(ConnectionError("failed"), OSError("Connection reset by peer")), False),
+            (ConnectionError(OSError("Connection reset by peer")), False),
+            (Timeout("read timed out"), False),
+            (ConnectionError(socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")), False),
+            (_raised_from(ConnectionError("failed"), socket.gaierror(socket.EAI_AGAIN, "try again")), False),
+        ],
+        ids=[
+            "bare-gaierror",
+            "gaierror-in-args",
+            "gaierror-in-nested-args",
+            "reason-without-gaierror",
+            "chained-cause",
+            "chained-context",
+            "cause-is-connection-reset",
+            "connection-reset-in-args",
+            "timeout",
+            "temporary-resolver-failure-in-args",
+            "temporary-resolver-failure-in-cause",
+        ],
+    )
+    def test_walks_the_exception_chain(self, error: BaseException, expected: bool) -> None:
+        assert _is_dns_resolution_failure(error) is expected
+
+
 class TestValidateCredentials:
     def test_success(self) -> None:
         with scripted_network([ScriptedResponse(json={})]) as network:
@@ -84,6 +149,9 @@ class TestValidateCredentials:
         [
             ProxyError("Cannot connect to proxy.", OSError("Tunnel connection failed: 502 Bad gateway")),
             RequestException("connection reset"),
+            Timeout("read timed out"),
+            ConnectionError(OSError("Connection reset by peer")),
+            ConnectionError(socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")),
         ],
     )
     def test_network_errors_return_friendly_message_without_raw_details(self, exception: RequestException) -> None:
@@ -91,7 +159,25 @@ class TestValidateCredentials:
             valid, error = validate_credentials("key-us6")
 
         assert valid is False
-        assert error == "Could not reach the Mailchimp API. Check your network connection and try again."
+        assert error == MAILCHIMP_UNREACHABLE_ERROR
+        assert "network connection" not in error
+        assert {request.path for request in network.requests_log} == {"/3.0/ping"}
+
+    @pytest.mark.parametrize(
+        "exception",
+        [
+            ConnectionError(_GAIERROR),
+            ConnectionError(MaxRetryError(MagicMock(), "/3.0/ping", reason=_GAIERROR)),
+        ],
+        ids=["gaierror-in-args", "gaierror-as-max-retry-reason"],
+    )
+    def test_dns_failure_points_at_the_data_center(self, exception: RequestException) -> None:
+        with scripted_network(always(exception)) as network:
+            valid, error = validate_credentials("key-usx")
+
+        assert valid is False
+        assert error == INVALID_DATA_CENTER_ERROR
+        assert "data center" in error
         assert {request.path for request in network.requests_log} == {"/3.0/ping"}
 
 

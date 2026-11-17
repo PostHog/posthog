@@ -90,7 +90,9 @@ tools:
         title: Run a data quality check
         description: >
             Run one check now. Returns a suite run to poll; read the outcome from
-            system.information_schema.data_quality_check_runs once it finishes.
+            system.information_schema.data_quality_check_runs once it finishes. Each caller can send 20 run requests a
+            minute and 60 an hour, and each project 180 an hour, shared with data-quality-run. Over that, the call fails
+            with HTTP 429; wait for the time in Retry-After. To run several checks, call data-quality-run once instead.
     data-quality-check-schedule:
         operation: data_quality_checks_schedule_partial_update
         enabled: true
@@ -140,6 +142,23 @@ tools:
             are ignored here. The check keeps its id, run history, latest status, and latest run time. A definition or
             name another active check already holds comes back as a field error, with nothing written. Deleted checks
             release their definition, so it can be authored again as a new check.
+    data-quality-run:
+        operation: data_quality_runs_create
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run data quality checks
+        description: >
+            Run several checks in one call: the checks named by check_ids, every enabled check on one subject
+            (subject_type and subject_uuid), or every enabled check in the project when neither is given. Returns a
+            suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.
+            One call is one run request, however many checks it runs. Each caller can send 20 run requests a minute and
+            60 an hour, and each project 180 an hour, shared with data-quality-check-run. Over that, the call fails with
+            HTTP 429.
     data-quality-subjects:
         operation: data_quality_checks_subjects_list
         enabled: true

@@ -1029,7 +1029,7 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     # Kafka-routing block further down this module and is deleted with it at
     # cutover, so it isn't defined yet when this config is constructed.
     get_primary_writer_fn=lambda team_id: get_team_primary_flags_writer(team_id),
-    # Late-bound for the same reason as get_primary_writer_fn above.
+    # Late-bound because route_refresh_to_kafka is defined further down this module.
     route_refresh_fn=lambda team_id: route_refresh_to_kafka(team_id),
     # The refresh loads flags by team id/project_id; it reads no other Team columns.
     # Narrowing the SELECT keeps it resilient to newly added Team columns the read
@@ -1077,9 +1077,8 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
 
     This is the main hourly job that keeps caches fresh. It:
     1. Finds cache entries with TTL < threshold (up to limit)
-    2. Refreshes them with new data and full TTL, or, for a team the refresh routing
-       flag has claimed, raises a Kafka invalidation and leaves the build to the Rust
-       builder instead
+    2. Raises a Kafka invalidation for each team and leaves the build to the Rust
+       flags-cache-builder
 
     Processes teams in batches (default 5000). If more teams are expiring than the limit,
     subsequent runs will process the next batch.
@@ -1152,17 +1151,17 @@ def get_cache_stats() -> dict[str, Any]:
 #
 # Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
 # _route_to_kafka, get_team_primary_flags_writer (and its config binding on
-# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), route_refresh_to_kafka (and its config
-# binding), SHADOW_COMPARE_FLAG, _shadow_compare_enabled, publish_shadow_invalidation,
-# _produce_invalidation, _enqueue_invalidation, and the Kafka branch inside it.
+# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), SHADOW_COMPARE_FLAG, _shadow_compare_enabled,
+# publish_shadow_invalidation, _produce_invalidation, _enqueue_invalidation, and the
+# Kafka branch inside it.
 # The signal handlers themselves stay; their tails simplify at cutover. The one
 # call site outside this block is the tail of update_team_service_flags_cache in
 # tasks.py, which goes with it.
 #
-# At cutover the sweep routes unconditionally: the FLAGS_CACHE_REFRESH_KAFKA_ENABLED
-# guard goes, and the binding is replaced by a hook that always produces, not deleted.
-# The generic surface it uses — route_refresh_fn, the enqueued count and RefreshPacing —
-# keeps its caller and stays.
+# route_refresh_to_kafka sits in this block but is not transitional. The refresh sweep
+# hands every team to the Kafka builder through it, so it stays at cutover together with
+# its config binding, route_refresh_fn, the enqueued count and RefreshPacing. It calls
+# _produce_invalidation, so cutover keeps that function as well.
 
 # Per-team gate that routes invalidation to Kafka instead of Celery — see
 # _enqueue_invalidation for why the two paths are mutually exclusive. The key
@@ -1262,8 +1261,8 @@ def route_refresh_to_kafka(team_id: int) -> bool:
     """Routing hook for the expiry refresh sweep, bound on
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.
 
-    Returns True when the team's refresh was raised as a Kafka invalidation, which
-    makes the sweep skip its own build and count the team as enqueued.
+    Raises the team's refresh as a Kafka invalidation and returns True, which makes the
+    sweep skip its own build and count the team as enqueued.
 
     A produce failure propagates instead of returning True, so the sweep counts the
     team as failed rather than enqueued. That covers what `produce` reports
@@ -1279,18 +1278,7 @@ def route_refresh_to_kafka(team_id: int) -> bool:
     building the team anyway. The sweep skips its own build for a team whose hook
     failed. A team whose message is lost stays inside the expiry window, so the next
     hourly run raises it again, and the verifier repairs it in the meantime.
-
-    FLAGS_CACHE_REFRESH_KAFKA_ENABLED is read per deployment, so each region turns
-    routing on only after its flags-cache-builder image accepts the `source` field.
-    An older builder rejects the message through deny_unknown_fields, counts it as a
-    parse error and drops it, and the dead letter queue holds build failures rather
-    than parse failures, so nothing can be replayed. With the setting off the sweep
-    keeps building in Python, which is the safe direction: a build that happens is
-    never worse than a message nobody consumes.
     """
-    if not settings.FLAGS_CACHE_REFRESH_KAFKA_ENABLED:
-        return False
-
     _produce_invalidation(team_id, source="refresh", raise_on_error=True)
     return True
 
@@ -1389,7 +1377,7 @@ def publish_shadow_invalidation(team_id: int) -> None:
 def _produce_invalidation(
     team_id: int,
     shadow: bool = False,
-    source: Literal["edit", "refresh"] = "edit",
+    source: Literal["edit", "cohort", "refresh"] = "edit",
     raise_on_error: bool = False,
 ) -> None:
     """Produce a single invalidation message; log Kafka errors, and propagate them
@@ -1442,13 +1430,18 @@ def _produce_invalidation(
             raise
 
 
-def _enqueue_invalidation(team_id: int) -> None:
+def _enqueue_invalidation(
+    team_id: int,
+    source: Literal["edit", "cohort"] = "edit",
+    raise_on_error: bool = False,
+) -> None:
     """Run from `transaction.on_commit`: route to Kafka if enabled, otherwise Celery.
 
     Signal handlers defer this until commit so the Celery worker can't read
-    pre-commit state; callers with no open transaction (staff tooling, via
-    `enqueue_evaluation_cache_invalidation`) call it directly. Cohort
-    invalidation stays on its own topic.
+    pre-commit state. Callers with no open transaction call it directly: staff
+    tooling through `enqueue_evaluation_cache_invalidation`, and the cohort
+    finalizer task through `enqueue_cohort_cache_invalidation`. `source` and
+    `raise_on_error` apply only to the Kafka message (see `_produce_invalidation`).
 
     The two paths are mutually exclusive so the rollout proves the Kafka path
     end to end: a broken Kafka path shows up as a stale cache instead of being
@@ -1476,7 +1469,7 @@ def _enqueue_invalidation(team_id: int) -> None:
     from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
     if _route_to_kafka(team_id):
-        _produce_invalidation(team_id)
+        _produce_invalidation(team_id, source=source, raise_on_error=raise_on_error)
     else:
         update_team_service_flags_cache.delay(team_id)
 
@@ -1486,6 +1479,12 @@ def enqueue_evaluation_cache_invalidation(team_id: int) -> None:
     (e.g. staff tooling) that want a rebuild to raise the exact same invalidation signal (Kafka
     or Celery routing) that an organic flag create/update/delete raises."""
     _enqueue_invalidation(team_id)
+
+
+def enqueue_cohort_cache_invalidation(team_id: int) -> None:
+    """Raise the flags-service cache invalidation for a cohort change that no cohort save
+    reports, such as the cohort backfill finalizer stamping readiness."""
+    _enqueue_invalidation(team_id, source="cohort")
 
 
 # The two caches a cohort save rebuilds: the local-evaluation definitions cache and the

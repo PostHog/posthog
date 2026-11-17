@@ -49,7 +49,7 @@ export function ReplayCollectionView({ shortId, logicKey }: { shortId: string; l
                     <IconArrowLeft />
                 </Button>
                 {playlist ? (
-                    <span className="flex items-center gap-1.5 min-w-0 flex-1 text-sm font-semibold">
+                    <span className="flex items-center gap-1.5 w-0 flex-1 text-sm font-semibold">
                         {BUILT_IN_COLLECTION_ICONS[playlist.short_id]}
                         <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
                         <Badge>{pinnedRecordings?.length ?? 0}</Badge>
