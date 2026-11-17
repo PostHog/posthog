@@ -124,6 +124,14 @@ class SignalSourceTableConfig(BaseModel):
             )
         return self
 
+    @property
+    def partition_expression(self) -> str:
+        """HogQL for the record time that bounds a fetch window."""
+        # toString() keeps the parse valid when the warehouse stored the column as a native timestamp.
+        if self.partition_field_is_datetime_string:
+            return f"parseDateTimeBestEffort(toString({self.partition_field}))"
+        return self.partition_field
+
 
 # Registry mapping (source_type, schema_name) -> config
 _SIGNAL_TABLE_CONFIGS: dict[tuple[str, str], SignalSourceTableConfig] = {}
@@ -161,6 +169,7 @@ def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str,
 def _register_all_emitters() -> None:
     # Tier-3 feedback / reviews
     from products.signals.backend.emission.aha_ideas import AHA_CONFIG
+    from products.signals.backend.emission.ahrefs_site_audit_issues import AHREFS_SITE_AUDIT_ISSUES_CONFIG
     from products.signals.backend.emission.airbrake_groups import AIRBRAKE_CONFIG
     from products.signals.backend.emission.amazon_cloudwatch_alarm_history import AMAZON_CLOUDWATCH_ALARM_HISTORY_CONFIG
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
@@ -181,6 +190,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.bettermode_posts import BETTERMODE_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
     from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
+    from products.signals.backend.emission.bing_webmaster_tools_crawl_issues import (
+        BING_WEBMASTER_TOOLS_CRAWL_ISSUES_CONFIG,
+    )
     from products.signals.backend.emission.bugherd_tasks import BUGHERD_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
@@ -279,6 +291,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.rootly_incidents import ROOTLY_INCIDENTS_CONFIG
     from products.signals.backend.emission.semgrep_sast_findings import SEMGREP_CONFIG
     from products.signals.backend.emission.semgrep_sca_findings import SEMGREP_SCA_CONFIG
+    from products.signals.backend.emission.semrush_site_audit_issue_details import (
+        SEMRUSH_SITE_AUDIT_ISSUE_DETAILS_CONFIG,
+    )
     from products.signals.backend.emission.sentinelone_threats import SENTINELONE_CONFIG
     from products.signals.backend.emission.sentry_issues import SENTRY_CONFIG
     from products.signals.backend.emission.servicenow_incidents import SERVICENOW_CONFIG
@@ -390,6 +405,14 @@ def _register_all_emitters() -> None:
     # Search analytics (record kind: search_opportunity)
     register_signal_source(
         ExternalDataSourceType.GOOGLESEARCHCONSOLE, "search_analytics_by_query_page", GOOGLE_SEARCH_CONSOLE_CONFIG
+    )
+    # SEO site audits (record kind: search_opportunity)
+    register_signal_source(
+        ExternalDataSourceType.BINGWEBMASTERTOOLS, "crawl_issues", BING_WEBMASTER_TOOLS_CRAWL_ISSUES_CONFIG
+    )
+    register_signal_source(ExternalDataSourceType.AHREFS, "site_audit_issues", AHREFS_SITE_AUDIT_ISSUES_CONFIG)
+    register_signal_source(
+        ExternalDataSourceType.SEMRUSH, "site_audit_issue_details", SEMRUSH_SITE_AUDIT_ISSUE_DETAILS_CONFIG
     )
     # Incident management / on-call (record kind: incident)
     register_signal_source(ExternalDataSourceType.PAGERDUTY, "incidents", PAGERDUTY_CONFIG)

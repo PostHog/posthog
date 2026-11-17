@@ -193,6 +193,7 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SourceFilterCatalogListApi,
     SourceSpendApi,
     SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
@@ -3488,6 +3489,24 @@ export const signalsSourceConfigsAlertPatternPreviewCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(alertPatternPreviewRequestApi),
+    })
+}
+
+export const getSignalsSourceConfigsFilterCatalogsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/filter_catalogs/`
+}
+
+/**
+ * List the sources whose filter this project can set, each with the fields a filter expression can use and example expressions. A filter is a boolean expression saved in a source config's `config.hogql_filter`. It excludes records before any AI processing. Available before the source is connected or synced.
+ * @summary List source filter catalogs
+ */
+export const signalsSourceConfigsFilterCatalogsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SourceFilterCatalogListApi> => {
+    return apiMutator<SourceFilterCatalogListApi>(getSignalsSourceConfigsFilterCatalogsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

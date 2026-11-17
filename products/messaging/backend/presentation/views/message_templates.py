@@ -41,7 +41,7 @@ from posthog.api.mixins import ResponseDeclaration, ValidatedRequest, validated_
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
-from posthog.event_usage import groups, report_user_action
+from posthog.event_usage import get_event_source, get_mcp_properties, groups, report_user_action, sanitize_header_value
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.file_system.constants import resolved_workflows_list_v2
@@ -588,15 +588,18 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 TRANSACTIONAL_PUSH_API_FLAG = "workflows-transactional-push-api"
+EMAIL_IMPACT_FLAG = "workflows-email-impact"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
 USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
 
 
 DISTINCT_ID_HELP_TEXT = (
-    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, "
-    "bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. "
-    "The template can't read the person's properties, so pass everything it needs in `message_data`."
+    "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. "
+    "Defaults to the recipient's email address. The events join the person who has this ID, or start a new person "
+    "when nobody has it. No events are captured when the project's engagement events setting is off, or when "
+    "`tracking` or `capture_engagement` turns engagement off for a send with `template_key`. The template can't read "
+    "the person's properties, so pass everything it needs in `message_data`."
 )
 
 
@@ -1000,6 +1003,10 @@ def require_transactional_push_api(team: Any) -> None:
     _require_flag(team, TRANSACTIONAL_PUSH_API_FLAG)
 
 
+def require_email_impact(team: Any) -> None:
+    _require_flag(team, EMAIL_IMPACT_FLAG)
+
+
 def require_email_from_code(team: Any) -> None:
     _require_flag(team, EMAIL_FROM_CODE_FLAG)
 
@@ -1308,12 +1315,14 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
 
     def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
         self._send_reported = True
-        # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
         try:
             posthoganalytics.capture(
                 distinct_id=request.user.distinct_id,
                 event="transactional email api send",
                 properties={
+                    "source": get_event_source(request),
+                    **get_mcp_properties(request),
+                    "migrated_from": sanitize_header_value(request.headers.get("X-PostHog-Migrated-From")),
                     "team_id": self.team_id,
                     "auth_method": "project_secret_api_key"
                     if is_authenticated_via_project_secret_api_key(request)

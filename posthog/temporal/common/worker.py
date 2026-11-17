@@ -43,12 +43,6 @@ from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
-from posthog.temporal.data_modeling.metrics import (
-    DATA_MODELING_DURATION_HISTOGRAM_BUCKETS,
-    DATA_MODELING_DURATION_HISTOGRAM_METRICS,
-    DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
-    DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
-)
 from posthog.temporal.mcp_analytics.intent_clustering.metrics import (
     MCPA_CLUSTERING_LATENCY_HISTOGRAM_BUCKETS,
     MCPA_CLUSTERING_LATENCY_HISTOGRAM_METRICS,
@@ -58,11 +52,6 @@ from posthog.temporal.session_replay.delete_recordings.metrics import (
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS,
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
     DeleteRecordingsMetricsInterceptor,
-)
-from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import (
-    SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS,
-    SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
-    SurfacingScoringMetricsInterceptor,
 )
 from posthog.temporal.usage_report.metrics import (
     USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
@@ -79,6 +68,12 @@ from products.alerts_platform.backend.facade.temporal import (
     AlertsPlatformTelemetryInterceptor,
 )
 from products.batch_exports.backend.facade.temporal import BatchExportsMetricsInterceptor
+from products.data_modeling.backend.facade.temporal_metrics import (
+    DATA_MODELING_DURATION_HISTOGRAM_BUCKETS,
+    DATA_MODELING_DURATION_HISTOGRAM_METRICS,
+    DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
+    DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
+)
 from products.experiments.backend.facade.temporal import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
@@ -202,7 +197,6 @@ ALL_INTERCEPTOR_CLASSES = [
     AlertsPlatformTelemetryInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
-    SurfacingScoringMetricsInterceptor,
     EvalsMetricsInterceptor,
     SummarizationMetricsInterceptor,
     ClusteringMetricsInterceptor,
@@ -405,12 +399,6 @@ async def create_worker(
             zip(
                 DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
-            )
-        )
-        | dict(
-            zip(
-                SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
-                itertools.repeat(SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
         | dict(

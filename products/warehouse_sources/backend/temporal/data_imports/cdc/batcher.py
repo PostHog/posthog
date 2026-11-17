@@ -573,6 +573,36 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str], naming: HistoryN
     )
 
 
+def _dedupe_case_colliding_field_names(column_names: list[str]) -> dict[str, str]:
+    """Map every column name to itself, except within a group of names that fold to the same
+    value case-insensitively — the check Delta's own column-name validation applies.
+
+    Postgres lets quoted identifiers differ only by case (e.g. "clickid" and "ClickID" as
+    distinct columns), which such a group reflects. Delta rejects the batch outright once two
+    of its field names collide that way, so one member of the group must be renamed before the
+    write. Every other column is returned unchanged: the rest of the CDC pipeline (TOAST
+    omission markers, primary-key enrichment, delete resolution) matches columns by their exact
+    source name, and renaming a column that was never involved in a collision would silently
+    break that matching for perfectly ordinary mixed-case columns that synced fine before.
+
+    The group is resolved by sorted order, not by which event mentions a name first, so the same
+    set of colliding source names always resolves to the same target names regardless of which
+    column a given micro-batch happens to see first.
+    """
+    groups: dict[str, list[str]] = defaultdict(list)
+    for name in column_names:
+        groups[name.casefold()].append(name)
+
+    renamed: dict[str, str] = {}
+    for names in groups.values():
+        if len(names) == 1:
+            renamed[names[0]] = names[0]
+            continue
+        for index, name in enumerate(sorted(names)):
+            renamed[name] = name if index == 0 else f"{name}_dup{index}"
+    return renamed
+
+
 def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str], int] | None = None) -> pa.Table:
     """Convert a list of ChangeEvents (same table) to a PyArrow table with CDC metadata."""
     # Collect all column names across all events (order-preserving). Omitted
@@ -623,6 +653,7 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
     # fall back to storing the column as strings.
     # Also upgrade pa.null() → pa.string() since DeltaLake rejects the Null type
     # (happens when a DELETE-only batch has all-None values for non-PK columns).
+    field_names = _dedupe_case_colliding_field_names(column_names)
     arrays: list[pa.Array] = []
     fields: list[pa.Field] = []
     for col_name in column_names:
@@ -639,7 +670,7 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
             if arr.type == pa.null():
                 arr = arr.cast(pa.string())
         arrays.append(arr)
-        fields.append(pa.field(col_name, arr.type))
+        fields.append(pa.field(field_names[col_name], arr.type))
 
     # Add CDC metadata columns
     arrays.append(pa.array(cdc_ops, type=pa.string()))

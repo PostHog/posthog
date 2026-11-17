@@ -90,6 +90,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     // visual-review, etc.) stay off to keep the surface stable.
     // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
     const featureFlags = {
+        'workflows-resend-import': true,
         'self-driving-usage-display': true,
         'today-rail-nav': true,
         tracing: true,
@@ -132,6 +133,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'ui-customization': true,
         'platform-alerts-source-warehouse': true,
         'logs-agent-tools': true,
+        'signals-source-filters': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
         a.name.localeCompare(b.name)
