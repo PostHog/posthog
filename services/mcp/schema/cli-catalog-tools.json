@@ -21598,6 +21598,46 @@
             "validators": []
         }
     },
+    "external-data-destinations-delivery-failures": {
+        "name": "external-data-destinations-delivery-failures",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/external_data_destinations/{id}/delivery_failures/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/data-management/warehouse-destinations",
+                "joiner": "",
+                "prefix": "?destination=",
+                "field": "id",
+                "suffix": "",
+                "source": "params"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "external-data-destinations-list": {
         "name": "external-data-destinations-list",
         "kind": "http",
