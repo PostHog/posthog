@@ -31,6 +31,7 @@ PROFILE = TeamProfile(
 CONTENT = ContentProfile(
     traces=100,
     text_share=0.9,
+    output_share=0.9,
     multi_turn_share=0.4,
     spanning_days_share=0.0,
     dispatcher_tools=(),
@@ -45,7 +46,7 @@ class TestApplicability:
                 PROFILE,
                 CONTENT,
                 ["unrecovered_errors", "repeated_tool_calls", "refusals", "sensitive_data"],
-                ["user_correction", "sentiment", "prompt_injection"],
+                ["user_correction", "sentiment"],
                 "session",
             ),
             (
@@ -53,7 +54,7 @@ class TestApplicability:
                 replace(PROFILE, tool_call_share=0.05),
                 CONTENT,
                 ["unrecovered_errors", "refusals", "sensitive_data"],
-                ["user_correction", "sentiment", "prompt_injection"],
+                ["user_correction", "sentiment"],
                 "session",
             ),
             (
@@ -61,7 +62,7 @@ class TestApplicability:
                 PROFILE,
                 replace(CONTENT, multi_turn_share=0.05),
                 ["unrecovered_errors", "repeated_tool_calls", "refusals", "sensitive_data"],
-                ["prompt_injection"],
+                [],
                 "trace",
             ),
             (

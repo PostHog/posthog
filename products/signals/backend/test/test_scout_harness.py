@@ -2982,10 +2982,10 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
                 model="claude-opus-5", runtime_adapter="claude", reasoning_effort="high", service_tier="priority"
             ),
             AgentRuntime(runtime_adapter="claude", model="claude-opus-5", reasoning_effort="high"),
-            "gpt-6-luna",
+            "gpt-5.6-luna",
             "codex",
             None,
-            None,
+            "flex",
             "active",
         ),
         (

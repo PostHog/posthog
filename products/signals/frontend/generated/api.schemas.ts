@@ -1167,6 +1167,17 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `amazon_cloudwatch` - Amazon CloudWatch
  * * `logicmonitor` - LogicMonitor
  * * `mux` - Mux
+ * * `sonarcloud` - SonarCloud
+ * * `checkmarx` - Checkmarx
+ * * `veracode` - Veracode
+ * * `veracode_sca` - Veracode SCA
+ * * `semgrep_sca` - Semgrep Supply Chain
+ * * `gitguardian` - GitGuardian
+ * * `infisical` - Infisical
+ * * `aws_macie` - AWS Macie
+ * * `sentinelone` - SentinelOne
+ * * `jfrog_xray` - JFrog Xray
+ * * `dynatrace_security` - Dynatrace Application Security
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1305,6 +1316,17 @@ export const SignalSourceProductEnumApi = {
     AmazonCloudwatch: 'amazon_cloudwatch',
     Logicmonitor: 'logicmonitor',
     Mux: 'mux',
+    Sonarcloud: 'sonarcloud',
+    Checkmarx: 'checkmarx',
+    Veracode: 'veracode',
+    VeracodeSca: 'veracode_sca',
+    SemgrepSca: 'semgrep_sca',
+    Gitguardian: 'gitguardian',
+    Infisical: 'infisical',
+    AwsMacie: 'aws_macie',
+    Sentinelone: 'sentinelone',
+    JfrogXray: 'jfrog_xray',
+    DynatraceSecurity: 'dynatrace_security',
 } as const
 
 /**
@@ -1493,7 +1515,18 @@ export interface InboxOnboardingSourceApi {
      * * `airbrake` - Airbrake
      * * `amazon_cloudwatch` - Amazon CloudWatch
      * * `logicmonitor` - LogicMonitor
-     * * `mux` - Mux */
+     * * `mux` - Mux
+     * * `sonarcloud` - SonarCloud
+     * * `checkmarx` - Checkmarx
+     * * `veracode` - Veracode
+     * * `veracode_sca` - Veracode SCA
+     * * `semgrep_sca` - Semgrep Supply Chain
+     * * `gitguardian` - GitGuardian
+     * * `infisical` - Infisical
+     * * `aws_macie` - AWS Macie
+     * * `sentinelone` - SentinelOne
+     * * `jfrog_xray` - JFrog Xray
+     * * `dynatrace_security` - Dynatrace Application Security */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -4429,6 +4462,17 @@ export interface SignalReportLeaveReviewersApi {
  * * `amazon_cloudwatch` - amazon_cloudwatch
  * * `logicmonitor` - logicmonitor
  * * `mux` - mux
+ * * `sonarcloud` - sonarcloud
+ * * `checkmarx` - checkmarx
+ * * `veracode` - veracode
+ * * `veracode_sca` - veracode_sca
+ * * `semgrep_sca` - semgrep_sca
+ * * `gitguardian` - gitguardian
+ * * `infisical` - infisical
+ * * `aws_macie` - aws_macie
+ * * `sentinelone` - sentinelone
+ * * `jfrog_xray` - jfrog_xray
+ * * `dynatrace_security` - dynatrace_security
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4567,6 +4611,17 @@ export const SignalSourceProductApi = {
     AmazonCloudwatch: 'amazon_cloudwatch',
     Logicmonitor: 'logicmonitor',
     Mux: 'mux',
+    Sonarcloud: 'sonarcloud',
+    Checkmarx: 'checkmarx',
+    Veracode: 'veracode',
+    VeracodeSca: 'veracode_sca',
+    SemgrepSca: 'semgrep_sca',
+    Gitguardian: 'gitguardian',
+    Infisical: 'infisical',
+    AwsMacie: 'aws_macie',
+    Sentinelone: 'sentinelone',
+    JfrogXray: 'jfrog_xray',
+    DynatraceSecurity: 'dynatrace_security',
 } as const
 
 /**
@@ -5635,6 +5690,106 @@ export interface CursorIssueSignalExtraApi {
     timestamp: string | null
 }
 
+export interface SonarcloudScannerFindingSignalExtraApi {
+    severity: string | null
+    type: string | null
+    status: string | null
+    component: string | null
+    rule: string | null
+    creation_date: string | null
+}
+
+export interface CheckmarxScannerFindingSignalExtraApi {
+    result_type: string | null
+    finding_severity: string | null
+    finding_state: string | null
+    first_seen: string | null
+    scans: string | null
+}
+
+export interface VeracodeScannerFindingSignalExtraApi {
+    application_guid: string | null
+    scan_type: string | null
+    finding_severity: string | null
+    violates_policy: string | null
+    cwe_id: string | null
+    finding_category: string | null
+    finding_state: string | null
+    resolution_status: string | null
+    first_found_date: string | null
+}
+
+export interface VeracodeScaScannerFindingSignalExtraApi {
+    cve_name: string | null
+    component_filename: string | null
+    component_version: string | null
+    max_severity: string | null
+    affected_applications: string | null
+    first_seen: string | null
+}
+
+export interface SemgrepScaScannerFindingSignalExtraApi {
+    vulnerability_identifier: string | null
+    package_name: string | null
+    ecosystem: string | null
+    finding_severity: string | null
+    reachability_state: string | null
+    affected_findings: string | null
+    first_seen: string | null
+}
+
+export interface GitguardianScannerFindingSignalExtraApi {
+    severity: string | null
+    validity: string | null
+    status: string | null
+    occurrences_count: string | null
+    gitguardian_url: string | null
+    date: string | null
+}
+
+export interface InfisicalScannerFindingSignalExtraApi {
+    rule: string | null
+    resource_name: string | null
+    resource_type: string | null
+    data_source_type: string | null
+    severity: string | null
+    status: string | null
+    created_at: string | null
+}
+
+export interface AwsMacieScannerFindingSignalExtraApi {
+    type: string | null
+    category: string | null
+    severity_level: string | null
+    region: string | null
+    created_at: string | null
+}
+
+export interface SentineloneScannerFindingSignalExtraApi {
+    classification: string | null
+    confidence_level: string | null
+    analyst_verdict: string | null
+    incident_status: string | null
+    threat_mitigation_status: string | null
+    detection_type: string | null
+    created_at: string | null
+}
+
+export interface JfrogXrayScannerFindingSignalExtraApi {
+    issue_id: string | null
+    violation_severity: string | null
+    violation_type: string | null
+    violations: string | null
+    first_seen: string | null
+}
+
+export interface DynatraceSecurityScannerFindingSignalExtraApi {
+    display_id: string | null
+    vulnerability_type: string | null
+    status: string | null
+    first_seen_timestamp: string | null
+}
+
 export interface TriggerDevErrorSignalExtraApi {
     task_identifier: string | null
     status: string | null
@@ -6034,6 +6189,17 @@ export type SignalExtraApi =
     | AzureApplicationInsightsIssueSignalExtraApi
     | AppsignalIssueSignalExtraApi
     | CursorIssueSignalExtraApi
+    | SonarcloudScannerFindingSignalExtraApi
+    | CheckmarxScannerFindingSignalExtraApi
+    | VeracodeScannerFindingSignalExtraApi
+    | VeracodeScaScannerFindingSignalExtraApi
+    | SemgrepScaScannerFindingSignalExtraApi
+    | GitguardianScannerFindingSignalExtraApi
+    | InfisicalScannerFindingSignalExtraApi
+    | AwsMacieScannerFindingSignalExtraApi
+    | SentineloneScannerFindingSignalExtraApi
+    | JfrogXrayScannerFindingSignalExtraApi
+    | DynatraceSecurityScannerFindingSignalExtraApi
     | TriggerDevErrorSignalExtraApi
     | ChecklyErrorGroupSignalExtraApi
     | RoarkIssueSignalExtraApi
@@ -6249,7 +6415,18 @@ export interface SignalNodeApi {
      * * `airbrake` - airbrake
      * * `amazon_cloudwatch` - amazon_cloudwatch
      * * `logicmonitor` - logicmonitor
-     * * `mux` - mux */
+     * * `mux` - mux
+     * * `sonarcloud` - sonarcloud
+     * * `checkmarx` - checkmarx
+     * * `veracode` - veracode
+     * * `veracode_sca` - veracode_sca
+     * * `semgrep_sca` - semgrep_sca
+     * * `gitguardian` - gitguardian
+     * * `infisical` - infisical
+     * * `aws_macie` - aws_macie
+     * * `sentinelone` - sentinelone
+     * * `jfrog_xray` - jfrog_xray
+     * * `dynatrace_security` - dynatrace_security */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -11907,9 +12084,9 @@ export interface SelfDrivingTrialStatusApi {
     new_work_paused: boolean
     /** Enabled scouts across this project's environments. */
     enabled_scouts: number
-    /** Maximum enabled scouts during the trial. */
+    /** Maximum enabled scouts allowed for the project. */
     scout_limit: number
-    /** On activation, all but the three oldest enabled scouts pause. */
+    /** Number of scouts paused when the trial starts. */
     scouts_to_pause: number
     /** What happens to new work after the trial.
      *

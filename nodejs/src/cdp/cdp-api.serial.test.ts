@@ -5174,12 +5174,11 @@ describe('CDP API', () => {
                             })
                             expect(moved.status).toEqual(200)
                         }
-                        // By then the job has run and its claim has aged, so only Valkey can still answer the retry.
+                        // By then the job has run and its claim has expired, so only Valkey can still answer the retry.
                         await cyclotron.query('DELETE FROM cyclotron_jobs WHERE id = $1', [first.body.invocation_id])
                         await cyclotron.query(
-                            `UPDATE cyclotron_idempotency_keys SET expires_at = expires_at - $2 * interval '1 millisecond'
-                             WHERE id = $1`,
-                            [first.body.invocation_id, retryAfterMs]
+                            `UPDATE cyclotron_idempotency_keys SET expires_at = NOW() - interval '1 millisecond' WHERE id = $1`,
+                            [first.body.invocation_id]
                         )
                         await letStoreTimePass(retryAfterMs)
 
