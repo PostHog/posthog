@@ -9,6 +9,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { EncryptedFields } from '../../utils/encryption-utils'
 import { settleAllThenThrowFirst } from '../../utils/settle-all'
 import {
     CyclotronV2DequeuedJob,
@@ -17,7 +18,7 @@ import {
     CyclotronV2Worker,
     countStaleCommit,
 } from '../cyclotron-v2'
-import { encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
+import { StateOpener, encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
 import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
@@ -83,6 +84,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     private resultWrites = new PromiseScheduler()
     private stopDeadline?: number
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
+    private stateOpener: StateOpener
 
     constructor(
         // protected — the rate-limited subclass needs this to cap its token
@@ -106,6 +108,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>
     ) {
         this.sanitizer = createInvocationSanitizer(config)
+        this.stateOpener = new EncryptedFields(config.ENCRYPTION_SALT_KEYS)
     }
 
     public async startAsProducer(): Promise<void> {
@@ -162,7 +165,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
 
             for (const job of jobs) {
                 this.pendingJobs.set(job.id, job)
-                const invocation = v2JobToInvocation(job)
+                const invocation = v2JobToInvocation(job, this.stateOpener)
                 invocations.push(invocation)
                 const { wait, dueAt } = dueTimeOf(job, invocation)
                 this.pickups.set(job, {
