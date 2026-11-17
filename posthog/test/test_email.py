@@ -188,8 +188,13 @@ class TestEmail(BaseTest):
         after = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
         self.assertEqual(after - before, 1.0)
 
-    @parameterized.expand([("ascii_host", "https://app.example.com"), ("unicode_host", "https://münchen.example.com")])
-    def test_smtp_message_keeps_the_list_unsubscribe_url(self, _name: str, site: str) -> None:
+    @parameterized.expand(
+        [
+            ("ascii_host_is_sent_unfolded", "https://app.example.com", True),
+            ("unicode_host_falls_back_to_encoded_folding", "https://münchen.example.com", False),
+        ]
+    )
+    def test_smtp_message_keeps_the_list_unsubscribe_url(self, _name: str, site: str, sent_unfolded: bool) -> None:
         url = f"<{site}/api/unsubscribe?token={'a' * 200}>"
         with override_instance_config("EMAIL_HOST", "localhost"):
             message = EmailMessage(
@@ -202,6 +207,7 @@ class TestEmail(BaseTest):
             message.send(send_async=False)
 
         raw = mail.outbox[0].message(policy=email.policy.SMTP).as_bytes()
+        assert (f"\r\nList-Unsubscribe: {url}\r\n".encode() in raw) is sent_unfolded
         assert email.message_from_bytes(raw, policy=email.policy.default)["List-Unsubscribe"] == url
 
     @parameterized.expand(

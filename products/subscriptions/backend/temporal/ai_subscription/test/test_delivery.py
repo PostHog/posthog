@@ -1,18 +1,21 @@
 import uuid
-from collections.abc import Iterator, Mapping
+import email.policy
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.core import mail
 from django.template.loader import render_to_string
 
 from markdown_it import MarkdownIt
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
+
+from posthog.models.instance_setting import set_instance_setting
 
 from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 from products.subscriptions.backend.facade.contracts import SubscriptionTriggerType
@@ -924,7 +927,7 @@ class TestFeedbackFooter:
         assert f"<{_feedback_url(feedback, 'slack')}|{label}>" in text
 
     @staticmethod
-    def _send_email_and_get_kwargs() -> Mapping[str, Any]:
+    def _send_email_and_get_context() -> dict:
         with (
             patch("products.subscriptions.backend.temporal.ai_subscription.delivery.EmailMessage") as email_message,
             patch(
@@ -942,25 +945,18 @@ class TestFeedbackFooter:
                 delivery_run_id="run-1",
                 delivery_id=_DELIVERY_ID,
             )
-        return email_message.call_args.kwargs
+        return email_message.call_args.kwargs["template_context"]
 
     @pytest.mark.parametrize("feedback", ["positive", "negative"])
     def test_email_context_carries_feedback_urls(self, feedback: str) -> None:
-        context = self._send_email_and_get_kwargs()["template_context"]
+        context = self._send_email_and_get_context()
         assert context[f"feedback_{feedback}_url"] == _feedback_url(feedback, "email")
 
     def test_email_cta_carries_delivery_id(self) -> None:
         # Dropping this param silently kills click attribution: the frontend captures
         # `ai_report_clicked` from it, the report-engagement signal.
-        context = self._send_email_and_get_kwargs()["template_context"]
+        context = self._send_email_and_get_context()
         assert f"&delivery={_DELIVERY_ID}" in context["subscription_url"]
-
-    def test_email_carries_one_click_unsubscribe_headers(self) -> None:
-        headers = self._send_email_and_get_kwargs()["headers"]
-        assert headers == {
-            "List-Unsubscribe": f"<{settings.SITE_URL}/api/unsubscribe?token=tok>",
-            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-        }
 
     def test_minimal_email_keeps_unsubscribe_without_images_or_posthog_controls(self) -> None:
         subscription = _mock_subscription()
@@ -994,6 +990,27 @@ class TestFeedbackFooter:
         assert "Manage subscription" not in html
         assert "Was this report useful?" not in html
         assert "Unsubscribe from this report" in html
+
+
+class TestAiReportOneClickUnsubscribe(APIBaseTest):
+    def test_ai_report_email_carries_one_click_unsubscribe_headers(self) -> None:
+        set_instance_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("EMAIL_ENABLED", True)
+        with patch(
+            "products.subscriptions.backend.temporal.ai_subscription.delivery.get_unsubscribe_token",
+            return_value="tok",
+        ):
+            send_email_ai_subscription_report(
+                email="a@posthog.com",
+                subscription=_mock_subscription(),
+                markdown="Report body",
+                delivery_run_id="run-1",
+                delivery_id=_DELIVERY_ID,
+            )
+
+        raw = mail.outbox[-1].message(policy=email.policy.SMTP).as_bytes().decode()
+        assert f"\r\nList-Unsubscribe: <{settings.SITE_URL}/api/unsubscribe?token=tok>\r\n" in raw
+        assert "\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n" in raw
 
 
 class TestPersistAiQueryPlan(APIBaseTest):
