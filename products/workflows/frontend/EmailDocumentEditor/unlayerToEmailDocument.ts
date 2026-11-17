@@ -729,7 +729,10 @@ type ExportedScreens = { desktop: boolean; mobile: boolean } | null
 
 function exportedScreens(html: string | null | undefined): ExportedScreens {
     return html?.trim()
-        ? { desktop: /class="[^"]*\bhide-desktop\b/.test(html), mobile: /class="[^"]*\bhide-mobile\b/.test(html) }
+        ? {
+              desktop: /class="[^"]{0,1000}\bhide-desktop\b/.test(html),
+              mobile: /class="[^"]{0,1000}\bhide-mobile\b/.test(html),
+          }
         : null
 }
 
@@ -780,7 +783,7 @@ interface ExportedCell {
 }
 
 const CONTENT_CELL =
-    /<td\b[^>]*style="overflow-wrap:\s*break-word;\s*word-break:\s*break-word;\s*padding:[^"]*"[^>]*>\s*(<[a-z0-9]+\b[^>]*>)?/gi
+    /<td(?: class="[^"<>]{0,200}")? style="overflow-wrap:\s?break-word;\s?word-break:\s?break-word;\s?padding:[^"]{0,1000}"[^>]{0,2000}>\s{0,1000}(<[a-z0-9]{1,10}\b[^>]{0,2000}>)?/gi
 
 /**
  * A row's side padding sits outside the old editor's fixed-width row, where the page is wider than the email. Inside
@@ -805,7 +808,7 @@ function exportedContentCells(rowHtml: string | undefined, contentCount: number)
     }
     return matches.map((match, index) => {
         const cell = rowHtml.slice(match.index, matches[index + 1]?.index ?? rowHtml.length)
-        return { first: match[1] ?? '', image: /<img\b[^>]*>/i.exec(withoutOutlookOnly(cell))?.[0] }
+        return { first: match[1] ?? '', image: /<img\b[^>]{0,4000}>/i.exec(withoutOutlookOnly(cell))?.[0] }
     })
 }
 
@@ -838,14 +841,16 @@ interface ExportedImage {
 function exportedStyles(storedHtml: string | null | undefined): ExportedStyles {
     const html = storedHtml ?? ''
     const phone = new Map<string, Map<string, string>>()
-    for (const [, id, className, declarations] of html.matchAll(/#(u_[a-z_]+_\d+) \.(v-[\w-]+) \{([^{}]*)\}/g)) {
+    for (const [, id, className, declarations] of html.matchAll(
+        /#(u_[a-z_]{1,40}_\d{1,9}) \.(v-[\w-]{1,60}) \{([^{}]{0,1000})\}/g
+    )) {
         const rules = phone.get(id) ?? new Map<string, string>()
         rules.set(className, declarations.replace(/!important/g, '').trim())
         phone.set(id, rules)
     }
     const images = new Map<string, ExportedImage>()
     for (const [, id, image] of withoutOutlookOnly(html).matchAll(
-        /id="(u_content_image_\d+)"(?:(?!id="u_)[\s\S])*?(<img\b[^>]*>)/g
+        /id="(u_content_image_\d{1,9})"(?:(?!id="u_)[\s\S]){0,20000}?(<img\b[^>]{0,4000}>)/g
     )) {
         const size = exportedImageSize(image)
         if (size) {
@@ -915,7 +920,9 @@ function phoneStyleFrom(rules: Map<string, string> | undefined): EmailPhoneStyle
 }
 
 function exportedHoverButtons(storedHtml: string | null | undefined): Set<string> {
-    return new Set([...(storedHtml ?? '').matchAll(/#(u_content_button_\d+)[^{}]*:hover/g)].map((match) => match[1]))
+    return new Set(
+        [...(storedHtml ?? '').matchAll(/#(u_content_button_\d{1,9})[^{}]{0,1000}:hover/g)].map((match) => match[1])
+    )
 }
 
 function convertContent(
@@ -1186,7 +1193,7 @@ function sentContent(html: string): string {
     const space = /[\s\u00a0\u200b-\u200f\u034f\u2060\ufeff\u00ad]+/g
     // Compared as a set, because the parser moves a tag that sits between table rows to before the table.
     const tags: string[] = []
-    const words = ((doc.body?.textContent ?? '') + links.join(' ')).replace(/\{[{%][\s\S]*?[}%]\}/g, (tag) => {
+    const words = ((doc.body?.textContent ?? '') + links.join(' ')).replace(/\{[{%][\s\S]{0,2000}?[}%]\}/g, (tag) => {
         tags.push(
             tag
                 .replace(/"/g, "'")
