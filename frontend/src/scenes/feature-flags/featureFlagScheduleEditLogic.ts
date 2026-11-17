@@ -10,7 +10,12 @@ import { RecurrenceInterval, ScheduledChangeOperationType, ScheduledChangeType }
 
 import type { TeamPublicType, TeamType } from '../../types'
 import { teamLogic } from '../teamLogic'
-import { featureFlagLogic, scheduleDateFromStoredISO, scheduleDateToProjectTzISO } from './featureFlagLogic'
+import {
+    featureFlagLogic,
+    nextCronRunDate,
+    scheduleDateFromStoredISO,
+    scheduleDateToProjectTzISO,
+} from './featureFlagLogic'
 
 export interface FeatureFlagScheduleEditLogicProps {
     id: number | 'new' | 'link'
@@ -54,8 +59,12 @@ export interface featureFlagScheduleEditLogicActions {
     saveEditSuccess: () => {
         value: true
     }
-    setEditCronExpression: (cron: string | null) => {
+    setEditCronExpression: (
+        cron: string | null,
+        fromDay?: Dayjs | null
+    ) => {
         cron: string | null
+        fromDay: Dayjs | null
     }
     setEditEndDate: (date: Dayjs | null) => {
         date: Dayjs | null
@@ -131,7 +140,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         openEdit: (schedule: ScheduledChangeType) => ({ schedule, timezone: values.projectTimezone }),
         closeEdit: true,
         setEditScheduledAt: (date: Dayjs | null) => ({ date }),
-        setEditCronExpression: (cron: string | null) => ({ cron }),
+        setEditCronExpression: (cron: string | null, fromDay: Dayjs | null = null) => ({ cron, fromDay }),
         setEditRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
         setEditEndDate: (date: Dayjs | null) => ({ date }),
         setEditIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
@@ -352,7 +361,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
                 actions.setEditCronExpression(null)
             }
         },
-        setEditCronExpression: ({ cron }) => {
+        setEditCronExpression: ({ cron, fromDay }) => {
             if (!cron) {
                 return
             }
@@ -361,17 +370,7 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
                 return
             }
             try {
-                const timezone = values.projectTimezone
-                // Use the later of now or the existing date so that paused/old
-                // schedules don't snap to an already-elapsed time. The existing
-                // date is a browser-local Dayjs whose wall clock mirrors the
-                // project timezone — reinterpret it in project tz to get the real instant.
-                const now = new Date()
-                const existing = values.editScheduledAt?.tz(timezone, true).toDate()
-                const currentDate = existing && existing > now ? existing : now
-                const interval = CronExpressionParser.parse(cron, { currentDate, tz: timezone })
-                const nextDate = interval.next().toDate()
-                actions.setEditScheduledAt(scheduleDateFromStoredISO(nextDate.toISOString(), timezone))
+                actions.setEditScheduledAt(nextCronRunDate(cron, values.projectTimezone, fromDay))
             } catch {
                 // Invalid — don't update
             }

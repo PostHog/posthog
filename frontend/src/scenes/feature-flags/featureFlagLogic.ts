@@ -538,6 +538,16 @@ export function scheduleDateFromStoredISO(isoString: string, timezone: string): 
     return dayjs(dayjs.utc(isoString).tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
 }
 
+// Never search from a previously computed next run: after a second cron edit that skips the first match.
+export function nextCronRunDate(cron: string, timezone: string, fromDay: Dayjs | null = null): Dayjs {
+    const now = new Date()
+    // Step back 1 ms so that a match at exactly midnight of the picked day counts.
+    const dayStart = fromDay?.startOf('day').tz(timezone, true).subtract(1, 'millisecond').toDate()
+    const currentDate = dayStart && dayStart > now ? dayStart : now
+    const nextDate = CronExpressionParser.parse(cron, { currentDate, tz: timezone }).next().toDate()
+    return scheduleDateFromStoredISO(nextDate.toISOString(), timezone)
+}
+
 // Order scheduled changes by their `scheduled_at` time, soonest first. `scheduled_at` holds the
 // next occurrence for recurring changes too, so it is a uniform sort key across all change types.
 // Unparseable/missing dates sort last; ties break by `id` (creation order) for a stable order.
@@ -2032,8 +2042,12 @@ export interface featureFlagLogicActions {
     setCopySchedule: (copySchedule: boolean) => {
         copySchedule: boolean
     }
-    setCronExpression: (cronExpression: string | null) => {
+    setCronExpression: (
+        cronExpression: string | null,
+        fromDay?: Dayjs | null
+    ) => {
         cronExpression: string | null
+        fromDay: Dayjs | null
     }
     setCustomPairCron: (
         which: 'disable' | 'enable',
@@ -2743,7 +2757,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setIsRecurring: (isRecurring: boolean) => ({ isRecurring }),
         setRecurrenceInterval: (interval: RecurrenceInterval | null) => ({ interval }),
-        setCronExpression: (cronExpression: string | null) => ({ cronExpression }),
+        setCronExpression: (cronExpression: string | null, fromDay: Dayjs | null = null) => ({
+            cronExpression,
+            fromDay,
+        }),
         setRepeatsValue: (value: RecurrenceInterval | 'none' | 'cron') => ({ value }),
         setEndDate: (endDate: Dayjs | null) => ({ endDate }),
         stopRecurringScheduledChange: (scheduledChangeId: number) => ({ scheduledChangeId }),
@@ -4332,7 +4349,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadCopyDependencyRequirements()
             }
         },
-        setCronExpression: ({ cronExpression }) => {
+        setCronExpression: ({ cronExpression, fromDay }) => {
             if (!cronExpression) {
                 return
             }
@@ -4343,17 +4360,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             try {
                 const timezone = values.currentTeam?.timezone || 'UTC'
-                // scheduleDateMarker is a browser-local Dayjs whose wall clock matches the
-                // project timezone. Reinterpret it in the project timezone before passing to
-                // cron-parser so the cron fields (e.g. "0 9") are evaluated in the project's
-                // timezone rather than the browser's.
-                const baseDate = values.scheduleDateMarker?.tz(timezone, true).toDate() ?? new Date()
-                const interval = CronExpressionParser.parse(cronExpression, {
-                    currentDate: baseDate,
-                    tz: timezone,
-                })
-                const nextDate = interval.next().toDate()
-                actions.setScheduleDateMarker(scheduleDateFromStoredISO(nextDate.toISOString(), timezone))
+                actions.setScheduleDateMarker(nextCronRunDate(cronExpression, timezone, fromDay))
             } catch {
                 // Invalid expression — don't update the date picker
             }

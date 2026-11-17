@@ -666,7 +666,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         setScheduleDateMarker(value)
                                         if (repeatsValue === 'cron' && cronExpression && value) {
                                             // Re-snap to the next cron match from the newly picked date
-                                            setCronExpression(cronExpression)
+                                            setCronExpression(cronExpression, value)
                                         }
                                     }}
                                     placeholder="Select date"
@@ -1193,7 +1193,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 setEditScheduledAt(value)
                                 if (editRepeatsValue === 'cron' && editCronExpression && value) {
                                     // Re-snap to the next cron match from the newly picked date
-                                    setEditCronExpression(editCronExpression)
+                                    setEditCronExpression(editCronExpression, value)
                                 }
                             }}
                             placeholder="Select date"
