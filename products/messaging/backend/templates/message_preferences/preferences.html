@@ -61,7 +61,9 @@
                     </div>
                 </div>
             </div>
-            <div id="toasts" class="fixed top-4 right-4" role="status"></div>
+            <div id="toasts"
+                 class="fixed top-4 right-4 pointer-events-none"
+                 role="status"></div>
             <script nonce="{{ request.csp_nonce }}">
             document.addEventListener('DOMContentLoaded', function () {
                 const toggles = document.querySelectorAll('.toggle-checkbox')

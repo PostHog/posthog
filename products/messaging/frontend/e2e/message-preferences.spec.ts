@@ -228,6 +228,30 @@ test.describe('Message preferences page', () => {
                 await expect(unconfirmed).toBeVisible()
                 const [savedBox, unconfirmedBox] = await Promise.all([saved.boundingBox(), unconfirmed.boundingBox()])
                 expect(unconfirmedBox!.y).toBeGreaterThanOrEqual(savedBox!.y + savedBox!.height)
+
+                // Stacked messages can cover a switch while they show, so a click there must still reach it.
+                // A shorter window lets the page scroll a switch under them.
+                await recipientPage.setViewportSize({ width: 1280, height: 400 })
+                await eventInvites.evaluate(
+                    (toggle, top) => window.scrollBy(0, toggle.getBoundingClientRect().top - top),
+                    unconfirmedBox!.y + 8
+                )
+                const switchUnderMessages = (): Promise<string> =>
+                    eventInvites.evaluate((toggle) => {
+                        const box = toggle.getBoundingClientRect()
+                        const [x, y] = [box.x + box.width / 2, box.y + box.height / 2]
+                        const covered = Array.from(document.querySelectorAll('#toasts > *')).some((toast) => {
+                            const area = toast.getBoundingClientRect()
+                            return x >= area.left && x <= area.right && y >= area.top && y <= area.bottom
+                        })
+                        if (!covered) {
+                            return 'not covered'
+                        }
+                        return document.elementFromPoint(x, y) === toggle ? 'clickable' : 'blocked'
+                    })
+                // A message slides in, so it covers the switch only once it settles
+                await expect.poll(switchUnderMessages).not.toBe('not covered')
+                expect(await switchUnderMessages()).toBe('clickable')
                 await expect(status(productNewsId)).toHaveText('Not subscribed')
                 await expect(productNews).not.toBeChecked()
                 expect(await storedPreferences('product_news')).toEqual({
