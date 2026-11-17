@@ -15782,6 +15782,51 @@
             "validators": []
         }
     },
+    "data-quality-run": {
+        "name": "data-quality-run",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/data_quality_runs/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "check_ids",
+                    "key": "check_ids"
+                },
+                {
+                    "param": "subject_type",
+                    "key": "subject_type"
+                },
+                {
+                    "param": "subject_uuid",
+                    "key": "subject_uuid"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "data-quality-subjects": {
         "name": "data-quality-subjects",
         "kind": "http",
