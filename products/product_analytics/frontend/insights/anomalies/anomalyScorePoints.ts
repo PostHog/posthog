@@ -1,0 +1,62 @@
+import { CompareLabelType } from '~/types'
+
+import type { AnomalyPoint } from 'products/alerts/frontend/types'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+import type { AnomalyInsightSeriesApi } from 'products/signals/frontend/generated/api.schemas'
+
+// Pinned: URL search param. The Anomalies tab adds it to a row link, and a bookmark can hold it.
+export const ANOMALY_SCORES_SEARCH_PARAM = 'anomaly_scores'
+
+export function withAnomalyScoresParam(path: string): string {
+    return `${path}${path.includes('?') ? '&' : '?'}${ANOMALY_SCORES_SEARCH_PARAM}=true`
+}
+
+// Both strings are wall-clock times in the project timezone. A chart day has no offset and can lack the time.
+function wallClock(value: string): string {
+    const normalized = value.replace(' ', 'T').slice(0, 19)
+    return normalized.length === 10 ? `${normalized}T00:00:00` : normalized
+}
+
+// Matches the label the scorer stores: a list breakdown is joined with `::`.
+function breakdownLabel(value: IndexedTrendResult['breakdown_value']): string | null {
+    if (value == null) {
+        return null
+    }
+    return Array.isArray(value) ? value.join('::') : String(value)
+}
+
+/**
+ * The flagged buckets of an insight as chart anomaly points.
+ *
+ * The scorer identifies a series by a key the chart does not have, so a scored series is matched to a chart
+ * series by label and breakdown value. A flagged bucket outside the days of the chart is left out.
+ */
+export function buildAnomalyScorePoints(
+    scoredSeries: AnomalyInsightSeriesApi[],
+    indexedResults: IndexedTrendResult[]
+): AnomalyPoint[] {
+    const points: AnomalyPoint[] = []
+    for (const scored of scoredSeries) {
+        const result = indexedResults.find(
+            (candidate) =>
+                candidate.compare_label !== CompareLabelType.Previous &&
+                (candidate.label ?? '') === (scored.series_label ?? '') &&
+                breakdownLabel(candidate.breakdown_value) === scored.breakdown_value
+        )
+        if (!result) {
+            continue
+        }
+        const days = result.days ?? []
+        const dayIndexByWallClock = new Map(days.map((day, index) => [wallClock(day), index]))
+        for (const bucket of scored.buckets) {
+            if (!bucket.flag) {
+                continue
+            }
+            const index = dayIndexByWallClock.get(wallClock(bucket.bucket_start))
+            if (index !== undefined) {
+                points.push({ index, date: days[index], score: bucket.score, seriesIndex: result.seriesIndex })
+            }
+        }
+    }
+    return points
+}

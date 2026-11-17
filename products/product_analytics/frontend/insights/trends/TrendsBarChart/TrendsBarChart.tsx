@@ -31,6 +31,7 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { RequestedAnomalyScoreOverlay } from 'products/product_analytics/frontend/insights/anomalies/RequestedAnomalyScoreOverlay'
 import { RetentionDeletionOverlay } from 'products/product_analytics/frontend/insights/dataRetention/RetentionDeletionOverlay'
 import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
@@ -541,6 +542,16 @@ export function TrendsBarChart({
                     insightProps={insightProps}
                     indexedResults={indexedResults}
                     getColor={getTrendsColor}
+                    getYAxisId={getYAxisId}
+                    isHidden={getTrendsHidden}
+                />
+            )}
+            {insight.id && (
+                <RequestedAnomalyScoreOverlay
+                    insightId={insight.id}
+                    dateFrom={insightData?.resolved_date_range?.date_from}
+                    dateTo={insightData?.resolved_date_range?.date_to}
+                    indexedResults={indexedResults}
                     getYAxisId={getYAxisId}
                     isHidden={getTrendsHidden}
                 />

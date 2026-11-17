@@ -8,6 +8,7 @@ import { pluralize } from 'lib/utils/strings'
 import type { AnomalyIntervalEnumApi, AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { AnomalyRowChart } from './AnomalyRowChart'
+import { withAnomalyScoresParam } from './anomalyScorePoints'
 
 const INTERVAL_LABELS: Record<AnomalyIntervalEnumApi, string> = {
     hour: 'Hourly',
@@ -37,7 +38,7 @@ export function AnomalyRow({ series, dateFrom, dateTo, onOpenInsight }: AnomalyR
                 <div className="flex flex-col gap-2 min-w-0 @min-[40rem]:w-72 @min-[40rem]:shrink-0">
                     <div className="min-w-0">
                         <Link
-                            to={appPath(series.insight_url)}
+                            to={withAnomalyScoresParam(appPath(series.insight_url))}
                             onClick={onOpenInsight}
                             className="font-semibold block truncate"
                             data-attr="anomalies-tab-open-insight"
