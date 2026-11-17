@@ -3,6 +3,7 @@ import dataclasses
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -201,6 +202,16 @@ class TestScoreWindow(SimpleTestCase):
         assert result.level_5 == 0.0
         assert not result.suspicious
 
+    def test_an_earlier_week_below_the_minimum_activity_is_left_out_of_the_baseline(self) -> None:
+        hours = _hours([RISE_RATE])
+        weeks = (*_baseline(hours)[0].weeks, HourErrors(active=2, with_errors=1))
+
+        result = score_window(
+            EDIT, _exposure([0.5]), _errors(40, 40), hours, [BaselineHour(start=EDITED_AT, weeks=weeks)], PARAMETERS
+        )
+
+        assert result.level_5 == 1.0
+
     @parameterized.expand(
         [
             ("everyone", EDIT, None, False),
@@ -226,6 +237,21 @@ class TestScoreWindow(SimpleTestCase):
         )
 
         assert (None if result.level_1 is None else result.level_1.is_significant) is significant
+
+    def test_the_minimum_volume_applies_to_the_people_that_level_1_compares(self) -> None:
+        exposure = _exposure([0.5], in_condition={ConditionMatch.REASON: ConditionExposure(with_flag=520, exposed=20)})
+        errors = _errors(
+            40,
+            40,
+            in_condition={ConditionMatch.REASON: ConditionErrors(exposed_with_errors=20, unexposed_with_errors=5)},
+        )
+
+        result = _score(
+            exposure, errors, [BASELINE_RATE], dataclasses.replace(PARAMETERS, condition_match=ConditionMatch.REASON)
+        )
+
+        assert result.level_1 is not None and result.level_1.is_significant
+        assert not result.suspicious
 
     @parameterized.expand(
         [
@@ -290,3 +316,13 @@ class TestScoreWindow(SimpleTestCase):
 
         with self.assertRaises(ValueError) if raises else nullcontext():
             score_window(EDIT, exposure, _errors(40, 40), hours, _baseline([EDITED_AT]), PARAMETERS)
+
+    @parameterized.expand(
+        [
+            ("no_active_people", {"min_active": 0}),
+            ("no_exposure_share_step", {"min_share_step": 0.0}),
+        ]
+    )
+    def test_parameters_that_would_divide_by_zero_raise(self, _name: str, changes: dict[str, Any]) -> None:
+        with self.assertRaises(ValueError):
+            dataclasses.replace(PARAMETERS, **changes)

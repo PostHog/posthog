@@ -39,7 +39,7 @@ class ScoreParameters:
     `rise_z` standard deviations, and level 5 has full strength at `full_strength_z`. A rise in exposure share from one
     hour to the next counts as a step, for level 4 and for the exposure rise, from `min_share_step`. The proximity falls
     to 1/e when the error rise is `decay` away from the exposure rise. Below `min_exposed` and `min_with_errors`, and in
-    an hour with fewer than `min_active` active people, variation is noise. A group flag counts groups, so one large
+    an hour or an earlier week with fewer than `min_active` active people, variation is noise. A group flag counts groups, so one large
     customer can't meet them alone."""
 
     condition_match: ConditionMatch | None
@@ -55,6 +55,13 @@ class ScoreParameters:
     min_exposed: int
     min_with_errors: int
     min_active: int
+
+    def __post_init__(self) -> None:
+        # `_excess_by_hour` divides by the active people of each hour it keeps, and `_level_4` by each share step.
+        if self.min_active < 1:
+            raise ValueError(f"The score needs at least 1 active person per hour, got {self.min_active}")
+        if self.min_share_step <= 0:
+            raise ValueError(f"The score needs a positive exposure share step, got {self.min_share_step}")
 
 
 # Placeholders until the phase 0 backtest tunes them.
@@ -78,10 +85,10 @@ WEB_PARAMETERS = ScoreParameters(
 @frozen
 class WindowScore:
     """Levels 2, 4 and 5 and the proximity are in [0, 1]. Level 1 is None when the test can't run: no exposure, nobody
-    exposed or everyone with the flag exposed, fewer than 5 people in a group, errors for nobody or for everyone in
-    both groups, or a watched condition that this source doesn't find. Level 2 is None without exposure, when nobody
-    or everyone with the flag is exposed, without the counts by last value, or below the minimum volume. Level 4 is
-    None without an error rise or with fewer than two exposure steps.
+    exposed or everyone with the flag exposed, fewer than 5 people in a group, or a watched condition that this source
+    doesn't find. Level 2 is None without exposure, when nobody or everyone with the flag is exposed, without the
+    counts by last value, or below the minimum volume. Level 4 is None without an error rise or with fewer than two
+    exposure steps.
 
     The window is suspicious when level 1 finds the exposed people significantly worse with enough volume, or when the
     volume is enough and `score` reaches the threshold."""
@@ -273,14 +280,14 @@ def _excess_by_hour(
     edit: WatchedEdit, hours: Mapping[datetime, HourErrors], baseline: Sequence[BaselineHour], min_active: int
 ) -> dict[datetime, _Excess]:
     """The excess error rate of each hour from the edit on, oldest first. An hour with fewer than `min_active` active
-    people, or without activity in all earlier weeks, has no entry."""
+    people, or without an earlier week that has `min_active`, has no entry."""
     earlier = {hour.start: hour.weeks for hour in baseline}
     edit_hour = _utc_hour(edit.edited_at)
     excess: dict[datetime, _Excess] = {}
     for start, counts in sorted(hours.items()):
-        rates = [week.with_errors / week.active for week in earlier.get(start, ()) if week.active]
         # In a small hour, such as one that just started, one error is a rate of 1 with no sampling noise.
-        if start < edit_hour or not counts.active or counts.active < min_active or not rates:
+        rates = [week.with_errors / week.active for week in earlier.get(start, ()) if week.active >= min_active]
+        if start < edit_hour or counts.active < min_active or not rates:
             continue
         rate = counts.with_errors / counts.active
         excess_rate = rate - statistics.fmean(rates)
