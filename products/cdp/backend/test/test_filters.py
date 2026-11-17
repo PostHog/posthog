@@ -867,7 +867,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             ("after_7_days_ago_skips_older", "is_date_after", "-7d", timedelta(days=-20), False),
             ("after_in_3_days_matches_later", "is_date_after", "+3d", timedelta(days=5), True),
             ("before_2_weeks_ago_matches_older", "is_date_before", "-2w", timedelta(days=-15), True),
-            ("before_1_month_ago_matches_older", "is_date_before", "-1m", timedelta(days=-40), True),
+            ("month_keeps_the_save_time", "is_date_before", "-1m", timedelta(days=-40), False),
             ("before_24_hours_ago_matches_older", "is_date_before", "-24h", timedelta(hours=-25), True),
             # With the flag off the value is still resolved when the filter is saved.
             ("flag_off_keeps_the_save_time", "is_date_before", "-7d", timedelta(days=-8), False, False),

@@ -589,17 +589,16 @@ _relative_dates_at_run_time: ContextVar[bool] = ContextVar("relative_dates_at_ru
 
 RUN_TIME_RELATIVE_DATES_FLAG = "realtime-filter-relative-dates"
 
-_SIGNED_RELATIVE_DATE = re.compile(r"^([-+])([0-9]+)([hdwmqyMs])$")
-# Only the units that dateAdd accepts in every hog VM. The Rust VM has no week or year.
+# Months, quarters and years are left out: they need calendar arithmetic in the project's timezone,
+# and dateAdd in the Python and Rust hog VMs does month arithmetic on UTC fields. Those values keep
+# the save-time constant. Weeks become days because the Rust VM has no week unit.
+_SIGNED_RELATIVE_DATE = re.compile(r"^([-+])([0-9]+)([sMhdw])$")
 _RELATIVE_DATE_INTERVALS: dict[str, tuple[str, int]] = {
     "s": ("second", 1),
     "M": ("minute", 1),
     "h": ("hour", 1),
     "d": ("day", 1),
     "w": ("day", 7),
-    "m": ("month", 1),
-    "q": ("month", 3),
-    "y": ("month", 12),
 }
 
 
