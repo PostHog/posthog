@@ -33,6 +33,7 @@ import type {
 } from '../../generated/api.schemas'
 import {
     backfillCoveredCount,
+    backfillIsWaitingToStart,
     backfillLateArrivalCount,
     backfillLiveCoveredCount,
     backfillRangeDateFormat,
@@ -328,6 +329,7 @@ export function EvaluationBackfillsTab({
                                         : `${backfill.dispatched_count.toLocaleString('en-US')} started`}
                                 </span>
                             )}
+                            {backfillIsWaitingToStart(backfill) && <div className="text-muted">Waiting to start</div>}
                             <LemonProgress
                                 className="mt-1"
                                 percent={total > 0 ? (covered / total) * 100 : 0}

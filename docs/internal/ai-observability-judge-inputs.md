@@ -226,6 +226,8 @@ Live references marked `awaiting_ingestion` wait 30 seconds after the first miss
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
+A running backfill with no dispatched evaluations or recorded outcomes shows **Waiting to start** below its progress count.
+The label disappears when the run reports work or leaves the running state.
 Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
 A backfill runs at most 16 evaluations at once (`LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT`).
 A run that fails because the provider stayed rate limited or unavailable through every retry halves that backfill's cap, down to 1.
