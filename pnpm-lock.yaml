@@ -3396,6 +3396,9 @@ importers:
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
+      '@testing-library/dom':
+        specifier: '*'
+        version: 10.4.2
       '@types/react':
         specifier: 18.3.31
         version: 18.3.31
@@ -3654,6 +3657,9 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.6.1(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.6.1(@types/react@18.3.31)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(supports-color@10.2.2)(typescript@6.0.3)
+      '@testing-library/dom':
+        specifier: '*'
+        version: 10.4.2
       '@types/react':
         specifier: 18.3.31
         version: 18.3.31
@@ -3675,12 +3681,18 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      msw:
+        specifier: '*'
+        version: 2.14.7(@types/node@26.6.6)(typescript@6.0.3)
       posthog-js:
         specifier: 'catalog:'
         version: 1.450.0(@types/react@18.3.31)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
+      storybook:
+        specifier: 'catalog:'
+        version: 10.6.1(@types/react@18.3.31)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@monaco-editor/react':
         specifier: 4.7.0
