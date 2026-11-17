@@ -276,7 +276,7 @@ class _FakeKafkaAdmin:
         for group in alter_consumer_group_offsets_request:
             future: Future = Future()
             if self.refuse:
-                future.set_exception(KafkaException(KafkaError(KafkaError.UNKNOWN_MEMBER_ID)))  # type: ignore[attr-defined]
+                future.set_exception(KafkaException(KafkaError(KafkaError.UNKNOWN_MEMBER_ID)))
             else:
                 self.altered.append(
                     (group.group_id, [(tp.partition, tp.offset) for tp in group.topic_partitions or []])
