@@ -177,6 +177,7 @@ def execute_hog_eval_bytecode(
     *,
     output_type: str = "boolean",
     output_config: dict[str, Any] | None = None,
+    disallowed_functions: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Run compiled Hog eval bytecode against pre-built globals and shape the output.
 
@@ -195,6 +196,7 @@ def execute_hog_eval_bytecode(
             stdout=output,
             timeout=HOG_EVAL_TIMEOUT,
             team=None,
+            disallowed_functions=disallowed_functions,
         )
     except HogVMRuntimeExceededException:
         return {"verdict": None, "reasoning": "", "error": "Execution timed out (10s limit exceeded)"}

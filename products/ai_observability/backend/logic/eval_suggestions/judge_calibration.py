@@ -427,9 +427,9 @@ class CodeCheck:
     errors: int
 
 
-# The functions the review prompt names, plus the wrapper the saved source calls. In one step the Python Hog VM can
-# build a value far past its memory limit before checking it, through `*`, `%` on a string and some functions, so a
-# generated check runs only when it stays inside this set.
+# The functions the review prompt names. In one step the Python Hog VM can build a value far past its memory limit
+# before checking it, through `*`, `%` on a string and some functions, so a generated check runs only when it stays
+# inside this set.
 _CODE_CHECK_FUNCTIONS = frozenset(
     {
         "length",
@@ -449,12 +449,13 @@ _CODE_CHECK_FUNCTIONS = frozenset(
         "toString",
         "empty",
         "notEmpty",
-        "review_check",
     }
 )
 
 
 _HOG_FUNCTIONS = frozenset(STL) | frozenset(BYTECODE_STL)
+# The VM refuses these at dispatch too, which covers every way a call can reach a function.
+_BLOCKED_FUNCTIONS = _HOG_FUNCTIONS - _CODE_CHECK_FUNCTIONS
 
 
 class _OutsideCodeCheckSet(TraversingVisitor):
@@ -488,8 +489,12 @@ class _OutsideCodeCheckSet(TraversingVisitor):
         super().visit_for_in_statement(node)
 
     def visit_function(self, node: ast.Function) -> None:
-        self.binds(*node.params)
+        self.binds(node.name, *node.params)
         super().visit_function(node)
+
+    def visit_try_catch_statement(self, node: ast.TryCatchStatement) -> None:
+        self.binds(*(name for name, _, _ in node.catches))
+        super().visit_try_catch_statement(node)
 
     def visit_lambda(self, node: ast.Lambda) -> None:
         self.binds(*node.args)
@@ -520,7 +525,7 @@ def _code_verdict(bytecode: list[Any], row: ReviewCallRow) -> Verdict | None:
         "event": {"uuid": row.event_uuid, "event": "$ai_generation", "distinct_id": ""},
         "evaluation_events": [event],
     }
-    result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=True)
+    result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=True, disallowed_functions=_BLOCKED_FUNCTIONS)
     if result["error"]:
         if result.get("user_input_error"):
             return None
@@ -532,13 +537,15 @@ def _code_verdict(bytecode: list[Any], row: ReviewCallRow) -> Verdict | None:
 
 def check_code(card: ReviewCard, rendering: Rendering, deadline: float | None) -> CodeCheck | None:
     """The card's code check run on every rendered call of its call types and compared with the review's labels, or
-    None when it does not compile, steps outside the allowed functions and operators, hits an error the runtime would disable it over, or could run past
-    `deadline`, a time.monotonic() value. An error on a call's data counts as the opposite of the label."""
+    None when it does not compile, steps outside the allowed functions and operators, hits an error the runtime
+    would disable it over, or could run past `deadline`, a time.monotonic() value. An error on a call's data counts
+    as the opposite of the label."""
     source = call_review.code_check_source(card.code_check)
     try:
         # compile_hog logs a syntax error as an error in our code. The parse catches the review's syntax errors first,
         # so they stay out of the error logs.
-        program = parse_program(source)
+        program = parse_program(card.code_check)
+        parse_program(source)
         bytecode = compile_ai_observability_hog(source, "destination")
     except (ExposedHogQLError, serializers.ValidationError):
         return None

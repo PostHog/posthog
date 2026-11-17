@@ -389,6 +389,19 @@ def test_a_request_that_could_end_past_the_deadline_never_starts() -> None:
             None,
         ),
         (
+            "declares_an_allowed_name",
+            "fun trim(text) {\n  return text\n}\nreturn not match(trim(output), '^Reply [0-4]$')",
+            None,
+            None,
+        ),
+        (
+            "catches_into_an_allowed_name",
+            "try {\n  throw {'__hogError__': true, 'type': 'Error', 'message': 'x'}\n} catch (trim) {\n"
+            "  return not match(output, '^Reply [0-4]$')\n}\nreturn true",
+            None,
+            None,
+        ),
+        (
             "renames_another_function",
             "let lower := replaceAll\nreturn not match(lower(output, 'x', 'y'), '^Reply [0-4]$')",
             None,
@@ -423,3 +436,11 @@ def test_a_code_check_never_starts_a_call_that_could_run_past_the_deadline() -> 
     card = replace(card, code_check="return true")
 
     assert judge_calibration.check_code(card, rendering, deadline=time.monotonic() + 5) is None
+
+
+def test_the_vm_refuses_functions_outside_the_set_when_the_source_check_misses_one() -> None:
+    card, rendering = _card_and_rendering()
+    card = replace(card, code_check="return not match(replaceAll(output, 'x', 'y'), '^Reply [0-4]$')")
+
+    with patch.object(judge_calibration._OutsideCodeCheckSet, "visit"):
+        assert judge_calibration.check_code(card, rendering, deadline=None) is None
