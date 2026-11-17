@@ -315,6 +315,7 @@ export type ScoutActionType =
     | 'click_ask_ai_starter'
     | 'ask_ai'
     | 'save_note_from_ai'
+    | 'stop_run'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
