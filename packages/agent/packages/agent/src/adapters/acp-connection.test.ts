@@ -1,6 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionLogWriter } from "../session-log-writer";
+import { Logger } from "../utils/logger";
 import { createAcpConnection } from "./acp-connection";
+import type { ClaudeAcpAgentOptions } from "./claude/claude-agent";
+
+const agentOptions: (ClaudeAcpAgentOptions | undefined)[] = [];
+
+vi.mock("./claude/claude-agent", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("./claude/claude-agent")>();
+  return {
+    ...original,
+    ClaudeAcpAgent: class extends original.ClaudeAcpAgent {
+      constructor(
+        client: ConstructorParameters<typeof original.ClaudeAcpAgent>[0],
+        options?: ClaudeAcpAgentOptions,
+      ) {
+        super(client, options);
+        agentOptions.push(options);
+      }
+    },
+  };
+});
 
 describe("createAcpConnection wire taps", () => {
   it("hands the session log and the broadcast callback the same event id per message", async () => {
@@ -40,6 +61,53 @@ describe("createAcpConnection wire taps", () => {
     expect(loggedId).toBeTruthy();
     expect(broadcastId).toBe(loggedId);
 
+    await connection.cleanup();
+  });
+});
+
+describe("createAcpConnection claude agent logger", () => {
+  it("never gives the agent the session log sink", async () => {
+    agentOptions.length = 0;
+    const sink: string[] = [];
+    const sessionLogger = new Logger({
+      debug: true,
+      onLog: (_level, _scope, message) => {
+        sink.push(message);
+      },
+    });
+    const lines: string[] = [];
+    vi.spyOn(console, "info").mockImplementation((line: string) => {
+      lines.push(line);
+    });
+
+    const connection = createAcpConnection({
+      adapter: "claude",
+      taskRunId: "run-1",
+      taskId: "task-1",
+      logger: sessionLogger,
+      claudeAgentLogger: new Logger({ level: "info", format: "json" }),
+    });
+    agentOptions[0]?.logger?.info("from agent");
+
+    expect(sink).not.toContain("from agent");
+    expect(lines.map((line) => JSON.parse(line).message)).toEqual([
+      "from agent",
+    ]);
+    await connection.cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("leaves the agent on its own logger when none is supplied", async () => {
+    agentOptions.length = 0;
+    const connection = createAcpConnection({
+      adapter: "claude",
+      taskRunId: "run-1",
+      taskId: "task-1",
+      logger: new Logger({ debug: true }),
+    });
+
+    expect(agentOptions).toHaveLength(1);
+    expect(agentOptions[0]?.logger).toBeUndefined();
     await connection.cleanup();
   });
 });

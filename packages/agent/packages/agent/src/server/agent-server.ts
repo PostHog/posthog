@@ -2385,6 +2385,7 @@ export class AgentServer {
         this.handleAcpTransportMessage(message, eventId),
       stampedRunTraceId: this.stampedRunTraceId,
       logger: this.logger,
+      claudeAgentLogger: this.createLogger("[ClaudeAcpAgent]"),
       processCallbacks: isTaskRunSandbox(process.env)
         ? {
             onProcessSpawned: ({ pid }) => {
