@@ -1,5 +1,6 @@
 """Reads the output columns of a view's query with DESCRIBE, shared by saving a view and materializing it."""
 
+from time import sleep
 from typing import TYPE_CHECKING, Optional
 
 from clickhouse_driver.errors import ServerException
@@ -10,14 +11,16 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.functions.prompt_jev import PromptJevFinder
+from posthog.hogql.functions.prompt_jev import PromptJevFinder, is_decision_call
 from posthog.hogql.printer import print_prepared_ast
-from posthog.hogql.query import HogQLQueryExecutor
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.printer.clickhouse import ClickHousePrinter
+from posthog.hogql.query import TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS, HogQLQueryExecutor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import ClickHouseExternalTable
+from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead
 from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.team import Team
 
@@ -47,18 +50,60 @@ _LOCAL_COMPARE_OPS = {
 class _DowngradeGlobalIn(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=False, clear_locations=False)
+        self.downgraded = False
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.CompareOperation:
         cloned = super().visit_compare_operation(node)
-        cloned.op = _LOCAL_COMPARE_OPS.get(cloned.op, cloned.op)
+        if cloned.op in _LOCAL_COMPARE_OPS:
+            cloned.op = _LOCAL_COMPARE_OPS[cloned.op]
+            self.downgraded = True
         return cloned
+
+
+class _ZeroRowJevSelects(TraversingVisitor):
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        super().visit_select_query(node)
+        if any(_is_jev_column(column) for column in node.select):
+            node.limit = ast.Constant(value=0)
+            node.offset = None
 
 
 def print_describe_variant(
     prepared_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, settings: HogQLGlobalSettings
 ) -> str:
-    downgraded = _DowngradeGlobalIn().visit(prepared_query)
+    downgrade = _DowngradeGlobalIn()
+    downgraded = downgrade.visit(prepared_query)
+    if downgrade.downgraded:
+        _keep_output_names(downgraded, prepared_query, context)
     return print_prepared_ast(downgraded, context=context, dialect="clickhouse", settings=settings, stack=[])
+
+
+def _keep_output_names(
+    downgraded: ast.SelectQuery | ast.SelectSetQuery,
+    prepared_query: ast.SelectQuery | ast.SelectSetQuery,
+    context: HogQLContext,
+) -> None:
+    output = _output_select(downgraded)
+    untouched_names = _output_names(_output_select(prepared_query), context)
+    downgraded_names = _output_names(output, context)
+    output.select = [
+        column if downgraded_name == untouched_name else ast.Alias(alias=untouched_name, expr=column)
+        for column, untouched_name, downgraded_name in zip(output.select, untouched_names, downgraded_names)
+    ]
+
+
+def _output_select(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+    while isinstance(query, ast.SelectSetQuery):
+        query = query.initial_select_query
+    return query
+
+
+def _output_names(output: ast.SelectQuery, context: HogQLContext) -> list[str]:
+    return ClickHousePrinter(context=context, stack=[output]).select_column_names(output)
+
+
+def _is_jev_column(column: ast.Expr) -> bool:
+    return isinstance(column, ast.Alias) and isinstance(column.expr, ast.Call) and is_decision_call(column.expr.name)
 
 
 def describe_ast_settings(settings: HogQLGlobalSettings) -> dict[str, str]:
@@ -112,8 +157,10 @@ def describe_query_columns(
 def _plan_prompt_jev(
     select_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, team: Team
 ) -> tuple[ast.SelectQuery | ast.SelectSetQuery, list[ClickHouseExternalTable]]:
+    zero_row_query = clone_expr(select_query)
+    _ZeroRowJevSelects().visit(zero_row_query)
     planned_query, jev_tables = HogQLQueryExecutor(
-        query=select_query,
+        query=zero_row_query,
         team=team,
         user=context.user,
         bypass_warehouse_access_control=context.bypass_warehouse_access_control,
@@ -129,6 +176,20 @@ def _plan_prompt_jev(
 
 
 def _describe(
+    sql: str,
+    context: HogQLContext,
+    team: Team,
+    settings: dict[str, str],
+    external_tables: list[ClickHouseExternalTable],
+) -> list[DescribedColumn]:
+    try:
+        return _run_describe(sql, context, team, settings, external_tables)
+    except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
+        sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
+        return _run_describe(sql, context, team, settings, external_tables)
+
+
+def _run_describe(
     sql: str,
     context: HogQLContext,
     team: Team,

@@ -16,6 +16,7 @@ from posthog import redis
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
 from posthog.constants import AvailableFeature
+from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 
@@ -110,6 +111,26 @@ class TestGetColumnsQueryTagging(BaseTest):
         assert columns == {"trace_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}}
 
 
+class TestGetColumnsRetriesTransientS3Errors(BaseTest):
+    @parameterized.expand(
+        [
+            ("file_changed", CHQueryErrorS3FileChangedDuringRead("file changed during read", code=1011)),
+            ("s3_error", CHQueryErrorS3Error("S3 error occurred.", code=499)),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.describe_columns.sleep")
+    def test_describes_again_after_one_transient_s3_error(self, _name: str, error: Exception, _sleep) -> None:
+        saved_query = DataWarehouseSavedQuery(team=self.team, name="my_view", query={"query": "SELECT 1 AS value"})
+
+        with patch(
+            "products.data_modeling.backend.logic.describe_columns.sync_execute",
+            side_effect=[error, [("value", "UInt8")]],
+        ):
+            columns = saved_query.get_columns(user=self.user)
+
+        assert columns["value"]["clickhouse"] == "UInt8"
+
+
 class TestGetColumnsConcurrency(BaseTest):
     @parameterized.expand(
         [
@@ -175,6 +196,10 @@ class TestGetColumnsDescribesTheQuery(ClickhouseTestMixin, BaseTest):
             ("cte", "WITH signups AS (SELECT distinct_id, timestamp FROM events) SELECT * FROM signups"),
             ("columns_matcher", "SELECT COLUMNS('^(event|distinct_id)$') FROM events"),
             ("nested_view", "SELECT name, n FROM inner_view"),
+            (
+                "global_in_inside_an_output_column",
+                "SELECT countIf(event IN (SELECT key FROM groups LIMIT 5)) FROM events",
+            ),
         ]
     )
     def test_types_match_running_the_query(self, _name: str, sql: str) -> None:
@@ -196,16 +221,15 @@ class TestGetColumnsDescribesTheQuery(ClickhouseTestMixin, BaseTest):
         assert len(queries) == 1
         assert "DESCRIBE TABLE" in queries[0]
 
-    def test_a_jev_view_describes_its_model_results(self) -> None:
+    def test_a_jev_view_describes_its_model_results_without_calling_the_model(self) -> None:
         sql = "SELECT text, jev(text, 'Is this a refund request?') AS is_refund FROM (SELECT arrayJoin(['refund me', 'hi']) AS text)"
         saved_query = DataWarehouseSavedQuery(team=self.team, name="my_view", query={"query": sql})
 
-        with (
-            override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key"),
-            patch("httpx.AsyncClient.post", side_effect=_refund_gateway_response),
-        ):
-            columns = saved_query.get_columns(user=self.user)
-            executed = execute_hogql_query(sql, team=self.team, user=self.user)
+        with override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key"):
+            with patch("httpx.AsyncClient.post", side_effect=_refund_gateway_response):
+                executed = execute_hogql_query(sql, team=self.team, user=self.user)
+            with patch("httpx.AsyncClient.post", side_effect=AssertionError("called the model")):
+                columns = saved_query.get_columns(user=self.user)
 
         assert {name: column["clickhouse"] for name, column in columns.items()} == dict(executed.types or [])
 
