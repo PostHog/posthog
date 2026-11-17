@@ -151,6 +151,8 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         first = self._create_query_runner(query).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         stored = self._create_query_runner(query).run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
         recomputed = self._create_query_runner(query).run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        with patch.object(MarketingAnalyticsTableQueryRunner, "enqueue_async_calculation") as enqueue:
+            self._create_query_runner(query).run(ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
 
         assert isinstance(first, CachedMarketingAnalyticsTableQueryResponse)
         assert first.precomputeNotReady is True
@@ -158,6 +160,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert stored.is_cached is True
         assert isinstance(recomputed, CachedMarketingAnalyticsTableQueryResponse)
         assert recomputed.is_cached is False
+        enqueue.assert_called_once()
 
     @patch(f"{_BASE_RUNNER}.handle_not_ready")
     def test_compare_read_warms_the_period_that_missed(self, handle_not_ready):
