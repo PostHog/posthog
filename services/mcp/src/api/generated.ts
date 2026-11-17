@@ -79295,6 +79295,7 @@ export namespace Schemas {
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
      * * `traces` - Traces
+     * * `error_tracking` - Error tracking
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -79306,6 +79307,7 @@ export namespace Schemas {
       WarehouseDestination: 'warehouse_destination',
       Metrics: 'metrics',
       Traces: 'traces',
+      ErrorTracking: 'error_tracking',
     } as const;
 
     /**
@@ -79417,7 +79419,8 @@ export namespace Schemas {
        * * `warehouse_source` - Warehouse source
        * * `warehouse_destination` - Warehouse destination
        * * `metrics` - Metrics
-       * * `traces` - Traces */
+       * * `traces` - Traces
+       * * `error_tracking` - Error tracking */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
@@ -144441,6 +144444,7 @@ export namespace Schemas {
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
      * * `traces` - Traces
+     * * `error_tracking` - Error tracking
      * @minLength 1
      */
     source_kind?: PlatformAlertsListSourceKind;
@@ -144456,6 +144460,7 @@ export namespace Schemas {
       WarehouseDestination: 'warehouse_destination',
       Metrics: 'metrics',
       Traces: 'traces',
+      ErrorTracking: 'error_tracking',
     } as const;
 
     export type PlatformAlertsEventsListParams = {
