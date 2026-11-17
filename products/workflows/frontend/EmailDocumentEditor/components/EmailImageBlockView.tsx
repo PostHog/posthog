@@ -44,7 +44,11 @@ export function EmailImageBlockView({ node, selected, updateAttributes, editor, 
             if (typeof pos === 'number') {
                 const current = editor.state.doc.nodeAt(pos)
                 editor.view.dispatch(
-                    editor.state.tr.setNodeAttribute(pos, 'emailStyle', { ...current?.attrs.emailStyle, width: latest })
+                    editor.state.tr.setNodeAttribute(pos, 'emailStyle', {
+                        ...current?.attrs.emailStyle,
+                        width: latest,
+                        imageScale: undefined,
+                    })
                 )
             }
         }

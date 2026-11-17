@@ -4,7 +4,9 @@ import {
     EmailBackgroundImage,
     EmailBlockStyle,
     EmailPageStyle,
+    EmailPhoneStyle,
     EmailSides,
+    EmailTextAlign,
     EmailVisibility,
     emailFontUrls,
     isEmailDocEmpty,
@@ -104,6 +106,12 @@ function px(value: unknown, fallback = 0): number {
     return Number.isFinite(number) ? Math.max(0, Math.round(number * 100) / 100) : fallback
 }
 
+/** Letter spacing is the one length that can tighten text, so it keeps its sign. */
+function signedPx(value: unknown): number {
+    const number = Number(value)
+    return Number.isFinite(number) ? Math.round(number * 100) / 100 : 0
+}
+
 function sides(value: EmailSides): string {
     return `${px(value.top)}px ${px(value.right)}px ${px(value.bottom)}px ${px(value.left)}px`
 }
@@ -135,6 +143,18 @@ const STYLE_NUMBERS = [
     'listIndent',
     'listItemGap',
     'lineWidth',
+    'buttonWidth',
+    'innerPaddingX',
+    'innerPaddingY',
+    'imageScale',
+] as const
+const PHONE_KEYS = [
+    'padding',
+    'fontSize',
+    'lineHeight',
+    'textAlign',
+    'width',
+    'imageScale',
     'buttonWidth',
     'innerPaddingX',
     'innerPaddingY',
@@ -187,6 +207,13 @@ export function safeEmailStyle(value: unknown): EmailBlockStyle | null {
     if (safeSides(raw.padding)) {
         style.padding = safeSides(raw.padding)
     }
+    const phone = raw.phone && raw.phone !== value ? safeEmailStyle(raw.phone) : null
+    const phoneStyle = Object.fromEntries(
+        PHONE_KEYS.filter((key) => phone?.[key] !== undefined).map((key) => [key, phone?.[key]])
+    )
+    if (Object.keys(phoneStyle).length) {
+        style.phone = phoneStyle
+    }
     return style as EmailBlockStyle
 }
 
@@ -201,6 +228,8 @@ function safeTextStyleMark(attrs: Record<string, any>): Record<string, any> {
             clean[key] = safeColor(value) || null
         } else if (key === 'fontSize') {
             clean[key] = Number.isFinite(Number(value)) ? Number(value) : null
+        } else if (key === 'fontWeight') {
+            clean[key] = [100, 200, 300, 400, 500, 600, 700, 800, 900].includes(Number(value)) ? Number(value) : null
         } else if (key === 'fontFamily') {
             clean[key] = safeFont(String(value)).replace(/[()\\]/g, '')
         } else if (key === 'letterSpacing' || key === 'lineHeight') {
@@ -284,6 +313,7 @@ interface RenderContext {
     linkUnderline?: boolean
     /** Hover rules for the email's head, one per button that changes color under the pointer. */
     hoverRules?: string[]
+    phoneRules?: string[]
 }
 
 function textFromNodes(nodes: JSONContent[] | undefined): string {
@@ -308,7 +338,10 @@ function wrapMarks(html: string, node: JSONContent, ctx: RenderContext): string 
     return (node.marks ?? []).reduceRight((inner, mark) => {
         switch (mark.type) {
             case 'bold':
-                return `<strong>${inner}</strong>`
+                // Text at its own weight is bold already, and a <strong> around it would make it 700.
+                return (node.marks ?? []).some((other) => other.type === 'textStyle' && other.attrs?.fontWeight)
+                    ? inner
+                    : `<strong>${inner}</strong>`
             case 'italic':
                 return `<em>${inner}</em>`
             case 'underline':
@@ -322,6 +355,7 @@ function wrapMarks(html: string, node: JSONContent, ctx: RenderContext): string 
                     color: safeColor(mark.attrs?.color),
                     'font-size': mark.attrs?.fontSize ? `${px(mark.attrs.fontSize)}px` : undefined,
                     'font-family': mark.attrs?.fontFamily ? safeFont(String(mark.attrs.fontFamily)) : undefined,
+                    'font-weight': mark.attrs?.fontWeight ? px(mark.attrs.fontWeight) : undefined,
                     'letter-spacing': mark.attrs?.letterSpacing ? safeCssValue(mark.attrs.letterSpacing) : undefined,
                     'line-height': mark.attrs?.lineHeight ? safeCssValue(mark.attrs.lineHeight) : undefined,
                     'background-color': safeColor(mark.attrs?.highlight),
@@ -369,12 +403,85 @@ function textProperties(style: EmailBlockStyle, ctx: RenderContext, fontSize: nu
         'font-size': `${px(style.fontSize, fontSize)}px`,
         'line-height': `${px(style.lineHeight, ctx.page.lineHeight)}%`,
         color: safeColor(style.color, ctx.page.textColor),
-        'letter-spacing': style.letterSpacing ? `${px(style.letterSpacing)}px` : undefined,
+        'letter-spacing': style.letterSpacing ? `${signedPx(style.letterSpacing)}px` : undefined,
         'text-transform': style.uppercase ? 'uppercase' : undefined,
         // A table grows to fit its longest word, so a long link would otherwise widen the whole email.
         'overflow-wrap': 'anywhere',
         'word-break': 'break-word',
     }
+}
+
+const PHONE_WIDTH = 480
+
+const IMAGE_MARGINS: Record<EmailTextAlign, string> = {
+    left: 'margin-left: 0 !important; margin-right: 0 !important;',
+    center: 'margin-left: auto !important; margin-right: auto !important;',
+    right: 'margin-left: auto !important; margin-right: 0 !important;',
+}
+
+function phoneCss(node: JSONContent, phone: EmailPhoneStyle, className: string): string[] {
+    const cell = `.${className}`
+    const rules: string[] = []
+    const cellCss = css({
+        padding: phone.padding ? `${sides(phone.padding)} !important` : undefined,
+        'text-align': phone.textAlign ? `${phone.textAlign} !important` : undefined,
+    })
+    if (cellCss) {
+        rules.push(`${cell} { ${cellCss}; }`)
+    }
+    const textCss = css({
+        'font-size': phone.fontSize ? `${px(phone.fontSize)}px !important` : undefined,
+        'line-height': phone.lineHeight ? `${px(phone.lineHeight)}% !important` : undefined,
+    })
+    if (node.type === 'emailImage') {
+        const imageCss = [
+            phone.imageScale
+                ? `width: ${px(phone.imageScale)}% !important; max-width: ${phone.width ? `${px(phone.width)}px` : `${px(phone.imageScale)}%`} !important;`
+                : '',
+            phone.textAlign ? IMAGE_MARGINS[phone.textAlign] : '',
+        ]
+            .join(' ')
+            .trim()
+        if (imageCss) {
+            rules.push(`${cell} img { ${imageCss} }`)
+        }
+    } else if (node.type === 'emailButton') {
+        const label = `${cell} td > a, ${cell} td > span`
+        if (phone.buttonWidth) {
+            rules.push(`${cell} table { width: ${Math.min(px(phone.buttonWidth), 100)}% !important; }`)
+            rules.push(`${label} { display: block !important; }`)
+        }
+        const labelCss = [
+            textCss,
+            phone.innerPaddingX !== undefined || phone.innerPaddingY !== undefined
+                ? `padding: ${px(phone.innerPaddingY)}px ${px(phone.innerPaddingX)}px !important`
+                : '',
+        ]
+            .filter(Boolean)
+            .join(';')
+        if (labelCss) {
+            rules.push(`${label} { ${labelCss}; }`)
+        }
+    } else if (textCss) {
+        rules.push(
+            `${['p', 'h1', 'h2', 'h3', 'ul', 'ol', 'li', '> div'].map((tag) => `${cell} ${tag}`).join(', ')} { ${textCss}; }`
+        )
+    }
+    return rules
+}
+
+function withPhoneStyle(node: JSONContent, html: string, ctx: RenderContext): string {
+    const phone = styleOf(node).phone
+    if (!phone || !ctx.phoneRules || !html.startsWith('<tr><td ')) {
+        return html
+    }
+    const className = `ph-m-${ctx.phoneRules.length + 1}`
+    const rules = phoneCss(node, phone, className)
+    if (!rules.length) {
+        return html
+    }
+    ctx.phoneRules.push(...rules)
+    return `<tr><td class="${className}" ${html.slice('<tr><td '.length)}`
 }
 
 function blockCell(style: EmailBlockStyle, inner: string, defaultPadding: EmailSides = DEFAULT_BLOCK_SIDES): string {
@@ -432,8 +539,13 @@ function imageSizing(
     const naturalWidth = px(node.attrs?.naturalWidth)
     const naturalHeight = px(node.attrs?.naturalHeight)
     const resized = width < available && width !== naturalWidth
+    const scale = styleOf(node).imageScale
     return {
-        cssWidth: resized ? `${Math.round((width / available) * 1000) / 10}%` : '100%',
+        cssWidth: scale
+            ? `${Math.min(px(scale), 100)}%`
+            : resized
+              ? `${Math.round((width / available) * 1000) / 10}%`
+              : '100%',
         heightAttribute:
             naturalWidth && naturalHeight ? ` height="${Math.round((width * naturalHeight) / naturalWidth)}"` : '',
     }
@@ -589,7 +701,12 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
                 index === 0
                     ? `<!--[if mso]><table role="presentation" width="${available}" cellpadding="0" cellspacing="0" border="0"><tr>${msoCell}<![endif]-->`
                     : `<!--[if mso]></td>${msoCell}<![endif]-->`
-            const className = columnStyle.padding ? 'ph-col' : 'ph-col ph-col-gap'
+            let className = columnStyle.padding ? 'ph-col' : 'ph-col ph-col-gap'
+            if (columnStyle.phone?.padding && ctx.phoneRules) {
+                const phoneClass = `ph-m-${ctx.phoneRules.length + 1}`
+                ctx.phoneRules.push(`.${phoneClass} { padding: ${sides(columnStyle.phone.padding)} !important; }`)
+                className += ` ${phoneClass}`
+            }
             return `${before}<div class="${className}" style="${divCss}">${inner}</div>`
         })
         .join('')
@@ -684,10 +801,11 @@ function renderBlock(node: JSONContent, parentCtx: RenderContext): string {
         case 'emailColumns':
             return renderColumns(node, ctx)
         case 'emailHtml':
-            // Its own markup may not set a font, so it starts from the page's rather than from the email app's.
+            // Its own markup may not set a font, so it starts from the page's rather than from the email app's. The old
+            // editor left the size to the email app, which is 16px.
             return blockCell(
                 style,
-                `<div style="${style.inheritText ? `font-family:${safeFont(ctx.page.fontFamily)};overflow-wrap:break-word;word-break:break-word` : css(textProperties({}, ctx, ctx.page.fontSize))}">${htmlBlockFragment(String(node.attrs?.html ?? ''))}</div>`,
+                `<div style="${style.inheritText ? `font-family:${safeFont(ctx.page.fontFamily)};${ctx.page.oldEditorStyles ? 'font-size:16px;' : ''}overflow-wrap:break-word;word-break:break-word` : css(textProperties({}, ctx, ctx.page.fontSize))}">${htmlBlockFragment(String(node.attrs?.html ?? ''))}</div>`,
                 NO_SIDES
             )
         default:
@@ -724,7 +842,7 @@ export function isEmptyCondition(before: string): boolean {
 }
 
 function renderBlockRows(nodes: JSONContent[] | undefined, ctx: RenderContext): string {
-    return (nodes ?? []).map((node) => withVisibility(node, renderBlock(node, ctx))).join('')
+    return (nodes ?? []).map((node) => withVisibility(node, withPhoneStyle(node, renderBlock(node, ctx), ctx))).join('')
 }
 
 function usesScreenSizes(nodes: JSONContent[] | undefined): boolean {
@@ -846,6 +964,7 @@ export function renderEmailHtml(doc: JSONContent): string {
         // A border is drawn inside the body's width, so it takes room from the content too.
         contentWidth: Math.max(1, bodyWidth - px(padding.left) - px(padding.right) - px(page.bodyBorderWidth) * 2),
         hoverRules: [],
+        phoneRules: [],
     }
     const blocks = renderBlockTable(nodes, ctx)
     const backgroundImage = page.backgroundImage
@@ -862,7 +981,11 @@ export function renderEmailHtml(doc: JSONContent): string {
             ? `${px(page.bodyBorderWidth)}px solid ${safeColor(page.bodyBorderColor, '#e5e5e5')}`
             : undefined,
     })
-    const extraCss = [usesScreenSizes(nodes) ? SCREEN_SIZE_CSS : '', ...(ctx.hoverRules ?? [])]
+    const extraCss = [
+        usesScreenSizes(nodes) ? SCREEN_SIZE_CSS : '',
+        ...(ctx.hoverRules ?? []),
+        ctx.phoneRules?.length ? `@media (max-width: ${PHONE_WIDTH}px) {\n${ctx.phoneRules.join('\n')}\n}` : '',
+    ]
     // Declaring light keeps a mail app from recoloring the email in dark mode. Old-editor emails never declared it, so
     // on a converted one that would be a change people notice.
     const colorSchemeMeta = page.oldEditorStyles

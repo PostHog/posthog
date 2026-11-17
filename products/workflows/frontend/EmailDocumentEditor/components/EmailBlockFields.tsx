@@ -232,7 +232,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                         label="Width"
                         value={style.width}
                         placeholder="Auto"
-                        onChange={(width) => set({ width })}
+                        onChange={(width) => set({ width, imageScale: undefined })}
                         attr="email-editor-image-width"
                     />
                     <EmailNumberField

@@ -49,7 +49,27 @@ export interface EmailBlockStyle {
     /** Button only: its colors under the pointer, in email apps that show that. */
     hoverColor?: string
     hoverBackgroundColor?: string
+    /**
+     * Image only: the share of the space it fills, as a percentage, up to its width. Left out, a resized image keeps
+     * its share and one at full size fills the space.
+     */
+    imageScale?: number
+    /** Settings that replace these on a phone, as the old editor's mobile settings do. */
+    phone?: EmailPhoneStyle
 }
+
+export type EmailPhoneStyle = Pick<
+    EmailBlockStyle,
+    | 'padding'
+    | 'fontSize'
+    | 'lineHeight'
+    | 'textAlign'
+    | 'width'
+    | 'imageScale'
+    | 'buttonWidth'
+    | 'innerPaddingX'
+    | 'innerPaddingY'
+>
 
 /** A Liquid condition around a block, as the old editor's display conditions write it. */
 export interface EmailCondition {

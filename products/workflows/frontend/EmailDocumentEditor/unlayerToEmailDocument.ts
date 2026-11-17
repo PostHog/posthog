@@ -5,6 +5,7 @@ import {
     EmailDocument,
     EMAIL_DOCUMENT_VERSION,
     EmailPageStyle,
+    EmailPhoneStyle,
     EmailSides,
     EmailTextAlign,
     EmailVisibility,
@@ -36,6 +37,25 @@ export interface EmailDocumentConversion {
 function parsePx(value: unknown): number | undefined {
     const number = parseFloat(String(value ?? ''))
     return Number.isFinite(number) ? number : undefined
+}
+
+function cssPx(value: string | undefined, fontSize: number): number | undefined {
+    const match = /^(-?\d*\.?\d+)(px|em|rem|%|pt)?$/.exec(value?.trim() ?? '')
+    if (!match) {
+        return value?.trim() === 'normal' ? 0 : undefined
+    }
+    const number = parseFloat(match[1])
+    const pixels =
+        match[2] === 'em'
+            ? number * fontSize
+            : match[2] === 'rem'
+              ? number * 16
+              : match[2] === '%'
+                ? (number * fontSize) / 100
+                : match[2] === 'pt'
+                  ? (number * 4) / 3
+                  : number
+    return Math.round(pixels * 100) / 100
 }
 
 function parseSides(value: unknown): EmailSides | undefined {
@@ -175,6 +195,11 @@ function richTextOf(values: Record<string, any>): string {
     }
 }
 
+function listItemGapOf(list: Element, fontSize: number): number {
+    const gaps = Array.from(list.children).map((item) => Math.max(0, cssSides(cssOf(item), 'margin', fontSize).bottom))
+    return gaps.length ? Number(mostCommon(gaps.map(String))) : 0
+}
+
 /** A heading or button label can wrap its text in one styled paragraph, whose styling then belongs to the block. */
 function labelStyleOf(html: string, fontSize: number): EmailBlockStyle {
     const body = new DOMParser().parseFromString(html, 'text/html').body
@@ -191,6 +216,22 @@ function labelStyleOf(html: string, fontSize: number): EmailBlockStyle {
     }
 }
 
+/**
+ * Bold text at its own weight, such as 600, keeps that weight. The editor's text style carries it, and only reads it
+ * from a span.
+ */
+function keepFontWeights(root: Element): void {
+    root.querySelectorAll('strong[style], b[style]').forEach((element) => {
+        if (!/^[1-9]00$/.test((element as HTMLElement).style.fontWeight)) {
+            return
+        }
+        const span = element.ownerDocument.createElement('span')
+        span.setAttribute('style', element.getAttribute('style') ?? '')
+        span.append(...Array.from(element.childNodes))
+        element.replaceWith(span)
+    })
+}
+
 function inlineContent(html: string): JSONContent[] {
     const body = new DOMParser().parseFromString(html, 'text/html').body
     Array.from(body.children).forEach((child) => {
@@ -198,6 +239,7 @@ function inlineContent(html: string): JSONContent[] {
             ;(child as HTMLElement).style.removeProperty('font-weight')
         }
     })
+    keepFontWeights(body)
     const blocks = chipsInText(generateJSON(body.innerHTML, buildEmailExtensions('')).content) ?? []
     return blocks.flatMap((block, index): JSONContent[] => [
         ...(index > 0 ? [{ type: 'hardBreak' }] : []),
@@ -400,7 +442,7 @@ function richTextBlocks(html: string, style: EmailBlockStyle): JSONContent[] {
         const css = cssOf(element)
         const headingSize = HEADING_SIZE[element.tagName]
         const fontSize = css['font-size']
-            ? parseFloat(css['font-size'])
+            ? (cssPx(css['font-size'], baseSize) ?? baseSize)
             : headingSize
               ? headingSize * baseSize
               : baseSize
@@ -416,14 +458,20 @@ function richTextBlocks(html: string, style: EmailBlockStyle): JSONContent[] {
             headingSize,
             isList,
             marginTop: number(margin.top, defaultMargin),
-            marginBottom: number(margin.bottom, defaultMargin),
+            // The last item's own spacing merges into the list's bottom margin, so only the larger one shows.
+            marginBottom: isList
+                ? Math.max(number(margin.bottom, defaultMargin), listItemGapOf(element, fontSize)) -
+                  listItemGapOf(element, fontSize)
+                : number(margin.bottom, defaultMargin),
             sides: {
                 right: number(margin.right, 0) + number(inner.right, 0),
-                left: number(margin.left, 0) + number(inner.left, isList ? 0 : 0),
+                // A list's own left padding is where its bullets go, so it becomes the list indent instead.
+                left: number(margin.left, 0) + (isList ? 0 : number(inner.left, 0)),
                 top: number(inner.top, 0),
                 bottom: number(inner.bottom, 0),
             },
             listIndent: isList ? number(inner.left, 40) : undefined,
+            listItemGap: isList ? listItemGapOf(element, fontSize) : undefined,
         }
     })
     const extensions = buildEmailExtensions('')
@@ -444,12 +492,14 @@ function richTextBlocks(html: string, style: EmailBlockStyle): JSONContent[] {
             lineHeight:
                 lineHeightPercent(css['line-height'], block.fontSize) ??
                 (style.lineHeight !== undefined ? (style.lineHeight * baseSize) / block.fontSize : undefined),
-            letterSpacing: css['letter-spacing'] ? parseFloat(css['letter-spacing']) : style.letterSpacing,
+            letterSpacing: css['letter-spacing']
+                ? (cssPx(css['letter-spacing'], block.fontSize) ?? style.letterSpacing)
+                : style.letterSpacing,
             textAlign: align(css['text-align']) ?? style.textAlign,
             uppercase: css['text-transform'] === 'uppercase' ? true : style.uppercase,
             backgroundColor: css['background-color'] || style.backgroundColor,
             listIndent: block.listIndent,
-            listItemGap: block.isList ? 0 : undefined,
+            listItemGap: block.listItemGap,
             padding: {
                 top: top + block.sides.top,
                 right: padding.right + block.sides.right,
@@ -459,6 +509,7 @@ function richTextBlocks(html: string, style: EmailBlockStyle): JSONContent[] {
         })
         // The email has only three heading sizes, so a smaller heading is a bold paragraph with its own size.
         ;(element as HTMLElement).style?.removeProperty('font-weight')
+        keepFontWeights(element)
         const source =
             element.tagName === 'DIV' || block.headingSize === undefined
                 ? element.tagName === 'DIV'
@@ -518,8 +569,11 @@ interface TextDefaults {
 }
 
 /** Designs written through the API can hold a bare multiplier, like 1.6, where the old editor's own use a percentage. */
-function lineHeightOf(value: unknown): number | undefined {
+function lineHeightOf(value: unknown, fontSize: number): number | undefined {
     const number = parsePx(value)
+    if (typeof value === 'string' && value.trim().endsWith('px') && number !== undefined) {
+        return Math.round((number / fontSize) * 10000) / 100
+    }
     return number !== undefined && number > 0 && number < 8 ? number * 100 : number
 }
 
@@ -530,7 +584,8 @@ function textStyleFrom(values: Record<string, any>, defaults: TextDefaults): Ema
         fontWeight: parsePx(values.fontWeight),
         color: values.color || undefined,
         fontSize: parsePx(values.fontSize) ?? defaults.fontSize,
-        lineHeight: lineHeightOf(values.lineHeight) ?? defaults.lineHeight,
+        lineHeight:
+            lineHeightOf(values.lineHeight, parsePx(values.fontSize) ?? defaults.fontSize) ?? defaults.lineHeight,
         letterSpacing: parsePx(values.letterSpacing) || undefined,
         textAlign: align(values.textAlign),
         padding: containerPadding(values),
@@ -714,6 +769,135 @@ interface ConvertContext {
     /** Buttons whose hover colors the old editor's export actually has. Most exports leave them out. */
     hoverButtons: Set<string>
     screens: ExportedScreens
+    exportedStyles: ExportedStyles
+    /** This block's cell in the old editor's html, when it could be matched to the block. */
+    exportedCell?: ExportedCell
+}
+
+interface ExportedCell {
+    first: string
+    image?: string
+}
+
+const CONTENT_CELL =
+    /<td\b[^>]*style="overflow-wrap:\s*break-word;\s*word-break:\s*break-word;\s*padding:[^"]*"[^>]*>\s*(<[a-z0-9]+\b[^>]*>)?/gi
+
+/**
+ * A row's side padding sits outside the old editor's fixed-width row, where the page is wider than the email. Inside
+ * the email's body it would push the body wider, so a kept row drops it, as a rebuilt row does.
+ */
+function withoutRowSidePadding(rowHtml: string): string {
+    return rowHtml.replace(
+        /^(<div class="u-row-container"[^>]*style="[^"]*?)padding:\s*([^;"]+)/,
+        (match, start, value) => {
+            const sides = parseSides(value)
+            return sides && (sides.left || sides.right)
+                ? `${start}padding: ${sides.top}px 0px ${sides.bottom}px 0px`
+                : match
+        }
+    )
+}
+
+function exportedContentCells(rowHtml: string | undefined, contentCount: number): ExportedCell[] | null {
+    const matches = rowHtml ? [...rowHtml.matchAll(CONTENT_CELL)] : []
+    if (!rowHtml || matches.length !== contentCount) {
+        return null
+    }
+    return matches.map((match, index) => {
+        const cell = rowHtml.slice(match.index, matches[index + 1]?.index ?? rowHtml.length)
+        return { first: match[1] ?? '', image: /<img\b[^>]*>/i.exec(withoutOutlookOnly(cell))?.[0] }
+    })
+}
+
+/**
+ * Text the old editor's earlier versions saved without a size or line height went out without one, so mail apps
+ * showed their own defaults: 16px and a normal line height of about 115%.
+ */
+function exportedTextDefaults(element: string | undefined, defaults: TextDefaults): TextDefaults {
+    if (!element || !/^<div\b/i.test(element)) {
+        return defaults
+    }
+    const style = /\bstyle="([^"]*)"/i.exec(element)?.[1] ?? ''
+    return {
+        fontSize: /font-size\s*:/i.test(style) ? defaults.fontSize : 16,
+        lineHeight: /line-height\s*:/i.test(style) ? defaults.lineHeight : 115,
+    }
+}
+
+interface ExportedStyles {
+    /** Each block's phone settings as its export writes them, by block id and then by the class they style. */
+    phone: Map<string, Map<string, string>>
+    images: Map<string, ExportedImage>
+}
+
+interface ExportedImage {
+    width: number
+    scale: number
+}
+
+function exportedStyles(storedHtml: string | null | undefined): ExportedStyles {
+    const html = storedHtml ?? ''
+    const phone = new Map<string, Map<string, string>>()
+    for (const [, id, className, declarations] of html.matchAll(/#(u_[a-z_]+_\d+) \.(v-[\w-]+) \{([^{}]*)\}/g)) {
+        const rules = phone.get(id) ?? new Map<string, string>()
+        rules.set(className, declarations.replace(/!important/g, '').trim())
+        phone.set(id, rules)
+    }
+    const images = new Map<string, ExportedImage>()
+    for (const [, id, image] of withoutOutlookOnly(html).matchAll(
+        /id="(u_content_image_\d+)"(?:(?!id="u_)[\s\S])*?(<img\b[^>]*>)/g
+    )) {
+        const size = exportedImageSize(image)
+        if (size) {
+            images.set(id, size)
+        }
+    }
+    return { phone, images }
+}
+
+/** Markup only Outlook on Windows reads, such as the fixed-size copy of each image the old editor writes for it. */
+function withoutOutlookOnly(html: string): string {
+    return html.replace(/<!--\[if mso\]>[\s\S]*?<!\[endif\]-->/gi, '')
+}
+
+function exportedImageSize(image: string | undefined): ExportedImage | null {
+    const css = /\bstyle="([^"]*)"/.exec(image ?? '')?.[1] ?? ''
+    const cssWidth = /(?:^|;)\s*width:\s*([\d.]+)(px|%)/.exec(css)
+    const maxWidth = /max-width:\s*([\d.]+)px/.exec(css)
+    const width = parseFloat(maxWidth?.[1] ?? /\swidth="([\d.]+)"/.exec(` ${image ?? ''}`)?.[1] ?? '')
+    return width > 0 ? { width: Math.round(width), scale: cssWidth?.[2] === '%' ? parseFloat(cssWidth[1]) : 100 } : null
+}
+
+function declaration(rules: Map<string, string> | undefined, className: string, property: string): string | undefined {
+    const declarations = rules?.get(className)
+    return declarations ? new RegExp(`(?:^|;)\\s*${property}:\\s*([^;]+)`).exec(declarations)?.[1]?.trim() : undefined
+}
+
+function phoneStyleFrom(rules: Map<string, string> | undefined): EmailPhoneStyle | undefined {
+    if (!rules) {
+        return undefined
+    }
+    const innerPadding = parseSides(declaration(rules, 'v-padding', 'padding'))
+    const imageMaxWidth = declaration(rules, 'v-src-max-width', 'max-width')
+    const lineHeight = declaration(rules, 'v-line-height', 'line-height')
+    const style: EmailPhoneStyle = {
+        padding: parseSides(
+            declaration(rules, 'v-container-padding-padding', 'padding') ??
+                declaration(rules, 'v-col-padding', 'padding')
+        ),
+        fontSize: parsePx(declaration(rules, 'v-font-size', 'font-size')),
+        lineHeight: lineHeight?.endsWith('%') ? parseFloat(lineHeight) : undefined,
+        textAlign: align(declaration(rules, 'v-text-align', 'text-align')),
+        imageScale: parsePx(declaration(rules, 'v-src-width', 'width')),
+        width: imageMaxWidth?.endsWith('px') ? parsePx(imageMaxWidth) : undefined,
+        buttonWidth: parsePx(declaration(rules, 'v-size-width', 'width')),
+        innerPaddingX: innerPadding?.left,
+        innerPaddingY: innerPadding?.top,
+    }
+    const kept = Object.fromEntries(
+        Object.entries(style).filter(([, value]) => value !== undefined && !Number.isNaN(value))
+    )
+    return Object.keys(kept).length ? kept : undefined
 }
 
 function exportedHoverButtons(storedHtml: string | null | undefined): Set<string> {
@@ -740,7 +924,32 @@ function convertContentBlocks(
     content: Record<string, any>,
     contentWidth: number,
     rowSidePadding: number,
-    { unsupported, hoverButtons }: ConvertContext
+    context: ConvertContext
+): JSONContent[] {
+    const blocks = convertContentBlocksWithoutPhone(content, contentWidth, rowSidePadding, context)
+    const exportedPhone = phoneStyleFrom(context.exportedStyles.phone.get(String(content.values?._meta?.htmlID ?? '')))
+    // A line height in pixels stays the same when a phone shrinks the text, so it becomes a larger share of the size.
+    const fixedLineHeight =
+        typeof content.values?.lineHeight === 'string' && content.values.lineHeight.trim().endsWith('px')
+            ? parsePx(content.values.lineHeight)
+            : undefined
+    const phone =
+        exportedPhone?.fontSize && !exportedPhone.lineHeight && fixedLineHeight
+            ? { ...exportedPhone, lineHeight: Math.round((fixedLineHeight / exportedPhone.fontSize) * 10000) / 100 }
+            : exportedPhone
+    return phone
+        ? blocks.map((block) => ({
+              ...block,
+              attrs: { ...block.attrs, emailStyle: { ...block.attrs?.emailStyle, phone } },
+          }))
+        : blocks
+}
+
+function convertContentBlocksWithoutPhone(
+    content: Record<string, any>,
+    contentWidth: number,
+    rowSidePadding: number,
+    { unsupported, hoverButtons, exportedStyles: styles, exportedCell }: ConvertContext
 ): JSONContent[] {
     const values = content.values ?? {}
     if (
@@ -761,7 +970,10 @@ function convertContentBlocks(
     switch (content.type) {
         case 'text':
         case 'paragraph':
-            return richTextBlocks(richTextOf(values), textStyleFrom(values, { fontSize: 14, lineHeight: 140 }))
+            return richTextBlocks(
+                richTextOf(values),
+                textStyleFrom(values, exportedTextDefaults(exportedCell?.first, { fontSize: 14, lineHeight: 140 }))
+            )
         case 'heading': {
             const level = Math.min(3, parseInt(String(values.headingType ?? 'h1').slice(1), 10) || 1)
             const style = textStyleFrom(values, { fontSize: 22, lineHeight: 140 })
@@ -818,7 +1030,7 @@ function convertContentBlocks(
                                 values.size?.autoWidth === false ? (parsePx(values.size?.width) ?? 100) : undefined,
                             fontSize,
                             fontWeight: parsePx(values.fontWeight) ?? 400,
-                            lineHeight: lineHeightOf(values.lineHeight),
+                            lineHeight: lineHeightOf(values.lineHeight, fontSize),
                             letterSpacing: parsePx(values.letterSpacing) || undefined,
                             // Without a unit the old editor's value is invalid CSS, so the corners stay square.
                             borderRadius:
@@ -841,8 +1053,13 @@ function convertContentBlocks(
             const percentBase = available - rowSidePadding
             const percent =
                 typeof src.maxWidth === 'string' && src.maxWidth.endsWith('%') ? parseFloat(src.maxWidth) : null
-            const width =
-                src.autoWidth === false && percent ? Math.round((percentBase * percent) / 100) : parsePx(src.width)
+            const exportedImage =
+                styles.images.get(String(values._meta?.htmlID ?? '')) ?? exportedImageSize(exportedCell?.image)
+            const width = exportedImage
+                ? exportedImage.width
+                : src.autoWidth === false && percent
+                  ? Math.round((percentBase * percent) / 100)
+                  : parsePx(src.width)
             return [
                 {
                     type: 'emailImage',
@@ -855,6 +1072,8 @@ function convertContentBlocks(
                         mediaId: src.id ?? null,
                         emailStyle: compact({
                             width: width ? Math.min(width, available) : undefined,
+                            imageScale:
+                                exportedImage?.scale ?? (src.autoWidth === false && percent ? percent : undefined),
                             textAlign: align(values.textAlign),
                             padding,
                         }),
@@ -908,9 +1127,10 @@ function convertContentBlocks(
             return menuBlocks(values)
         case 'custom':
             if (content.slug === 'unsubscribe_link') {
+                // The block exports its content bare, so it takes the email app's size and line height.
                 return richTextBlocks(
                     String(values.unsubscribe_link_content ?? ''),
-                    textStyleFrom(values, { fontSize: 14, lineHeight: 140 })
+                    textStyleFrom(values, { fontSize: 16, lineHeight: 115 })
                 )
             }
             unsupported.add(`the custom block ${String(content.slug ?? '')}`.trim())
@@ -1012,7 +1232,14 @@ export function unlayerToEmailDocument(
     const contents = body?.rows?.flatMap((row: any) =>
         (row.columns ?? []).flatMap((column: any) => column.contents ?? [])
     )
-    if (body?.id === HTML_WRAP_BODY_ID && contents?.length === 1 && contents[0].type === 'html' && storedHtml?.trim()) {
+    // Html the old editor didn't export, such as an email whose html was sent through the API, is sent as written.
+    const exportedByOldEditor = /\bu-row\b|\bu_body\b/.test(storedHtml ?? '')
+    if (
+        (body?.id === HTML_WRAP_BODY_ID || !exportedByOldEditor) &&
+        contents?.length === 1 &&
+        contents[0].type === 'html' &&
+        storedHtml?.trim()
+    ) {
         return wholeEmailAsHtml(storedHtml, [])
     }
     if (!body || !Array.isArray(body.rows)) {
@@ -1028,7 +1255,11 @@ export function unlayerToEmailDocument(
     const bodyWidth = parsePx(bodyValues.contentWidth) ?? 500
     const exported = exportedRows(storedHtml)
     const hoverButtons = exportedHoverButtons(storedHtml)
+    const styles = exportedStyles(storedHtml)
     const rowHtml = exported && exported.rows.length === rows.length ? exported.rows : null
+    const rowSidePaddingDroppedOnPhones = /\.u-row-container\s*\{[^}]*padding-left:\s*0(px)?\s*!important/.test(
+        exported?.css ?? ''
+    )
 
     const rowBackgrounds = new Set(rows.map((row) => row.values?.backgroundColor ?? ''))
     const sharedRowBackground = rowBackgrounds.size === 1 ? [...rowBackgrounds][0] : ''
@@ -1121,6 +1352,11 @@ export function unlayerToEmailDocument(
                 : []
 
         const rowWidth = bodyWidth
+        const exportedCells = exportedContentCells(
+            rowHtml?.[rowIndex],
+            columns.reduce((total, column) => total + (column.contents?.length ?? 0), 0)
+        )
+        let contentIndex = 0
         const converted = columns.map((column, index) => {
             const columnPadding = parseSides(column.values?.padding)
             const width =
@@ -1131,11 +1367,14 @@ export function unlayerToEmailDocument(
                     unsupported: rowUnsupported,
                     hoverButtons,
                     screens,
+                    exportedStyles: styles,
+                    exportedCell: exportedCells?.[contentIndex++],
                 })
             )
             const background = column.values?.backgroundColor
             const padding = parseSides(column.values?.padding)
             const hasPadding = padding && (padding.top || padding.right || padding.bottom || padding.left)
+            const phonePadding = phoneStyleFrom(styles.phone.get(String(column.values?._meta?.htmlID ?? '')))?.padding
             return {
                 blocks,
                 style: compact({
@@ -1143,13 +1382,24 @@ export function unlayerToEmailDocument(
                     padding: hasPadding ? padding : undefined,
                     borderRadius: parsePx(column.values?.borderRadius) || undefined,
                     ...uniformBorder(column.values?.border, rowUnsupported, 'columns with a border on only some sides'),
+                    phone: phonePadding ? { padding: phonePadding } : undefined,
                 }),
                 ratio: cells[index] ?? 1,
             }
         })
 
+        // Older exports don't drop a row's side padding on a phone, where it then narrows the row.
+        const phoneRowPadding =
+            exported && !rowSidePaddingDroppedOnPhones && (parsedRowPadding?.left || parsedRowPadding?.right)
+                ? parsedRowPadding
+                : undefined
         const plain =
-            converted.length === 1 && !converted[0].style && !sectionBackground && !rowHasPadding && !rowVisibility
+            converted.length === 1 &&
+            !converted[0].style &&
+            !sectionBackground &&
+            !rowHasPadding &&
+            !rowVisibility &&
+            !phoneRowPadding
         const onlyColor = converted.length === 1 && Object.keys(converted[0].style ?? {}).join() === 'backgroundColor'
         const rowSpacer =
             isSpacerRow(row) && onlyColor && !sectionBackground && !rowHasPadding ? converted[0].blocks[0] : null
@@ -1176,6 +1426,15 @@ export function unlayerToEmailDocument(
                         emailStyle: compact({
                             backgroundColor: sectionBackground || undefined,
                             padding: rowHasPadding && !paddingAsSpacers ? rowPadding : undefined,
+                            phone: phoneRowPadding
+                                ? {
+                                      padding: {
+                                          ...phoneRowPadding,
+                                          top: paddingAsSpacers ? 0 : phoneRowPadding.top,
+                                          bottom: paddingAsSpacers ? 0 : phoneRowPadding.bottom,
+                                      },
+                                  }
+                                : undefined,
                             columnGap: 0,
                         }),
                         ...(rowVisibility ? { emailVisibility: rowVisibility } : {}),
@@ -1203,7 +1462,10 @@ export function unlayerToEmailDocument(
                     [
                         {
                             type: 'emailHtml',
-                            attrs: { html: rowHtml[rowIndex], emailStyle: compact({ inheritText: true }) },
+                            attrs: {
+                                html: withoutRowSidePadding(rowHtml[rowIndex]),
+                                emailStyle: compact({ inheritText: true }),
+                            },
                         },
                     ],
                     rowVisibility

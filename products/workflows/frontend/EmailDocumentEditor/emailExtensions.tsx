@@ -470,6 +470,16 @@ export const EmailTextStyle = TextStyle.extend({
                 renderHTML: (attributes: Record<string, any>) =>
                     attributes.fontFamily ? { style: `font-family:${attributes.fontFamily}` } : {},
             },
+            fontWeight: {
+                default: null,
+                // Plain bold is the bold mark. Any other weight, such as 600, is kept here.
+                parseHTML: (element: HTMLElement) =>
+                    /^[1-9]00$/.test(element.style.fontWeight) && element.style.fontWeight !== '700'
+                        ? Number(element.style.fontWeight)
+                        : null,
+                renderHTML: (attributes: Record<string, any>) =>
+                    attributes.fontWeight ? { style: `font-weight:${attributes.fontWeight}` } : {},
+            },
             letterSpacing: {
                 default: null,
                 parseHTML: (element: HTMLElement) => element.style.letterSpacing || null,

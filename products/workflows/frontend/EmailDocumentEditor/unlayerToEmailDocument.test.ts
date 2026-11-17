@@ -267,6 +267,49 @@ describe('unlayerToEmailDocument', () => {
 
     it.each([
         {
+            name: "a list's own indent and item spacing",
+            block: content('text', {
+                text: '<ul style="padding-left: 20px"><li style="margin-bottom: 8px">One</li><li style="margin-bottom: 8px">Two</li></ul>',
+            }),
+            exported: undefined,
+            // The last item's 8px merges into the list's 14px bottom margin, so the cell adds only the difference.
+            sent: [/padding:24px 10px 16px 10px[^"]*"><ul[^>]*margin:0 0 0 20px/, '<li style="margin:0 0 8px 0">'],
+        },
+        {
+            name: 'a line height in pixels and tighter letter spacing',
+            block: content('heading', { text: 'Title', fontSize: '32px', lineHeight: '40px', letterSpacing: '-0.5px' }),
+            exported: undefined,
+            sent: ['line-height:125%', 'letter-spacing:-0.5px'],
+        },
+        {
+            name: 'bold text at its own weight',
+            block: content('text', { text: '<p>A <strong style="font-weight: 600">semibold</strong> word</p>' }),
+            exported: undefined,
+            sent: ['<span style="font-weight:600">semibold</span>'],
+        },
+        {
+            name: 'the size of an unsubscribe block',
+            block: content('custom', { unsubscribe_link_content: '<div>Bye</div>' }, { slug: 'unsubscribe_link' }),
+            exported: undefined,
+            sent: ['font-size:16px;line-height:115%'],
+        },
+        {
+            name: 'the size of text that earlier versions of the old editor left unset',
+            block: content('text', { text: '<p>Plain</p>', lineHeight: '140%' }),
+            exported:
+                '<html><body><div class="u-row-container"><table><tr><td style="overflow-wrap:break-word;word-break:break-word;padding:10px;"><div style="line-height: 140%;"><p>Plain</p></div></td></tr></table></div></body></html>',
+            sent: ['font-size:16px;line-height:140%'],
+        },
+    ])('keeps $name as the old editor sent it', ({ block, exported, sent }) => {
+        const html = renderEmailHtml(unlayerToEmailDocument(design([block]), exported).document?.doc ?? {})
+
+        for (const expected of sent) {
+            expect(html).toMatch(expected)
+        }
+    })
+
+    it.each([
+        {
             name: 'its export has a hover rule for it',
             exported: '#u_content_button_1 .v-button-colors:hover { color: #fff }',
             kept: '#222222',
@@ -358,7 +401,7 @@ describe('unlayerToEmailDocument', () => {
         })
         const exported = `<html><head><style>.u-row .u-col-100 { width: 500px !important; }</style></head><body>
 <div class="u-row-container" style="padding:0px"><p>Intro</p></div>
-<div class="u-row-container" style="padding:0px"><div class="u-row"><a href="https://example.com/v"><img src="https://example.com/thumb.png" /></a></div></div>
+<div class="u-row-container" style="padding:4px 16px"><div class="u-row"><a href="https://example.com/v"><img src="https://example.com/thumb.png" /></a></div></div>
 </body></html>`
 
         const conversion = unlayerToEmailDocument(twoRows, exported)
@@ -367,7 +410,7 @@ describe('unlayerToEmailDocument', () => {
         expect(intro.type).toBe('paragraph')
         expect(kept.type).toBe('emailHtml')
         expect(kept.attrs.html).toBe(
-            '<div class="u-row-container" style="padding:0px"><div class="u-row"><a href="https://example.com/v"><img src="https://example.com/thumb.png"></a></div></div>'
+            '<div class="u-row-container" style="padding: 4px 0px 4px 0px"><div class="u-row"><a href="https://example.com/v"><img src="https://example.com/thumb.png"></a></div></div>'
         )
         expect(conversion.document?.doc.attrs?.page.globalCss).toContain('.u-col-100')
         expect(conversion.keptAsHtml).toEqual([reason])
@@ -414,6 +457,37 @@ describe('unlayerToEmailDocument', () => {
         const { document } = unlayerToEmailDocument(design([content('html', { html })]), exported)
 
         expect(document?.doc.attrs?.page.globalCss).toContain('.u-row { width: 100% !important; }')
+    })
+
+    it("sizes images as the old editor's html did and keeps its phone-only settings", () => {
+        const image = (id: number): Record<string, any> =>
+            content(
+                'image',
+                { src: { url: 'https://example.com/a.png', width: 320 }, _meta: { htmlID: `u_content_image_${id}` } },
+                { id: `image-${id}` }
+            )
+        const blocks = [
+            image(1),
+            image(2),
+            content('text', { text: '<p>Hello</p>', _meta: { htmlID: 'u_content_text_1' } }),
+        ]
+        const exported = `<html><head><style>@media (max-width: 480px) {
+#u_content_image_2 .v-src-width { width: 40% !important; } #u_content_image_2 .v-src-max-width { max-width: 40% !important; }
+#u_content_text_1 .v-container-padding-padding { padding: 4px 8px !important; } #u_content_text_1 .v-font-size { font-size: 12px !important; } }</style></head><body>
+<div class="u-row-container">
+<table id="u_content_image_1"><tr><td><!--[if mso]><img src="https://example.com/a.png" style="border: none;" width="320" height="200"/><![endif]--><img src="https://example.com/a.png" style="border: none;width: 50%;max-width: 160px;" width="160" class="v-src-width v-src-max-width"/></td></tr></table>
+<table id="u_content_image_2"><tr><td><img src="https://example.com/a.png" style="border: none;float: none;" width="200" height="100" class="v-src-width v-src-max-width"/></td></tr></table>
+<table id="u_content_text_1"><tr><td><p>Hello</p></td></tr></table>
+</div></body></html>`
+
+        const html = renderEmailHtml(unlayerToEmailDocument(design(blocks), exported).document?.doc ?? {})
+        const images = [...html.matchAll(/<img [^>]*style="([^"]*)"/g)].map((match) => match[1])
+
+        expect(images[0]).toContain('width:50%;max-width:160px')
+        expect(images[1]).toContain('width:100%;max-width:200px')
+        expect(html).toMatch(/\.ph-m-\d+ img \{ width: 40% !important; max-width: 40% !important;/)
+        expect(html).toMatch(/\.ph-m-\d+ \{ padding:4px 8px 4px 8px !important; \}/)
+        expect(html).toMatch(/\.ph-m-\d+ p, [^{]*\{ font-size:12px !important; \}/)
     })
 
     it('opens an email saved as raw html exactly as it is sent, even when it has no <html> tag', () => {
