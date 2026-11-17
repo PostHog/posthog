@@ -546,7 +546,7 @@ async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[s
 def _build_tier_schedule(
     dag_id: str, team_id: int, team_timezone: str, tier: Tier, node_ids: Iterable[str]
 ) -> Schedule:
-    from posthog.temporal.data_modeling.workflows.execute_dag import (  # noqa: PLC0415 — the workflows package imports this product's models back; importing it lazily keeps this module importable from models code and temporal off django.setup()
+    from products.data_modeling.backend.temporal.workflows.execute_dag import (  # noqa: PLC0415 — the workflows package imports this product's models back; importing it lazily keeps this module importable from models code and temporal off django.setup()
         ExecuteDAGInputs,
     )
 

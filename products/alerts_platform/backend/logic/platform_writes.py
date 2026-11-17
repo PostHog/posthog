@@ -21,7 +21,6 @@ from posthog.models.activity_logging.model_activity import get_current_user, get
 from posthog.models.signals import model_activity_signal
 
 from products.alerts_platform.backend.facade.contracts import (
-    MAX_EVALUATION_PERIODS,
     MAX_STORED_INTEGER,
     Grouping,
     GroupingMode,
@@ -83,8 +82,8 @@ def _validated(
         ("evaluation_periods", edit.evaluation_periods),
         ("datapoints_to_alarm", edit.datapoints_to_alarm),
     ):
-        if not 1 <= value <= MAX_EVALUATION_PERIODS:
-            raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {MAX_EVALUATION_PERIODS}.")
+        if not 1 <= value <= spec.max_evaluation_periods:
+            raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {spec.max_evaluation_periods}.")
     if edit.datapoints_to_alarm > edit.evaluation_periods:
         raise InvalidPlatformAlertEdit("datapoints_to_alarm", "Cannot exceed evaluation_periods.")
     if not 0 <= edit.cooldown_minutes <= MAX_STORED_INTEGER:

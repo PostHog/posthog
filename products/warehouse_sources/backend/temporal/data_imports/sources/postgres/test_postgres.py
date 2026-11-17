@@ -2821,6 +2821,10 @@ class TestIsConnectionDroppedError:
             # backend-connect timeout as "{:error, :timeout}", the Erlang GenServer call-timeout atom,
             # distinct from the POSIX-level ":etimedout". Same transient pooler class; reconnect recovers.
             psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :timeout}"),
+            # The bare-atom sibling of the above: some Supavisor versions report the same pool
+            # checkout/backend-connect timeout with the reason atom alone, not wrapped in the
+            # `{:error, ...}` tuple. Same transient pooler class; reconnect must catch it.
+            psycopg.errors.ConnectionFailure("Failed to connect to database: :timeout"),
             # Neon's proxy reports a compute that didn't wake from scale-to-zero before the auth
             # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure(

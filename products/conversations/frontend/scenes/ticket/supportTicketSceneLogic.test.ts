@@ -160,7 +160,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
     })
 
     it('gives the loaded ticket as a People recent', () => {
-        expect(logic.values.todayPeopleRecent).toEqual({
+        expect(logic.values.todayRecent).toEqual({
             type: 'ticket',
             name: 'Ticket #42',
             href: urls.supportTicketDetail(42),

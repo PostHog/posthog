@@ -67,7 +67,7 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
 import { ActivityScope, CohortType, SidePanelTab } from '~/types'
@@ -75,6 +75,7 @@ import { ActivityScope, CohortType, SidePanelTab } from '~/types'
 import { cohortFlagCallProblem, flagCallProblemText } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
+import { RealtimeCohortsUsage } from 'products/cohorts/frontend/realtime/RealtimeCohortsUsage'
 import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 import {
     captureMessageAudienceClicked,
@@ -407,7 +408,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                     <SceneContent>
                         <LemonField name="name" className="contents">
                             <SceneTitleSection
-                                nameAction={<TodayPeoplePinButton />}
+                                nameAction={<TodayScenePinButton />}
                                 name={cohort.name}
                                 nameSuffix={
                                     !isNewCohort ? (
@@ -666,19 +667,22 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                             )}
 
                                             {isNewCohort && realtimeCohortsServing && hasEventCriteria(cohort) && (
-                                                <LemonField
-                                                    name="realtime_enabled"
-                                                    help="Feature flags can target the cohort once PostHog has prepared it from past events."
-                                                >
-                                                    {({ value, onChange }) => (
-                                                        <LemonCheckbox
-                                                            checked={!!value}
-                                                            onChange={onChange}
-                                                            label="Turn on realtime"
-                                                            data-attr="cohort-create-realtime"
-                                                        />
-                                                    )}
-                                                </LemonField>
+                                                <>
+                                                    <LemonField
+                                                        name="realtime_enabled"
+                                                        help="Feature flags can target the cohort once PostHog has prepared it from past events."
+                                                    >
+                                                        {({ value, onChange }) => (
+                                                            <LemonCheckbox
+                                                                checked={!!value}
+                                                                onChange={onChange}
+                                                                label="Turn on realtime"
+                                                                data-attr="cohort-create-realtime"
+                                                            />
+                                                        )}
+                                                    </LemonField>
+                                                    <RealtimeCohortsUsage location="cohort_create" />
+                                                </>
                                             )}
 
                                             {cohort.is_static && isNewCohort && (

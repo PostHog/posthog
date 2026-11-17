@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -29,8 +29,10 @@ from products.alerts_platform.backend.facade.api import (
 )
 from products.alerts_platform.backend.facade.contracts import (
     MAX_INSTANCES_CEILING,
+    AlertDestinationData,
     AlertEventKind,
     CheckFailure,
+    DestinationType,
     FiringEpisode,
     GroupAdmission,
     Grouping,
@@ -56,7 +58,7 @@ from products.alerts_platform.backend.facade.lifecycle import LOGS_ALERT_POLICY,
 from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
 from products.alerts_platform.backend.logic.platform_alert_events import announcement
 from products.alerts_platform.backend.logic.platform_lifecycle import CONFIGURATION_ROW_ALERT_ID
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
 
 _GROUP_FIELDS = (
@@ -361,6 +363,24 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             self.configuration.refresh_from_db()
         assert (self.configuration.enabled, self.configuration.check_status) == (False, "broken")
         assert due_checks(self.team.id, SourceKind.LOGS.value, self.slot, self.cutoff + timedelta(hours=1)) == ()
+
+    def test_a_check_carries_the_label_names_enabled_routes_match_on(self) -> None:
+        with team_scope(self.team.id):
+            receiver = AlertReceiver.objects.create(
+                team=self.team,
+                name="Ops",
+                type=DestinationType.SLACK,
+                config=cast(AlertDestinationData, {"slack_workspace_id": 1, "slack_channel_id": "C1"}),
+            )
+            for matchers, enabled in (
+                ([{"label": "rotation", "op": "=", "value": "a"}, {"label": "team", "op": "=", "value": "x"}], True),
+                ([{"label": "paused", "op": "=", "value": "a"}], False),
+            ):
+                AlertRoute.objects.create(team=self.team, receiver=receiver, matchers=matchers, enabled=enabled)
+
+        (check,) = due_checks(self.team.id, SourceKind.LOGS.value, self.slot, self.cutoff)
+
+        assert check.routed_label_names == {"rotation", "team"}
 
     def test_switching_a_source_off_leaves_the_alerts_the_platform_owns(self) -> None:
         with team_scope(self.team.id):
@@ -1188,8 +1208,10 @@ def test_an_outcome_rejects_an_invalid_shape(overrides: dict[str, Any]) -> None:
         PlatformAlertOutcome(**fields)
 
 
-def test_a_full_grouped_check_with_hostile_labels_fits_one_payload() -> None:
-    check = PlatformAlertCheckInput(
+def _grouped_check(
+    keys: tuple[str, ...] = ("service",), routed_label_names: frozenset[str] = frozenset()
+) -> PlatformAlertCheckInput:
+    return PlatformAlertCheckInput(
         id=uuid4(),
         team_id=1,
         name="API errors",
@@ -1204,8 +1226,49 @@ def test_a_full_grouped_check_with_hostile_labels_fits_one_payload() -> None:
         legacy_configuration_id=None,
         check_status="ok",
         snooze_until=None,
-        grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=MAX_INSTANCES_CEILING),
+        grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=keys, max_instances=MAX_INSTANCES_CEILING),
+        routed_label_names=routed_label_names,
     )
+
+
+def _decided_labels(check: PlatformAlertCheckInput, observations: list[GroupObservation]) -> list[dict[str, str]]:
+    decision = decide_groups(
+        check,
+        observations,
+        snapshot_of=lambda instance, prior: AlertSnapshot(
+            state=AlertState(instance.state),
+            cooldown=timedelta(0),
+            last_notified_at=None,
+            snooze_until=None,
+            consecutive_failures=0,
+        ),
+        policy=LOGS_ALERT_POLICY,
+        now=datetime(2026, 10, 15, tzinfo=UTC),
+    )
+    return [verdict.group.labels for verdict in decision.verdicts]
+
+
+@pytest.mark.parametrize(
+    "routed, expected",
+    [
+        (frozenset(), {"pod": "p", "a": "1", "b": "2", "c": "3"}),
+        (frozenset({"zone", "absent"}), {"zone": "z", "pod": "p", "a": "1", "b": "2"}),
+    ],
+)
+def test_a_group_keeps_routed_labels_then_grouping_keys_when_its_labels_are_cut(
+    routed: frozenset[str], expected: dict[str, str]
+) -> None:
+    labels = {"a": "1", "b": "2", "c": "3", "d": "4", "pod": "p", "zone": "z"}
+    observation = GroupObservation(grouping_key="p", current_breached=True, value=1.0, labels=labels)
+
+    kept = _decided_labels(_grouped_check(keys=("pod",), routed_label_names=routed), [observation])
+
+    assert kept == [expected]
+    assert list(kept[0]) == list(expected)
+
+
+def test_a_full_grouped_check_with_hostile_labels_fits_one_payload() -> None:
+    check = _grouped_check()
     # Astral characters escape to 12 bytes each in a payload, the most a character can cost.
     hostile = "\U0001f600" * 32 * 1024
     observations = [

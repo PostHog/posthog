@@ -34,6 +34,8 @@ BASELINE_WINDOW = datetime.timedelta(days=30)
 # One row is one series. Far more than the series of every active insight of one project.
 MAX_SERIES = 10_000
 MAX_BUCKETS = 2_000
+# Enough for an hourly series over 14 days, or a daily series over a year.
+MAX_SERIES_POINTS = 400
 # Each rate shrinks toward its baseline by this many buckets, so 1 flagged of 1 scored does not top a ranking.
 PRIOR_BUCKETS = 10
 # The prior when no series of the project has a scored baseline: about what a 0.95 threshold flags on noise.
@@ -105,6 +107,13 @@ ORDER BY bucket_start DESC, series_key
 LIMIT {{limit}}
 """
 
+_POINTS_QUERY = f"""
+SELECT insight_id, series_key, bucket_start, value, flag
+FROM ({_LATEST_BUCKETS})
+WHERE score IS NOT NULL AND series_key IN {{series_keys}}
+ORDER BY insight_id, series_key, bucket_start DESC
+LIMIT {{limit}} BY insight_id, series_key
+"""
 
 _SCORED_DAYS_QUERY = """
 SELECT count(DISTINCT toDate(toTimeZone(bucket_start, 'UTC')))
@@ -127,6 +136,13 @@ class FlaggedPoint:
     bucket_start: datetime.datetime
     value: float | None
     score: float | None
+
+
+@frozen
+class SeriesPoint:
+    bucket_start: datetime.datetime
+    value: float | None
+    flag: bool
 
 
 @frozen
@@ -430,6 +446,48 @@ def latest_buckets(
         if key
     ]
     return ScoredBuckets(buckets=buckets, truncated=len(rows) > limit)
+
+
+def series_points(
+    team: Team,
+    *,
+    date_from: datetime.datetime,
+    date_to: datetime.datetime,
+    series: Collection[tuple[int, str]],
+) -> dict[tuple[int, str], list[SeriesPoint]]:
+    """The newest ``MAX_SERIES_POINTS`` scored buckets of each ``(insight_id, series_key)`` in the range, oldest first.
+
+    Warm-up rows are left out. A bucket that was not scored has no point, so a gap stays a gap.
+    """
+    if not series:
+        return {}
+    tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
+    response = execute_hogql_query(
+        _POINTS_QUERY,
+        team,
+        query_type="AnomalyScoresSeriesPoints",
+        placeholders={
+            **_placeholders(
+                since=date_from,
+                until=date_to,
+                insight_ids={insight_id for insight_id, _ in series},
+                series_key=None,
+            ),
+            "series_keys": ast.Tuple(exprs=[ast.Constant(value=key) for key in sorted({key for _, key in series})]),
+            "limit": ast.Constant(value=MAX_SERIES_POINTS),
+        },
+        ch_user=ClickHouseUser.DEFAULT,
+    )
+    rows = cast(list[tuple[Any, ...]], response.results or [])
+    timezone = team.timezone_info
+    points: dict[tuple[int, str], list[SeriesPoint]] = {key: [] for key in series}
+    for insight_id, key, start, value, flag in reversed(rows):
+        # The scope matches insights and keys apart, so a key of another insight on the page can match too.
+        if (insight_id, key) in points:
+            points[(insight_id, key)].append(
+                SeriesPoint(bucket_start=_local(start, timezone), value=_float(value), flag=bool(flag))
+            )
+    return points
 
 
 def _previous_start(start: datetime.datetime, interval: IntervalType) -> datetime.datetime:

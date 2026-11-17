@@ -269,3 +269,44 @@ class InvestigationRelease:
     # announcement of a changed verdict on a firing that already went out.
     deliveries: tuple[AlertDeliveryRequest, ...]
     previous_verdict: str | None
+
+
+@frozen
+class CustomizableDestination:
+    """A destination whose HogFunctions are ready to edit after "Customize"."""
+
+    hog_function_ids: tuple[UUID, ...]
+    destination_type: DestinationType
+    # Whether this Customize wrote the HogFunctions, rather than finding them already there.
+    created: bool
+
+
+@frozen
+class ResetDestination:
+    """A destination sending the standard message again, from its new `AlertDestination` row."""
+
+    destination_id: UUID
+    destination_type: DestinationType
+    retired_hog_function_ids: tuple[UUID, ...]
+
+
+class AlertWriteRefused(Exception):
+    def __init__(self, detail: str | dict[str, Any], *, code: str = "invalid", status_code: int = 400) -> None:
+        super().__init__(str(detail))
+        self.detail = detail
+        self.code = code
+        self.status_code = status_code
+
+
+@frozen
+class AlertValidationState:
+    id: UUID
+    enabled: bool
+    condition: dict[str, Any] | None
+    config: dict[str, Any] | None
+    threshold_configuration: dict[str, Any] | None
+    calculation_interval: str | None
+    detector_config: dict[str, Any] | None
+    evaluation_delay_intervals: int
+    investigation_agent_enabled: bool
+    investigation_gates_notifications: bool

@@ -110,6 +110,7 @@ def test_the_screening_client_follows_the_organization_privacy_mode(privacy: boo
         patch.object(screening, "is_privacy_mode_enabled", return_value=privacy),
         patch.object(screening, "build_system_one_client") as build,
     ):
-        screening.build_client(team)
+        screening.build_client(team, "manual")
 
     assert build.call_args.kwargs["privacy_mode"] is privacy
+    assert build.call_args.kwargs["properties"] == {"trigger": "manual"}

@@ -205,6 +205,27 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         assert (row["anomaly_rate"], row["coverage"], row["baseline_rate"]) == (0.5, 0.5, None)
         assert row["last_flagged_bucket"] == row["first_flagged_bucket"] == "2026-10-22T00:00:00+00:00"
         assert row["flagged_points"] == [{"bucket_start": "2026-10-22T00:00:00+00:00", "value": 10.0, "score": 0.98}]
+        assert "points" not in row
+
+    @parameterized.expand(
+        [
+            ("every_scored_bucket", 400, ["2026-10-19", "2026-10-22"]),
+            ("capped_to_the_newest", 1, ["2026-10-22"]),
+        ]
+    )
+    def test_search_includes_the_scored_points_of_the_series_on_the_page(
+        self, _name: str, cap: int, expected_days: list[str]
+    ) -> None:
+        self._score_history()
+
+        with patch("products.signals.backend.anomaly_scores.read.MAX_SERIES_POINTS", cap):
+            body = self._get("search", date_from="2026-10-19", include_points=True).json()
+
+        [row] = body["series"]
+        # The warm-up bucket on Oct 20 and the unscored Oct 21 have no point. The rescore of Oct 19 wins.
+        assert [(point["bucket_start"][:10], point["flag"]) for point in row["points"]] == [
+            (day, day == "2026-10-22") for day in expected_days
+        ]
 
     @parameterized.expand(
         [

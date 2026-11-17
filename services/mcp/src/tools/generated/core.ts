@@ -801,12 +801,14 @@ const ProjectSettingsUpdateSchema = () => {
     return OrganizationsProjectsPartialUpdateParams.omit({ organization_id: true })
         .extend(OrganizationsProjectsPartialUpdateBody.shape)
         .extend({
-            id: z.preprocess(
-                castStringToInt,
-                OrganizationsProjectsPartialUpdateParams.shape['id'].describe(
-                    "Project ID, or `@current` to target the caller's active project."
+            id: z
+                .preprocess(
+                    castStringToInt,
+                    OrganizationsProjectsPartialUpdateParams.shape['id']
+                        .describe("Project ID. If omitted, updates the caller's active project.")
+                        .optional()
                 )
-            ),
+                .optional(),
         })
 }
 
@@ -818,6 +820,10 @@ const projectSettingsUpdate = (): ToolBase<
     schema: ProjectSettingsUpdateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ProjectSettingsUpdateSchema>>) => {
         const orgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
             body['name'] = params.name
@@ -1033,7 +1039,7 @@ const projectSettingsUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.ProjectBackwardCompat>({
             method: 'PATCH',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/`,
             body,
         })
         const filtered = omitResponseFields(result, [

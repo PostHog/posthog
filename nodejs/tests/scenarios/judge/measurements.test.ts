@@ -69,6 +69,7 @@ const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
     queue: [],
     sampledFrom: FROM,
     drive: { startedAt: FROM, endedAt: FROM + 60_000 },
+    steps: [],
     timeline: [],
     ...partial,
 })
@@ -665,7 +666,7 @@ describe('measurements', () => {
         expect(phasesOf(DRIVE, timeline)).toEqual(phases)
     })
 
-    it('rates the baseline claims per queue, new jobs and host CPU from the drive start to the valve intent', () => {
+    it('rates the baseline claims per queue, new jobs and host CPU up to the valve intent, and claims per step', () => {
         const claims = (atSecond: number, processed: Record<string, number>, replica = 0): MetricSample => ({
             ...sample(atSecond, -60, 1, 100, replica),
             processed,
@@ -682,7 +683,17 @@ describe('measurements', () => {
             { at: atS(695), busyTicks: 3800, totalTicks: 17_000 },
             { at: atS(800), busyTicks: 17_000, totalTicks: 17_100 },
         ]
-        const recorded = evidence({ samples, host, queue: probedQueue(() => QUIET), drive: DRIVE, timeline: [VALVE] })
+        const recorded = evidence({
+            samples,
+            host,
+            queue: probedQueue(() => QUIET),
+            drive: DRIVE,
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 700_000 },
+                { scale: 10, fromMs: 700_000, toMs: 1_500_000 },
+            ],
+            timeline: [VALVE],
+        })
 
         expect({
             baseline: baselineOf(recorded),
@@ -707,6 +718,51 @@ describe('measurements', () => {
                 { name: 'baseline_new_jobs_per_second', unit: 'jobs/s', value: 0.5 },
             ],
         })
+    })
+
+    it('rates claims per step from the samples inside each step, and marks a step a replica missed, left a gap in or restarted in', () => {
+        const every5s = (
+            fromS: number,
+            toS: number,
+            replica: number,
+            processed: (atS: number) => Record<string, number>
+        ) =>
+            Array.from({ length: (toS - fromS) / 5 + 1 }, (_, i) => fromS + i * 5).map((at) => ({
+                ...sample(at, -60, 1, 100, replica),
+                processed: processed(at),
+            }))
+        const hogflowAt = (at: number): number => Math.min(at, 60) + 10 * Math.max(at - 60, 0)
+        const recorded = evidence({
+            samples: [
+                ...every5s(0, 115, 0, (at) => ({ hogflow: hogflowAt(at) })),
+                ...every5s(0, 50, 1, (at) => ({ email: 2 * at })),
+                ...every5s(0, 115, 2, () => ({ hogflow: 0 })).filter(({ at }) => at <= atS(20) || at >= atS(45)),
+                ...every5s(0, 115, 3, (at) => ({ fetch: at < 90 ? at : at - 87 })).map((restarting) =>
+                    restarting.at >= atS(90) ? { ...restarting, startedAt: FROM / 1000 + 87 } : restarting
+                ),
+                ...every5s(0, 115, 4, (at) => ({ fanout: at < 60 ? at : at - 61 }))
+                    .filter(({ at }) => at !== atS(60))
+                    .map((restarting) =>
+                        restarting.at > atS(60) ? { ...restarting, startedAt: FROM / 1000 + 61 } : restarting
+                    ),
+            ],
+            drive: { startedAt: atS(0), endedAt: atS(120) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 60_000 },
+                { scale: 10, fromMs: 60_000, toMs: 120_000 },
+            ],
+        })
+
+        expect(measure([{ name: 'step_claims_per_second', params: {} }], recorded)).toEqual([
+            { name: 'step_claims_per_second', key: 'hogflow_1x', unit: 'jobs/s', value: 1, incomplete: true },
+            { name: 'step_claims_per_second', key: 'email_1x', unit: 'jobs/s', value: 2 },
+            { name: 'step_claims_per_second', key: 'fetch_1x', unit: 'jobs/s', value: 1 },
+            { name: 'step_claims_per_second', key: 'fanout_1x', unit: 'jobs/s', value: 1 },
+            { name: 'step_claims_per_second', key: 'hogflow_10x', unit: 'jobs/s', value: 10 },
+            { name: 'step_claims_per_second', key: 'email_10x', unit: 'jobs/s', value: 0, incomplete: true },
+            { name: 'step_claims_per_second', key: 'fetch_10x', unit: 'jobs/s', value: 53 / 55, incomplete: true },
+            { name: 'step_claims_per_second', key: 'fanout_10x', unit: 'jobs/s', value: 1, incomplete: true },
+        ])
     })
 
     it('rates no claims when the role metrics stop early in the baseline', () => {

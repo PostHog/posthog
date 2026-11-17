@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -39,6 +40,9 @@ class ReviewCard:
     examples: tuple[ReviewExample, ...]
     review_verdict: str | None
     review_note: str
+    reviewed_at: datetime | None
+    # The email of the staff member who labeled the card, or "" when nobody did.
+    reviewer: str
 
 
 def _examples(evidence: Any) -> tuple[ReviewExample, ...]:
@@ -50,17 +54,29 @@ def _examples(evidence: Any) -> tuple[ReviewExample, ...]:
     )
 
 
-def load_review_cards(*, since: datetime, team_id: int | None, unlabeled_only: bool) -> list[ReviewCard]:
-    """Cards from completed runs since `since`, newest run first."""
+def _published(since: datetime, team_id: int | None) -> QuerySet[EvalSuggestion]:
     # Cross-team by design: staff review every flagged team's cards on one page.
     cards = EvalSuggestion.objects.unscoped().filter(
         run__status=EvalSuggestionRunStatus.COMPLETED, run__completed_at__gte=since
     )
-    if team_id is not None:
-        cards = cards.filter(team_id=team_id)
+    return cards.filter(team_id=team_id) if team_id is not None else cards
+
+
+def load_review_cards(*, since: datetime, team_id: int | None, unlabeled_only: bool) -> list[ReviewCard]:
+    """Cards from completed runs since `since`, newest run first."""
+    cards = _published(since, team_id)
     if unlabeled_only:
         cards = cards.filter(review_verdict__isnull=True)
-    rows = cards.select_related("run").order_by("-run__completed_at", "-score")[:MAX_REVIEW_CARDS]
+    return _review_cards(cards.order_by("-run__completed_at", "-score"))
+
+
+def load_labeled_cards(*, since: datetime, team_id: int | None) -> list[ReviewCard]:
+    """Labeled cards from completed runs since `since`, latest label first."""
+    return _review_cards(_published(since, team_id).filter(review_verdict__isnull=False).order_by("-reviewed_at"))
+
+
+def _review_cards(cards: QuerySet[EvalSuggestion]) -> list[ReviewCard]:
+    rows = cards.select_related("run", "reviewed_by")[:MAX_REVIEW_CARDS]
     return [
         ReviewCard(
             id=card.id,
@@ -81,9 +97,23 @@ def load_review_cards(*, since: datetime, team_id: int | None, unlabeled_only: b
             examples=_examples(card.evidence),
             review_verdict=card.review_verdict,
             review_note=card.review_note,
+            reviewed_at=card.reviewed_at,
+            reviewer=card.reviewed_by.email if card.reviewed_by else "",
         )
         for card in rows
     ]
+
+
+def label_card(
+    team_id: int, suggestion_id: UUID, *, verdict: EvalSuggestionReviewVerdict, note: str, reviewer_id: int
+) -> bool:
+    """False when the team has no card with this id. A second label replaces the first."""
+    updated = (
+        EvalSuggestion.objects.for_team(team_id)
+        .filter(id=suggestion_id)
+        .update(review_verdict=verdict, review_note=note, reviewed_at=timezone.now(), reviewed_by_id=reviewer_id)
+    )
+    return updated > 0
 
 
 @frozen
@@ -108,15 +138,3 @@ def label_target(team_id: int, suggestion_id: UUID) -> LabelTarget | None:
         verdict=card.review_verdict,
         note=card.review_note,
     )
-
-
-def label_card(
-    team_id: int, suggestion_id: UUID, *, verdict: EvalSuggestionReviewVerdict, note: str, reviewer_id: int
-) -> bool:
-    """False when the team has no card with this id. A second label replaces the first."""
-    updated = (
-        EvalSuggestion.objects.for_team(team_id)
-        .filter(id=suggestion_id)
-        .update(review_verdict=verdict, review_note=note, reviewed_at=timezone.now(), reviewed_by_id=reviewer_id)
-    )
-    return updated > 0

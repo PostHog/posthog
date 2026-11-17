@@ -43,7 +43,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { NewEventsTableSceneMenu } from '~/layout/navigation/NewEventsTableSceneMenu'
 import {
     SceneMenuBar,
     SceneMenuBarCheckboxItem,
@@ -88,6 +87,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         canSaveProjectDashboardTemplate,
         effectiveEditBarFilters,
         currentDashboardVariables,
+        effectiveRefreshFilters,
         tiles,
         apiUrl,
         undoLayoutDisabledReason,
@@ -260,6 +260,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                             export_context: {
                                                 path: apiUrl(),
                                                 variables_override: currentDashboardVariables,
+                                                filters_override: effectiveRefreshFilters,
                                             },
                                         })
                                     }
@@ -436,7 +437,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         )}
                     </SceneMenuBarPopover>
                 )}
-                <NewEventsTableSceneMenu dataAttrKey={RESOURCE_TYPE} />
             </SceneMenuBar>
             {collectionTarget && <AnalyticsCollectionDialogHost target={collectionTarget} />}
         </>

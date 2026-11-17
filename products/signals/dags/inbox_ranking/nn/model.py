@@ -26,6 +26,7 @@ from products.signals.backend.ranking.features import (
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_FILE, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.common import DATASET_VERSION
+from products.signals.dags.inbox_ranking.dataset.feature_backfill import FEATURE_BACKFILL_SCHEMA_VERSION
 from products.signals.dags.inbox_ranking.dataset.project_vectors import USER_HISTORY_LIMIT
 from products.signals.dags.inbox_ranking.dataset.queries import LABELS_TEAM_ID
 from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ONNX_OUTPUT, NetworkConfig, NetworkInputs
@@ -152,6 +153,16 @@ def network_recipe(
     if family.pair_training is not None:
         # Only a family that sets it carries the key, so the first pair families keep their hashes.
         recipe = {**recipe, "pair_training": dataclasses.asdict(family.pair_training)}
+    if family.feature_backfill is not None:
+        # The same: only a backfill experiment carries the key, so no other family's hash moves.
+        recipe = {
+            **recipe,
+            "feature_backfill": {
+                "batch_id": family.feature_backfill.batch_id,
+                "provenances": [provenance.value for provenance in family.feature_backfill.provenances],
+                "schema_version": FEATURE_BACKFILL_SCHEMA_VERSION,
+            },
+        }
     if family.grain == PAIR_GRAIN:
         recipe = {
             **recipe,
