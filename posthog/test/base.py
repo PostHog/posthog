@@ -253,11 +253,13 @@ from posthog.test.persons import stage_person_for_bulk_create  # noqa: E402
 unittest.util._MAX_LENGTH = 2000  # type: ignore
 
 
-def _get_calling_frame_locals() -> dict[str, Any]:
-    frame = inspect.currentframe()
-    if frame is None or frame.f_back is None:
-        raise RuntimeError("Expected a calling frame")
-    return frame.f_back.f_locals
+def _get_decorated_class_body_locals() -> dict[str, Any]:
+    helper_frame = inspect.currentframe()
+    decorator_frame = helper_frame.f_back if helper_frame is not None else None
+    class_body_frame = decorator_frame.f_back if decorator_frame is not None else None
+    if class_body_frame is None or "__qualname__" not in class_body_frame.f_locals:
+        raise RuntimeError("Test variant decorators must be applied to a method inside a class body")
+    return class_body_frame.f_locals
 
 
 def clean_varying_query_parts(query, replace_all_numbers):
@@ -1495,6 +1497,10 @@ def also_test_with_materialized_columns(
             # Don't run these tests under non-clickhouse classes even if decorated in base classes
             if not getattr(self, "RUN_MATERIALIZED_COLUMN_TESTS", False):
                 return
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                pytest.skip(
+                    "The new events schema reads no materialized columns, so this variant repeats its base test"
+                )
 
             for prop in event_properties:
                 materialize("events", prop, is_nullable=is_nullable is not None and prop in is_nullable)
@@ -1518,7 +1524,7 @@ def also_test_with_materialized_columns(
                     self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
-        frame_locals: Any = _get_calling_frame_locals()
+        frame_locals: Any = _get_decorated_class_body_locals()
         frame_locals[f"{fn.__name__}_materialized"] = fn_with_materialized
 
         return fn
@@ -2753,7 +2759,7 @@ def also_test_with_different_timezones(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = _get_calling_frame_locals()
+    frame_locals: Any = _get_decorated_class_body_locals()
     frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
     frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
 
@@ -2766,7 +2772,7 @@ def also_test_with_person_on_events_v2(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = _get_calling_frame_locals()
+    frame_locals: Any = _get_decorated_class_body_locals()
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn
