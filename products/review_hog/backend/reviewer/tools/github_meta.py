@@ -374,6 +374,7 @@ def fetch_branch_compare(
         pr_files.append(
             PRFile(
                 filename=file["filename"],
+                previous_filename=file.get("previous_filename"),
                 status=file["status"],
                 additions=file["additions"],
                 deletions=file["deletions"],
@@ -524,6 +525,7 @@ class PRFetcher:
                 pr_files.append(
                     PRFile(
                         filename=file["filename"],
+                        previous_filename=file.get("previous_filename"),
                         status=file["status"],
                         additions=file["additions"],
                         deletions=file["deletions"],

@@ -195,7 +195,16 @@ class TestSingleAgentPrompt:
     ) -> None:
         # A delta turn sees only the files of the last push, and a rule file changed by an earlier push
         # still sits in the checkout with the pull request's text.
-        whole_pr = [_file("a.py", "x = 1"), _file("products/x/AGENTS.md", "- new rule"), _file("CLAUDE.md", "- y")]
+        unsafe_path = "docs/x'$(id)'/AGENTS.md"
+        whole_pr = [
+            _file("a.py", "x = 1"),
+            _file("products/x/AGENTS.md", "- new rule"),
+            _file("CLAUDE.md", "- y"),
+            _file(".agents/security.md", "- z"),
+            _file("tools/skills/s/SKILL.md", "- w"),
+            _file("src/notes.md", "- v").model_copy(update={"status": "renamed", "previous_filename": "src/AGENTS.md"}),
+            _file(unsafe_path, "- u"),
+        ]
         prompt = SingleAgentPrompt(
             repository="o/r",
             pr_metadata=pr_metadata,
@@ -206,7 +215,12 @@ class TestSingleAgentPrompt:
             merge_base_sha=merge_base_sha,
         ).render()
 
-        assert "This pull request changes these rule files: `products/x/AGENTS.md`, `CLAUDE.md`." in prompt
+        assert (
+            "This pull request changes these rule files: `products/x/AGENTS.md`, `CLAUDE.md`, `.agents/security.md`, "
+            "`tools/skills/s/SKILL.md`, `src/AGENTS.md`."
+        ) in prompt
+        assert "also changes 1 rule file whose path has characters" in prompt
+        assert unsafe_path not in prompt.split("## Diff")[0]
         assert base_read in prompt.split(PROMPT_CACHE_MARKER)[0]
 
 

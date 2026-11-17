@@ -201,10 +201,13 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 ### ✅ BUILT 2026-11-17: review rules come from the base commit, and repository hooks are off
 
 - **What.**
-  - The single-agent prompt (`prompt.jinja`, "Repository rules") makes the rule files (`AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, `REVIEW.md`, and the guides and skills they route to) apply as they are at the PR's merge base.
+  - The single-agent prompt (`prompt.jinja`, "Repository rules") makes the rule files (`AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, `REVIEW.md`, `SKILL.md`, every file under `.agents/` or `.claude/`, and the guides and skills they route to) apply as they are at the PR's merge base.
     A change the PR makes to one is diff content to review, not a rule to follow.
   - The prompt names the rule files the whole PR changes, also on a delta turn, and says that the checkout and any copy the agent loaded at session start hold the PR's versions.
     It gives `git fetch --depth 1 origin <merge base>` and `git show <merge base>:'<path>'` to read the base version, the same commit-id-only command shape the prompt already uses for a left-out diff.
+  - Most of a repository's rules sit in guides and skills, so `.agents/`, `.claude/` and `SKILL.md` match by path, not only the four `AGENTS.md`-style names.
+    A rename lists the old path too, because renaming a rule file away removes it from the checkout.
+  - The listed paths go into an instruction sentence and a single-quoted `git show`, so a path with any character outside `[A-Za-z0-9._/-]` is counted and never repeated. The session is pointed at a commit-id-only `git diff` for its base text instead.
   - `run_sandbox_review` and `start_sandbox_session` set `disable_repo_hooks` on every sandbox context, as Signals report research does.
 - **Why the base.** The sandbox checks out the PR head, so before this change a PR could edit the rules that judged it.
   The merge base is the commit the diff is computed against, and its rule files are the ones the repository had already accepted.

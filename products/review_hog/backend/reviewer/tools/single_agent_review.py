@@ -69,7 +69,16 @@ _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 # runs, so only a value of this shape may reach it.
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
-RULE_FILE_NAMES = frozenset({"AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "REVIEW.md"})
+RULE_FILE_NAMES = frozenset({"AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "REVIEW.md", "SKILL.md"})
+RULE_DIRECTORIES = frozenset({".agents", ".claude"})
+# The prompt asks the session to quote a named rule file in a shell command, so a path the
+# author could use to break out of the quotes or the sentence is counted, never repeated.
+_SHELL_SAFE_PATH = re.compile(r"[A-Za-z0-9._/-]+")
+
+
+def is_rule_file(path: str) -> bool:
+    parts = PurePosixPath(path).parts
+    return bool(parts) and (parts[-1] in RULE_FILE_NAMES or not RULE_DIRECTORIES.isdisjoint(parts[:-1]))
 
 
 def _commit_sha(value: str | None) -> str | None:
@@ -190,8 +199,21 @@ class SingleAgentPrompt:
         ]
         return json.dumps(covered, indent=2) if covered else None
 
-    def _changed_rule_files(self) -> list[str]:
-        return [f.filename for f in self.whole_pr_files if PurePosixPath(f.filename).name in RULE_FILE_NAMES]
+    def _changed_rule_files(self) -> tuple[list[str], int]:
+        """The changed rule files the prompt can name, and how many more have a path it must not repeat.
+
+        A rename counts under both names, because renaming a rule file away removes it from the checkout.
+        """
+        paths = list(
+            dict.fromkeys(
+                path
+                for f in self.whole_pr_files
+                for path in (f.filename, f.previous_filename)
+                if path and is_rule_file(path)
+            )
+        )
+        named = [path for path in paths if _SHELL_SAFE_PATH.fullmatch(path)]
+        return named, len(paths) - len(named)
 
     def _base_sha(self) -> str | None:
         """The merge base when it is a commit id, else None: the prompt then gives no git command."""
@@ -205,7 +227,7 @@ class SingleAgentPrompt:
         # A part that covers the whole PR needs no scope section, because no other session reviews its files.
         scope = [f.filename for f in in_scope] if len(in_scope) < len(self.pr_files) else None
         covered = self._covered_findings()
-        rule_files = self._changed_rule_files()
+        rule_files, unnamed_rule_file_count = self._changed_rule_files()
         changed_since_review = (
             self.changed_since_review.describe()
             if self.changed_since_review is not None and not self.delta_since
@@ -227,6 +249,7 @@ class SingleAgentPrompt:
             CHANGED_RULE_FILES=(
                 without_cache_marker(", ".join(f"`{path}`" for path in rule_files)) if rule_files else None
             ),
+            UNNAMED_RULE_FILE_COUNT=unnamed_rule_file_count,
             CHANGED_SINCE_REVIEW=without_cache_marker(changed_since_review) if changed_since_review else None,
             DISCARDED_LEVELS="P2 or P3" if self.changed_code_only else "P3",
             CHANGE_MARGIN=FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
