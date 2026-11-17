@@ -1203,19 +1203,11 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         mock_produce.assert_not_called()
 
 
-@override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
 class TestRefreshRoutingHook(SimpleTestCase):
     TEAM_ID = 11
 
-    @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=False)
-    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
-    def test_the_deployment_switch_off_declines_the_team_and_produces_nothing(self, mock_produce):
-        assert route_refresh_to_kafka(self.TEAM_ID) is False
-
-        mock_produce.assert_not_called()
-
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
-    def test_the_deployment_switch_on_produces_a_message_the_builder_reads_as_a_refresh(self, mock_producer_scope):
+    def test_produces_a_message_the_builder_reads_as_a_refresh(self, mock_producer_scope):
         mock_producer = MagicMock()
         mock_producer_scope.return_value.__enter__.return_value = mock_producer
 
@@ -1441,11 +1433,10 @@ class TestGetTeamPrimaryFlagsWriter(unittest.TestCase):
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.get_primary_writer_fn(42) == "rust"
         assert mock_feature_enabled.call_args.args[1] == "team-42"
 
-    @override_settings(FLAGS_CACHE_REFRESH_KAFKA_ENABLED=True)
     def test_flags_config_binds_the_refresh_routing_hook(self):
         # The lambda on the config is the only wire between the sweep and the hook.
         # Unbound, the sweep silently keeps building in Python and the enqueued gauge
-        # stays at zero, which looks the same as the setting being off.
+        # stays at zero.
         with patch("products.feature_flags.backend.flags_cache._produce_invalidation") as mock_produce:
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn is not None
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn(42) is True
