@@ -1,8 +1,10 @@
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from posthog.models.oauth import OAuthApplication
@@ -44,6 +46,8 @@ class OrganizationProvisioning(models.Model):
     # Set while billing says a partner pays for the organization. A partner-paid organization still
     # gets its own Stripe customer, so this keeps the billing lock on after billing fills customer_id.
     partner_paid_since = models.DateTimeField(null=True, blank=True)
+    # computed_at of the billing status that last set partner_paid_since, so an older status can't undo it.
+    partner_paid_status_at = models.DateTimeField(null=True, blank=True)
 
     objects = OrganizationProvisioningQuerySet.as_manager()
 
@@ -68,15 +72,20 @@ def get_billing_lock_partner(organization: "Organization") -> OAuthApplication |
     return row.application if row is not None else None
 
 
-def record_partner_paid(organization_id: uuid.UUID, paid_by_partner: bool) -> bool:
+def record_partner_paid(organization_id: uuid.UUID, paid_by_partner: bool, computed_at: datetime | None) -> None:
     """Billing sync calls this with billing's `paid_by_partner`. Billing's daily sync sends every organization it
     hasn't saved for a day, so a mark that is wrong, or that outlived the partner's payer link, corrects itself.
-    Returns whether the mark changed."""
+
+    One conditional UPDATE writes the mark and the status time together, and skips a status older than the one
+    that last wrote it. So a delayed status, or a sync that fails after this, can't leave the two out of step."""
     rows = OrganizationProvisioning.objects.filter(organization_id=organization_id)
+    changes: dict[str, object] = {}
+    if computed_at is not None:
+        rows = rows.filter(Q(partner_paid_status_at__isnull=True) | Q(partner_paid_status_at__lt=computed_at))
+        changes["partner_paid_status_at"] = computed_at
     if paid_by_partner:
-        changed = (
-            rows.paid_by_partner().filter(partner_paid_since__isnull=True).update(partner_paid_since=timezone.now())
+        rows.paid_by_partner().update(
+            partner_paid_since=Coalesce(F("partner_paid_since"), Value(timezone.now())), **changes
         )
     else:
-        changed = rows.filter(partner_paid_since__isnull=False).update(partner_paid_since=None)
-    return changed > 0
+        rows.update(partner_paid_since=None, **changes)

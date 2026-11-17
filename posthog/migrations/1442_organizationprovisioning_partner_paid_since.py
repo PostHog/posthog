@@ -14,4 +14,9 @@ class Migration(migrations.Migration):
             name="partner_paid_since",
             field=models.DateTimeField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="organizationprovisioning",
+            name="partner_paid_status_at",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
     ]

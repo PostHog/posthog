@@ -1133,6 +1133,27 @@ class TestBillingManager(BaseTest):
         self.organization.refresh_from_db()
         assert get_billing_lock_partner(self.organization) == partner
 
+    def test_update_org_details_keeps_the_partner_mark_in_order_when_the_sync_fails_after_it(self) -> None:
+        partner = self._provision_by_partner()
+        self.organization.customer_id = "cus_synced"
+        self.organization.save()
+        manager = BillingManager(license=None)
+        newer = self._billing_status("2026-08-02T12:00:00Z", 0)
+        newer["customer"].update({"customer_id": "cus_synced", "paid_by_partner": True})
+        with (
+            patch.object(Organization, "save", side_effect=RuntimeError("sync failed")),
+            self.assertRaises(RuntimeError),
+        ):
+            newer["customer"]["has_active_subscription"] = True
+            manager.update_org_details(self.organization, newer)
+        older = self._billing_status("2026-08-02T11:00:00Z", 0)
+        older["customer"].update({"customer_id": "cus_synced", "paid_by_partner": False})
+
+        manager.update_org_details(Organization.objects.get(id=self.organization.id), older)
+
+        self.organization.refresh_from_db()
+        assert get_billing_lock_partner(self.organization) == partner
+
     def _billing_status(
         self,
         computed_at: str | None,
