@@ -29,6 +29,7 @@ def expire_datasets() -> None:
             "datasets_expired": sweep.datasets_expired,
             "revisions_expired": sweep.revisions_expired,
             "versions_deleted": sweep.versions_deleted,
+            "payload_bytes_deleted": sweep.payload_bytes_deleted,
             "datasets_deleted": sweep.datasets_deleted,
             "datasets_failed": sweep.datasets_failed,
             "budget_exhausted": sweep.budget_exhausted,

@@ -769,6 +769,13 @@ Passing the deadline makes a payload eligible for cleanup. It remains available 
 The sweep processes at most 20 batches of 500 candidates per payload type, alternating item and result payloads, with a three-minute work budget checked before each environment transaction. Each environment's batch commits independently; retries and overlapping runs are safe. Existing overdue payloads are included, and a backlog drains over subsequent runs.
 
 Each run emits `offline evaluation payload retention run` using scoped capture, including empty runs and handled failures. Properties include `run_id`, `status`, `batches` (committed environment batches), `item_payloads_expired`, `result_payloads_expired`, `payloads_expired`, `budget_exhausted`, and `duration_seconds`. Counts reflect committed work, and the same properties are logged. Event delivery is best-effort; a hard-killed worker cannot emit its completion event.
+The event also reports `item_payload_bytes_deleted`, `result_payload_bytes_deleted`, and their sum, `payload_bytes_deleted`.
+The dataset cleanup event, `dataset retention run`, reports `payload_bytes_deleted` for removed item versions, summing their input, expected output, source output, and metadata fields.
+Both measure the byte length of PostgreSQL's JSON text representation immediately before deletion and count only committed deletions.
+SQL null fields contribute zero; JSON null values and empty objects include their serialized bytes.
+These totals exclude indexes, row overhead, and storage compression, and do not measure disk space reclaimed by vacuum.
+Byte telemetry starts when these properties are deployed; older events without the properties cannot be treated as zero-byte deletions.
+Cleanup events stay in their deployment region's analytics project, so US and EU monitoring must query their respective projects.
 Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
 Opening those resources requires their own permissions.
 
