@@ -1371,9 +1371,10 @@ class TestLogsAlertAPI(APIBaseTest):
 
         (destination,) = self._read_destinations(created["id"])
         assert destination["id"] is not None
+        assert create_response.json()["id"] == destination["id"]
         assert sorted(destination["hog_function_ids"]) == sorted(hog_function_ids)
 
-        named = hog_function_ids if delete_by == "hog_function_ids" else [destination["id"]]
+        named = hog_function_ids if delete_by == "hog_function_ids" else [create_response.json()["id"]]
         response = self.client.post(self._destinations_delete_url(created["id"]), {delete_by: named}, format="json")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()

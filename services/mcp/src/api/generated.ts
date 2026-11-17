@@ -69471,6 +69471,15 @@ export namespace Schemas {
       pagerduty_region?: PagerDutyRegionEnum;
     }
 
+    export interface LogsAlertCreatedDestinationResponse {
+      hog_function_ids: string[];
+      /**
+         * The new destination's ID on the alerts platform, the `id` that listing the alert's destinations shows. Delete the destination by passing it in `destination_ids`. Null when the alert is not on the alerts platform, in which case `hog_function_ids` identifies the destination.
+         * @nullable
+         */
+      id: string | null;
+    }
+
     export interface LogsAlertCustomizeDestination {
       /**
          * The destination's `destinations[].id`. Use it for a destination with no HogFunctions.
