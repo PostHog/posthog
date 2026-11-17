@@ -238,6 +238,15 @@ devbox:
     devbox:secret:rm:
         click: hogli_commands.devbox.cli:devbox_secret_rm
         description: Delete a Coder user secret
+    devbox:secrets:push:
+        click: hogli_commands.devbox.secrets_lend:devbox_secrets_push
+        description: Lend 1Password secrets to your devbox, in memory and for a limited time
+    devbox:secrets:status:
+        click: hogli_commands.devbox.secrets_lend:devbox_secrets_status
+        description: Show which secrets your devbox holds and for how long
+    devbox:secrets:clear:
+        click: hogli_commands.devbox.secrets_lend:devbox_secrets_clear
+        description: Remove lent secrets from your devbox now
     devbox:config:show:
         click: hogli_commands.devbox.cli:devbox_config_show
         description: Show saved devbox setup configuration
