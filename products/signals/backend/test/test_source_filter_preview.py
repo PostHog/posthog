@@ -20,9 +20,9 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 from products.warehouse_sources.backend.facade.testing import create_synced_table_from_rows
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-_STRING = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True}
-_INTEGER = {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)", "valid": True}
-_COLUMNS = {
+_STRING: dict[str, str | bool] = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True}
+_INTEGER: dict[str, str | bool] = {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)", "valid": True}
+_COLUMNS: dict[str, dict[str, str | bool]] = {
     "id": _STRING,
     "identifier": _STRING,
     "title": _STRING,
