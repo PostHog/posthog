@@ -7,16 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
-import {
-    Claim,
-    Committed,
-    Produced,
-    Recalled,
-    Run,
-    RunIntake,
-    carriesSecret,
-    keyedRunId,
-} from '../../intake/run-intake'
+import { Claim, Committed, Produced, Recalled, Run, RunIntake, keyedRunId } from '../../intake/run-intake'
 import { HogFlow } from '../../schema/hogflow'
 import {
     CyclotronJobInvocation,
@@ -331,8 +322,10 @@ export class TransactionalSends {
             ? { kind: 'transactional-email', invocation, claim: { fingerprint: claim.fingerprint } }
             : { kind: 'transactional-email', invocation }
         // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer. A
-        // sensitive send stays synchronous, so its login code or reset link never reaches Kafka.
-        const isAsync = this.deps.runIntake.modeOf(team.id) === 'async' && !carriesSecret(invocation)
+        // sensitive send stays synchronous unless the producer encrypts it, so its login code or reset link never
+        // reaches Kafka in plaintext.
+        const isAsync =
+            this.deps.runIntake.modeOf(team.id) === 'async' && !this.deps.runIntake.keepsOffKafka(invocation)
         // Async mode takes no Valkey lease: the consumer's Postgres claim deduplicates the run.
         const leasesKey = idempotencyKey && !isAsync
         const leaseToken = randomUUID()

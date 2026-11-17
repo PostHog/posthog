@@ -49,7 +49,8 @@ export type RunIntakeDeps = {
     hogflowQueue: Pick<IdempotentJobQueue, 'queueInvocations' | 'queueInvocationsIdempotently' | 'findIdempotencyKey'>
     invocationResultsRowsService: HogInvocationResultsService
     // Absent, or `off` for a team, means the run never touches the intake topics.
-    intake?: { modeOf: (teamId: number) => IntakeMode; producer: IntakeProducer }
+    // `sealsSecrets` means the producer encrypts transactional sends, so a sensitive one may use the intake topics too.
+    intake?: { modeOf: (teamId: number) => IntakeMode; producer: IntakeProducer; sealsSecrets?: boolean }
 }
 
 // Never change the namespace or the name's encoding: a retry inside the claim's window would get another id and
@@ -77,6 +78,10 @@ export class RunIntake {
 
     modeOf(teamId: number): IntakeMode {
         return this.deps.intake?.modeOf(teamId) ?? 'off'
+    }
+
+    keepsOffKafka(invocation: CyclotronJobInvocationHogFlow): boolean {
+        return carriesSecret(invocation) && !this.deps.intake?.sealsSecrets
     }
 
     // Async mode: the claim is left to the consumer. Never throws; a lookup that fails or runs late reads as absent.
@@ -140,7 +145,7 @@ export class RunIntake {
         const intake = this.deps.intake
         const shadow = intake
             ? created.filter(
-                  (run) => !carriesSecret(run.invocation) && intake.modeOf(run.invocation.teamId) === 'shadow'
+                  (run) => !this.keepsOffKafka(run.invocation) && intake.modeOf(run.invocation.teamId) === 'shadow'
               )
             : []
         await Promise.all(
