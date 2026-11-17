@@ -871,6 +871,17 @@ CREATE TABLE posthog.query_log_archive (
   exception_name String,
   ProfileEvents Map(String, UInt64)
 ) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive_v3');
+CREATE TABLE posthog.realtime_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  kind Enum8('member'=0, 'floor'=1),
+  person_id UUID,
+  floor_run_id UUID,
+  floor_partition UInt16,
+  in_cohort UInt8,
+  version DateTime64(6, 'UTC'),
+  floor_partitions UInt16
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.realtime_cohort_membership', '{replica}-{shard}', version) ORDER BY (team_id, cohort_id, kind, person_id, floor_run_id, floor_partition) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_app_metrics (
   team_id Int64,
   timestamp DateTime64(6, 'UTC'),

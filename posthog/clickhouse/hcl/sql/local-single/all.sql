@@ -827,6 +827,17 @@ CREATE TABLE posthog.kafka_property_values (
   property_value String,
   property_count UInt64
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values', kafka_num_consumers = 1, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
+CREATE TABLE posthog.kafka_realtime_cohort_membership (
+  type String,
+  team_id Int64,
+  cohort_id Int64,
+  person_id String,
+  status String,
+  last_updated String,
+  run_id String,
+  threshold String,
+  partitions UInt16
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_realtime_cohort_membership', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'cohort_membership_changed';
 CREATE TABLE posthog.kafka_session_replay_events (
   session_id String,
   team_id Int64,
@@ -1804,6 +1815,17 @@ CREATE TABLE posthog.raw_error_tracking_issue_tags (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_raw_error_tracking_issue_tags _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.raw_error_tracking_issue_tags', '{replica}-{shard}', version) ORDER BY (team_id, key, issue_id) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.realtime_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  kind Enum8('member'=0, 'floor'=1),
+  person_id UUID,
+  floor_run_id UUID,
+  floor_partition UInt16,
+  in_cohort UInt8,
+  version DateTime64(6, 'UTC'),
+  floor_partitions UInt16
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.realtime_cohort_membership', '{replica}-{shard}', version) ORDER BY (team_id, cohort_id, kind, person_id, floor_run_id, floor_partition) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_ai_events (
   uuid UUID,
   event LowCardinality(String),
@@ -4198,6 +4220,17 @@ CREATE TABLE posthog.writable_raw_sessions_v3 (
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_raw_sessions_v3', cityHash64(session_id_v7));
+CREATE TABLE posthog.writable_realtime_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  kind Enum8('member'=0, 'floor'=1),
+  person_id UUID,
+  floor_run_id UUID,
+  floor_partition UInt16,
+  in_cohort UInt8,
+  version DateTime64(6, 'UTC'),
+  floor_partitions UInt16
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'realtime_cohort_membership');
 CREATE TABLE posthog.writable_session_replay_embeddings (
   session_id String,
   team_id Int64,
@@ -5808,6 +5841,48 @@ AND
   ((fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) >= (min_first_timestamp - toIntervalDay(31))) AND (fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) <= (min_first_timestamp + toIntervalDay(31))))
 AND
   true;
+CREATE MATERIALIZED VIEW posthog.realtime_cohort_membership_mv TO posthog.writable_realtime_cohort_membership (team_id Int64, cohort_id Int64, kind String, person_id UUID, floor_run_id UUID, floor_partition UInt16, in_cohort UInt8, version DateTime64(6, 'UTC'), floor_partitions UInt16) AS SELECT
+  team_id,
+  cohort_id,
+  if(is_floor, 'floor', 'member') AS kind,
+  if(
+    is_floor,
+    toUUID('00000000-0000-0000-0000-000000000000'),
+    ifNull(person_uuid, toUUID('00000000-0000-0000-0000-000000000000'))
+  ) AS person_id,
+  if(
+    is_floor,
+    ifNull(run_uuid, toUUID('00000000-0000-0000-0000-000000000000')),
+    toUUID('00000000-0000-0000-0000-000000000000')
+  ) AS floor_run_id,
+  if(is_floor, toUInt16(_partition), 0) AS floor_partition,
+  toUInt8(status = 'entered') AS in_cohort,
+  assumeNotNull(stamp) AS version,
+  if(is_floor, partitions, 0) AS floor_partitions
+FROM
+  (
+    SELECT
+      team_id,
+      cohort_id,
+      type = 'sweep_floor' AS is_floor,
+      toUUIDOrNull(person_id) AS person_uuid,
+      toUUIDOrNull(run_id) AS run_uuid,
+      if(is_floor, threshold, last_updated) AS raw_stamp,
+      toDateTime64OrNull(raw_stamp, 6, 'UTC') AS stamp,
+      status,
+      partitions,
+      _partition
+    FROM posthog.kafka_realtime_cohort_membership
+    WHERE type IN ('', 'sweep_floor')
+  )
+WHERE
+  (toString(stamp) = raw_stamp)
+AND
+  if(
+    is_floor,
+    (run_uuid IS NOT NULL) AND (partitions > 0),
+    (person_uuid IS NOT NULL) AND (status IN ('entered', 'left'))
+  );
 CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT
   session_id,
   team_id,

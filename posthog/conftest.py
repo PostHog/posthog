@@ -180,6 +180,7 @@ def reset_clickhouse_tables():
     from posthog.models.raw_sessions.sessions_v3 import TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
 
+    from products.cohorts.backend.models.realtime_membership_sql import TRUNCATE_REALTIME_COHORT_MEMBERSHIP_TABLE_SQL
     from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
     from products.error_tracking.backend.sql import (
@@ -204,6 +205,7 @@ def reset_clickhouse_tables():
         TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+        TRUNCATE_REALTIME_COHORT_MEMBERSHIP_TABLE_SQL,
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
         TRUNCATE_GROUPS_TABLE_SQL,
         TRUNCATE_APP_METRICS_TABLE_SQL,

@@ -137,6 +137,12 @@ Outside cloud, the Kafka table that fills the legacy ClickHouse `cohort_membersh
 So on a local stack with the sweep on, each floor record adds such a row.
 In cloud, that table's Kafka table reads another cluster, where the sweep produces nothing.
 
+ClickHouse also reads this topic into the `realtime_cohort_membership` table, under the consumer group `clickhouse_realtime_cohort_membership`.
+Its view stores a change as a member row, and each copy of a floor record as a floor row with the copy's partition.
+It drops a record of any other type, and a message whose fields fail to convert, such as a person id that is not a UUID or a version not in the producer's format.
+It also skips a message that is not JSON, up to 100 in one block.
+A JSON array of non-objects stops this consumer until an operator skips its offset, as it does for every `JSONEachRow` Kafka table.
+
 ## Mark and sweep
 
 Live output is never retried, so it can lose changes, and a cohort edit or a person merge can leave rows that no longer match.
