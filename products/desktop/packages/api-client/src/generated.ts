@@ -12311,6 +12311,18 @@ export namespace Schemas {
          */
         supports_column_selection: boolean;
         /**
+         * Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources.
+         */
+        supports_adding_tables: boolean;
+        /**
+         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<prefix>/`, such as `my-bucket/exports/`. Null for other sources, or when the source's files URL can't be read.
+         */
+        table_root: string | null;
+        /**
+         * Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path.
+         */
+        supports_table_discovery: boolean;
+        /**
          * The name of the file a file upload source imports. Null for other sources or when it is unknown.
          */
         file_name: string | null;
@@ -16577,6 +16589,9 @@ export namespace Schemas {
         supports_webhooks: boolean;
         webhook_not_registered: boolean;
         supports_column_selection: boolean;
+        supports_adding_tables: boolean;
+        table_root: string | null;
+        supports_table_discovery: boolean;
         file_name: string | null;
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;

@@ -364,9 +364,9 @@ tools:
             idempotent: false
         title: Add a table to an object storage source
         description: >
-            Add one table to an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or
-            Cloudflare R2) from the path of its files. Use this for object storage sources, where a table is a folder,
-            a file or a wildcard pattern in the bucket, and always for a source whose source refresh
+            Add one table to an object storage source (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare
+            R2) from the path of its files. Use this for object storage sources, where a table is a folder, a file or a
+            wildcard pattern in the bucket, and always for a source whose source refresh
             ('external-data-sources-refresh-schemas') fails because it reads tables from anywhere in its bucket. The
             path is relative to the source's files URL (such as exports/events/ or exports/events/2026/*.parquet), or a
             full URL into the same bucket. PostHog lists only that location to check that it holds files the key can
