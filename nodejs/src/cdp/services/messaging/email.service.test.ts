@@ -3896,6 +3896,7 @@ describe('EmailService', () => {
             const STALE_HREF = 'https://app.posthog-test.com/?ref=email&ph_workflow_run=earlier-run'
             const TAGGED_HREF = 'https://app.posthog-test.com/?ref=email&amp;ph_workflow_run=invocation-1'
             const STRIPPED_HREF = 'https://app.posthog-test.com/?ref=email'
+            const CLEAN_HREF = 'https://app.posthog-test.com/pricing'
 
             it.each<{
                 case: string
@@ -3995,12 +3996,13 @@ describe('EmailService', () => {
                     invocation.state.send = send && { ...send, tracking: { captureEngagement: true } }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
-                        html: `<a href="${STALE_HREF}">a</a><a href="https://example.com/">b</a>`,
+                        html: `<a href="${STALE_HREF}">a</a><a href="${CLEAN_HREF}">b</a><a href="https://example.com/">c</a>`,
                     })
                     const result = await taggingService.executeSendEmail(invocation, isTest)
                     expect(result.error).toBeUndefined()
                     expect([...ses.sent[0].html!.matchAll(/href="([^"]*)"/g)].map(([, sent]) => sent)).toEqual([
                         href,
+                        href === TAGGED_HREF ? `${CLEAN_HREF}?ph_workflow_run=invocation-1` : CLEAN_HREF,
                         'https://example.com/',
                     ])
                 }
