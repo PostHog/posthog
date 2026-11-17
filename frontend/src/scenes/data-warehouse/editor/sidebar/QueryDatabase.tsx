@@ -838,7 +838,8 @@ export const QueryDatabase = ({
             const editLabel = item.record.type === 'endpoint' ? 'Edit endpoint' : 'Edit view'
             const addJoinSourceTableName = getSidebarAddJoinSourceTableName(
                 item.record.type,
-                item.name,
+                // Joins store a saved query by its stored name; the row shows the `models.` name.
+                item.record.type === 'view' ? (item.record.view?.name ?? item.name) : item.name,
                 item.record.type === 'endpoint' ? item.record.tableName : undefined
             )
             // Edit view is per-object — creators can edit their own views.

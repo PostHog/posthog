@@ -197,7 +197,7 @@ def _visible_table_names(database: "Database") -> list[str]:
     # queryable by their `posthog.`-qualified name (a bare `FROM ai_events` errors), so leaving
     # them out makes them undiscoverable through the schema-discovery workflow. Everything else
     # (built-in, system, warehouse, views) is included.
-    names = database.tables.resolve_visible_table_names()
+    names = database.get_visible_table_names()
     root_names = {n for n in names if "." not in n}
     return [n for n in names if not (n.startswith("posthog.") and n[len("posthog.") :] in root_names)]
 
@@ -614,8 +614,8 @@ class _Introspection:
         if table_type == "data_warehouse" and table.name:
             return self.row_counts.get(table.name)
         if table_type == "view":
-            # Views are keyed by their catalog name (the saved-query name), which is `name` here.
-            return self.view_row_counts.get(name)
+            # Views are keyed by the stored saved-query name, which differs from `name` for an authored model.
+            return self.view_row_counts.get(self.database._canonical_table_name(name))
         return None
 
     def _table_description(self, table: Table) -> Optional[str]:
@@ -667,7 +667,11 @@ class _Introspection:
             table_type, table_schema = _classify_table(name, table, self.warehouse, self.views)
             row_count = self._row_count(name, table, table_type)
             table_rows.append([name, table_schema, name, table_type, self._table_description(table), row_count])
-            certification_keys.append(_certification_key(name, table, table_type, self.saved_query_ids_by_name))
+            certification_keys.append(
+                _certification_key(
+                    self.database._canonical_table_name(name), table, table_type, self.saved_query_ids_by_name
+                )
+            )
 
             self._collect_fields(
                 name,
@@ -713,7 +717,11 @@ class _Introspection:
         if self._data_catalog_enriched_relationship_rows is not None:
             return self._data_catalog_enriched_relationship_rows
 
-        accepted_relationships = _catalog_accepted_relationships(self.context, self.allowed_tables)
+        allowed = self.allowed_tables
+        if allowed is not None:
+            # Joins store the source under the stored name, and the filter may name a model under `models.`.
+            allowed = allowed.union(self.database._canonical_table_name(name) for name in allowed)
+        accepted_relationships = _catalog_accepted_relationships(self.context, allowed)
         enriched_rows: list[list[Any]] = []
         for relationship in self.collect().relationships:
             confidence, reasoning = (
@@ -779,7 +787,9 @@ class _Introspection:
                             "lazy_join",
                             field.resolver,
                         ],
-                        provenance_key=_relationship_provenance_key(table_name, field_name, field),
+                        provenance_key=_relationship_provenance_key(
+                            self.database._canonical_table_name(table_name), field_name, field
+                        ),
                     )
                 )
             elif isinstance(field, FieldTraverser):

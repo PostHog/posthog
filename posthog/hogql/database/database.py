@@ -877,11 +877,13 @@ class Database(BaseModel):
     _view_table_names: list[str] = []
     _table_slot_origins: dict[tuple[str, ...], str] = {}
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
-    # `models.<stored name>` -> stored chain, for authored saved queries. Only the deny check reads it.
+    # `models.<stored name>` -> stored chain, for authored saved queries.
     _models_aliases: dict[str, list[str]] = {}
     # `models.<stored name>` -> the model's own view node. Resolution uses this and not the stored chain,
     # because a warehouse table merged into the root first can hold the bare stored name.
     _models_alias_nodes: dict[str, TableNode] = {}
+    # Stored name -> `models.<stored name>`, the inverse of `_models_aliases`. Listings show the model under this name.
+    _models_listed_names: dict[str, str] = {}
     _connection_id: str | None = None
     _read_flag_calls_from_flag_evaluations: bool = False
     _flag_calls_only_in_flag_evaluations: bool = False
@@ -953,6 +955,7 @@ class Database(BaseModel):
         self._denied_tables = set()
         self._models_aliases = {}
         self._models_alias_nodes = {}
+        self._models_listed_names = {}
         self._connection_id = None
         self._read_flag_calls_from_flag_evaluations = False
         self._flag_calls_only_in_flag_evaluations = False
@@ -1015,6 +1018,25 @@ class Database(BaseModel):
         """The stored name of the view a `models.` alias resolves to; any other name comes back unchanged."""
         alias_target = self._models_aliases.get(name)
         return ".".join(alias_target) if alias_target is not None else name
+
+    def get_listed_table_name(self, name: str) -> str:
+        """The name listings show: `models.<stored name>` for an authored model, any other name unchanged."""
+        return self._models_listed_names.get(name, name)
+
+    def get_visible_table_names(self) -> list[str]:
+        """`tables.resolve_visible_table_names()`, with each authored model listed under its `models.` name."""
+        names: list[str] = []
+        for name in self.tables.resolve_visible_table_names():
+            alias = self._models_listed_names.get(name)
+            alias_node = self._models_alias_nodes.get(alias) if alias is not None else None
+            if alias is None or alias_node is None:
+                names.append(name)
+                continue
+            # A warehouse table merged in first can hold the bare name. It keeps that name, and the model is listed beside it.
+            if self.tables.get_child(name.split(".")).table is not alias_node.table:
+                names.append(name)
+            names.append(alias)
+        return names
 
     def _models_alias_node(self, table_name: list[str]) -> TableNode | None:
         # The deny check comes before the alias, so a denied query stored as `models.x` is never
@@ -1299,7 +1321,7 @@ class Database(BaseModel):
 
     def get_view_names(self) -> list[str]:
         self._ensure_revenue_views_built()
-        return self._view_table_names
+        return [self.get_listed_table_name(name) for name in self._view_table_names]
 
     def _add_warehouse_tables(self, node: TableNode):
         self.tables.merge_with(node, table_conflict_mode="override" if self._is_direct_query() else "ignore")
@@ -1697,7 +1719,7 @@ class Database(BaseModel):
         # serialization was decided once at the top, and get_view_names would force the build.
         views = [] if self._is_direct_query() else list(self._view_table_names)
         if include_only:
-            views = [name for name in views if name in include_only]
+            views = [name for name in views if name in include_only or self.get_listed_table_name(name) in include_only]
 
         if self._warehouse_table_models is None:
             warehouse_tables_with_data = self._query_warehouse_tables_to_serialize(
@@ -1892,11 +1914,9 @@ class Database(BaseModel):
         # Process views using prefetched data
         views_dict = {view.name: view for view in all_views}
         for view_name in views:
-            if include_only and view_name not in include_only:
-                continue
-
             try:
-                view = self.get_table(view_name)
+                # The listed name reaches the model even when a warehouse table holds the bare stored name.
+                view = self.get_table(self.get_listed_table_name(view_name))
             except QueryError:
                 continue
 
@@ -1938,10 +1958,11 @@ class Database(BaseModel):
                 )
                 continue
 
-            tables[view_name] = DatabaseSchemaViewTable(
+            listed_name = self.get_listed_table_name(view_name)
+            tables[listed_name] = DatabaseSchemaViewTable(
                 fields=fields_dict,
                 id=str(saved_query.pk),
-                name=view_name,
+                name=listed_name,
                 query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
                 row_count=row_count,
                 certification=certifications_by_saved_query_id.get(str(saved_query.pk)),
@@ -2753,6 +2774,7 @@ class Database(BaseModel):
                     models_chain = models_namespace_chain(saved_query)
                     if models_chain is not None and ".".join(models_chain) not in stored_names:
                         database._models_aliases[".".join(models_chain)] = saved_query.name.split(".")
+                        database._models_listed_names[saved_query.name] = ".".join(models_chain)
                     if (
                         sources.is_hogql_warehouse_access_control_enabled
                         and not sources.bypass_warehouse_access_control

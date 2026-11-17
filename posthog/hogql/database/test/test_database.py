@@ -682,7 +682,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert set(shallow.keys()) == set(full.keys())
         assert "warehouse_table" in shallow
-        assert "warehouse_view" in shallow
+        assert "models.warehouse_view" in shallow
         for table_name, shallow_table in shallow.items():
             assert shallow_table.fields == {}, table_name
             assert shallow_table.model_dump(exclude={"fields"}) == full[table_name].model_dump(exclude={"fields"}), (

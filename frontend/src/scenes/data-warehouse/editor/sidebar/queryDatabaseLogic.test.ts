@@ -1053,9 +1053,14 @@ describe('queryDatabaseLogic', () => {
             }
         )
 
-        it.each(['view', 'materialized_view'] as const)(
-            'hydrates a saved %s on expansion and shares fields with the overlay and joins',
-            async (type) => {
+        it.each([
+            ['view', 'saved_events'],
+            ['materialized_view', 'saved_events'],
+            ['view', 'models.saved_events'],
+            ['materialized_view', 'models.saved_events'],
+        ] as const)(
+            'hydrates a saved %s listed as %s on expansion and shares fields with the overlay and joins',
+            async (type, listedName) => {
                 const viewsLogic = dataWarehouseViewsLogic.findMounted()!
                 await expectLogic(viewsLogic).toFinishAllListeners()
                 const view = {
@@ -1070,9 +1075,9 @@ describe('queryDatabaseLogic', () => {
                 dbLogic.actions.loadDatabaseSuccess({
                     tables: {
                         ...dbLogic.values.database!.tables,
-                        saved_events: {
+                        [listedName]: {
                             id: view.id,
-                            name: view.name,
+                            name: listedName,
                             type,
                             fields: {},
                             query: { kind: NodeKind.HogQLQuery, query: 'SELECT event FROM events' },
@@ -1085,7 +1090,8 @@ describe('queryDatabaseLogic', () => {
                     logic.values.treeData
                         .find((item) => item.id === 'views')
                         ?.children?.find((item) => item.id === 'view-saved-view')
-                expect(findView()?.children?.[0]?.record?.pendingTableName).toBe(view.name)
+                expect(findView()?.name).toBe(listedName)
+                expect(findView()?.children?.[0]?.record?.pendingTableName).toBe(listedName)
                 expect(performQuery).not.toHaveBeenCalled()
                 ;(performQuery as jest.Mock).mockRejectedValueOnce(new Error('Field request failed'))
                 logic.actions.toggleFolderOpen('view-saved-view', false)
@@ -1094,9 +1100,9 @@ describe('queryDatabaseLogic', () => {
 
                 ;(performQuery as jest.Mock).mockResolvedValueOnce({
                     tables: {
-                        saved_events: {
+                        [listedName]: {
                             id: view.id,
-                            name: view.name,
+                            name: listedName,
                             type,
                             fields: {
                                 event: { name: 'event', hogql_value: 'event', type: 'string', schema_valid: true },
@@ -1114,7 +1120,7 @@ describe('queryDatabaseLogic', () => {
                 logic.actions.toggleFolderOpen('view-saved-view', true)
                 logic.actions.toggleFolderOpen('view-saved-view', false)
                 await expectLogic(dbLogic).toFinishAllListeners()
-                expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: [view.name] }))
+                expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: [listedName] }))
                 expect(findView()?.children?.map((child: any) => child.name)).toEqual(['event', 'person'])
                 logic.actions.selectSchema(view)
                 expect(logic.values.sidebarOverlayTreeItems).toEqual([

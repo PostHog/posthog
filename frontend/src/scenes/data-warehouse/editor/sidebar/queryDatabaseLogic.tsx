@@ -170,19 +170,23 @@ export const isJoined = (field: DatabaseSchemaField): boolean => {
     return field.type === 'view' || field.type === 'lazy_table'
 }
 
+// The schema lists an authored model as `models.<name>`, not by its stored name, so match on the saved query id.
+const getSavedQuerySchemaTablesById = (
+    allTablesMap: Record<string, DatabaseSchemaTable>
+): Record<string, DatabaseSchemaTable> => {
+    const tablesById: Record<string, DatabaseSchemaTable> = {}
+    for (const table of Object.values(allTablesMap)) {
+        if (table.type === 'view' || table.type === 'materialized_view') {
+            tablesById[table.id] = table
+        }
+    }
+    return tablesById
+}
+
 const getSavedQuerySchemaTable = (
     view: DataWarehouseSavedQuerySummary,
-    allTablesMap: Record<string, DatabaseSchemaTable>
-): DatabaseSchemaTable | undefined => {
-    const lookupKey = normalizeTableLookupKey(view.name)
-    const schemaTable = lookupKey ? allTablesMap[lookupKey] : undefined
-
-    if (schemaTable?.type === 'view' || schemaTable?.type === 'materialized_view') {
-        return schemaTable
-    }
-
-    return undefined
-}
+    savedQuerySchemaTablesById: Record<string, DatabaseSchemaTable>
+): DatabaseSchemaTable | undefined => savedQuerySchemaTablesById[view.id]
 
 const FUSE_OPTIONS: IFuseOptions<any> = {
     keys: [
@@ -346,7 +350,10 @@ const getHydrationTableNamesForNode = (node: TreeDataItem): string[] => {
         const name = normalizeTableLookupKey(record.referencedTable)
         return name ? [name] : []
     }
-    if ((record.type === 'view' || record.type === 'managed-view') && record.view?.name) {
+    if (record.type === 'view') {
+        return [node.name]
+    }
+    if (record.type === 'managed-view' && record.view?.name) {
         return [record.view.name]
     }
     return []
@@ -1145,14 +1152,20 @@ const createTableLookup = ({
             }),
             ...systemTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
             ...dataWarehouseTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
-            ...dataWarehouseSavedQueries.map((view) => {
+            ...dataWarehouseSavedQueries.flatMap((view) => {
                 const schemaTable = savedQuerySchemaTables
                     ? getSavedQuerySchemaTable(view, savedQuerySchemaTables)
                     : undefined
-
-                return schemaTable
-                    ? [view.name, { name: view.name, fields: schemaTable.fields }]
-                    : [view.name, createSavedQueryLookupEntry(view)]
+                if (!schemaTable) {
+                    return [[view.name, createSavedQueryLookupEntry(view)]]
+                }
+                const entry = { name: view.name, fields: schemaTable.fields }
+                return schemaTable.name === view.name
+                    ? [[view.name, entry]]
+                    : [
+                          [view.name, entry],
+                          [schemaTable.name, entry],
+                      ]
             }),
             ...managedViews.map((view) => [view.name, { name: view.name, fields: view.fields }]),
         ].map(([name, entry]) => [normalizeTableLookupKey(name ? String(name) : null) ?? name, entry])
@@ -1294,11 +1307,13 @@ const createViewNode = (
     const isManagedViewsetView = view.managed_viewset_kind !== null
     const isManagedView = 'type' in view && view.type === 'managed_view'
     const viewId = `${isSearch ? 'search-' : ''}view-${view.id}`
+    // The schema name, `models.<name>` for an authored model, is what the sidebar shows and loads fields by.
+    const listedName = schemaTable?.name ?? view.name
     const fields = schemaTable?.fields ?? createSavedQueryLookupEntry(view).fields
-    const fieldsState = getTableFieldsState(view.name, fields, options?.hydration)
+    const fieldsState = getTableFieldsState(listedName, fields, options?.hydration)
 
     if (fieldsState === 'pending') {
-        viewChildren.push(createPendingFieldsNode(viewId, view.name))
+        viewChildren.push(createPendingFieldsNode(viewId, listedName))
     } else if (fieldsState === 'error') {
         viewChildren.push(createFieldsErrorNode(viewId))
     } else {
@@ -1316,7 +1331,7 @@ const createViewNode = (
 
     return {
         id: viewId,
-        name: view.name,
+        name: listedName,
         type: 'node',
         icon: isMaterializing ? (
             <Spinner />
@@ -1750,7 +1765,10 @@ const findDataSourceTreePath = (
 ): TreeDataItem[] | null => {
     for (const item of items) {
         const nextPath = [...path, item]
-        if (getTreeItemDataSourceName(item) === tableName) {
+        if (
+            getTreeItemDataSourceName(item) === tableName ||
+            (item.record?.type === 'view' && item.name === tableName)
+        ) {
             return nextPath
         }
         if (item.children) {
@@ -3241,13 +3259,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     relevantMetrics,
                 } = searchTreeMatches
 
+                const savedQuerySchemaTablesById = getSavedQuerySchemaTablesById(allTablesMap)
                 const tableLookup = createTableLookup({
                     posthogTables: allPosthogTables,
                     systemTables,
                     dataWarehouseTables,
                     dataWarehouseSavedQueries,
                     managedViews,
-                    savedQuerySchemaTables: allTablesMap,
+                    savedQuerySchemaTables: savedQuerySchemaTablesById,
                 })
                 const expandedLazyNodeIds = new Set(expandedSearchFolders.filter(isLazyNodeId))
                 const sourcesChildren: TreeDataItem[] = []
@@ -3324,7 +3343,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 // Add saved queries
                 const materializingViewIdSet = new Set(materializingViewIds)
                 relevantSavedQueries.forEach(([view, matches]) => {
-                    const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
+                    const schemaTable = getSavedQuerySchemaTable(view, savedQuerySchemaTablesById)
                     const viewNode = createViewNode(
                         view,
                         matches,
@@ -3503,13 +3522,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     allTablesMap,
                 } = treeDataContext
                 const sourcesChildren: TreeDataItem[] = []
+                const savedQuerySchemaTablesById = getSavedQuerySchemaTablesById(allTablesMap)
                 const tableLookup = createTableLookup({
                     posthogTables: allPosthogTables,
                     systemTables,
                     dataWarehouseTables,
                     dataWarehouseSavedQueries,
                     managedViews,
-                    savedQuerySchemaTables: allTablesMap,
+                    savedQuerySchemaTables: savedQuerySchemaTablesById,
                 })
                 const expandedLazyNodeIds = new Set(expandedFolders.filter(isLazyNodeId))
                 const hydration: TableFieldsHydration = { databaseFieldsComplete, tableFieldsStatus }
@@ -3609,7 +3629,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                     // Add saved queries
                     dataWarehouseSavedQueries.forEach((view) => {
-                        const schemaTable = getSavedQuerySchemaTable(view, allTablesMap)
+                        const schemaTable = getSavedQuerySchemaTable(view, savedQuerySchemaTablesById)
                         const viewNode = createViewNode(
                             view,
                             null,
@@ -3958,7 +3978,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     table = viewsMapById[selectedSchema.id]
                 } else if (isViewTable(selectedSchema)) {
                     table =
-                        getSavedQuerySchemaTable(selectedSchema, allTablesMap) ??
+                        getSavedQuerySchemaTable(selectedSchema, getSavedQuerySchemaTablesById(allTablesMap)) ??
                         dataWarehouseSavedQueryMapById[selectedSchema.id]
                 }
 
@@ -3987,13 +4007,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         : []
                 }
 
+                // Joins store a saved query's source table by its stored name, not the `models.` name the schema lists.
+                const joinSourceTableName = isViewTable(selectedSchema) ? selectedSchema.name : table.name
                 if ('fields' in table && table !== null) {
                     return sortFieldsWithPrimary(table.name, Object.values(table.fields))
                         .filter((field) => !shouldHideField(field))
                         .map((field) => ({
                             name: field.name,
                             type: field.type,
-                            menuItems: menuItems(field, table?.name ?? ''), // table cant be null, but the typechecker is confused
+                            menuItems: menuItems(field, joinSourceTableName),
                         }))
                 }
 
