@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.14"
-# dependencies = ["hoglint==0.1.0"]
+# dependencies = ["hoglint==0.2.1"]
 # ///
 """Print hoglint's file-level import map ({file: [files that import it]}) as JSON on stdout.
 
