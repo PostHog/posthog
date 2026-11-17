@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense, useEffect, useLayoutEffect, useRef } from 'react'
+import { Suspense, useLayoutEffect, useRef } from 'react'
 
 import { Button, Text } from '@posthog/quill'
 
@@ -15,6 +15,7 @@ import { TodayFirstEventWatcher } from './TodayFirstEventWatcher'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { TodayHomeComposer } from './TodayHomeComposer'
+import { todayHomeEditLogic } from './todayHomeEditLogic'
 import { reportIdFromPath, todayLogic } from './todayLogic'
 import { TodayPrimaryDashboard } from './TodayPrimaryDashboard'
 import { TodayPromoBanner } from './TodayPromoBanner'
@@ -50,9 +51,10 @@ export function TodayHomePage(): JSX.Element {
         frequentObjectsLoading,
         returnFocusReportId,
         useSampleData,
-        homeEditing,
     } = useValues(todayLogic)
-    const { setReturnFocusReportId, setHomeEditing } = useActions(todayLogic)
+    const { setReturnFocusReportId } = useActions(todayLogic)
+    const { homeEditing } = useValues(todayHomeEditLogic)
+    const { toggleHomeEditing } = useActions(todayHomeEditLogic)
     const {
         currentProjectId,
         highlights,
@@ -68,8 +70,6 @@ export function TodayHomePage(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
     const homeComposer = !!currentOrganization?.is_ai_data_processing_approved
-
-    useEffect(() => () => setHomeEditing(false), [setHomeEditing])
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)
@@ -128,7 +128,7 @@ export function TodayHomePage(): JSX.Element {
                         variant={homeEditing ? 'primary' : 'outline'}
                         size="sm"
                         className="ms-auto"
-                        onClick={() => setHomeEditing(!homeEditing)}
+                        onClick={toggleHomeEditing}
                         data-attr={homeEditing ? 'today-home-edit-save' : 'today-home-edit'}
                     >
                         {homeEditing ? 'Save' : 'Edit'}

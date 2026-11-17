@@ -76,8 +76,6 @@ interface DashboardProps {
     compact?: boolean
     /** The parent page reloads the dashboard when PostHog AI adds charts to it, so the header does not. */
     parentReloadsOnAIChanges?: boolean
-    /** False for a preview embedded elsewhere, so seeing it does not count as opening the dashboard. */
-    recordsView?: boolean
 }
 
 export const parseDashboardId = (id: string | undefined): number => {
@@ -113,7 +111,6 @@ export function Dashboard({
     headerActions,
     compact,
     parentReloadsOnAIChanges,
-    recordsView = true,
 }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
@@ -125,7 +122,6 @@ export function Dashboard({
                 headerActions={headerActions}
                 compact={compact}
                 parentReloadsOnAIChanges={parentReloadsOnAIChanges}
-                recordsView={recordsView}
             />
         </BindLogic>
     )
@@ -137,17 +133,16 @@ function DashboardScene({
     headerActions,
     compact,
     parentReloadsOnAIChanges,
-    recordsView = true,
 }: {
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
     headerActions?: JSX.Element
     compact?: boolean
     parentReloadsOnAIChanges?: boolean
-    recordsView?: boolean
 }): JSX.Element {
     const {
         placement,
+        isPreview,
         dashboard,
         canEditDashboard,
         tiles,
@@ -184,12 +179,12 @@ function DashboardScene({
         type: 'dashboard',
         ref: dashboard?.id,
         enabled: Boolean(
-            recordsView && currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard
+            !isPreview && currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard
         ),
     })
 
     useOnMountEffect(() => {
-        if (recordsView) {
+        if (!isPreview) {
             reportDashboardViewed()
         }
 
@@ -244,7 +239,7 @@ function DashboardScene({
                 </Suspense>
             )}
             {/* Lets a tile copied as a PNG be annotated before it is shared. Export placement renders headlessly. */}
-            {placement !== DashboardPlacement.Export && (
+            {placement !== DashboardPlacement.Export && !isPreview && (
                 <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
             )}
             <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
@@ -267,11 +262,7 @@ function DashboardScene({
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (
-                <div
-                    className={cn({
-                        '-mt-4': placement == DashboardPlacement.ProjectHomepage,
-                    })}
-                >
+                <div>
                     {dashboardFailedToLoad && (
                         <LemonBanner
                             type="warning"
@@ -290,13 +281,20 @@ function DashboardScene({
                             This dashboard couldn't finish loading.
                         </LemonBanner>
                     )}
-                    <DashboardRetentionBanner />
-                    <DashboardQueryScanBanner />
-                    <DashboardWarehouseSyncBanner />
+                    {!isPreview && (
+                        <>
+                            <DashboardRetentionBanner />
+                            <DashboardQueryScanBanner />
+                            <DashboardWarehouseSyncBanner />
 
-                    <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
-                        <DashboardFilterBar backTo={backTo} />
-                    </SceneStickyBar>
+                            <SceneStickyBar
+                                showBorderBottom={false}
+                                className={cn('flex gap-2 space-y-0', compact && 'py-1')}
+                            >
+                                <DashboardFilterBar backTo={backTo} />
+                            </SceneStickyBar>
+                        </>
+                    )}
 
                     {placement === DashboardPlacement.Dashboard &&
                         !isSharedView() &&

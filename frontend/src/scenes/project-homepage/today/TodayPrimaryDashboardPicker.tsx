@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useMemo, useRef, useState } from 'react'
 
 import { IconSearch } from '@posthog/icons'
@@ -18,12 +17,19 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 
+import { TodayPrimaryDashboardPickerSource, todayPrimaryDashboardLogic } from './todayPrimaryDashboardLogic'
+
 const NO_DASHBOARD = 'none'
 
-/** Picks the project's primary dashboard, with the same combobox the "At a glance" editor uses. `trigger` is the button that opens it. */
-export function TodayPrimaryDashboardPicker({ trigger }: { trigger: JSX.Element }): JSX.Element {
+export function TodayPrimaryDashboardPicker({
+    trigger,
+    source,
+}: {
+    trigger: JSX.Element
+    source: TodayPrimaryDashboardPickerSource
+}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { primaryDashboardPickerOpened, setPrimaryDashboard } = useActions(todayPrimaryDashboardLogic)
     const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
     const triggerRef = useRef<HTMLButtonElement>(null)
@@ -52,29 +58,25 @@ export function TodayPrimaryDashboardPicker({ trigger }: { trigger: JSX.Element 
             onOpenChange={(open: boolean) => {
                 if (open) {
                     loadDashboardsIfNeeded()
+                    primaryDashboardPickerOpened(source)
                 } else {
                     setSearch('')
                 }
             }}
-            onValueChange={(id: string | null) => {
-                const next = !id || id === NO_DASHBOARD ? null : Number(id)
-                if (next === primaryId) {
-                    return
-                }
-                updateCurrentTeam({ primary_dashboard: next })
-                // pinned: analytics event name, shared with the previous picker
-                posthog.capture('primary dashboard changed')
-            }}
+            onValueChange={(id: string | null) =>
+                setPrimaryDashboard(!id || id === NO_DASHBOARD ? null : Number(id), source)
+            }
         >
             <ComboboxTrigger ref={triggerRef} render={trigger} />
             <ComboboxContent
                 anchor={triggerRef}
-                align="end"
+                align={source === 'empty' ? 'center' : 'end'}
                 className="w-72 [&_[data-slot=combobox-input-group-wrapper]]:border-b-0"
             >
                 <ComboboxInput
                     placeholder="Search dashboards"
                     aria-label="Search dashboards"
+                    data-attr="today-home-primary-dashboard-search"
                     autoFocus
                     showTrigger={false}
                     className="h-7"

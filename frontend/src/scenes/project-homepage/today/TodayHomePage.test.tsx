@@ -6,12 +6,14 @@ import type { ReactNode } from 'react'
 
 import type { PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
+import { todayHomeEditLogic } from './todayHomeEditLogic'
 import { TodayHomePage } from './TodayHomePage'
 import { todayLogic } from './todayLogic'
 import { makeHighlights, makePulseMetric } from './todayTestFixtures'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useActions: jest.fn(), useValues: jest.fn() }))
 jest.mock('./todayLogic', () => ({ todayLogic: { values: { homeScrollTop: null } }, reportIdFromPath: () => null }))
+jest.mock('./todayHomeEditLogic', () => ({ todayHomeEditLogic: {} }))
 jest.mock('./todayHighlightsLogic', () => ({ todayHighlightsLogic: {}, pulsePinLimitReason: () => undefined }))
 jest.mock('./TodaySampleBanner', () => ({ TodaySampleBanner: () => null }))
 jest.mock('./TodayForYou', () => ({ TodayForYou: () => null }))
@@ -48,7 +50,6 @@ describe('TodayHomePage loading', () => {
         }
         const actions = {
             setReturnFocusReportId: jest.fn(),
-            setHomeEditing: jest.fn(),
             pulseViewMounted: jest.fn(),
             pulseViewUpdated: jest.fn(),
             pulseViewUnmounted: jest.fn(),
@@ -72,7 +73,6 @@ describe('TodayHomePage loading', () => {
             recentObjects: [],
             returnFocusReportId: null,
             useSampleData: false,
-            homeEditing: true,
         }
         const numbers = {
             currentProjectId: 1,
@@ -85,10 +85,11 @@ describe('TodayHomePage loading', () => {
             pulseSlots: [],
             pulsePinsLoaded: true,
         }
-        jest.mocked(useValues).mockImplementation((logic) => (logic === todayLogic ? home : numbers))
+        jest.mocked(useValues).mockImplementation((logic) =>
+            logic === todayLogic ? home : logic === todayHomeEditLogic ? { homeEditing: true } : numbers
+        )
         jest.mocked(useActions).mockImplementation(() => ({
             setReturnFocusReportId: jest.fn(),
-            setHomeEditing: jest.fn(),
             pulseViewMounted: jest.fn(),
             pulseViewUpdated: jest.fn(),
             pulseViewUnmounted: jest.fn(),
@@ -134,7 +135,6 @@ describe('TodayHomePage loading', () => {
         }
         const actions = {
             setReturnFocusReportId: jest.fn(),
-            setHomeEditing: jest.fn(),
             pulseViewMounted: jest.fn(),
             pulseViewUpdated: jest.fn(),
             pulseViewUnmounted: jest.fn(),

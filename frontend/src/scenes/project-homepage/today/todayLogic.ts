@@ -197,7 +197,6 @@ export interface todayLogicValues {
     frequentObjectsLoading: boolean
     greeting: string
     growthSlotCard: NavPanelSlotCard | null
-    homeEditing: boolean
     homeScrollTop: number | null
     isNewProject: boolean
     listExpanded: Record<TodayList, boolean>
@@ -335,9 +334,6 @@ export interface todayLogicActions {
     }
     retryFailedLoads: () => {
         value: true
-    }
-    setHomeEditing: (editing: boolean) => {
-        editing: boolean
     }
     setHomeScrollTop: (top: number | null) => {
         top: number | null
@@ -488,7 +484,6 @@ export const todayLogic = kea<todayLogicType>([
         reportOpened: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
         toggleReportRow: (rowKey: string, reportId: string) => ({ rowKey, reportId }),
         exploreOpened: (product: string, position: number) => ({ product, position }),
-        setHomeEditing: (editing: boolean) => ({ editing }),
         setHomeScrollTop: (top: number | null) => ({ top }),
         setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
         setReportOpenContext: (context: TodayReportOpenContext | null) => ({ context }),
@@ -647,13 +642,6 @@ export const todayLogic = kea<todayLogicType>([
         topReports: {
             setUseSampleData: () => null,
         },
-        // Shows each section's edit control. Edits save as they happen, so leaving edit mode has nothing to commit.
-        homeEditing: [
-            false,
-            {
-                setHomeEditing: (_, { editing }) => editing,
-            },
-        ],
         listExpanded: [
             { for_you: false, recents: false } as Record<TodayList, boolean>,
             {

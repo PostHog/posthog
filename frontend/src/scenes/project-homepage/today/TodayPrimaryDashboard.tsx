@@ -1,24 +1,30 @@
-import { useValues } from 'kea'
-import { useId } from 'react'
+import './Today.scss'
+
+import { useActions, useValues } from 'kea'
+import { Suspense, useId } from 'react'
 
 import { IconDashboard } from '@posthog/icons'
 import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DashboardPlacement } from '~/types'
 
+import { todayHomeEditLogic } from './todayHomeEditLogic'
 import { TodayHomeHeading } from './TodayHomeHeading'
-import { todayLogic } from './todayLogic'
+import { todayPrimaryDashboardLogic } from './todayPrimaryDashboardLogic'
 import { TodayPrimaryDashboardPicker } from './TodayPrimaryDashboardPicker'
 
-/** A cropped, non-interactive preview of the project's primary dashboard; the whole preview opens the dashboard. Hidden outside edit mode when none is set. */
+// Only projects with a primary dashboard need the dashboard scene, so it loads in its own chunk rather than with Home.
+const Dashboard = lazyWithRetry(() => import('scenes/dashboard/Dashboard').then((m) => ({ default: m.Dashboard })))
+
 export function TodayPrimaryDashboard(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
-    const { homeEditing } = useValues(todayLogic)
+    const { homeEditing } = useValues(todayHomeEditLogic)
+    const { primaryDashboardOpened } = useActions(todayPrimaryDashboardLogic)
     const titleId = useId()
     const dashboardId = currentTeam?.primary_dashboard ?? null
     if (!dashboardId && !homeEditing) {
@@ -31,6 +37,7 @@ export function TodayPrimaryDashboard(): JSX.Element | null {
                 <TodayHomeHeading id={titleId}>Primary dashboard</TodayHomeHeading>
                 {homeEditing ? (
                     <TodayPrimaryDashboardPicker
+                        source="edit"
                         trigger={
                             <Button
                                 variant="outline"
@@ -47,25 +54,18 @@ export function TodayPrimaryDashboard(): JSX.Element | null {
             </div>
             {dashboardId ? (
                 <div className="TodayPrimaryDashboard">
-                    {/* `inert` keeps the tiles' own links and menus out of the tab order; React 18 types lack the attribute.
-                        The filter bar is hidden with a Tailwind variant because its `flex` utility outranks Today.scss. */}
-                    <div
-                        className="TodayPrimaryDashboard__preview [&_.scene-sticky-bar]:hidden"
-                        aria-hidden
-                        {...{ inert: '' }}
-                    >
-                        <Dashboard
-                            id={String(dashboardId)}
-                            placement={DashboardPlacement.ProjectHomepage}
-                            readOnly
-                            recordsView={false}
-                        />
+                    {/* `inert` keeps the tiles' own links and menus out of the tab order; React 18 types lack the attribute */}
+                    <div className="TodayPrimaryDashboard__preview" aria-hidden {...{ inert: '' }}>
+                        <Suspense fallback={null}>
+                            <Dashboard id={String(dashboardId)} placement={DashboardPlacement.ProjectHomepage} />
+                        </Suspense>
                     </div>
                     <LinkPrimitive
                         to={urls.dashboard(dashboardId)}
                         className="TodayPrimaryDashboard__link"
                         aria-label="Open primary dashboard"
                         data-attr="today-home-primary-dashboard-open"
+                        onClick={() => primaryDashboardOpened(dashboardId)}
                     >
                         <span className="TodayPrimaryDashboard__cta">Open dashboard</span>
                     </LinkPrimitive>
@@ -83,6 +83,7 @@ export function TodayPrimaryDashboard(): JSX.Element | null {
                     </EmptyHeader>
                     <EmptyContent>
                         <TodayPrimaryDashboardPicker
+                            source="empty"
                             trigger={
                                 <Button variant="primary" size="sm" data-attr="today-home-primary-dashboard-choose">
                                     Choose dashboard

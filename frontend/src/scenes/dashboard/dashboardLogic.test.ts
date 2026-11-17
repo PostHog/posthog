@@ -2258,11 +2258,11 @@ describe('dashboardLogic', () => {
                 { name: 'the dashboard page', placement: undefined, width: 1200, columns: 12, editable: true },
                 { name: 'a narrow window', placement: undefined, width: 500, columns: 1, editable: false },
                 {
-                    name: 'the project homepage',
+                    name: 'the project homepage preview',
                     placement: DashboardPlacement.ProjectHomepage,
                     width: 1200,
                     columns: 12,
-                    editable: true,
+                    editable: false,
                 },
                 {
                     name: 'a shared view',

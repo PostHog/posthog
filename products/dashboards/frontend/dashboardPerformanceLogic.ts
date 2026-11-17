@@ -7,7 +7,7 @@ import { DashboardPlacement } from '~/types'
 import { DashboardPerformanceMonitor } from './dashboardPerformance'
 
 // Embedded, exported and public placements have their own layout and load paths, which would mix into the numbers.
-const MEASURED_PLACEMENTS = new Set([DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage])
+const MEASURED_PLACEMENTS = new Set([DashboardPlacement.Dashboard])
 
 export interface DashboardPerformanceLogicProps {
     dashboardId: number

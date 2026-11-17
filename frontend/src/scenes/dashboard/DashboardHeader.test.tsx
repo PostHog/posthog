@@ -235,7 +235,7 @@ describe('DashboardHeader', () => {
 
     it.each([
         { placement: DashboardPlacement.Builtin, isShared: true, visible: true },
-        { placement: DashboardPlacement.ProjectHomepage, isShared: true, visible: true },
+        { placement: DashboardPlacement.ProjectHomepage, isShared: true, visible: false },
         { placement: DashboardPlacement.Builtin, isShared: false, visible: false },
         { placement: DashboardPlacement.Public, isShared: true, visible: false },
         { placement: DashboardPlacement.Export, isShared: true, visible: false },

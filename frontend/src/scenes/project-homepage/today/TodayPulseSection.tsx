@@ -6,8 +6,8 @@ import { Skeleton, Text } from '@posthog/quill'
 import type { HighlightsApi, PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
 import { todayHighlightsLogic } from './todayHighlightsLogic'
+import { todayHomeEditLogic } from './todayHomeEditLogic'
 import { TodayHomeHeading } from './TodayHomeHeading'
-import { todayLogic } from './todayLogic'
 import { TodayPulse } from './TodayPulse'
 import { TodayPulseEditor } from './TodayPulseEditor'
 
@@ -51,7 +51,7 @@ function pulseView(
 
 export function TodayPulseSection(): JSX.Element | null {
     const { highlights, pulsePending, pulseTiles, pulseSlots, pulsePinsLoaded } = useValues(todayHighlightsLogic)
-    const { homeEditing } = useValues(todayLogic)
+    const { homeEditing } = useValues(todayHomeEditLogic)
     const titleId = useId()
     const view = pulseView(pulsePending, highlights, pulseSlots)
     const canEdit = !pulsePending && !!highlights && pulsePinsLoaded
