@@ -8,6 +8,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
+import { isLegacyExperiment } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
@@ -47,7 +48,7 @@ export function ExperimentMetaBar(): JSX.Element | null {
 
     const status = getExperimentStatus(experiment)
     const isPaused = isExperimentPaused(experiment)
-    const visibility = getExperimentMetaBarVisibility(experiment)
+    const visibility = getExperimentMetaBarVisibility(experiment, isLegacyExperiment(experiment))
     const stats = getExperimentStatsSummary(experiment, statsMethod)
     const { created_by } = experiment
 

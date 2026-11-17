@@ -20,7 +20,7 @@ import { StatsMethodModal } from 'products/experiments/frontend/modals/StatsMeth
 
 import { experimentLogic, getSectionMetricUuids } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getBaselineVariantKey } from '../utils'
+import { getBaselineVariantKey, isLegacyExperiment } from '../utils'
 import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
 import { resolveSequentialEnabled } from './sequential'
 
@@ -107,8 +107,13 @@ export function Hypothesis(): JSX.Element {
     const cupedFromTeamDefault = getCupedSelection(experiment.stats_config?.cuped) === 'default'
 
     const tags = experiment.tags ?? []
-    const showResults = isLaunched(experiment) && getSectionMetricUuids(experiment, false).length > 0
-    const lockedReason = hasEnded(experiment) ? 'Settings are locked because this experiment has ended.' : undefined
+    const isLegacy = isLegacyExperiment(experiment)
+    const showResults = !isLegacy && isLaunched(experiment) && getSectionMetricUuids(experiment, false).length > 0
+    const lockedReason = isLegacy
+        ? "Legacy experiments don't calculate results, so analysis settings are locked. Migrate this experiment to change them."
+        : hasEnded(experiment)
+          ? 'Settings are locked because this experiment has ended.'
+          : undefined
 
     return (
         <div className="h-full border border-primary rounded bg-[var(--color-bg-table)] px-3 py-2.5 flex flex-col gap-3">
