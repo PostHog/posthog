@@ -492,14 +492,38 @@ func TestServe_focus_unknown(t *testing.T) {
 	}
 }
 
-func TestServe_toggleProc_unknown(t *testing.T) {
+func TestServe_processCommands_unknown(t *testing.T) {
+	for _, cmd := range []string{"toggle-proc", "restart"} {
+		t.Run(cmd, func(t *testing.T) {
+			mgr := testManager(t, "web")
+			path := startServe(t, mgr)
+
+			resp := send(t, path, map[string]any{"cmd": cmd, "process": "nope"})
+
+			if resp["ok"] != false {
+				t.Fatalf("ok: got %v, want false", resp["ok"])
+			}
+		})
+	}
+}
+
+func TestServe_restart_runsTheProcess(t *testing.T) {
 	mgr := testManager(t, "web")
+	mgr.SetSend(func(tea.Msg) {})
 	path := startServe(t, mgr)
 
-	resp := send(t, path, map[string]any{"cmd": "toggle-proc", "process": "nope"})
+	resp := send(t, path, map[string]any{"cmd": "restart", "process": "web"})
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true; error: %v", resp["ok"], resp["error"])
+	}
 
-	if resp["ok"] != false {
-		t.Fatalf("ok: got %v, want false", resp["ok"])
+	p, _ := mgr.Get("web")
+	deadline := time.Now().Add(5 * time.Second)
+	for p.Status() != process.StatusDone {
+		if time.Now().After(deadline) {
+			t.Fatalf("restart did not run the process: status %s", p.Status())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

@@ -181,10 +181,13 @@ tail -f /tmp/phrocs-debug.log
 ## MCP server
 
 phrocs exposes process data over a Unix domain socket (IPC) so external tools can query status and logs.
-A Python MCP server (`mcp_server.py`) connects to this socket and provides two tools for Claude Code:
+`phrocs mcp` runs an MCP server over stdio that talks to this socket. `.mcp.json` starts it through `mcp.sh`, which builds phrocs first when Go is available. The tools are:
 
-- `get_process_status` — query process status (running, stopped, exit code, etc.)
-- `get_process_logs` — fetch recent log lines, optionally filtered by grep pattern
+- `get_process_status`: status, readiness, exit code and resource metrics for one or all processes
+- `get_process_logs`: recent log lines, optionally filtered by a regex across the whole buffer
+- `send_keys`: input for a process waiting on a prompt
+- `toggle_process`: stop a running process or start a stopped one
+- `restart_process`: restart a process in any state
 
 The socket path is derived from a hash of the workspace directory, so multiple phrocs instances can coexist.
 
@@ -193,7 +196,8 @@ The socket path is derived from a hash of the workspace directory, so multiple p
 ```fs
 phrocs/
 ├── main.go                   entry point, arg parsing, program wiring
-├── mcp_server.py             MCP server for Claude Code integration
+├── mcp.go                    MCP server (`phrocs mcp`) for Claude Code integration
+├── mcp.sh                    builds phrocs and starts `phrocs mcp` for .mcp.json
 └── internal/
     ├── config/               YAML config loader
     ├── docker/               docker-compose container inspection + log streaming
