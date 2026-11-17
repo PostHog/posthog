@@ -27,6 +27,10 @@
     }
 
     &__cell.MarkdownNotebook {
+        --markdown-notebook-canvas-max-width: 100%;
+        --markdown-notebook-gutter-reserve: 0px;
+        --markdown-notebook-content-offset: 0px;
+
         min-height: 0;
         padding: 0;
     }
