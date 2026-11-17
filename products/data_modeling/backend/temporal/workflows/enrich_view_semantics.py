@@ -4,7 +4,8 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.data_modeling.activities.enrich_view_semantics import (
+
+from products.data_modeling.backend.temporal.activities.enrich_view_semantics import (
     EnrichViewSemanticsInputs,
     enrich_view_semantics_activity,
 )

@@ -20,19 +20,19 @@ import pyarrow as pa
 import deltalake
 
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_modeling.activities import MaterializeViewInputs, materialize_view_activity
-from posthog.temporal.data_modeling.activities.incremental_write import (
+
+from products.data_modeling.backend.facade.api import get_incremental_state, set_incremental_state
+from products.data_modeling.backend.temporal.activities import MaterializeViewInputs, materialize_view_activity
+from products.data_modeling.backend.temporal.activities.incremental_write import (
     DuplicateUniqueKeyError,
     IncrementalWriteError,
     TableUnreadableError,
 )
-from posthog.temporal.data_modeling.activities.materialize_view import (
+from products.data_modeling.backend.temporal.activities.materialize_view import (
     FAILED_UPDATE_REASON_PREFIX,
     get_aws_storage_options,
 )
-from posthog.temporal.data_modeling.workflows.materialize_view import NON_RETRYABLE_ERRORS
-
-from products.data_modeling.backend.facade.api import get_incremental_state, set_incremental_state
+from products.data_modeling.backend.temporal.workflows.materialize_view import NON_RETRYABLE_ERRORS
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -125,7 +125,7 @@ async def _run(
 ):
     with (
         unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.hogql_table",
+            "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table",
             _mock_hogql_table(*batches, value_column=value_column, windows=windows, column_types=column_types),
         ),
     ):
@@ -332,7 +332,8 @@ class TestIncrementalMaterialization:
 
             with (
                 unittest.mock.patch(
-                    "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", remove_log_then_yield
+                    "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table",
+                    remove_log_then_yield,
                 ),
                 pytest.raises(TableUnreadableError),
             ):
@@ -487,7 +488,7 @@ class TestIncrementalMaterialization:
             first = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1, DAY2], [10, 20]))
             await database_sync_to_async(write_progress_elsewhere)()
             with unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", honouring_the_window
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", honouring_the_window
             ):
                 result = await activity_environment.run(
                     materialize_view_activity,
@@ -534,7 +535,7 @@ class TestIncrementalMaterialization:
             asaved_query.query = original_query
             await database_sync_to_async(asaved_query.save)(update_fields=["query"])
             with unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", honouring_the_window
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", honouring_the_window
             ):
                 result = await activity_environment.run(
                     materialize_view_activity,
@@ -718,7 +719,7 @@ class _RecordingProducer:
 
 def _patch_producer(producer: _RecordingProducer):
     return unittest.mock.patch(
-        "posthog.temporal.data_modeling.activities.materialize_view.CDPProducer.for_view",
+        "products.data_modeling.backend.temporal.activities.materialize_view.CDPProducer.for_view",
         return_value=producer,
     )
 
@@ -822,7 +823,7 @@ class TestCDPRowStaging:
 
         with _settings(bucket_name), _patch_producer(producer):
             with unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.data_quality_facade.quality_audit_mode",
+                "products.data_modeling.backend.temporal.activities.materialize_view.data_quality_facade.quality_audit_mode",
                 side_effect=asyncio.CancelledError(),
             ):
                 with pytest.raises(asyncio.CancelledError):

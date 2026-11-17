@@ -9,7 +9,7 @@ import pytest
 
 import pyarrow as pa
 
-from posthog.temporal.data_modeling.activities.materialize_view import (
+from products.data_modeling.backend.temporal.activities.materialize_view import (
     UnstorableIntegerError,
     _transform_unsigned_integers,
 )

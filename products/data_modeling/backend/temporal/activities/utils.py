@@ -10,7 +10,6 @@ from structlog.contextvars import bind_contextvars
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.asyncpa import INVALID_MESSAGE_FORMAT_ERROR, InvalidMessageFormat
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_modeling.activities.preempt_dag_run import ABANDONED_ERROR
 
 from products.data_modeling.backend.facade.api import (
     clear_node_suspension,
@@ -27,6 +26,7 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     Node,
 )
+from products.data_modeling.backend.temporal.activities.preempt_dag_run import ABANDONED_ERROR
 
 # Suspension state lives in products/data_modeling/backend/logic/node_suspension.py, alongside the
 # API and DAG-sync paths that clear it. Re-exported so the activities keep importing from here.

@@ -8,8 +8,6 @@ from structlog import get_logger
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.data_modeling.activities.materialize_view import get_aws_storage_options
-from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.api import (
     link_table_if_materializing,
@@ -17,6 +15,8 @@ from products.data_modeling.backend.facade.api import (
     unlink_table,
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.temporal.activities.materialize_view import get_aws_storage_options
+from products.data_modeling.backend.temporal.activities.utils import bind_data_modeling_log_context
 from products.data_warehouse.backend.facade.api import create_table_from_saved_query
 from products.warehouse_sources.backend.facade.api import discard_backing_table, record_table_row_count
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable

@@ -8,9 +8,9 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, Node
+from products.data_modeling.backend.temporal.activities.utils import bind_data_modeling_log_context
 
 LOGGER = get_logger(__name__)
 
