@@ -111,9 +111,8 @@ screens rely on TanStack staleness (60 seconds) and pull to refresh.
 Pull to refresh discards later pages and reloads the first page. Spike reads are scoped to each loaded page, so
 loading another page does not repeat the spike lookup for previous pages. New and Spiking filter the loaded rows;
 an empty partial result offers Load more instead of claiming there are no matching issues in the project.
-The Spiking filter waits for pending spike lookups and offers a retry when they fail. The list asks for the same
-buckets as the issue chart (24 hourly for 24h, 28 of 6 hours for 7d), so each card draws its bars from `volumeRange`.
-Each sort has its own query key, so a sort change starts again at the first page.
+The Spiking filter waits for pending spike lookups and offers a retry when they fail. Each card draws its
+bars from `volumeRange`. Each sort has its own cached pages.
 A 403 that names a missing scope goes to `reportScopeError(error, 'errors')`, and the screen shows `ViewsReauthState`.
 `error_tracking/stack_frames/batch_get/` is not called: the frames in `$exception_list` already carry resolved names, and
 the phone shows no code context.

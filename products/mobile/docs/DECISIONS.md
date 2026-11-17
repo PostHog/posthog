@@ -346,24 +346,18 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
   only `error_tracking:read`, the scope the Errors gate checks, and none spends the Views query budget.
 - **Most users first by default, active only.** The list is `status: 'active'`, 15 rows per page, 24h by default
   with 7d one tap away. Load more follows the server's next offset. Resolved and suppressed issues stay on the web.
-- **Sort by users, sessions or occurrences.** The controls row has no room for another chip, so the caption under the
-  title ("Most users first") opens a sheet with the three orders. The choice goes to the server as `orderBy` with
-  `orderDirection: 'DESC'`, each order keeps its own cached pages, and a change reloads from the first page. The screen
-  keeps the sort in memory like the window, so a new visit starts at Most users. Errors with no `$session_id` count
-  0 sessions, so they come last in Most sessions, and the cards show "–" for them, as the web does.
+- **Sort by users, sessions or occurrences.** The caption under the title opens a sheet, because the controls row is
+  full. The sort is the server's `orderBy` and is not saved between visits. Errors with no `$session_id` come last in
+  Most sessions and show "–".
 - **New, Spiking and Mine filter the list, one at a time.** New and Spiking narrow loaded pages on the device.
   A partial empty result offers Load more. Mine is a server filter (`assignee: { type: 'user', id }`).
 - **New is first seen inside the window. Spiking is the server's spike detection.** The badge reads
   `error_tracking/spike_events/`, the read the web's issue list uses, so the phone and the web call the same issues
   spiking. New wins over Spiking for the displayed badge, but an issue can match either filter.
   Spike reads cover each loaded page, and a failed read offers a retry in the Spiking filter.
-- **Bars on every card, in the issue's buckets.** The list requests `volumeResolution: 24` for 24h and `28` for 7d,
-  the buckets the issue chart uses, so a card and its issue draw the same bars. More buckets add no query: the server
-  computes the list in one aggregate query either way, as the web's issue list does with 20 buckets. Each row gets
-  longer, because it carries the bucket arrays. Both charts are zero-based SVG bars (`SparkBars`), not Skia canvases,
-  so a long list stays inside the canvas budget.
-- **Compact counts, as on the web.** Cards and impact tiles show three significant figures (1.23K, 12.3K, 1.23M) with
-  the web's `humanFriendlyLargeNumber` rules. Screen reader labels keep the full counts.
+- **Bars on every card.** The list requests the issue chart's buckets (`volumeResolution` 24 for 24h, 28 for 7d). The
+  server computes the list in one query either way. The bars are SVG (`SparkBars`), not Skia canvases.
+- **Compact counts, as on the web.** Three significant figures (1.23K). Screen reader labels keep the full counts.
 - **No Reopened badge.** Nothing the app can read says an issue came back after a resolve: the issue resource has no
   history field, and the activity log needs `activity_log:read`.
 - **Statuses and wording match the web.** `active`, `resolved`, `suppressed` with the labels of the web's
