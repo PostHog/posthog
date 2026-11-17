@@ -1600,14 +1600,18 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response.json()["attr"], "target_email")
         self.assertEqual(OrganizationInvite.objects.count(), 0)
 
-    def test_user_join_with_default_role(self):
+    @parameterized.expand([(None, False), (8, False), (8, True)])
+    def test_user_join_with_default_role(self, grant: int | None, replace_default: bool) -> None:
         """Test that new users get assigned the default role when joining an organization"""
         # Create a role
-        role = Role.objects.create(name="Test Role", organization=self.organization)
+        role = Role.objects.create(name="Test Role", organization=self.organization, organization_access_level=grant)
 
         # Set it as the default role
         self.organization.default_role = role
         self.organization.save()
+        if replace_default:
+            replacement = Role.objects.create(name="Replacement", organization=self.organization)
+            Organization.objects.filter(pk=self.organization.pk).update(default_role=replacement)
 
         # Create a new user and have them join the organization
         new_user = User.objects.create(email="test@example.com", first_name="Test")
@@ -1615,6 +1619,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Check that the user was assigned to the default role
         assert RoleMembership.objects.filter(role=role, user=new_user, organization_member=membership).exists()
+        assert membership.level == OrganizationMembership.Level.MEMBER
+        assert membership.effective_level == (grant or OrganizationMembership.Level.MEMBER)
 
     @patch("posthog.models.user.capture_exception")
     def test_user_join_does_not_assign_default_role_from_another_organization(self, mock_capture_exception):

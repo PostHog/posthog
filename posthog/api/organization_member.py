@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
@@ -43,6 +43,7 @@ from posthog.permissions import TimeSensitiveActionPermission, extract_organizat
 from posthog.utils import posthoganalytics
 
 from products.access_control.backend.facade.subject_access_control import get_project_scoped_visible_membership_ids
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.access_control.backend.presentation.access_control_organization_members import (
     OrganizationMemberProjectAccessViewSetMixin,
 )
@@ -61,6 +62,14 @@ ALLOWED_ORDERINGS: dict[str, tuple[str, str]] = {
 DEFAULT_ORDERING = "-joined_at"
 
 
+def organization_access_role_memberships_prefetch() -> Prefetch:
+    return Prefetch(
+        "user__role_memberships",
+        queryset=RoleMembership.objects.select_related("role"),
+        to_attr="organization_access_role_memberships",
+    )
+
+
 def organization_members_base_queryset() -> QuerySet:
     """Active, non-bot organization memberships with their user prefetched.
 
@@ -69,9 +78,11 @@ def organization_members_base_queryset() -> QuerySet:
     stay in one place.
     """
     return (
-        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+        OrganizationMembership.objects.with_effective_level()
+        .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
         .filter(user__is_active=True)
         .select_related("user")
+        .prefetch_related(organization_access_role_memberships_prefetch())
     )
 
 
@@ -95,7 +106,25 @@ class OrganizationMemberObjectPermissions(BasePermission):
         return True
 
 
+class OrganizationRoleGrantSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Role
+        fields = ["id", "name", "organization_access_level"]
+        read_only_fields = fields
+
+
 class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
+    effective_level = serializers.IntegerField(
+        read_only=True, help_text="Highest organization access from the individual assignment and applicable roles."
+    )
+    role_grants = serializers.SerializerMethodField(help_text="Roles granting additional organization access.")
+
+    @extend_schema_field(OrganizationRoleGrantSerializer(many=True))
+    def get_role_grants(self, instance: OrganizationMembership) -> list[dict]:
+        return cast(
+            list[dict], OrganizationRoleGrantSerializer(instance.organization_access_role_grants, many=True).data
+        )
+
     user = UserBasicSerializer(read_only=True)
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
@@ -107,6 +136,8 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
             "id",
             "user",
             "level",
+            "effective_level",
+            "role_grants",
             "joined_at",
             "updated_at",
             "is_2fa_enabled",
@@ -140,6 +171,7 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
                 )
             setattr(updated_membership, attr, value)
         updated_membership.save()
+        updated_membership.__dict__.pop("resolved_level", None)
         return updated_membership
 
 

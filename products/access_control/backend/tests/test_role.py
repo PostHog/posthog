@@ -1,19 +1,32 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+from types import SimpleNamespace
 from uuid import uuid4
 
+from posthog.test.base import NonAtomicAPIBaseTest
+from unittest.mock import patch
+
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, connection, transaction
-from django.test import TestCase
+from django.db import IntegrityError, connection, connections, transaction
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.presentation.role import RoleSerializer
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.enums import Action
 
-from ee.api.test.base import APILicensedTest
+from ee.api.test.base import APILicensedTest, LicensedTestMixin
 
 
 class TestRoleOrganizationAccessLevel(TestCase):
@@ -233,7 +246,7 @@ class TestRoleAPI(APILicensedTest):
     def test_listing_roles_does_not_scale_queries_with_member_count(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        role = Role.objects.create(name="Engineering", organization=self.organization)
+        role = Role.objects.create(name="Engineering", organization=self.organization, organization_access_level=8)
 
         def add_members(count: int) -> None:
             for _ in range(count):
@@ -348,3 +361,213 @@ class TestRoleMemberVisibilityRestriction(APILicensedTest):
         role = response.json()["results"][0]
         assert {m["user"]["email"] for m in role["members"]} == {self.mate.email, self.hidden.email}
         assert role["created_by"]["email"] == self.hidden.email
+
+
+class TestOrganizationRoleGrantAPI(APILicensedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.role = Role.objects.create(name="Administrators", organization=self.organization)
+        self.member = User.objects.create_and_join(self.organization, "member@example.com", None)
+
+    @parameterized.expand([(True, 200), (False, 400), (None, 400)])
+    def test_mapping_promotion_requires_rollout(self, enabled: bool | None, expected: int) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=enabled):
+            response = self.client.patch(
+                f"/api/organizations/{self.organization.id}/roles/{self.role.id}",
+                {"organization_access_level": 8},
+            )
+        assert response.status_code == expected
+        self.role.refresh_from_db()
+        assert self.role.organization_access_level == (8 if enabled else None)
+        if enabled:
+            log = ActivityLog.objects.filter(scope="Role", item_id=self.role.id, activity="updated").latest(
+                "created_at"
+            )
+            assert log.user_id == self.user.id
+            assert any(c["field"] == "organization_access_level" and c["after"] == 8 for c in log.detail["changes"])
+
+    def test_mapping_can_be_cleared_when_rollout_is_disabled(self) -> None:
+        self.role.organization_access_level = 8
+        self.role.save()
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.patch(
+                f"/api/organizations/{self.organization.id}/roles/{self.role.id}",
+                {"organization_access_level": None},
+            )
+        assert response.status_code == 200
+        self.role.refresh_from_db()
+        assert self.role.organization_access_level is None
+
+    @parameterized.expand([("mapping",), ("member",), ("default",), ("delete",), ("remove_member",)])
+    def test_edit_permission_cannot_manage_organization_grants(self, operation: str) -> None:
+        if operation != "mapping":
+            self.role.organization_access_level = 8
+            self.role.save()
+        if operation == "remove_member":
+            role_membership = RoleMembership.objects.create(
+                role=self.role,
+                user=self.member,
+                organization_member=OrganizationMembership.objects.get(
+                    organization=self.organization, user=self.member
+                ),
+            )
+        original_check = authorization.check
+
+        def check(*args, **kwargs):
+            if kwargs.get("action") == Action.MANAGE_ACCESS:
+                return False
+            return original_check(*args, **kwargs)
+
+        with patch.object(authorization, "check", side_effect=check):
+            if operation == "mapping":
+                response = self.client.patch(
+                    f"/api/organizations/{self.organization.id}/roles/{self.role.id}",
+                    {"organization_access_level": 8},
+                )
+            elif operation == "member":
+                response = self.client.post(
+                    f"/api/organizations/{self.organization.id}/roles/{self.role.id}/role_memberships",
+                    {"user_uuid": str(self.member.uuid)},
+                )
+            elif operation == "default":
+                response = self.client.patch(
+                    f"/api/organizations/{self.organization.id}", {"default_role_id": str(self.role.id)}
+                )
+            elif operation == "remove_member":
+                response = self.client.delete(
+                    f"/api/organizations/{self.organization.id}/roles/{self.role.id}/role_memberships/{role_membership.id}"
+                )
+            else:
+                response = self.client.delete(f"/api/organizations/{self.organization.id}/roles/{self.role.id}")
+        assert response.status_code == 403
+        self.role.refresh_from_db()
+        self.organization.refresh_from_db()
+        assert self.role.organization_access_level == (None if operation == "mapping" else 8)
+        assert self.organization.default_role_id is None
+        assert RoleMembership.objects.filter(role=self.role, user=self.member).exists() == (
+            operation == "remove_member"
+        )
+
+    def test_stale_role_cannot_bypass_grant_management(self) -> None:
+        request = Request(APIRequestFactory().patch("/"))
+        request.user = self.user
+        serializer = RoleSerializer(
+            self.role,
+            data={"name": "Renamed"},
+            partial=True,
+            context={"request": request, "view": SimpleNamespace(organization=self.organization)},
+        )
+        assert serializer.is_valid(), serializer.errors
+        Role.objects.filter(pk=self.role.pk).update(organization_access_level=8)
+        with patch.object(authorization, "check", return_value=False), self.assertRaises(PermissionDenied):
+            serializer.save()
+        self.role.refresh_from_db()
+        assert self.role.name == "Administrators"
+        assert self.role.organization_access_level == 8
+
+    def test_api_rejects_owner_grant(self) -> None:
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/roles/{self.role.id}",
+            {"organization_access_level": OrganizationMembership.Level.OWNER},
+        )
+        assert response.status_code == 400
+        self.role.refresh_from_db()
+        assert self.role.organization_access_level is None
+
+    @parameterized.expand([(False, 1), (True, 8)])
+    def test_direct_downgrade_returns_current_effective_access(self, granted: bool, expected: int) -> None:
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.member)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        if granted:
+            self.role.organization_access_level = 8
+            self.role.save()
+            RoleMembership.objects.create(role=self.role, user=self.member, organization_member=membership)
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/members/{self.member.uuid}", {"level": 1}
+        )
+        assert response.status_code == 200
+        assert response.json()["level"] == 1
+        assert response.json()["effective_level"] == expected
+
+    def test_member_response_distinguishes_direct_access_and_grants(self) -> None:
+        self.role.organization_access_level = 8
+        self.role.save()
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.member)
+        role_membership = RoleMembership.objects.create(
+            role=self.role, user=self.member, organization_member=membership
+        )
+        response = self.client.get(f"/api/organizations/{self.organization.id}/members", {"email": self.member.email})
+        assert response.status_code == 200
+        assert response.json()["results"][0]["level"] == OrganizationMembership.Level.MEMBER
+        assert response.json()["results"][0]["effective_level"] == 8
+        assert response.json()["results"][0]["role_grants"] == [
+            {"id": str(self.role.id), "name": self.role.name, "organization_access_level": 8}
+        ]
+        role_membership.delete()
+        response = self.client.get(f"/api/organizations/{self.organization.id}/members", {"email": self.member.email})
+        assert response.json()["results"][0]["effective_level"] == OrganizationMembership.Level.MEMBER
+        assert response.json()["results"][0]["role_grants"] == []
+        activities = ActivityLog.objects.filter(scope="Role", item_id=self.role.id, activity="updated")
+        member_changes = [c for log in activities for c in log.detail["changes"] if c["field"] == "members"]
+        assert {c["action"] for c in member_changes} == {"created", "deleted"}
+
+
+class TestOrganizationRoleGrantValidation(SimpleTestCase):
+    @parameterized.expand([(1,), (15,), (0,), (9,)])
+    def test_only_admin_grants_are_accepted(self, level: int) -> None:
+        serializer = RoleSerializer(data={"organization_access_level": level}, partial=True)
+        assert not serializer.is_valid()
+        assert serializer.errors["organization_access_level"][0].code == "invalid_choice"
+
+
+class TestOrganizationRoleGrantWriteRace(LicensedTestMixin, NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand([("member",), ("default",), ("rename",)])
+    def test_permission_is_rechecked_after_concurrent_promotion(self, operation: str) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        role = Role.objects.create(name="Ordinary", organization=self.organization)
+        target = User.objects.create_and_join(self.organization, "target@example.com", None)
+        waiting_for_role = Event()
+
+        def perform_request():
+            def observe_lock(execute, sql, params, many, context):
+                if '"ee_role"' in sql and "FOR NO KEY UPDATE" in sql:
+                    waiting_for_role.set()
+                return execute(sql, params, many, context)
+
+            try:
+                with connection.execute_wrapper(observe_lock):
+                    if operation == "member":
+                        return self.client.post(
+                            f"/api/organizations/{self.organization.id}/roles/{role.id}/role_memberships",
+                            {"user_uuid": str(target.uuid)},
+                        )
+                    if operation == "default":
+                        return self.client.patch(
+                            f"/api/organizations/{self.organization.id}", {"default_role_id": str(role.id)}
+                        )
+                    return self.client.patch(
+                        f"/api/organizations/{self.organization.id}/roles/{role.id}", {"name": "Renamed"}
+                    )
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with transaction.atomic():
+                Role.objects.select_for_update(no_key=True).get(pk=role.pk)
+                result = executor.submit(perform_request)
+                assert waiting_for_role.wait(timeout=30), "Request did not reach the role lock"
+                Role.objects.filter(pk=role.pk).update(organization_access_level=8)
+                OrganizationMembership.objects.filter(pk=self.organization_membership.pk).update(level=1)
+            response = result.result(timeout=30)
+        assert response.status_code == 403
+        role.refresh_from_db()
+        self.organization.refresh_from_db()
+        assert role.name == "Ordinary"
+        assert self.organization.default_role_id is None
+        assert not RoleMembership.objects.filter(role=role).exists()

@@ -353,6 +353,10 @@ A callback registered inside a rolled-back transaction is discarded, so the audi
 The mixin reads the previous state by primary key through `router.db_for_write(Model)`, so a lagged reader replica cannot produce a stale diff.
 Explicit logging at a bulk-write site should read its before-values from the writer too.
 
+Role organization-access mappings log creation, changes, and deletion under `Role`.
+Adding or removing members of an Admin-granting role records the affected user IDs, including SCIM membership changes.
+SCIM credentials remain attributed as automated actors.
+
 Organization IP restriction configuration logs initial creation and changes to the allowlist and enabled state under `OrganizationIPRestrictions`, with the request actor.
 
 ## Reading the log

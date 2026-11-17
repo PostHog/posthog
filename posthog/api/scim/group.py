@@ -104,6 +104,8 @@ class PostHogSCIMGroup(SCIMGroup):
                 defaults={"created_by": None},
             )
 
+            role = Role.objects.select_for_update(no_key=True).get(pk=role.pk, organization=config.organization)
+
             # Handle member updates if provided
             if "members" in data:
                 cls._update_members(role, data["members"], config)
@@ -179,8 +181,11 @@ class PostHogSCIMGroup(SCIMGroup):
             raise ValueError("displayName is required for groups")
 
         with transaction.atomic():
+            self.obj = Role.objects.select_for_update(no_key=True).get(
+                pk=self.obj.pk, organization=self._config.organization
+            )
             self.obj.name = display_name
-            self.obj.save()
+            self.obj.save(update_fields=["name"])
 
             members_data = data.get("members", [])
             self._update_members(self.obj, members_data, self._config)
@@ -189,7 +194,11 @@ class PostHogSCIMGroup(SCIMGroup):
         """
         Delete the role.
         """
-        self.obj.delete()
+        with transaction.atomic():
+            self.obj = Role.objects.select_for_update(no_key=True).get(
+                pk=self.obj.pk, organization=self._config.organization
+            )
+            self.obj.delete()
 
     def handle_replace(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
@@ -201,9 +210,12 @@ class PostHogSCIMGroup(SCIMGroup):
         attr_name = first_path.attr_name
 
         with transaction.atomic():
+            self.obj = Role.objects.select_for_update(no_key=True).get(
+                pk=self.obj.pk, organization=self._config.organization
+            )
             if attr_name == "displayName":
                 self.obj.name = value
-                self.obj.save()
+                self.obj.save(update_fields=["name"])
 
             elif attr_name == "members":
                 if path.is_complex:
@@ -222,10 +234,13 @@ class PostHogSCIMGroup(SCIMGroup):
         attr_name = first_path.attr_name
 
         with transaction.atomic():
+            self.obj = Role.objects.select_for_update(no_key=True).get(
+                pk=self.obj.pk, organization=self._config.organization
+            )
             if attr_name == "displayName":
                 # Add operation for displayName acts like replace
                 self.obj.name = value
-                self.obj.save()
+                self.obj.save(update_fields=["name"])
 
             elif attr_name == "members":
                 if path.is_complex:
@@ -256,6 +271,9 @@ class PostHogSCIMGroup(SCIMGroup):
         attr_name = first_path.attr_name
 
         with transaction.atomic():
+            self.obj = Role.objects.select_for_update(no_key=True).get(
+                pk=self.obj.pk, organization=self._config.organization
+            )
             if attr_name == "displayName":
                 raise ValueError("Group name cannot be removed")
 

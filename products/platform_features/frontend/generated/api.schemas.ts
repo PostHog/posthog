@@ -453,6 +453,22 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * * `8` - administrator
+ */
+export type RoleOrganizationAccessLevelEnumApi =
+    (typeof RoleOrganizationAccessLevelEnumApi)[keyof typeof RoleOrganizationAccessLevelEnumApi]
+
+export const RoleOrganizationAccessLevelEnumApi = {
+    Number8: 8,
+} as const
+
+export interface OrganizationRoleGrantApi {
+    readonly id: string
+    readonly name: string
+    readonly organization_access_level: RoleOrganizationAccessLevelEnumApi | null
+}
+
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
@@ -464,6 +480,10 @@ export interface OrganizationMemberApi {
     readonly id: string
     readonly user: UserBasicApi
     level?: OrganizationMembershipLevelEnumApi
+    /** Highest organization access from the individual assignment and applicable roles. */
+    readonly effective_level: number
+    /** Roles granting additional organization access. */
+    readonly role_grants: readonly OrganizationRoleGrantApi[]
     readonly joined_at: string
     readonly updated_at: string
     readonly is_2fa_enabled: boolean
@@ -486,6 +506,10 @@ export interface PatchedOrganizationMemberApi {
     readonly id?: string
     readonly user?: UserBasicApi
     level?: OrganizationMembershipLevelEnumApi
+    /** Highest organization access from the individual assignment and applicable roles. */
+    readonly effective_level?: number
+    /** Roles granting additional organization access. */
+    readonly role_grants?: readonly OrganizationRoleGrantApi[]
     readonly joined_at?: string
     readonly updated_at?: string
     readonly is_2fa_enabled?: boolean
@@ -856,6 +880,10 @@ export interface RoleApi {
     /** Members assigned to this role */
     readonly members: readonly RoleApiMembersItem[]
     readonly is_default: boolean
+    /** Additional organization access granted to role members. Null grants no additional access.
+     *
+     * * `8` - administrator */
+    organization_access_level?: RoleOrganizationAccessLevelEnumApi | null
 }
 
 export interface PaginatedRoleListApi {
@@ -878,6 +906,10 @@ export interface PatchedRoleApi {
     /** Members assigned to this role */
     readonly members?: readonly PatchedRoleApiMembersItem[]
     readonly is_default?: boolean
+    /** Additional organization access granted to role members. Null grants no additional access.
+     *
+     * * `8` - administrator */
+    organization_access_level?: RoleOrganizationAccessLevelEnumApi | null
 }
 
 export interface RoleMembershipApi {

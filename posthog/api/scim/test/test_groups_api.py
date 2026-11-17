@@ -51,6 +51,34 @@ class TestSCIMGroupsAPI(APILicensedTest):
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
         self.client.credentials(**self.scim_headers)
 
+    def test_scim_cannot_configure_organization_access(self) -> None:
+        response = self.client.post(
+            f"/scim/v2/{self.config.scim_slug}/Groups",
+            {"displayName": "Synced administrators", "organization_access_level": 8},
+            format="json",
+        )
+        assert response.status_code == 201
+        role = Role.objects.get(id=response.json()["id"])
+        assert role.organization_access_level is None
+        role.organization_access_level = 8
+        role.save()
+        response = self.client.put(
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}",
+            {"displayName": "Renamed administrators", "organization_access_level": None},
+            format="json",
+        )
+        assert response.status_code == 200
+        role.refresh_from_db()
+        assert role.organization_access_level == 8
+
+    def test_stale_scim_rename_preserves_new_grant(self) -> None:
+        role = Role.objects.create(name="Synced administrators", organization=self.organization)
+        adapter = PostHogSCIMGroup(role, self.config)
+        Role.objects.filter(pk=role.pk).update(organization_access_level=8)
+        adapter.put({"displayName": "Renamed administrators"})
+        role.refresh_from_db()
+        assert role.organization_access_level == 8
+
     def test_groups_list(self):
         response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Groups")
 
