@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import UUID
 
 from posthog.dataclasses import frozen
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.api import (
     every_member_has_resource_access,

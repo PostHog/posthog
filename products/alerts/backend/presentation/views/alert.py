@@ -131,11 +131,13 @@ from products.alerts.backend.facade.destinations import (
     build_insight_alert_url_config,
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
+    customize_source_destination,
     customized_alert_destination_ids,
     list_alert_destination_groups,
     log_destination_changes,
     owned_alert_destination_ids,
     redact_destination_data,
+    reset_source_destination,
     soft_delete_alert_destinations,
     validate_destination_data,
 )
@@ -1813,6 +1815,29 @@ _ROW_EVENT_KINDS: dict[DestinationType, tuple[AlertEventKind, ...]] = {
 }
 
 
+# The generic HogFunction editor refuses the insight incident events, so a PagerDuty destination's
+# message cannot be edited and Customize would leave it with HogFunctions nobody can change.
+_CUSTOMIZABLE_DESTINATION_TYPES: tuple[DestinationType, ...] = (
+    *INSIGHT_ALERT_DESTINATION_TYPES,
+    *INSIGHT_ALERT_URL_DESTINATION_TYPES,
+)
+_RESETTABLE_DESTINATION_TYPES: tuple[DestinationType, ...] = (
+    *_CUSTOMIZABLE_DESTINATION_TYPES,
+    DestinationType.PAGERDUTY,
+)
+
+
+def _insight_destination_configs(
+    alert_id: uuid.UUID, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    """The HogFunctions a new destination of this type gets from the routes that add one."""
+    if data["type"] == DestinationType.SLACK:
+        return [build_insight_alert_slack_config(alert_id=str(alert_id), alert_name=alert_name, data=data)]
+    if data["type"] == DestinationType.PAGERDUTY:
+        return build_insight_alert_pagerduty_configs(alert_id=str(alert_id), alert_name=alert_name, data=data)
+    return [build_insight_alert_url_config(alert_id=str(alert_id), alert_name=alert_name, data=data)]
+
+
 class AlertCreateDestinationSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=INSIGHT_ALERT_DESTINATION_TYPES,
@@ -1927,6 +1952,40 @@ class AlertDeleteDestinationSerializer(serializers.Serializer):
         if not attrs["hog_function_ids"] and not attrs["destination_ids"]:
             raise ValidationError("Name the destination by `hog_function_ids` or `destination_ids`.")
         return attrs
+
+
+class AlertCustomizeDestinationSerializer(serializers.Serializer):
+    destination_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="The destination's `id` from the destinations list. Use it for a destination with no HogFunctions.",
+    )
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+        help_text="The destination's `hog_function_ids` from the destinations list, when it has HogFunctions.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["destination_id"] is None and not attrs["hog_function_ids"]:
+            raise ValidationError("Name the destination by `destination_id` or `hog_function_ids`.")
+        return attrs
+
+
+class AlertResetDestinationSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+        help_text="Every HogFunction of the customized destination, from the destinations list.",
+    )
+
+
+class AlertResetDestinationResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The destination's new ID on the alerts platform, which now sends it.")
 
 
 class AlertCreateUrlDestinationSerializer(serializers.Serializer):
@@ -2769,7 +2828,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request,
             alert,
             data,
-            [build_insight_alert_slack_config(alert_id=str(alert.id), alert_name=alert.name, data=data)],
+            _insight_destination_configs(alert.id, alert.name, data),
         )
 
     @extend_schema(
@@ -2838,7 +2897,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request,
             alert,
             data,
-            [build_insight_alert_url_config(alert_id=str(alert.id), alert_name=alert.name, data=data)],
+            _insight_destination_configs(alert.id, alert.name, data),
         )
 
     @extend_schema(
@@ -2870,7 +2929,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request,
             alert,
             data,
-            build_insight_alert_pagerduty_configs(alert_id=str(alert.id), alert_name=alert.name, data=data),
+            _insight_destination_configs(alert.id, alert.name, data),
         )
 
     @extend_schema(
@@ -3023,6 +3082,122 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
+        request=AlertCustomizeDestinationSerializer,
+        responses={200: AlertDestinationResponseSerializer},
+        description=(
+            "Make a destination's message editable. A destination that sends the standard message from the "
+            "alerts platform gets HogFunctions with that message and stops sending from the platform. A "
+            "destination that already has HogFunctions keeps them. Returns the HogFunction IDs to edit."
+        ),
+    )
+    # It writes HogFunctions, which the HogFunction API asks `hog_function:write` for.
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="destinations/customize",
+        required_scopes=["alert:write", "hog_function:write"],
+    )
+    def customize_destination(self, request, *args, **kwargs):
+        alert = self._alert_or_native()
+        serializer = AlertCustomizeDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            customized = customize_source_destination(
+                team_id=self.team_id,
+                alert_id=alert.id,
+                allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+                allowed_destination_types=_CUSTOMIZABLE_DESTINATION_TYPES,
+                destination_id=serializer.validated_data["destination_id"],
+                hog_function_ids=serializer.validated_data["hog_function_ids"],
+                # An insight destination hears firings only, so the row's event kinds add nothing.
+                build_configs=lambda data, _event_kinds: _insight_destination_configs(alert.id, alert.name, data),
+                created_by_id=request.user.id,
+            )
+        except AlertDestinationValidationError as error:
+            raise as_drf_validation_error(error)
+
+        if customized.created:
+            log_destination_changes(
+                team_id=alert.team_id,
+                alert_id=alert.id,
+                actor_id=request.user.id,
+                was_impersonated=is_impersonated(request),
+                action="created",
+                destination_types=dict.fromkeys(customized.hog_function_ids, customized.destination_type),
+            )
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="insight alert destination customized",
+            properties={
+                **get_request_analytics_properties(request),
+                "alert_id": str(alert.id),
+                "team_id": alert.team_id,
+                "type": _analytics_destination_type(customized.destination_type),
+                "created": customized.created,
+            },
+        )
+        return Response(
+            AlertDestinationResponseSerializer({"hog_function_ids": list(customized.hog_function_ids)}).data
+        )
+
+    @extend_schema(
+        request=AlertResetDestinationSerializer,
+        responses={200: AlertResetDestinationResponseSerializer},
+        description=(
+            "Send a customized destination's standard message again. Its HogFunctions are deleted, with their "
+            "edits, and the alerts platform sends it from then on. Only an alert the alerts platform checks can "
+            "be reset."
+        ),
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations/reset", required_scopes=["alert:write"])
+    def reset_destination(self, request, *args, **kwargs):
+        alert = self._alert_or_native()
+        serializer = AlertResetDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            reset = reset_source_destination(
+                team_id=self.team_id,
+                alert_id=alert.id,
+                allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
+                allowed_destination_types=_RESETTABLE_DESTINATION_TYPES,
+                hog_function_ids=serializer.validated_data["hog_function_ids"],
+                row_event_kinds=lambda destination_type: _ROW_EVENT_KINDS.get(
+                    destination_type, (AlertEventKind.FIRING,)
+                ),
+            )
+        except AlertDestinationValidationError as error:
+            raise as_drf_validation_error(error)
+
+        # The HogFunctions and their edits are gone, and a row sends in their place.
+        log_destination_changes(
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            actor_id=request.user.id,
+            was_impersonated=is_impersonated(request),
+            action="deleted",
+            destination_types=dict.fromkeys(reset.retired_hog_function_ids, reset.destination_type),
+        )
+        log_destination_changes(
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            actor_id=request.user.id,
+            was_impersonated=is_impersonated(request),
+            action="created",
+            destination_types={reset.destination_id: reset.destination_type},
+        )
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="insight alert destination reset",
+            properties={
+                **get_request_analytics_properties(request),
+                "alert_id": str(alert.id),
+                "team_id": alert.team_id,
+                "type": _analytics_destination_type(reset.destination_type),
+            },
+        )
+        return Response(AlertResetDestinationResponseSerializer({"id": reset.destination_id}).data)
+
+    @extend_schema(
         request=AlertSimulateSerializer,
         responses={
             200: AlertSimulateResponseSerializer,
@@ -3128,8 +3303,30 @@ class _ThresholdsSerializer(serializers.ListSerializer):
         return super().to_representation(thresholds)
 
 
+def _copy_bounds(alerts: list[AlertConfiguration]) -> dict[str, Any] | None:
+    """The bounds a threshold shows in place of its row's, or None to keep the row's.
+
+    Edits to an alert the insight stack owns still write the row, so one such alert keeps the row current
+    and the row's bounds stay. Otherwise the oldest moved alert's copy wins, so the answer stays the same
+    between reads."""
+    if not alerts or not all(alert.platform_owned for alert in alerts):
+        return None
+    for alert in sorted(alerts, key=lambda alert: (alert.created_at, alert.id)):
+        if alert.threshold is not None:
+            return alert.threshold.configuration
+    return None
+
+
 class ThresholdWithAlertSerializer(ThresholdSerializer):
     alerts = _ShownAlertsSerializer(child=AlertSerializer(), read_only=True, source="alertconfiguration_set")
+
+    def to_representation(self, instance: Threshold) -> dict[str, Any]:
+        # Serializing `alerts` first shows each moved alert with its copy's threshold, in place.
+        data = super().to_representation(instance)
+        shown = _copy_bounds(list(instance.alertconfiguration_set.all()))
+        if shown is not None:
+            data["configuration"] = self.fields["configuration"].to_representation(shown)
+        return data
 
     class Meta(ThresholdSerializer.Meta):
         fields = [*ThresholdSerializer.Meta.fields, "alerts"]

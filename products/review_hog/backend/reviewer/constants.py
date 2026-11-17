@@ -622,6 +622,7 @@ OUTCOME_JUDGE_REASONING_EFFORT = "high"
 # The judge's stated reason is persisted with the outcome so a classification can be explained later.
 # It is asked for a sentence or two; this only trims a malfunctioning one before it lands in the row.
 OUTCOME_JUDGE_REASONING_MAX_CHARS = 2_000
+OUTCOME_REPLY_EXCERPT_MAX_CHARS = 280
 # A post-review commit counts as touching a finding when it changes lines within this many lines of
 # the finding's range — absorbs small drift (an import added above, a line renumbered) without
 # matching an unrelated edit elsewhere in the same file. The judge is the real arbiter; this only

@@ -284,6 +284,34 @@ export interface MCPIntentClusterApi {
     readonly self_retries: readonly MCPClusterSelfRetryApi[]
 }
 
+export interface MCPIntentClusterLongTailApi {
+    /** Number of intents whose clusters fell below the minimum cluster size. */
+    readonly intent_count: number
+    /** Sessions represented by the long-tail intents. */
+    readonly session_count: number
+    /** Tool calls across all long-tail intents. */
+    readonly call_count: number
+    /** Error responses across all long-tail intents. */
+    readonly error_count: number
+    /** Error rate across long-tail tool calls, from 0 to 100. */
+    readonly error_rate_pct: number
+    /** Up to ten long-tail intent strings, by call volume desc. Empty when intent text is redacted. */
+    readonly sample_intents: readonly string[]
+}
+
+export interface MCPRecurringIntentApi {
+    /** The intent text repeated verbatim across sessions. Empty when intent text is redacted. */
+    readonly intent_text: string
+    /** Sessions in the window that opened with this intent. */
+    readonly session_count: number
+    /** Tool calls across those sessions. */
+    readonly call_count: number
+    /** Error responses across those sessions. */
+    readonly error_count: number
+    /** Error rate across those sessions' tool calls, from 0 to 100. */
+    readonly error_rate_pct: number
+}
+
 export interface MCPToolPivotCompetitorApi {
     /** The other tool with the largest share of this cluster's calls. */
     readonly tool: string
@@ -450,8 +478,14 @@ export interface MCPIntentClusterSnapshotApi {
     readonly last_computed_at: string | null
     /** Email of the user who triggered the latest recompute, empty for system-triggered runs. */
     readonly last_computed_by_email: string
-    /** All clusters in the snapshot. */
+    /** Clusters that met the minimum member count, by call volume desc. */
     readonly clusters: readonly MCPIntentClusterApi[]
+    /** Aggregate of intents whose clusters fell below the minimum member count. Null when every cluster met it, on older snapshots, and on tool-scoped responses. */
+    readonly long_tail: MCPIntentClusterLongTailApi | null
+    /** Intent texts that open three or more sessions verbatim, which is automated traffic such as scheduled agents and cron runs. Kept out of the clusters and ranked by session count desc. Empty on older snapshots and on tool-scoped responses. */
+    readonly recurring: readonly MCPRecurringIntentApi[]
+    /** True when property access control hides $mcp_intent from the requesting user. Every intent string in the response is then empty. */
+    readonly intent_text_redacted: boolean
     /** Tool-centric pivot of the clusters: per tool, the intents it serves, capture per cluster, contested score, discovery rate, and description fit. Empty on snapshots computed before the per-call pipeline; recompute to populate. */
     readonly tools: readonly MCPToolPivotApi[]
     /** Tool pairs competing for the same intent clusters, by contested call volume desc, capped at 50. */

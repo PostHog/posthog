@@ -181,6 +181,7 @@ nodejs/tests/scenarios/
   probe/           the Cyclotron probe
   scorecard/       properties, provenance, capture and read back
   viewer/          the local viewer: cards and runs API, and the static page
+  store/           the run store: one HTTP service over Postgres that keeps every run
 ```
 
 The CLI runs with `tsx`, as `pnpm --dir nodejs exec tsx tests/scenarios/main.ts`; there is no package script.
@@ -495,7 +496,9 @@ The card hash is the SHA-256 of the card without `gates` and the profile hash, s
 Gates stay outside the card hash; anything else that changes what runs changes it.
 `runner_version` leaves out the YAML files in `cards/` and `profiles/`, so a committed gate edit keeps the fingerprint and the card hash, and runs on either side of it compare.
 An edit to a shipped profile keeps the fingerprint too, and changes the profile hash, which the card hash carries.
-Every other committed edit under `nodejs/tests/scenarios/` outside `generator/`, `valves/` and `viewer/` still changes `runner_version`, a test file or the loader included. The viewer only reads runs, so editing it keeps every card's baseline.
+Every other committed edit under `nodejs/tests/scenarios/` outside `generator/`, `valves/`, `store/` and `viewer/` still changes `runner_version`, a test file or the loader included.
+The run store only records runs, so its edits leave `runner_version` alone; the calls that report to it live in `runner/` and `cloud/` and still count.
+The viewer only reads runs, so editing it keeps every card's baseline.
 
 **Profiles.**
 A profile has a `name`, per-traffic-kind rates under `traffic`, and role environment under `settings`.
@@ -812,10 +815,12 @@ A property is added without a version change; a rename, a removal or a change of
 | `head_dirty`        | boolean or null | Whether the `nodejs` package has uncommitted changes                                                                                                                       |
 | `origin`            | string          | Who started the run: `local-agent`                                                                                                                                         |
 | `target`            | string          | Where it ran: `local`                                                                                                                                                      |
+| `adapters`          | string list     | The adapters the run drove: `workflows`                                                                                                                                    |
+| `owners`            | string list     | The teams whose adapters ran; empty until adapters declare owners                                                                                                          |
 | `fingerprint`       | string or null  | SHA-256 of `target`, `host_cpu`, `host_memory_gb`, the three versions and `seed`. Runs compare only within one fingerprint and card hash. `null` when a version is unknown |
 | `host_cpu`          | string          | CPU model and count, as `<model> x <count>`                                                                                                                                |
 | `host_memory_gb`    | number          | Total memory, rounded to whole gigabytes                                                                                                                                   |
-| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/`, `valves/`, `viewer/`, and the YAML files in `cards/` and `profiles/`; test files count                    |
+| `runner_version`    | string or null  | Git tree hash of `nodejs/tests/scenarios/` without `generator/`, `valves/`, `store/`, `viewer/`, and the YAML files in `cards/` and `profiles/`; test files count          |
 | `generator_version` | string or null  | Git tree hash of `generator/`                                                                                                                                              |
 | `valves_version`    | string or null  | Git tree hash of `valves/`, or of the empty tree when it does not exist                                                                                                    |
 | `seed`              | number          | The card's `seed`                                                                                                                                                          |
@@ -868,6 +873,78 @@ The runner works without it and reports `recorded: false`.
 3. Create a personal API key scoped to that project only, with only the `query:read` scope. The runner uses it only to read its scorecard back.
 4. Put the four `SCENARIO_RUNS_*` variables in the environment of the box that runs cards. Keep the token and the key out of the repository and out of shell history.
 5. Run `smoke` and check that it prints `scorecard: recorded`.
+
+## Run store
+
+The run store keeps every run, local or cloud, in one place.
+The runners report to it, and the hosted viewer reads from it in a later change.
+It is one Node HTTP service over Postgres, in `store/`, and it runs nowhere in production.
+The scorecard event stays the durable record: everything in the store can be rebuilt from scorecard events and the evidence bucket.
+The store names no product: a run lists the adapters it drove, and each series names its adapter, so a new adapter needs no store change.
+
+**What a run stores**, keyed by `run_id`:
+
+| Column                                                                           | Holds                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scorecard`                                                                      | The scorecard properties as posted, schema version 1 or 2 as given, with the run id lowercased                                                                                                                                      |
+| `adapters`                                                                       | The scorecard's `adapters`: the ids of the adapters the run drove, empty when it names none                                                                                                                                         |
+| `owners`                                                                         | The scorecard's `owners`: the teams whose adapters ran, empty when it names none                                                                                                                                                    |
+| `card_id`, `status`, `target`, `head_sha`, `card_hash`, `started_at`, `ended_at` | Copied from the scorecard, so lists filter and sort without reading the JSON                                                                                                                                                        |
+| `evidence_dir`                                                                   | The scorecard's `evidence_dir`: a path on the box for a local run, an S3 prefix for a cloud run                                                                                                                                     |
+| `host`                                                                           | The box that reported the run, when the report names it                                                                                                                                                                             |
+| `series`                                                                         | Named series for the viewer, each `{ adapter, name, unit, labels, points: [{ at, value }] }`; `labels` maps strings to strings, default `{}`, and keeps apart series that share a name, such as one per process; never raw evidence |
+| `topology`                                                                       | The systems the run saw, when the report has them                                                                                                                                                                                   |
+| `manifest`                                                                       | The run's merged adapter manifest, when the report has it, so an old run still draws after it changes                                                                                                                               |
+
+**Routes**
+
+| Route                   | Who can call it                                               | Does                                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/ingest/runs` | Anyone with the run token, as `Authorization: Bearer <token>` | Stores `{ scorecard, series?, topology?, manifest?, host? }`: `201` for a new run, `200` for a run it already had. A wrong or missing token gets `401` and stores nothing |
+| `GET /api/runs`         | Whoever reaches the host                                      | Lists runs newest first, without `scorecard`, `series`, `topology` and `manifest`. `?card_id=` and `?adapter=` filter, `?limit=` takes 1 to 500, default 100              |
+| `GET /api/runs/<id>`    | Whoever reaches the host                                      | One run with its `scorecard`, `series`, `topology` and `manifest`, by its id in any letter case                                                                           |
+
+A report for a run the store already has replaces its scorecard and the columns copied from it, `adapters` and `owners` included, and keeps the `series`, `topology`, `manifest` and `host` the new report leaves out or sends as `null`, so re-sending a scorecard never drops a series a backfill added.
+The ingest route takes scorecards of schema version 1 or 2, and keeps the scorecard opaque past the columns above.
+It accepts a gzipped body with `Content-Encoding: gzip`, and answers `413` to a body over 32 MiB, zipped or unzipped.
+
+Ingest has its own path because the hosted app opens paths past its sign-in by path, for every method.
+Only `/api/ingest/runs` is opened; the read routes stay behind the sign-in.
+The store routes on the path as sent, so a path that starts with the ingest path and climbs out of it with `..` gets `404`.
+
+**Run it locally**
+
+```bash
+DATABASE_URL=postgres://... SCENARIO_STORE_TOKEN=<a long random token> PORT=8080 HOST=127.0.0.1 \
+  pnpm --dir nodejs exec tsx tests/scenarios/store/main.ts
+```
+
+It listens on `127.0.0.1` unless `HOST` names another address, such as `0.0.0.0` in a container.
+It applies its schema before it opens the port, and refuses to start without `SCENARIO_STORE_TOKEN`.
+The schema is a list of idempotent statements in `store/schema.ts` that runs on every start under an advisory lock.
+Once a store runs somewhere, a change is a new statement at the end of the list, such as `ALTER TABLE runs ADD COLUMN IF NOT EXISTS`, never an edit to the `CREATE TABLE`, which an existing table skips.
+Changes only add, because the old revision keeps serving while a new one starts.
+On `SIGTERM` it stops taking connections and finishes the requests in flight before it exits.
+It holds at most 5 database connections and stops any statement after 25 seconds.
+
+**Report runs to it**
+
+The local runner and the cloud controller post each run to the store after they publish its scorecard event, when `SCENARIO_STORE_URL` is set and `~/.config/posthog/scenario-runs/store-token` holds the run token.
+They post the event's properties as the scorecard, and a local run adds the host name of its box.
+The event and the store post are two independent writes from one payload, so the event stays the durable record when the store is down.
+A failed report prints `store: <problem>`, or a warning from the cloud controller, and never changes the status or the exit code.
+Without `SCENARIO_STORE_URL` the runner posts nothing and prints `store: not reported, SCENARIO_STORE_URL is not set`.
+
+`publish` posts saved runs from the state directory, such as runs the store missed:
+
+```bash
+pnpm --dir nodejs exec tsx tests/scenarios/main.ts publish <run id or run directory>...
+pnpm --dir nodejs exec tsx tests/scenarios/main.ts publish --all
+```
+
+It posts the scorecard event each run saved in its `scorecard.json`, and names `workflows` as the adapter of a run saved before runs named their adapters.
+`--all` skips run directories without a scorecard.
+It exits 3 when a run is not stored, and 2 when `SCENARIO_STORE_URL` is not set.
 
 ## Decisions
 

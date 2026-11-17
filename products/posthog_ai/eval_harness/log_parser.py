@@ -20,11 +20,16 @@ from pydantic import BaseModel, ConfigDict
 
 from products.posthog_ai.backend.exec_commands import normalize_tool_name, parse_exec_command
 
-from .acp_log import parse_log
+from .acp_log import ParsedLog, parse_log
 
 SKILL_TOOL_NAME = "Skill"
 EXEC_TOOL_NAME = "exec"
 EXECUTE_SQL_TOOL_NAME = "execute-sql"
+MCP_TOOL_PREFIX = "mcp__"
+QUERY_TOOL_PREFIX = "query-"
+"""Prefix marking a typed query runner. The MCP server treats every ``query-*``
+tool as a typed runner (see the ``query-run`` fallback in ``tools/exec.ts``),
+so new runners are covered without an enumerated list going stale."""
 
 
 def describe_tool_use(name: str | None, tool_input: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -82,6 +87,37 @@ class ToolCall(BaseModel):
     token-efficient view. ``None`` for non-``exec`` calls and for unwrapped
     discovery commands. See ``services/mcp/src/tools/exec.ts`` for the schema."""
 
+    sequence: int
+    """Zero-based order of the call across the run, skill calls included. Unlike ``position``,
+    parallel calls in one assistant message get distinct values."""
+
+    started_at: str = ""
+    """ISO timestamp of the ``tool_call`` line."""
+
+    ended_at: str = ""
+    """ISO timestamp of the terminal ``tool_call_update`` line. Empty when the call never finished."""
+
+    @property
+    def server(self) -> str | None:
+        """MCP server name from an ``mcp__<server>__<tool>`` raw name, ``None`` for built-in tools."""
+        if not self.raw_name.startswith(MCP_TOOL_PREFIX):
+            return None
+        server, separator, _ = self.raw_name[len(MCP_TOOL_PREFIX) :].partition("__")
+        return server if separator else None
+
+
+def is_answer_query_tool(name: str) -> bool:
+    """True when a tool produces a query result that can answer the user's question.
+
+    The typed ``query-*`` runners (trends, funnel, retention, stickiness,
+    lifecycle, paths, web analytics, llm-trace, and their ``-actors``
+    variants) and arbitrary ``execute-sql`` are the answer-producing tools.
+    Discovery, schema, and skill calls (``ToolSearch``, ``read-data-schema``,
+    bare ``exec``) are intermediary: they run constantly in a healthy run and
+    never count as the answer.
+    """
+    return name == EXECUTE_SQL_TOOL_NAME or name.startswith(QUERY_TOOL_PREFIX)
+
 
 def is_schema_discovery_call(call: ToolCall) -> bool:
     """True when an ``execute-sql`` call is a catalog lookup rather than an answer query.
@@ -128,8 +164,18 @@ class LogParser:
     """
 
     def __init__(self, raw_log: str, *, initial_prompt: str = "") -> None:
-        self._parsed = parse_log(raw_log, initial_prompt=initial_prompt)
-        self._messages = self._parsed.messages
+        self._load(parse_log(raw_log, initial_prompt=initial_prompt), initial_prompt)
+
+    @classmethod
+    def from_parsed_log(cls, parsed: ParsedLog, *, initial_prompt: str = "") -> LogParser:
+        """Wrap a log that is already parsed, so a caller that holds a ``ParsedLog`` does not parse it again."""
+        parser = cls.__new__(cls)
+        parser._load(parsed, initial_prompt)
+        return parser
+
+    def _load(self, parsed: ParsedLog, initial_prompt: str) -> None:
+        self._parsed = parsed
+        self._messages = parsed.messages
         self._initial_prompt = initial_prompt
         self._tool_results = _index_tool_results(self._messages)
         self._tool_use_positions = _index_tool_use_positions(self._messages)
@@ -151,11 +197,12 @@ class LogParser:
     def get_skill_calls(self, name: str | None = None) -> list[SkillCall]:
         return [call for call in self._iter_skill_calls() if name is None or call.name == name]
 
-    def get_tool_calls(self, name: str | None = None) -> list[ToolCall]:
+    def get_tool_calls(self, name: str | None = None, *, include_skills: bool = False) -> list[ToolCall]:
+        """Tool calls in log order. ``Skill`` calls are left out unless ``include_skills`` is set."""
         calls: list[ToolCall] = []
-        for tool_use, position in self._iter_tool_uses():
+        for sequence, (tool_use, position) in enumerate(self._iter_tool_uses()):
             raw_name = str(tool_use.get("name") or "")
-            if raw_name == SKILL_TOOL_NAME:
+            if raw_name == SKILL_TOOL_NAME and not include_skills:
                 continue
             normalized = normalize_tool_name(raw_name)
             tool_input = tool_use.get("input")
@@ -167,6 +214,7 @@ class LogParser:
                 normalized=normalized,
                 tool_input=tool_input,
                 position=position,
+                sequence=sequence,
             )
             if name is None or tool_call.name == name:
                 calls.append(tool_call)
@@ -245,6 +293,7 @@ class LogParser:
         normalized: str,
         tool_input: dict[str, Any],
         position: int,
+        sequence: int,
     ) -> ToolCall:
         call_id = str(tool_use.get("id") or "")
         if normalized == EXEC_TOOL_NAME:
@@ -263,9 +312,11 @@ class LogParser:
                         is_error=is_error,
                         call_id=call_id,
                         position=position,
+                        sequence=sequence,
                         raw_name=raw_name,
                         is_exec_unwrapped=True,
                         requested_output_format=requested_output_format,
+                        **self._timing_fields(call_id),
                     )
         output, is_error = self._lookup_result(call_id)
         return ToolCall(
@@ -275,9 +326,17 @@ class LogParser:
             is_error=is_error,
             call_id=call_id,
             position=position,
+            sequence=sequence,
             raw_name=raw_name,
             is_exec_unwrapped=False,
+            **self._timing_fields(call_id),
         )
+
+    def _timing_fields(self, call_id: str) -> dict[str, Any]:
+        timing = self._parsed.tool_timings.get(call_id) if call_id else None
+        if timing is None:
+            return {}
+        return {"started_at": timing.started_at, "ended_at": timing.ended_at}
 
     def _lookup_result(self, call_id: str) -> tuple[str, bool]:
         if not call_id:
