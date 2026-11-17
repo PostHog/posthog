@@ -24,7 +24,7 @@ import structlog
 from celery import Task, shared_task
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
@@ -39,7 +39,6 @@ from products.stamphog.backend.facade.enums import (
     ReviewRunStatus,
     ReviewTrigger,
     ReviewVerdict,
-    RoutingMode,
 )
 from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
 from products.stamphog.backend.logic.approval_retention import (
@@ -51,7 +50,7 @@ from products.stamphog.backend.logic.approval_retention import (
     base_merge_is_clean,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
-from products.stamphog.backend.logic.attestation_checks import PendingCheck, has_reported
+from products.stamphog.backend.logic.attestation_checks import PendingCheck, all_reported
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.bot_admission import admitted_bot_author
 from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
@@ -69,6 +68,7 @@ from products.stamphog.backend.logic.routing.triggers import (
     route_after_verdict,
     route_on_pull_request_event,
     route_on_safety_net,
+    routes_after_review,
     verdict_outcome,
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
@@ -2165,10 +2165,7 @@ def rereview_once_attestations_reported(run: ReviewRun) -> bool:
     if latest.id != run.id and not stranded:
         return True
     client = StamphogGitHubClient(repo_config.installation_id)
-    try:
-        if not all(has_reported(client, repo_config.repository, run.head_sha, check) for check in pending):
-            return False
-    except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
+    if not all_reported(client, repo_config.repository, run.head_sha, pending):
         return False
     _rereview_waiting_run(
         repo_config, pull_request.pr_number, run.head_sha, wake=_ATTESTATION_WAKE, waiting=waits_on_attestations
@@ -2355,7 +2352,8 @@ def route_reviewers_after_verdict(
 
     An approval requests only the pinned owners that no earlier routing requested. A WAIT keeps the head
     waiting for the safety net. Any other outcome routes in full, once per pull request. A verdict
-    for a head that is no longer the PR head does nothing.
+    for a head that is no longer the PR head does nothing. On an attested ALWAYS pull request, an
+    outcome other than an approval routes the head in full when the pull request has no reviewer left.
     """
     _run_routing_step(
         self,
@@ -2400,7 +2398,7 @@ def route_reviewers_after_attestation(
 ) -> None:
     """Poll the attestation checks that an ALWAYS head waits for, and decide the head once they all reported.
 
-    A verified proof of every changed file requests nobody while the pull request keeps a reviewer.
+    A verified proof of every changed file requests only the pinned owners while the pull request keeps a reviewer.
     Anything else routes in full. ``poll`` counts the polls of the head, so the chain stops at the safety net.
     """
     _run_routing_step(
@@ -2452,11 +2450,10 @@ def queue_routing_after_verdict(
     verdict: ReviewVerdict,
     silent: bool,
 ) -> None:
-    """Queue FALLBACK routing for a finished review. Never raises, because the outcome is already saved."""
-    # The loaded config is enough to skip the queue for other modes. The task reads the mode again.
-    if repo_config.routing_mode != RoutingMode.FALLBACK:
-        return
+    """Queue routing for a finished review. Never raises, because the outcome is already saved."""
     try:
+        if not routes_after_review(repo_config, pr_number):
+            return
         route_reviewers_after_verdict.delay(
             team_id=repo_config.team_id,
             repo_config_id=str(repo_config.id),
@@ -2473,8 +2470,9 @@ def queue_routing_after_verdict(
 def route_reviewers_after_approval_retracted(self: Task, team_id: int, repo_config_id: str, pr_number: int) -> None:
     """Route a FALLBACK pull request in full when a retraction left it with neither an approval nor its owners.
 
-    Only a pull request whose routing requested just the pinned owners of an approved head routes, and only
-    while no review of the live head exists or comes for the trigger label.
+    Only a pull request whose routing requested just the pinned owners of an approved head routes, or an attested
+    ALWAYS one without a reviewer left, and only while no review of the live head exists or comes for the trigger
+    label.
     """
     _run_routing_step(
         self,
@@ -2490,11 +2488,10 @@ def route_reviewers_after_approval_retracted(self: Task, team_id: int, repo_conf
 
 
 def queue_routing_after_approval_retracted(repo_config: StamphogRepoConfig, *, pr_number: int) -> None:
-    """Queue FALLBACK routing after a skip path retracted an approval. Never raises, because the dismissal is done."""
-    # ALWAYS already requested every owner when the pull request opened. The task reads the mode again.
-    if repo_config.routing_mode != RoutingMode.FALLBACK:
-        return
+    """Queue routing after a skip path retracted an approval. Never raises, because the dismissal is done."""
     try:
+        if not routes_after_review(repo_config, pr_number):
+            return
         route_reviewers_after_approval_retracted.delay(
             team_id=repo_config.team_id, repo_config_id=str(repo_config.id), pr_number=pr_number
         )

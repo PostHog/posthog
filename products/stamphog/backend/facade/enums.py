@@ -55,8 +55,9 @@ class RoutingScope(LabeledStrEnum):
     FULL = "full", "Every owner"
     # A stamphog approval asks only the owners of sensitive and new paths.
     PINNED = "pinned", "Pinned owners only"
-    # A verified policy attestation proves every changed file, and the pull request keeps a reviewer without routing.
-    ATTESTED = "attested", "No owners, every file attested"
+    # A verified policy attestation proves every changed file, and the pull request keeps a reviewer without routing,
+    # so only the owners of sensitive and new paths are asked.
+    ATTESTED = "attested", "Pinned owners only, every file attested"
 
 
 class OwnerKind(LabeledStrEnum):
@@ -85,7 +86,7 @@ class LlmSkipReason(LabeledStrEnum):
     STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
     # GitHub listed fewer files than the pull request changes, so the model would judge a partial diff.
     FILES_TRUNCATED = "files_truncated", "Files truncated"
-    # An attested run requests nobody, so there is nothing to cut.
+    # An attested run requests only the pinned owners, which the model may never cut.
     ATTESTED = "attested", "Every file attested"
 
 
@@ -123,7 +124,7 @@ class RoutingOwnerReason(LabeledStrEnum):
     MODEL_CUT = "model_cut", "Cut by the model"
     # Kept for older runs, which logged every unpinned owner of an approved head with this reason.
     STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
-    # A verified policy attestation proved every changed file, so the run requested nobody.
+    # A verified policy attestation proved every changed file, so the run did not request this unpinned owner.
     ATTESTED = "attested", "Every file attested"
 
 

@@ -371,6 +371,16 @@ def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, 
     )
 
 
+def _pending_check(entry: object) -> PendingCheck:
+    if not isinstance(entry, dict):
+        raise EnginePregateError("the engine attestation proof names a check that is not an object")
+    name = entry.get("check")
+    app_id = entry.get("app_id")
+    if not isinstance(name, str) or not isinstance(app_id, int):
+        raise EnginePregateError("the engine attestation proof names a check without a name or an App id")
+    return PendingCheck(name=name, app_id=app_id)
+
+
 def run_engine_attestation_proof(context: Mapping[str, object], policy_files: Mapping[str, str]) -> AttestationProof:
     """Run ``review_local.py --attestation-proof`` on ``context`` under ``policy_files`` and parse its answer.
 
@@ -386,6 +396,5 @@ def run_engine_attestation_proof(context: Mapping[str, object], policy_files: Ma
     if not isinstance(parsed, dict) or not isinstance(parsed.get("checks"), list):
         raise EnginePregateError("the engine attestation proof result is not an object with checks")
     return AttestationProof(
-        checks=tuple(PendingCheck(name=str(entry["check"]), app_id=int(entry["app_id"])) for entry in parsed["checks"]),
-        proven=parsed.get("proven") is True,
+        checks=tuple(_pending_check(entry) for entry in parsed["checks"]), proven=parsed.get("proven") is True
     )

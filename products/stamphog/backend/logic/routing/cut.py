@@ -103,13 +103,21 @@ class RoutingDecision:
     model_reasons: Mapping[str, str] = field(default_factory=dict)
 
 
+def pin_reason(candidate: OwnerCandidate) -> RoutingOwnerReason | None:
+    """Why the candidate is pinned, or None when it is not."""
+    if not candidate.is_pinned:
+        return None
+    # A sensitive path names the pin when an owner has both kinds, because it is the stricter one.
+    if any(pin.reason == PinReason.SENSITIVE for pin in candidate.pins):
+        return RoutingOwnerReason.SENSITIVE
+    return RoutingOwnerReason.NEW_PATH
+
+
 def _guard_reason(candidate: OwnerCandidate, owners_left_out: frozenset[str]) -> RoutingOwnerReason | None:
     """Why the guards never let the model cut this owner, or None when it may."""
-    if candidate.is_pinned:
-        # A sensitive path names the pin when an owner has both kinds, because it is the stricter one.
-        if any(pin.reason == PinReason.SENSITIVE for pin in candidate.pins):
-            return RoutingOwnerReason.SENSITIVE
-        return RoutingOwnerReason.NEW_PATH
+    pinned = pin_reason(candidate)
+    if pinned is not None:
+        return pinned
     if candidate.owner in owners_left_out:
         return RoutingOwnerReason.DIFF_NOT_SEEN
     return None

@@ -1099,7 +1099,7 @@ _NOTHING_TO_ATTEST = {**_proof_check(), "output": {"summary": "Nothing to attest
 _CLIENT_LIBRARIES_REQUESTED = ("requested_team", "client-libraries")
 _TEAM_ALPHA_REQUESTED = ("requested_team", "team-alpha")
 _STAMPHOG_APPROVED = ("approved",)
-_REFUSED = ("refused",)
+_STAMPHOG_REFUSED = ("refused",)
 _POLL = ("poll",)
 _NEXT_POLL = ("next_poll",)
 _ATTESTED = ("done", "attested", "attestation", HEAD_SHA)
@@ -1131,6 +1131,55 @@ _FULL_AFTER_ONE_POLL = (_FULL_AFTER_POLL, [1])
             [1],
         ),
         ("proven_with_a_standing_approval", _PROVEN, _proof_check(), {}, [_STAMPHOG_APPROVED, _POLL], _ATTESTED, [1]),
+        # No file sits in a new directory, so no owner is pinned and the run requests nobody.
+        (
+            "proven_without_a_pinned_owner",
+            _PROVEN,
+            _proof_check(),
+            {"with_addition": False},
+            [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+            _ATTESTED,
+            [1],
+        ),
+        # The push dismissed the approval that the attested routing counted on, and ALWAYS never routes on a push.
+        (
+            "attested_then_refused_on_a_new_head",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_STAMPHOG_APPROVED, _POLL, ("push",), ("verdict", ReviewVerdict.REFUSED)],
+            ("done", "full", "verdict:refused", _HEAD_2),
+            [1],
+        ),
+        # The bot's own request still stands, so the pull request keeps a reviewer.
+        (
+            "attested_with_a_pending_request_then_refused_on_a_new_head",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_CLIENT_LIBRARIES_REQUESTED, _POLL, ("push",), ("verdict", ReviewVerdict.REFUSED)],
+            _ATTESTED,
+            [1],
+        ),
+        (
+            "attested_then_approved_on_a_new_head",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_STAMPHOG_APPROVED, _POLL, ("push",), ("verdict", ReviewVerdict.APPROVED)],
+            _ATTESTED,
+            [1],
+        ),
+        # In label mode a push to an unlabeled pull request retracts the approval and starts no review.
+        (
+            "attested_then_the_approval_retracted",
+            _PROVEN,
+            _proof_check(),
+            {"review_mode": ReviewMode.LABEL},
+            [_STAMPHOG_APPROVED, _POLL, ("push",), ("retracted",)],
+            ("done", "full", "approval_retracted", _HEAD_2),
+            [1],
+        ),
         # Stamphog reviews a bot's pull request again once the proof reports, so its approval comes after the check.
         (
             "proven_and_approved_after_the_check",
@@ -1151,7 +1200,14 @@ _FULL_AFTER_ONE_POLL = (_FULL_AFTER_POLL, [1])
             [1, 2],
         ),
         # Requesting nobody would leave the pull request without a reviewer.
-        ("proven_and_refused_by_stamphog", _PROVEN, _proof_check(), {}, [_REFUSED, _POLL], *_FULL_AFTER_ONE_POLL),
+        (
+            "proven_and_refused_by_stamphog",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_STAMPHOG_REFUSED, _POLL],
+            *_FULL_AFTER_ONE_POLL,
+        ),
         (
             "proven_without_a_reviewer_or_a_review",
             _PROVEN,
@@ -1191,6 +1247,15 @@ _FULL_AFTER_ONE_POLL = (_FULL_AFTER_POLL, [1])
             _proof_check(_ALL_FILES[:-1]),
             {},
             [_CLIENT_LIBRARIES_REQUESTED, _POLL],
+            *_FULL_AFTER_ONE_POLL,
+        ),
+        # The files API can answer for a newer head than the one the proof names, so the poll reads the pinned head.
+        (
+            "a_file_only_the_proven_head_changes",
+            _PROVEN,
+            _proof_check(),
+            {},
+            [_CLIENT_LIBRARIES_REQUESTED, ("pinned_head_adds", "products/beta/extra.py"), _POLL],
             *_FULL_AFTER_ONE_POLL,
         ),
         (
@@ -1265,7 +1330,8 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
     recorder.policy_files[".stamphog/policy.yml"] = _proof_policy(paths)
     recorder.check_runs[(REPO, HEAD_SHA)] = [check]
     recorder.default_branch_blob_shas[_PROOF_PUBLISHER] = "publisher-blob-1"
-    _setup(routing_chain, team, user, **setup_kwargs)
+    repo_config = _setup(routing_chain, team, user, **setup_kwargs)
+    recorder.compare_files = list(recorder.pr_files[(REPO, PR_NUMBER)])
     _route()
     pr = recorder.prs[(REPO, PR_NUMBER)]
 
@@ -1302,8 +1368,14 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
             route_reviewers_after_attestation.apply(kwargs=latest_poll, throw=True)
         elif step[0] == "publisher_changed":
             recorder.default_branch_blob_shas[_PROOF_PUBLISHER] = "publisher-blob-2"
+        elif step[0] == "pinned_head_adds":
+            recorder.compare_files.append(_file(step[1]))
         elif step[0] == "push":
             _push(routing_chain, _HEAD_2)
+        elif step[0] == "verdict":
+            _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict(step[1]), head_sha=_HEAD_2)
+        elif step[0] == "retracted":
+            queue_routing_after_approval_retracted(repo_config, pr_number=PR_NUMBER)
         elif step[0] == "ready":
             _route("ready_for_review")
         elif step[0] == "net":
@@ -1314,18 +1386,25 @@ def test_always_requests_nobody_only_for_a_verified_proof_that_keeps_a_reviewer(
 
     record = _stored(team.id)
     assert (record["status"], record.get("scope"), record["trigger"], record["head_sha"]) == expected_record
-    full = expected_record[1] == "full"
-    assert _requested(routing_chain) == (({"carol"}, {"team-alpha", "team-beta"}) if full else (set(), set()))
+    # The file in a new directory pins team-alpha, and an attested run still requests a pinned owner.
+    pinned = {"team-alpha"} if setup_kwargs.get("with_addition", True) else set()
+    expected_requested = {
+        "full": ({"carol"}, {"team-alpha", "team-beta"}),
+        "attested": (set(), pinned),
+    }.get(str(expected_record[1]), (set(), set()))
+    assert _requested(routing_chain) == expected_requested
     assert [call.kwargs["kwargs"]["poll"] for call in attestation_poll.call_args_list] == expected_polls
     if expected_record[1] == "attested":
         assert routing_chain.cut_model.calls == []
         assert record["llm_skipped"] == "attested"
         # FALLBACK reads this mark as a full routing of the pull request, which an attested run is not.
         assert "full_routed_head" not in record
-        assert recorder.github_writes == []
-        assert _run_log(team.id) == dict.fromkeys(
-            ["team-alpha", "team-beta", "@carol"], ("not_requested", "attested", "")
-        )
+        # Nothing is cut, so no routing comment is posted.
+        assert [write["kind"] for write in recorder.github_writes] == (["request_reviewers"] if pinned else [])
+        assert _run_log(team.id) == {
+            **dict.fromkeys(["team-alpha", "team-beta", "@carol"], ("not_requested", "attested", "")),
+            **dict.fromkeys(pinned, ("requested", "new_path", "")),
+        }
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

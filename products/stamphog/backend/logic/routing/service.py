@@ -2,8 +2,8 @@
 
 The repo's `routing_mode` decides when a run happens. ALWAYS routes when a pull request opens or
 becomes ready. When every changed file falls under a pinned policy attestation, ALWAYS first waits
-for that check: a verified proof on a pull request that keeps a reviewer requests nobody, anything
-else routes in full. FALLBACK waits for stamphog's verdict on the head when stamphog will review it:
+for that check: a verified proof on a pull request that keeps a reviewer requests only the pinned
+owners, anything else routes in full. FALLBACK waits for stamphog's verdict on the head when stamphog will review it:
 an approval requests only the pinned owners, any other outcome routes in full. Routing runs for bot
 and fork pull requests too, like the CI assigner it replaces. Ownership is read from the default
 branch, never from the pull request head, so a pull request cannot name its own reviewers.
@@ -54,7 +54,7 @@ from products.stamphog.backend.logic.routing.comment import (
     render_approved_routing_comment,
     render_routing_comment,
 )
-from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, decide_cuts
+from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, decide_cuts, pin_reason
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.routing.model import GatewayCutModel
 from products.stamphog.backend.logic.routing.run_log import record_routing_run
@@ -497,11 +497,12 @@ def _wait_ms(previous: Mapping[str, Any] | None, routed_at: datetime) -> int | N
 
 
 def _attested_decision(candidates: Sequence[OwnerCandidate]) -> RoutingDecision:
+    """Keep only the pinned owners. A proof covers what the files are, not who must see a sensitive or new path."""
     return RoutingDecision(
-        kept=(),
+        kept=tuple(candidate for candidate in candidates if candidate.is_pinned),
         cut=(),
         llm_skipped=LlmSkipReason.ATTESTED,
-        reasons=dict.fromkeys((candidate.owner for candidate in candidates), RoutingOwnerReason.ATTESTED),
+        reasons={candidate.owner: pin_reason(candidate) or RoutingOwnerReason.ATTESTED for candidate in candidates},
     )
 
 
@@ -545,7 +546,8 @@ def _plan(
         },
     )
     # A pinned routing asks the model too, so the run log shows which owners full routing would have asked. An
-    # attested routing keeps and cuts nobody, so a model call would change nothing.
+    # attested routing keeps only the pinned owners, which the model may never cut, so a model call would change
+    # nothing.
     decision = (
         _attested_decision(candidates)
         if attested
@@ -560,7 +562,7 @@ def _plan(
     )
     has_pins = any(candidate.is_pinned for candidate in candidates)
     # Owners that full routing would ask and an approval or an attestation does not.
-    held_back = {candidate.owner for candidate in candidates if attested or (pinned_only and not candidate.is_pinned)}
+    held_back = {candidate.owner for candidate in candidates if (attested or pinned_only) and not candidate.is_pinned}
     if pinned_only:
         already = set(claim.get(REQUESTED_OWNERS) or [])
         # An approval of a later head requests only the pinned owners that no routing requested yet.
@@ -667,7 +669,8 @@ def route_claimed(
 
     The claim's `scope` decides the run: `full` requests the owners the cut step keeps, `pinned`
     requests only the owners of sensitive and new paths. Both ask the cut step, so the run log of a
-    pinned run shows which owners a full run would have asked.
+    pinned run shows which owners a full run would have asked. `attested` requests the pinned owners
+    too, without the cut step.
     """
     plan = _plan(client, pr_obj, pr, claim=claim)
     if not _save_claimed(pr_obj, plan):
