@@ -50,6 +50,9 @@ class TestClusteringConfigViewSet(APIBaseTest):
             for subject in ("member", "role")
             for property_type, restricted_type, restricted_key, key, group_index in (
                 ("event", PropertyDefinition.Type.EVENT, "private_property", "private_property", None),
+                ("event", PropertyDefinition.Type.EVENT, "private_property", "", None),
+                ("person", PropertyDefinition.Type.PERSON, "private_property", "", None),
+                ("group", PropertyDefinition.Type.GROUP, "private_property", "", 0),
                 ("event", PropertyDefinition.Type.EVENT, "$raw_user_agent", "$virt_bot_name", None),
                 ("event", PropertyDefinition.Type.EVENT, "$ip", "$virt_bot_name", None),
                 ("event", PropertyDefinition.Type.EVENT, "$feature/private-flag", "$active_feature_flags", None),
