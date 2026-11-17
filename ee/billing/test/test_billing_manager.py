@@ -2167,6 +2167,14 @@ class TestRequestWithPostFallback(BaseTest):
         assert post_json["teams_map"] == {"1": "Team A"}
         assert post_json["start_date"] == "2025-01-01"
 
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_get_invoices_gives_up_on_a_stalled_billing_service(self, mock_get):
+        mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"count": 0, "link": None}))
+
+        self.manager.get_invoices(self.organization, status="uncollectible")
+
+        assert mock_get.call_args.kwargs["timeout"] == (5, 15)
+
     @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
     @patch("ee.billing.billing_manager.http_session.post")
     @patch("ee.billing.billing_manager.http_session.get")

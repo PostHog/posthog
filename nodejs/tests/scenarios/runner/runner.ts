@@ -10,6 +10,7 @@ import {
     writeFileSync,
 } from 'fs'
 import type { ProducerGlobalConfig } from 'node-rdkafka'
+import os from 'os'
 import path from 'path'
 import { pipeline } from 'stream/promises'
 import { setTimeout as sleep } from 'timers/promises'
@@ -58,13 +59,15 @@ import { WEBHOOK_HOST } from '../provider-edge'
 import { provenanceOf } from '../scorecard/provenance'
 import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
+import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { openLiveLog } from './live'
+import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import { Admission, Status, admissionsOf, statusOf } from './status'
 
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
-export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError'>
+export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError' | 'stored' | 'storeError'>
 
 export type RunResult = {
     runId: string
@@ -73,6 +76,8 @@ export type RunResult = {
     recorded: boolean
     captured?: true
     scorecardError?: string
+    stored?: true
+    storeError?: string
     cardId: string
     cardHash: string
     profileHash: string
@@ -599,6 +604,7 @@ export function createRunner(
                 evidenceDir,
             }
             const provenance = provenanceOf()
+            const host = os.hostname()
             const evidenceError = await errorOf(async () => {
                 await writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
@@ -609,19 +615,24 @@ export function createRunner(
                 if (recorded) {
                     writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })
                 }
-                writeJson(evidenceDir, 'scorecard.json', {
+                writeJson(evidenceDir, SAVED_RUN_FILE, {
                     ...verdict,
+                    host,
                     event: scorecardOf(verdict, loaded, provenance),
-                })
+                } satisfies SavedRun)
             })
             const judged = withEvidenceError(verdict, evidenceError)
             live.write({ type: 'end', at: Date.now(), status: judged.status, statusReason: judged.statusReason })
-            const written = await publish(scorecardOf(judged, loaded, provenance), env, signal)
+            const scorecard = scorecardOf(judged, loaded, provenance)
+            const written = await publish(scorecard, env, signal)
+            const reported = await reportToStore({ scorecard, host }, env)
             return {
                 ...judged,
                 recorded: written.recorded,
                 captured: written.captured,
                 scorecardError: written.problem,
+                stored: reported.stored || undefined,
+                storeError: reported.problem,
             }
         },
 

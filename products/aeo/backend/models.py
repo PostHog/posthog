@@ -218,6 +218,11 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         help_text="Hash of the own domains that `cited`, `target_urls`, `target_best_position` and the sentiment were computed against. Null on checks recorded before it existed.",
     )
     top_cited_domains = models.JSONField(default=list, blank=True, help_text="Distinct hosts across the cited URLs.")
+    names_brand = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="The answer text names one of the own brands, matched on whole words against the own domains of `own_domains_key`. Null when the check failed, and on checks recorded before it existed until the own-citation reconcile fills it.",
+    )
 
     brand_sentiment = models.CharField(
         max_length=16,
@@ -229,6 +234,11 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
         null=True,
         blank=True,
         help_text="Classifier confidence (0-1) in `brand_sentiment`, averaged over the brand sentences.",
+    )
+    brand_sentiment_sentences = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="The scored sentences behind `brand_sentiment`: a list of {start, end, label, score}, where start and end are offsets into `answer_text` in Unicode code points. Null until scored, and on checks scored before the sentences were stored.",
     )
 
     cost_usd = models.FloatField(null=True, blank=True, help_text="Engine-reported cost, where the engine reports one.")

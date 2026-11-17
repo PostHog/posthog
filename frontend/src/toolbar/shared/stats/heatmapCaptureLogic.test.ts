@@ -51,6 +51,8 @@ describe('heatmapCaptureLogic', () => {
             .build({
                 apiURL: 'http://localhost',
                 accessToken: 'test-token',
+                teamId: 2,
+                projectId: 1,
                 refreshToken: 'test-refresh',
                 clientId: 'test-client',
             })
@@ -92,7 +94,7 @@ describe('heatmapCaptureLogic', () => {
                 .toDispatchActions(['saveToPostHog', 'saveToPostHogSuccess'])
 
             const [url, options] = (global.fetch as jest.Mock).mock.calls[0]
-            expect(url).toContain('/api/projects/@current/saved/capture/')
+            expect(url).toContain('/api/projects/2/saved/capture/')
             const body = options.body as FormData
             expect(body.get('url')).toBe('https://app.example.com/dashboard')
             expect(body.get('data_url')).toBe(dataUrl)
@@ -146,5 +148,11 @@ describe('heatmapCaptureLogic', () => {
             expectedMessage,
             expect.objectContaining({ toastId: 'heatmap-saved-hm123' })
         )
+
+        const openSpy = jest.spyOn(window, 'open').mockReturnValue(null)
+        const [, { button }] = (lemonToast[expectedToast] as jest.Mock).mock.calls[0]
+        button.action()
+        expect(openSpy).toHaveBeenCalledWith(`${toolbarConfigLogic.values.uiHost}/project/2/heatmaps/hm123`, '_blank')
+        openSpy.mockRestore()
     })
 })

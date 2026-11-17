@@ -15,6 +15,19 @@ The row's version counter survives, so a later create on the same key revives it
 The tombstone cleanup drain (`DeleteTombstonedPersons`) removes the rows later, once their ClickHouse history is gone.
 `DeletePersonsBatchForTeam` always hard-deletes, tombstoned rows included: it serves team teardown, where no sweep would ever clean the tombstones up.
 
+### Query tags
+
+Every statement carries `/* service='personhog-replica', operation='<name>' */` in front, the SQLCommenter shape both pganalyze and pgcollector parse, so load and latency can be cut by code path.
+Compile-time checked queries write the tag at the start of the SQL literal; statements built at runtime wrap their SQL in `personhog_common::query_tag!("<name>", sql)`.
+The operation is the storage method's name:
+
+- When a method picks one of several statements, the base case keeps the name and the others add what differs, for example `get_distinct_ids_for_person_cursor`.
+- When a method runs several statements in sequence, each one adds its step, for example `split_person_lock_distinct_ids`.
+- A `SET` statement is named after its setting, for example `lock_timeout`.
+
+A unit test in `src/storage/postgres/mod.rs` fails when a `.sqlx` entry lacks the tag.
+See `rust/pgcollector/docs/query-tags.md` for the key vocabulary.
+
 ### Known Implementation Details
 
 ```mermaid

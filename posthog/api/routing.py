@@ -52,7 +52,7 @@ from posthog.permissions import (
 )
 from posthog.products import is_product_module
 from posthog.queryset_paging import stable_queryset_ordering
-from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
