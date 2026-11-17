@@ -5,6 +5,7 @@ import { useCallback, useMemo, type ErrorInfo } from 'react'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
+import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { roundToDecimal } from 'lib/utils/numbers'
@@ -17,7 +18,6 @@ import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
 import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
-import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { dimHexColor } from '../../trends/shared/compareDimming'
@@ -198,28 +198,14 @@ export function RetentionLineChart({
                 goalLines,
                 showTrendLines,
                 series,
-                tooltip: {
-                    ...INSIGHT_TOOLTIP_CONFIG,
-                    resolveClickToNearestSeries: resultMenuEnabled && !inSharedMode,
-                },
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
                 isIntervalView,
                 period,
                 timezone,
             }),
             curve: chartStyleCurve(retentionFilter?.chartStyle),
         }),
-        [
-            resultMenuEnabled,
-            inSharedMode,
-            isPercentage,
-            goalLines,
-            showTrendLines,
-            series,
-            isIntervalView,
-            period,
-            timezone,
-            retentionFilter?.chartStyle,
-        ]
+        [isPercentage, goalLines, showTrendLines, series, isIntervalView, period, timezone, retentionFilter?.chartStyle]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
@@ -246,6 +232,7 @@ export function RetentionLineChart({
             config={lineConfig}
             tooltip={renderTooltip}
             onPointClick={canClick ? onPointClick : undefined}
+            onPointContextMenu={resultMenuEnabled && !inSharedMode && canClick ? onPointClick : undefined}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

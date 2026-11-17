@@ -205,7 +205,7 @@ async def test_over_billing_limit_error_is_caught_by_workflow(team, batch_export
         (
             RedshiftBatchExportWorkflow,
             RedshiftBatchExportInputs,
-            {"user": "a-user", "password": "a-password", "host": "a-host", "database": "a-database"},
+            {"host": "a-host", "database": "a-database"},
         ),
         (AzureBlobBatchExportWorkflow, AzureBlobBatchExportInputs, {"container_name": "a-container"}),
         (

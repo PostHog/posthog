@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useCallback, useEffect } from 'react'
@@ -7,10 +8,12 @@ import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemo
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -20,12 +23,20 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { metricChartTableProps } from './components/metricChartTableProps'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { normalizeMessages } from './messageNormalization'
+import { toFullPageListParams } from './redesign/trace/traceBackLink'
+import { TRACE_DRAWER_LISTS, TraceDrawerListId } from './redesign/trace/traceDrawerLists'
+import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
+import { hasOwnClickHandler } from './redesign/trace/traceDrawerRows'
+import { useTraceDrawerRows } from './redesign/trace/TraceDrawerRowsHost'
+import { TraceListRow } from './redesign/trace/traceListRows'
 import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import {
+    extractText,
     formatAiErrorForDisplay,
     formatLLMCost,
     formatLLMLatency,
@@ -36,8 +47,11 @@ import {
     isToolResult,
     isToolStepItem,
     LLM_TRACES_PAGE_SIZE,
-    sanitizeTraceUrlSearchParams,
 } from './utils'
+
+const TRACES_DATA_NODE_KEY = 'llm-analytics-traces'
+const TRACE_DRAWER_LIST_ID = 'traces'
+const TRACE_LINKS = '[data-attr="trace-id-link"], [data-attr="trace-name-link"]'
 
 export function AIObservabilityTraces(): JSX.Element {
     useMountedLogic(traceReviewsLazyLoaderLogic)
@@ -48,16 +62,20 @@ export function AIObservabilityTraces(): JSX.Element {
     const { tracesQuery } = useValues(aiObservabilityTracesTabLogic)
     const appliedSearchTerm = isTracesQuery(tracesQuery.source) ? tracesQuery.source.searchTerm : undefined
 
-    const baseContext = useTracesQueryContext()
+    const drawerContext = useTracesDrawerContext(TRACE_DRAWER_LIST_ID, TRACES_DATA_NODE_KEY)
+    const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
+    const chartTable = redesign
+        ? metricChartTableProps(TRACES_DATA_NODE_KEY, { searchApplied: !!appliedSearchTerm })
+        : { query: {}, context: { customActions: <TracesOptionsMenu key="traces-options-menu" /> } }
     const context: QueryContext<DataTableNode> = {
-        ...baseContext,
+        ...drawerContext,
         ...(appliedSearchTerm
             ? {
                   emptyStateHeading: 'No traces matched your search',
                   emptyStateDetail: 'Try a different search term, date range, or filters.',
               }
             : {}),
-        customActions: <TracesOptionsMenu key="traces-options-menu" />,
+        ...chartTable.context,
     }
 
     return (
@@ -67,6 +85,7 @@ export function AIObservabilityTraces(): JSX.Element {
                 query={{
                     ...tracesQuery,
                     showSavedFilters: true,
+                    ...chartTable.query,
                 }}
                 setQuery={(query) => {
                     if (!isTracesQuery(query.source)) {
@@ -89,7 +108,13 @@ export function AIObservabilityTraces(): JSX.Element {
                     )
                 }}
                 context={context}
-                uniqueKey="llm-analytics-traces"
+                uniqueKey={TRACES_DATA_NODE_KEY}
+            />
+            <TraceDrawerQueryHost
+                listId={TRACE_DRAWER_LIST_ID}
+                dataNodeKey={TRACES_DATA_NODE_KEY}
+                query={tracesQuery.source}
+                toRow={toTraceDrawerRow}
             />
         </div>
     )
@@ -137,15 +162,27 @@ function TracesOptionsMenu(): JSX.Element | null {
     )
 }
 
+// An omitted timestamp makes the detail view use its wide default date range. A timestamp
+// built from a missing or unparseable `createdAt` would instead point the lookup at a
+// ten-minute window around the present, where an older trace is not found.
+function getTraceLookupTimestamp(row: LLMTrace): string | undefined {
+    return row.createdAt && dayjs(row.createdAt).isValid() ? getTraceTimestamp(row.createdAt) : undefined
+}
+
+function toTraceListRow(trace: LLMTrace): TraceListRow {
+    return { traceId: trace.id, timestamp: getTraceLookupTimestamp(trace) ?? null, stepId: null }
+}
+
+export function toTraceDrawerRow(result: unknown): TraceListRow | null {
+    const trace = getTraceFromRow({ result })
+    return trace && toTraceListRow(trace)
+}
+
 function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, unknown>): string {
-    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return combineUrl(urls.aiObservabilityTrace(row.id), {
-        ...nonTraceSearchParams,
-        back_to: 'traces',
-        // An omitted timestamp makes the detail view use its wide default date range. A timestamp
-        // built from a missing or unparseable `createdAt` would instead point the lookup at a
-        // ten-minute window around the present, where an older trace is not found.
-        timestamp: row.createdAt && dayjs(row.createdAt).isValid() ? getTraceTimestamp(row.createdAt) : undefined,
+        ...toFullPageListParams(searchParams),
+        back_to: TRACE_DRAWER_LISTS[TRACE_DRAWER_LIST_ID].backTo,
+        timestamp: getTraceLookupTimestamp(row),
     }).url
 }
 
@@ -160,9 +197,20 @@ function getTraceFromRow(record: unknown): LLMTrace | null {
     return result as LLMTrace
 }
 
-// Cells with their own link or button (ID, trace name, person) handle their own clicks.
-function hasOwnClickHandler(target: EventTarget | null): boolean {
-    return target instanceof Element && !!target.closest('button, a, [role="button"]')
+export function useTracesDrawerContext(listId: TraceDrawerListId, dataNodeKey: string): QueryContext<DataTableNode> {
+    const baseContext = useTracesQueryContext()
+    const { rowProps: baseRowProps } = baseContext
+    const { rowProps: toDrawerRowProps } = useTraceDrawerRows(listId, TRACE_LINKS)
+    const drawerRowProps = useCallback<NonNullable<QueryContext['rowProps']>>(
+        (record) => {
+            const baseProps = baseRowProps?.(record) ?? {}
+            const trace = getTraceFromRow(record)
+            const rowProps = toDrawerRowProps(trace && toTraceListRow(trace))
+            return { ...baseProps, ...rowProps, className: clsx(baseProps.className, rowProps.className) }
+        },
+        [baseRowProps, toDrawerRowProps]
+    )
+    return { ...baseContext, dataNodeLogicKey: dataNodeKey, rowProps: drawerRowProps }
 }
 
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
@@ -221,7 +269,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 render: TimestampColumn,
             },
             traceName: {
-                title: 'Trace Name',
+                title: 'Trace name',
                 render: TraceNameColumn,
             },
             review: aiObservabilityColumnRenderers.review,
@@ -246,7 +294,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             },
             usage: {
                 renderTitle: () => (
-                    <Tooltip title="Total token usage (input + output) for this trace">Token Usage</Tooltip>
+                    <Tooltip title="Total token usage (input + output) for this trace">Token usage</Tooltip>
                 ),
                 render: UsageColumn,
             },
@@ -391,10 +439,29 @@ CostColumn.displayName = 'CostColumn'
 
 const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    if (typeof row.errorCount === 'number' && row.errorCount > 0) {
+    const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
+    if (typeof row.errorCount !== 'number' || row.errorCount <= 0) {
+        return <>–</>
+    }
+    if (!redesign) {
         return <LemonTag type="danger">{row.errorCount}</LemonTag>
     }
-    return <>–</>
+    // The row only carries top-level events, so an error on a nested span has no message here.
+    const errorEvent = traceEvents(row).find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
+    if (!errorEvent) {
+        return <LemonTag type="danger">{pluralize(row.errorCount, 'error')}</LemonTag>
+    }
+    const error = formatAiErrorForDisplay(errorEvent.properties?.$ai_error)
+    return (
+        <div className="flex items-center gap-1">
+            <Tooltip title={error}>
+                <LemonTag type="danger" className="font-mono max-w-60 truncate">
+                    {error}
+                </LemonTag>
+            </Tooltip>
+            {row.errorCount > 1 && <span className="text-secondary text-xs">{`+${row.errorCount - 1}`}</span>}
+        </div>
+    )
 }
 ErrorsColumn.displayName = 'ErrorsColumn'
 
@@ -426,15 +493,18 @@ const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     if (!inputMessage) {
         return <>–</>
     }
-    return <LLMMessageDisplay message={inputMessage} isOutput={false} minimal />
+    return <MessagePreview message={inputMessage} isOutput={false} />
 }
 InputMessageColumn.displayName = 'InputMessageColumn'
 
 const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const messages = useTraceMessagesForRow(row)
+    const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
 
-    const errorEventFound = traceEvents(row).find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
+    // The redesign shows errors in their own column only.
+    const errorEventFound =
+        !redesign && traceEvents(row).find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
     if (errorEventFound) {
         return (
             <LemonTag type="danger" className="font-mono max-w-50 truncate">
@@ -454,11 +524,22 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     if (!lastOutput) {
         return <>–</>
     }
-    return <LLMMessageDisplay message={lastOutput} isOutput={true} minimal />
+    return <MessagePreview message={lastOutput} isOutput={true} />
 }
 OutputMessageColumn.displayName = 'OutputMessageColumn'
 
 type NormalizedMessage = ReturnType<typeof normalizeMessages>['messages'][number]
+
+function MessagePreview({ message, isOutput }: { message: NormalizedMessage; isOutput: boolean }): JSX.Element {
+    const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
+    if (!redesign) {
+        return <LLMMessageDisplay message={message} isOutput={isOutput} minimal />
+    }
+    const { tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }
+    // Tool-only messages have no text, so show the call payload instead of a blank cell.
+    const text = extractText(message) || JSON.stringify(tool_calls ?? message.content)
+    return <span className="block max-w-80 truncate">{text}</span>
+}
 
 function hasDisplayableContent(message: NormalizedMessage): boolean {
     const { content, tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }

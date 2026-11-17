@@ -70,7 +70,7 @@ function CategoryScope(): JSX.Element | null {
 }
 
 function StatusRow(): JSX.Element | null {
-    const { snapshot, isComputing } = useValues(mcpClusteringLogic)
+    const { snapshot, isComputing, snapshotLoading, hasSnapshot } = useValues(mcpClusteringLogic)
     const { recompute } = useActions(mcpClusteringLogic)
 
     if (snapshot.status === 'error') {
@@ -78,11 +78,14 @@ function StatusRow(): JSX.Element | null {
     }
     if (isComputing) {
         return (
-            <div className="flex items-center gap-2 text-sm text-muted">
+            <div className="flex min-h-6 items-center gap-2 text-sm text-muted">
                 <Spinner />
-                Embedding intents and clustering — usually 30 to 60 seconds.
+                Embedding intents and clustering. This usually takes 30 to 60 seconds.
             </div>
         )
+    }
+    if (snapshotLoading && !hasSnapshot) {
+        return <Skeleton className="h-6 w-64" />
     }
     if (!snapshot.last_computed_at) {
         return null
@@ -123,24 +126,14 @@ function EmptyState(): JSX.Element {
                 Compute intent clusters
             </Button>
             <span className="text-xs text-muted">
-                Needs sessions whose calls carried an intent — usually a few minutes after they are recorded.
+                Needs sessions whose calls carried an intent. Sessions are usually ready a few minutes after they are
+                recorded.
             </span>
         </div>
     )
 }
 
-function ComputingSkeleton(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                    <Skeleton key={i} className="h-24 w-full" />
-                ))}
-            </div>
-            <Skeleton className="h-96 w-full" />
-        </div>
-    )
-}
+const PANE_SKELETON = <Skeleton className="h-full w-full" />
 
 function ToolsViewEmptyState(): JSX.Element {
     const { recompute } = useActions(mcpClusteringLogic)
@@ -161,10 +154,10 @@ function ToolsViewEmptyState(): JSX.Element {
     )
 }
 
-function ToolsView(): JSX.Element {
+function ToolsView({ loading }: { loading: boolean }): JSX.Element {
     const { hasToolPivot } = useValues(mcpClusteringLogic)
 
-    if (!hasToolPivot) {
+    if (!loading && !hasToolPivot) {
         return <ToolsViewEmptyState />
     }
     return (
@@ -173,21 +166,21 @@ function ToolsView(): JSX.Element {
             // Wider than the intents list: the tool table carries seven columns. Still
             // leaves the detail enough room for its own intents table.
             defaultWidth={560}
-            list={<ToolsListPanel />}
-            detail={<ToolDetailPanel />}
+            list={loading ? PANE_SKELETON : <ToolsListPanel />}
+            detail={loading ? PANE_SKELETON : <ToolDetailPanel />}
         />
     )
 }
 
-function IntentsView(): JSX.Element {
+function IntentsView({ loading }: { loading: boolean }): JSX.Element {
     return (
         <>
-            <ClusterScorecards />
+            <ClusterScorecards loading={loading} />
             <ClusteringSplitPane
                 logicKey="mcp-clustering-intents"
                 defaultWidth={360}
-                list={<ClusterListPanel />}
-                detail={<ClusterDetailPanel />}
+                list={loading ? PANE_SKELETON : <ClusterListPanel />}
+                detail={loading ? PANE_SKELETON : <ClusterDetailPanel />}
             />
         </>
     )
@@ -207,16 +200,8 @@ export function MCPAnalyticsClustering(): JSX.Element {
         )
     }
 
-    if (isComputing || (snapshotLoading && !hasSnapshot)) {
-        return (
-            <div className="flex flex-col gap-4" data-quill>
-                <StatusRow />
-                <ComputingSkeleton />
-            </div>
-        )
-    }
-
-    if (!hasSnapshot) {
+    const loading = isComputing || (snapshotLoading && !hasSnapshot)
+    if (!loading && !hasSnapshot) {
         return <EmptyState />
     }
 
@@ -227,7 +212,7 @@ export function MCPAnalyticsClustering(): JSX.Element {
                 <ViewToggle />
                 <CategoryScope />
             </div>
-            {viewMode === 'tools' ? <ToolsView /> : <IntentsView />}
+            {viewMode === 'tools' ? <ToolsView loading={loading} /> : <IntentsView loading={loading} />}
         </div>
     )
 }

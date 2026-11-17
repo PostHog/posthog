@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { OfflineScorerSummaryApi } from '../generated/api.schemas'
+import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
 import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
 import { OfflineExperimentLogicProps, offlineExperimentLogic } from './offlineExperimentLogic'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
@@ -19,6 +20,7 @@ import { OfflineItemMatrix } from './OfflineItemMatrix'
 import { offlineRunSourceLabel } from './offlineOverviewState'
 import { offlineScorerHistoryUrl } from './offlineScorerHistoryLogic'
 import { OfflineScoreSummaryDisplay } from './OfflineScoreSummaryDisplay'
+import { offlineUnscoredLabel } from './offlineUnscoredLabel'
 
 export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JSX.Element {
     const logic = offlineExperimentLogic(props)
@@ -42,7 +44,11 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
     return (
         <div className="flex flex-col gap-4 min-w-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <LemonButton to={urls.aiObservabilityOfflineEvaluations()} icon={<IconArrowLeft />}>
+                <LemonButton
+                    to={urls.aiObservabilityOfflineEvaluations()}
+                    icon={<IconArrowLeft />}
+                    data-attr="offline-experiment-back"
+                >
                     Experiments
                 </LemonButton>
                 <LemonButton
@@ -182,6 +188,7 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                                     <Link
                                         className="break-words"
                                         to={offlineScorerHistoryUrl(summary.scorer, experiment, timezone)}
+                                        data-attr="offline-experiment-scorer-history"
                                     >
                                         <ScorerLabel scorer={summary.scorer} />
                                     </Link>
@@ -197,7 +204,7 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                                 title: 'Coverage',
                                 render: (_, summary: OfflineScorerSummaryApi) => (
                                     <details>
-                                        <summary className="cursor-pointer text-xs">{`${summary.status_counts.ok} scored · ${summary.status_counts.error} errors · ${summary.missing_result_count} missing`}</summary>
+                                        <summary className="cursor-pointer text-xs">{`${summary.status_counts.ok} scored · ${summary.status_counts.error} errors · ${offlineUnscoredLabel(summary)}`}</summary>
                                         <p className="text-xs mb-0">{`${summary.status_counts.skipped} skipped · ${summary.status_counts.not_applicable} not applicable · ${summary.distinct_case_count} distinct cases · ${summary.trial_item_count} trial items · ${summary.distinct_trial_count} distinct trials · ${summary.items_without_case_key_count} items without a case key`}</p>
                                         {summary.scorer.kind === 'boolean' && (
                                             <p className="text-xs mb-0">{`${summary.true_count} true · ${summary.false_count} false`}</p>
@@ -210,6 +217,7 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                 </details>
             </section>
             <OfflineItemMatrix {...props} />
+            <TraceDrawerHost listId="offline-experiment" />
             {inspector && (
                 <OfflineItemInspector
                     key={`${inspector.itemId}:${cellEpoch}`}
@@ -225,7 +233,12 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                 title="Mark experiment as completed?"
                 footer={
                     <>
-                        <LemonButton type="secondary" onClick={hideCompletion} disabled={completedLoading}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={hideCompletion}
+                            disabled={completedLoading}
+                            data-attr="offline-experiment-cancel-complete"
+                        >
                             Cancel
                         </LemonButton>
                         <LemonButton

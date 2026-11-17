@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, User
@@ -39,17 +40,31 @@ class TestWelcomeEndpoint(APIBaseTest):
         # Always falls back to at least one suggested step.
         self.assertGreaterEqual(len(data["suggested_next_steps"]), 1)
 
-    def test_inviter_returned_from_invited_by_on_membership(self):
-        """Primary inviter path: persisted on the membership when the invite was accepted."""
-        founder = User.objects.create_and_join(self.organization, "founder@example.com", None, "Founder")
+    @parameterized.expand(
+        [
+            ("different_first_name", "Founder", "", "Alex", "", "Founder"),
+            ("no_first_name_uses_email_local_part", "", "", "Alex", "", "founder"),
+            ("same_first_name_uses_full_name", "Alex", "Lee", "alex", "Kim", "Alex Lee"),
+            ("same_full_name_uses_email", "Alex", "Lee", "Alex", "Lee", "founder@example.com"),
+            ("same_first_name_no_last_name_uses_email", "Alex", "", "Alex", "", "founder@example.com"),
+        ]
+    )
+    def test_inviter_returned_from_invited_by_on_membership(
+        self, _name, inviter_first, inviter_last, invitee_first, invitee_last, expected_name
+    ):
+        founder = User.objects.create_and_join(
+            self.organization, "founder@example.com", None, inviter_first, last_name=inviter_last
+        )
+        self.user.first_name = invitee_first
+        self.user.last_name = invitee_last
+        self.user.save(update_fields=["first_name", "last_name"])
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         membership.invited_by = founder
         membership.save(update_fields=["invited_by"])
 
         response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
-        self.assertIsNotNone(data["inviter"])
-        self.assertEqual(data["inviter"]["email"], founder.email)
+        self.assertEqual(data["inviter"], {"name": expected_name, "email": founder.email})
 
     def test_inviter_falls_back_to_lingering_invite_row(self):
         """Fallback for pre-1102 memberships or legacy paths that didn't populate invited_by."""

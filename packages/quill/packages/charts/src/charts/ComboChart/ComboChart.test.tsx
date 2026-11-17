@@ -155,23 +155,18 @@ describe('ComboChart', () => {
             expect(tooltip.series.l.value).toBe(60)
         })
 
-        it('divergingStack keeps negative bar values signed in the tooltip', async () => {
-            // Without divergingStack the negative series is clamped to 0 (no bar, tooltip 0);
-            // with it, the bar stacks below zero and the tooltip must show the raw negative —
-            // not the positive segment height.
+        it.each([
+            ['with divergingStack', { barLayout: 'stacked', divergingStack: true }],
+            ['without divergingStack', { barLayout: 'stacked' }],
+        ] as const)('keeps negative bar values signed in the tooltip %s', async (_, config) => {
+            // The bar stacks below zero and the tooltip must show the raw negative, not the
+            // positive segment height or a value clamped to 0.
             const series: Series[] = [
                 { key: 'pos', label: 'Pos', data: [40, 60, 50], type: 'bar' },
                 { key: 'neg', label: 'Neg', data: [-20, -30, -10], type: 'bar' },
                 { key: 'l', label: 'L', data: [5, 10, 15], type: 'line' },
             ]
-            const { chart } = renderChart(
-                <ComboChart
-                    series={series}
-                    labels={LABELS}
-                    theme={THEME}
-                    config={{ barLayout: 'stacked', divergingStack: true }}
-                />
-            )
+            const { chart } = renderChart(<ComboChart series={series} labels={LABELS} theme={THEME} config={config} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.series.pos.value).toBe(60)

@@ -58,6 +58,7 @@ describe("cloud context selection", () => {
       prompt: message.text,
       history: "Earlier conversation summary",
       runtime_version: "test",
+      exclude: [],
     });
     selector.recordTurn(message, "Activation means the first useful action.");
     await selector.prepare({ messageId: "next", text: "What changed?" });
@@ -119,6 +120,30 @@ describe("cloud context selection", () => {
       expect(input.prompt).toBe(character.repeat(20_000));
     },
   );
+
+  it("does not repeat references the agent still holds", async () => {
+    const block = [
+      '<posthog_reference_context selection_id="s">',
+      "Use these references.",
+      JSON.stringify({
+        id: "chunk-1",
+        kind: "business_knowledge",
+        document_id: "doc-1",
+      }),
+      JSON.stringify({ id: "onboarding", kind: "skill", document_id: "" }),
+      "</posthog_reference_context>",
+    ].join("\n");
+    const { api, selector } = fixture();
+    selector.recordInjected(block);
+    await selector.prepare({ messageId: "next", text: "And for teams?" });
+    expect(api.prepareContextSelection.mock.lastCall?.[0].exclude).toEqual([
+      "business_knowledge:chunk-1",
+      "skill:onboarding",
+    ]);
+    selector.forgetInjected();
+    await selector.prepare({ messageId: "after-compaction", text: "Again?" });
+    expect(api.prepareContextSelection.mock.lastCall?.[0].exclude).toEqual([]);
+  });
 
   it("does not select or retain slash commands", async () => {
     const { api, selector } = fixture();

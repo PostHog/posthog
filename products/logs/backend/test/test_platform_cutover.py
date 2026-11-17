@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -11,12 +11,41 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.alerts.backend.facade.contracts import HogFunctionPathReason
+from products.alerts.backend.facade.destinations import (
+    build_alert_destination_config,
+    create_alert_destination_hog_functions,
+    list_alert_destination_groups,
+)
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
-from products.alerts_platform.backend.facade.contracts import DeliveryPath, SourceKind
+from products.alerts_platform.backend.facade.api import (
+    get_configuration,
+    list_configurations,
+    list_source_destinations,
+    record_source_destination,
+    upsert_configuration,
+)
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    DeliveryPath,
+    DestinationType,
+    SourceKind,
+)
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
-from products.logs.backend.alert_destinations import LOGS_ALERT_EVENT_IDS
+from products.cdp.backend.templates.discord.template_discord import template as template_discord
+from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
+from products.logs.backend.alert_destinations import (
+    EVENT_KIND_CONFIG,
+    LOGS_ALERT_EVENT_IDS,
+    LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+    EventKind,
+    build_logs_destination_configs,
+    logs_destination_event_kinds,
+    row_event_kinds,
+)
 from products.logs.backend.delivery_path_report import team_delivery_paths
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
@@ -24,18 +53,54 @@ from products.logs.backend.platform_cutover import CutoverSkip, RollbackSkip, cu
 
 NOW = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
 State = LogsAlertConfiguration.State
-LEGACY_BODY_FLAG = "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled"
+LEGACY_BODY_FLAG = "posthoganalytics.feature_enabled"
 STOCK_HOG = "return event"
-WEBHOOK_INPUTS: dict[str, Any] = {
-    "url": {"value": "https://hooks.example.com/hook"},
-    "method": {"value": "POST"},
-    "body": {"value": {"type": "logs_alert.firing"}},
+DESTINATION_DATA: dict[DestinationType, dict[str, Any]] = {
+    DestinationType.SLACK: {"slack_workspace_id": 1, "slack_channel_id": "C-1"},
+    DestinationType.WEBHOOK: {"webhook_url": "https://hooks.example.com/hook"},
+    DestinationType.TEAMS: {"webhook_url": "https://example.webhook.office.com/webhookb2/a/IncomingWebhook/b/c"},
+    DestinationType.PAGERDUTY: {"pagerduty_routing_key": "a" * 32},
 }
-SLACK_INPUTS: dict[str, Any] = {
-    "slack_workspace": {"value": 1},
-    "channel": {"value": "C-1"},
-    "text": {"value": "Log alert is firing"},
-}
+
+
+def stock_destination(kind: EventKind, destination_type: DestinationType) -> tuple[str, dict[str, Any]]:
+    payload = build_alert_destination_config(
+        spec=EVENT_KIND_CONFIG[kind],
+        alert_id="alert-1",
+        alert_name="Checkout errors",
+        data=cast(AlertDestinationData, {"type": destination_type, **DESTINATION_DATA[destination_type]}),
+        slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+    ).payload
+    return payload["template_id"], payload["inputs"]
+
+
+_, WEBHOOK_INPUTS = stock_destination("firing", DestinationType.WEBHOOK)
+_, SLACK_INPUTS = stock_destination("firing", DestinationType.SLACK)
+
+
+def sync_destination_templates() -> None:
+    sync_template_to_db(template_slack)
+    sync_template_to_db(template_microsoft_teams)
+    sync_template_to_db(template_pagerduty)
+    sync_template_to_db(template_discord)
+    HogFunctionTemplate.objects.get_or_create(
+        template_id="template-webhook",
+        defaults={
+            "sha": "1.0.0",
+            "name": "Webhook",
+            "description": "Generic webhook template",
+            "code": "return event",
+            "code_language": "hog",
+            "inputs_schema": [
+                {"key": "url", "type": "string"},
+                {"key": "body", "type": "json"},
+                {"key": "headers", "type": "dictionary"},
+                {"key": "secret_headers", "type": "dictionary", "secret": True},
+            ],
+            "type": "destination",
+            "status": "stable",
+        },
+    )
 
 
 class TestPlatformCutover(APIBaseTest):
@@ -228,6 +293,172 @@ class TestPlatformCutover(APIBaseTest):
         alert.refresh_from_db()
         assert alert.owner == ("platform" if moved else "source")
 
+    def _rolled_back(self, alert: LogsAlertConfiguration, at: datetime) -> RollbackSkip | None:
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(platform_testing.copy_of(alert.id).id, at + timedelta(minutes=2))
+        (result,) = roll_back_team(self.team.id, now=at)
+        return result.skipped
+
+    def _platform_destination(
+        self,
+        alert: LogsAlertConfiguration,
+        destination_type: DestinationType,
+        *,
+        retired_hog_functions: bool = False,
+        fields: dict[str, Any] | None = None,
+    ) -> UUID:
+        sync_destination_templates()
+        data = cast(AlertDestinationData, {"type": destination_type, **(fields or DESTINATION_DATA[destination_type])})
+        hog_function_ids: tuple[UUID, ...] = ()
+        if retired_hog_functions:
+            hog_function_ids = create_alert_destination_hog_functions(
+                build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data),
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                alert_id=str(alert.id),
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            )
+        row = record_source_destination(
+            team_id=self.team.id,
+            public_id=alert.id,
+            data=data,
+            event_kinds=row_event_kinds(logs_destination_event_kinds(destination_type)),
+            hog_function_ids=hog_function_ids,
+            hog_function_groups=[],
+        )
+        # How the conversion retires them, which the delete receiver does not see.
+        HogFunction.objects.filter(id__in=hog_function_ids).update(deleted=True)
+        assert row is not None
+        return row.id
+
+    def _legacy_ids(self, alert: LogsAlertConfiguration) -> dict[UUID, set[UUID]]:
+        return {
+            destination.destination_id: set(destination.hog_function_ids)
+            for destination in list_source_destinations(
+                team_id=self.team.id,
+                public_id=alert.id,
+                hog_function_groups=list_alert_destination_groups(
+                    team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+                ),
+            )
+            if destination.destination_id is not None
+        }
+
+    @parameterized.expand(
+        [
+            *(
+                (f"{t}_row_only", t, False, DESTINATION_DATA[t])
+                for t in (DestinationType.SLACK, DestinationType.WEBHOOK, DestinationType.TEAMS)
+            ),
+            (
+                "webhook_with_added_headers",
+                DestinationType.WEBHOOK,
+                False,
+                {**DESTINATION_DATA[DestinationType.WEBHOOK], "webhook_headers": {"Authorization": "Bearer fake"}},
+            ),
+            ("pagerduty_row_only", DestinationType.PAGERDUTY, False, DESTINATION_DATA[DestinationType.PAGERDUTY]),
+            (
+                "pagerduty_retired_hog_functions",
+                DestinationType.PAGERDUTY,
+                True,
+                DESTINATION_DATA[DestinationType.PAGERDUTY],
+            ),
+            ("slack_retired_hog_functions", DestinationType.SLACK, True, DESTINATION_DATA[DestinationType.SLACK]),
+        ]
+    )
+    def test_rolling_back_gives_a_platform_only_destination_its_hog_functions(
+        self, _name: str, destination_type: DestinationType, retired_hog_functions: bool, fields: dict[str, Any]
+    ) -> None:
+        alert = self._moved()
+        row_id = self._platform_destination(
+            alert, destination_type, retired_hog_functions=retired_hog_functions, fields=fields
+        )
+        retired = set(HogFunction.objects.filter(team=self.team, deleted=True).values_list("id", flat=True))
+
+        assert self._rolled_back(alert, NOW + timedelta(days=8)) is None
+
+        (group,) = list_alert_destination_groups(
+            team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+        )
+        assert {key: group.data.get(key) for key in ("type", *fields)} == {"type": destination_type, **fields}
+        rebuilt = HogFunction.objects.filter(id__in=group.hog_function_ids)
+        assert sorted(
+            event["id"] for function in rebuilt for event in (function.filters or {}).get("events", [])
+        ) == sorted(EVENT_KIND_CONFIG[kind].event_id for kind in logs_destination_event_kinds(destination_type))
+        assert self._legacy_ids(alert) == {row_id: set(group.hog_function_ids)}
+        if "webhook_url" in fields:
+            url_keys = {"url", "webhookUrl"}
+            assert all(
+                url_keys & set(function.encrypted_inputs or {}) and not url_keys & set(function.inputs or {})
+                for function in rebuilt
+            )
+        if "webhook_headers" in fields:
+            assert all(
+                (function.encrypted_inputs or {})["secret_headers"]["value"] == fields["webhook_headers"]
+                and "Authorization" not in (function.inputs or {})["headers"]["value"]
+                for function in rebuilt
+            )
+        assert retired.isdisjoint(group.hog_function_ids)
+        assert set(HogFunction.objects.filter(team=self.team, deleted=True).values_list("id", flat=True)) == retired
+
+    def test_rolling_back_rebuilds_two_webhooks_that_differ_only_in_their_headers(self) -> None:
+        alert = self._moved()
+        url = DESTINATION_DATA[DestinationType.WEBHOOK]
+        for token in ("Bearer one", "Bearer two"):
+            self._platform_destination(
+                alert, DestinationType.WEBHOOK, fields={**url, "webhook_headers": {"Authorization": token}}
+            )
+
+        assert self._rolled_back(alert, NOW + timedelta(days=8)) is None
+
+        groups = list_alert_destination_groups(
+            team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+        )
+        assert sorted(group.data.get("webhook_headers", {}).get("Authorization", "") for group in groups) == [
+            "Bearer one",
+            "Bearer two",
+        ]
+
+    def test_rolling_back_again_after_a_new_cutover_creates_nothing_twice(self) -> None:
+        alert = self._moved()
+        self._platform_destination(alert, DestinationType.SLACK)
+        self._rolled_back(alert, NOW + timedelta(days=8))
+        before = self._legacy_ids(alert)
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(next_check_at=NOW + timedelta(days=9))
+        cut_over_team(self.team.id, now=NOW + timedelta(days=9) - timedelta(minutes=3))
+
+        assert self._rolled_back(alert, NOW + timedelta(days=20)) is None
+
+        assert self._legacy_ids(alert) == before
+        assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(
+            logs_destination_event_kinds(DestinationType.SLACK)
+        )
+
+    def test_a_destination_that_cannot_be_rebuilt_keeps_the_alert_on_the_platform(self) -> None:
+        alert = self._moved()
+        self._platform_destination(alert, DestinationType.SLACK)
+        webhook = cast(
+            AlertDestinationData, {"type": DestinationType.WEBHOOK, **DESTINATION_DATA[DestinationType.WEBHOOK]}
+        )
+        # A live copy the row does not name refuses the rebuilt one as a duplicate.
+        create_alert_destination_hog_functions(
+            build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=webhook),
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            alert_id=str(alert.id),
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+        )
+        self._platform_destination(alert, DestinationType.WEBHOOK)
+        functions_before = set(HogFunction.objects.filter(team=self.team).values_list("id", flat=True))
+
+        assert self._rolled_back(alert, NOW + timedelta(days=8)) == RollbackSkip.DESTINATION_NOT_REBUILT
+
+        alert.refresh_from_db()
+        assert alert.owner == "platform"
+        with team_scope(self.team.id):
+            assert platform_testing.copy_of(alert.id).owner == "platform"
+        assert set(HogFunction.objects.filter(team=self.team).values_list("id", flat=True)) == functions_before
+
     def _destination(
         self, alert_id: UUID | None, template_id: str, inputs: dict[str, Any], edit: dict[str, Any] | None = None
     ) -> HogFunction:
@@ -284,14 +515,6 @@ class TestPlatformCutover(APIBaseTest):
                 HogFunctionPathReason.CUSTOMIZED,
             ),
             (
-                "stock_webhook_without_legacy_body",
-                "template-webhook",
-                WEBHOOK_INPUTS,
-                {},
-                False,
-                HogFunctionPathReason.NEW_WEBHOOK_BODY,
-            ),
-            (
                 "stock_webhook_with_unreadable_flag",
                 "template-webhook",
                 WEBHOOK_INPUTS,
@@ -304,6 +527,22 @@ class TestPlatformCutover(APIBaseTest):
                 "template-webhook",
                 WEBHOOK_INPUTS,
                 {"inputs": {**WEBHOOK_INPUTS, "headers": {"value": {"Host": "internal.example.com"}}}},
+                True,
+                HogFunctionPathReason.CUSTOMIZED,
+            ),
+            (
+                "body_written_before_the_first_save",
+                "template-webhook",
+                {**WEBHOOK_INPUTS, "body": {"value": {"embeds": [{"title": "{event.properties.alert_name}"}]}}},
+                {},
+                True,
+                HogFunctionPathReason.CUSTOMIZED,
+            ),
+            (
+                "no_body",
+                "template-webhook",
+                {key: value for key, value in WEBHOOK_INPUTS.items() if key != "body"},
+                {},
                 True,
                 HogFunctionPathReason.CUSTOMIZED,
             ),
@@ -359,17 +598,18 @@ class TestPlatformCutover(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stock_slack", "template-slack", SLACK_INPUTS, {}),
-            ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS, {}),
+            ("stock_slack", "template-slack", SLACK_INPUTS, True),
+            ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS, True),
+            ("stock_webhook_off_the_legacy_list", "template-webhook", WEBHOOK_INPUTS, False),
         ]
     )
     def test_a_team_moves_when_every_destination_is_ready(
-        self, _name: str, template_id: str, inputs: dict[str, Any], edit: dict[str, Any]
+        self, _name: str, template_id: str, inputs: dict[str, Any], keeps_legacy_body: bool
     ) -> None:
         alert = self._alert()
-        self._destination(alert.id, template_id, inputs, edit)
+        self._destination(alert.id, template_id, inputs)
 
-        with patch(LEGACY_BODY_FLAG, return_value=True):
+        with patch(LEGACY_BODY_FLAG, return_value=keeps_legacy_body):
             paths = team_delivery_paths(self.team.id)
             (result,) = cut_over_team(self.team.id, now=NOW)
 

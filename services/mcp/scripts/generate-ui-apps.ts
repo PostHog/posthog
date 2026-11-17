@@ -89,6 +89,7 @@ function resolveDetailApp(
         data_type: raw.data_type ?? `${pascal}Data`,
         view_component: raw.view_component ?? `${pascal}View`,
         ...(raw.link_prop ? { link_prop: raw.link_prop } : {}),
+        ...(raw.resource_domains ? { resource_domains: raw.resource_domains } : {}),
     }
 }
 
@@ -302,10 +303,10 @@ function generateDispatchModule(apps: DispatchApp[]): string {
                 return `    '${app.appKey}': ({ data }) => <${view_component} ${view_prop}={data as ${data_type}} />,`
             }
             if (app.type === 'custom') {
-                const { data_type, view_component, view_prop, link_prop } = app.config.render_ui
+                const { data_type, view_component, view_prop, link_prop, app_prop } = app.config.render_ui
                 const dataExpression = data_type ? `data as ${data_type}` : 'data'
-                const args = link_prop ? 'data, openLink' : 'data'
-                const extraProps = link_prop ? ` ${link_prop}={openLink}` : ''
+                const args = ['data', ...(link_prop ? ['openLink'] : []), ...(app_prop ? ['app'] : [])].join(', ')
+                const extraProps = `${link_prop ? ` ${link_prop}={openLink}` : ''}${app_prop ? ` ${app_prop}={app}` : ''}`
                 return `    '${app.appKey}': ({ ${args} }) => <${view_component} ${view_prop}={${dataExpression}}${extraProps} />,`
             }
             const pascalName = kebabToPascal(app.appKey)
@@ -345,6 +346,19 @@ interface RegistryEntry {
     name: string
     description: string
     resourceDomains?: string[]
+}
+
+const RENDER_UI_APP_KEY = 'render-ui'
+
+function withRenderUiResourceDomains(entries: RegistryEntry[], dispatchApps: DispatchApp[]): RegistryEntry[] {
+    const viewDomains = dispatchApps.flatMap((app) => (app.type === 'list' ? [] : (app.config.resource_domains ?? [])))
+    return entries.map((entry) => {
+        if (entry.appKey !== RENDER_UI_APP_KEY) {
+            return entry
+        }
+        const resourceDomains = [...new Set([...(entry.resourceDomains ?? []), ...viewDomains])]
+        return resourceDomains.length > 0 ? { ...entry, resourceDomains } : entry
+    })
 }
 
 function toConstName(appKey: string): string {
@@ -482,6 +496,7 @@ function main(): void {
                     uri,
                     name: resolved.app_name,
                     description: resolved.description,
+                    resourceDomains: resolved.resource_domains,
                 })
             } else if (appConfig.type === 'list') {
                 if (!componentImport && !appConfig.component_import) {
@@ -557,7 +572,7 @@ function main(): void {
 
     // Write registry (with the render-ui dispatchable key list)
     const registryCode = generateRegistry(
-        registryEntries,
+        withRenderUiResourceDomains(registryEntries, dispatchApps),
         dispatchApps.map((a) => a.appKey)
     )
     fs.writeFileSync(GENERATED_REGISTRY_PATH, registryCode)

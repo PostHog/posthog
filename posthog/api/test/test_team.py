@@ -41,6 +41,7 @@ from posthog.models.group_type_mapping import (
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
@@ -742,8 +743,9 @@ def team_api_test_factory():
             self.assertNotEqual(response_data["secret_api_token"], self.team.secret_api_token_backup)
             self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
             self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
-            # Backup token should now be the old secret API token
-            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
+            # The demoted backup is the old secret API token, and only the DB holds it.
+            self.assertIsNone(response_data["secret_api_token_backup"])
+            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
             self._assert_activity_log(
                 [
                     {
@@ -803,8 +805,9 @@ def team_api_test_factory():
             self.assertNotEqual(response_data["secret_api_token"], secret_api_token)
             self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
             self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
-            # Backup token should now be the old secret API token
-            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
+            # The demoted backup is the old secret API token, and only the DB holds it.
+            self.assertIsNone(response_data["secret_api_token_backup"])
+            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
             self._assert_activity_log(
                 [
                     {
@@ -966,8 +969,10 @@ def team_api_test_factory():
 
             self.team.refresh_from_db()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response_data["secret_api_token"], "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
+            # Nothing was minted, so the response hides the primary like every other read.
+            self.assertIsNone(response_data["secret_api_token"])
             self.assertIsNone(response_data["secret_api_token_backup"])
+            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
             self.assertIsNone(self.team.secret_api_token_backup)
             self._assert_activity_log(
                 [
@@ -1190,6 +1195,27 @@ def team_api_test_factory():
             response = self.client.get(f"/api/environments/{self.team.id}/is_generating_demo_data/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"is_generating_demo_data": False})
+
+        @parameterized.expand([("member", False, []), ("staff", True, ["email_sending_tier_changed"])])
+        def test_activity_hides_staff_only_rows_from_members(
+            self, _name: str, is_staff: bool, expected_activities: list[str]
+        ) -> None:
+            ActivityLog.objects.create(
+                team_id=self.team.pk,
+                organization_id=self.organization.id,
+                user=User.objects.create(email="staff@posthog.com", is_staff=True),
+                scope="Team",
+                item_id=str(self.team.pk),
+                activity="email_sending_tier_changed",
+                detail={"name": self.team.name},
+            )
+            self.user.is_staff = is_staff
+            self.user.save()
+
+            response = self.client.get(f"/api/environments/{self.team.pk}/activity")
+
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert [item["activity"] for item in response.json()["results"]] == expected_activities
 
         @time_machine.travel("2022-02-08", tick=False)
         def test_team_float_config_can_be_serialized_to_activity_log(self):
@@ -1645,22 +1671,19 @@ def team_api_test_factory():
                 {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
             ]
 
-        def test_the_events_schema_modifier_is_not_client_writable(self) -> None:
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}",
-                {"modifiers": {"useNewEventsSchema": True}},
-            )
-            assert response.status_code == status.HTTP_200_OK, response.json()
-            assert "useNewEventsSchema" not in response.json()["modifiers"]
+        def test_a_project_stores_its_early_events_table_choice_and_sees_a_move_by_posthog(self) -> None:
+            with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}",
+                    {"modifiers": {"useNewEventsSchema": True}},
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                assert response.json()["modifiers"]["useNewEventsSchema"] is True
+                assert response.json()["default_modifiers"]["useNewEventsSchema"] is False
 
-            self.team.modifiers = {"useNewEventsSchema": True}
-            self.team.save()
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}",
-                {"modifiers": {"useNewEventsSchema": False, "bounceRateDurationSeconds": 30}},
-            )
-            assert response.status_code == status.HTTP_200_OK, response.json()
-            assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
+                with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.id)):
+                    response = self.client.get(f"/api/environments/{self.team.id}")
+                assert response.json()["default_modifiers"]["useNewEventsSchema"] is True
 
         @parameterized.expand(
             [
@@ -2026,17 +2049,36 @@ def team_api_test_factory():
                 == "You must be an admin of both the source and target organizations to move a project."
             )
 
-        def test_can_change_organization(self):
+        @parameterized.expand([(False,), (True,)])
+        def test_can_change_organization(self, restrict_destination: bool) -> None:
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
+            if restrict_destination:
+                with self.captureOnCommitCallbacks(execute=True):
+                    OrganizationIPRestrictions.objects.create(
+                        organization=other_org, ip_restrictions=["203.0.113.0/24"]
+                    )
+                denied = self.client.post(
+                    f"/api/projects/{self.team.project.id}/change_organization/",
+                    {"organization_id": other_org.id},
+                    REMOTE_ADDR="198.51.100.7",
+                )
+                assert denied.status_code == status.HTTP_403_FORBIDDEN
+                assert denied.json()["code"] == "ip_not_allowed"
+                self.project.refresh_from_db()
+                self.team.refresh_from_db()
+                assert self.project.organization_id == self.organization.id
+                assert self.team.organization_id == self.organization.id
             source_org_url = f"/api/organizations/{self.organization.id}/"
             # Populates the source organization's cached project list before the move.
             assert [team["id"] for team in self.client.get(source_org_url).json()["teams"]] == [self.team.id]
 
             with self.captureOnCommitCallbacks(execute=True):
                 res = self.client.post(
-                    f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+                    f"/api/projects/{self.team.project.id}/change_organization/",
+                    {"organization_id": other_org.id},
+                    REMOTE_ADDR="203.0.113.7",
                 )
 
             assert res.status_code == status.HTTP_200_OK, res.json()
@@ -2321,6 +2363,31 @@ def team_api_test_factory():
             settings = response.json()["conversations_settings"]
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
+
+        @parameterized.expand(
+            [
+                ("deduplicates_ids", ["C0123ABCD", "C0123ABCD"], status.HTTP_200_OK, ["C0123ABCD"]),
+                ("clears_with_null", None, status.HTTP_200_OK, []),
+                ("rejects_names", ["#support"], status.HTTP_400_BAD_REQUEST, None),
+                ("rejects_direct_messages", ["D0123ABCD"], status.HTTP_400_BAD_REQUEST, None),
+                ("rejects_non_list", "C0123ABCD", status.HTTP_400_BAD_REQUEST, None),
+                ("rejects_non_string", [123], status.HTTP_400_BAD_REQUEST, None),
+                ("caps_channels", [f"C{i:08d}" for i in range(21)], status.HTTP_400_BAD_REQUEST, None),
+            ]
+        )
+        def test_automated_update_channel_allowlist_validation(
+            self, _name, channel_ids, expected_status, expected_channels
+        ):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"automated_update_slack_channel_ids": channel_ids}},
+            )
+
+            assert response.status_code == expected_status
+            if expected_channels is not None:
+                assert (
+                    response.json()["conversations_settings"]["automated_update_slack_channel_ids"] == expected_channels
+                )
 
         @parameterized.expand([(["legacy", "list"],), ("legacy string",), (1,)])
         def test_conversations_settings_merges_with_legacy_non_object_existing(self, legacy_value):
@@ -3405,7 +3472,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
             flag_evaluations_mode=stored_mode
         )
-        request = RequestFactory().get("/")
+        request = RequestFactory().get("/?deferred_app_context=0")
         request.user = self.user
         request.session = self.client.session
 
@@ -3413,6 +3480,27 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             context = get_context_for_template("index.html", request)
 
         self.assertEqual(context["posthog_app_context"]["current_team"]["flag_evaluations_mode"], expected_mode)
+
+    @parameterized.expand(
+        [
+            ("events", FlagEvaluationsMode.EVENTS, False, False),
+            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True),
+            ("native_events_table", FlagEvaluationsMode.EVENTS, True, True),
+        ]
+    )
+    def test_page_load_team_flag_calls_only_in_flag_evaluations(self, _name, mode, native_events, expected):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(flag_evaluations_mode=mode)
+        request = RequestFactory().get("/?deferred_app_context=0")
+        request.user = self.user
+        request.session = self.client.session
+
+        with self.is_cloud(True), self.settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=native_events):
+            context = get_context_for_template("index.html", request)
+
+        self.assertEqual(
+            context["posthog_app_context"]["current_team"]["flag_calls_only_in_flag_evaluations"], expected
+        )
 
     def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
         # Scope to a primary team (team.id == project.id) so the env→project rewrite can address it directly.
@@ -4286,6 +4374,99 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         with override_settings(JWT_SIGNING_KEY="completely-different-rotated-secret"):
             token_new_key = get_or_mint_live_events_token(self.team, self.user.id)
         assert token_old_key != token_new_key
+
+
+class TestSecretApiTokenVisibility(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+        self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        self.team.save()
+
+    def _oauth_token(self, scope: str) -> str:
+        application = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        return OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token="pha_secret_token_visibility",
+            scope=scope,
+            expires=timezone.now() + timedelta(hours=1),
+        ).token
+
+    @parameterized.expand(
+        [
+            ("session", None, []),
+            ("personal_api_key_project_read", "personal_api_key", ["project:read"]),
+            (
+                "personal_api_key_mirrored_scopes",
+                "personal_api_key",
+                ["project:read", "feature_flag:read", "support_ticket:read"],
+            ),
+            ("personal_api_key_all_scopes", "personal_api_key", ["*"]),
+            ("oauth_project_read", "oauth", ["project:read"]),
+        ]
+    )
+    @patch("posthog.event_usage.report_user_action")
+    def test_secret_api_tokens_are_hidden_from_every_caller(
+        self,
+        _name: str,
+        credential: str | None,
+        scopes: list[str],
+        _mock_report_user_action: MagicMock,
+    ) -> None:
+        headers: dict[str, str] = {}
+        if credential is not None:
+            token = (
+                self.create_personal_api_key_with_scopes(scopes)
+                if credential == "personal_api_key"
+                else self._oauth_token(" ".join(scopes))
+            )
+            headers["authorization"] = f"Bearer {token}"
+            self.client.logout()
+
+        responses = self._read_both_serializers(headers)
+
+        for serializer_name, response in responses.items():
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
+            body = response.json()
+            assert (body["secret_api_token"], body["secret_api_token_backup"]) == (None, None), serializer_name
+
+    @patch("posthog.event_usage.report_user_action")
+    def test_project_rotation_shows_the_minted_token_once(self, _mock_report_user_action: MagicMock) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        old_primary = self.team.secret_api_token
+
+        rotate = self.client.patch(f"/api/projects/{self.project.id}/rotate_secret_token/")
+
+        assert rotate.status_code == status.HTTP_200_OK, rotate.json()
+        body = rotate.json()
+        assert body["secret_api_token"] is not None and body["secret_api_token"].startswith("phs_")
+        assert body["secret_api_token"] != old_primary
+        # The demoted backup stays hidden even in the show-once response.
+        assert body["secret_api_token_backup"] is None
+        self.team.refresh_from_db()
+        assert self.team.secret_api_token_backup == old_primary
+
+        read = self.client.get(f"/api/projects/{self.project.id}/")
+        assert (read.json()["secret_api_token"], read.json()["secret_api_token_backup"]) == (None, None)
+
+    def _read_both_serializers(self, headers: dict[str, str]) -> dict[str, Any]:
+        return {
+            "ProjectBackwardCompatSerializer": self.client.get(f"/api/projects/{self.project.id}/", headers=headers),
+            "TeamSerializer": self.client.patch(
+                f"/api/projects/{self.project.id}/add_product_intent/",
+                {"product_type": "product_analytics"},
+                headers=headers,
+            ),
+        }
 
 
 # Sensitive Team/Project settings the frontend gates behind

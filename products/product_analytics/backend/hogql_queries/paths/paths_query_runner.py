@@ -27,6 +27,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
+from posthog.hogql.flag_called_warnings import FLAG_CALLED_EVENT
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -395,6 +396,17 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
         date_filter_expr = self.date_filter_expr()
         event_filters.append(date_filter_expr)
+
+        # Flag calls leave `events` when an organization moves them to posthog.flag_evaluations.
+        # Path steps never include them, so the steps do not change at the move.
+        # A funnel source still reads flag calls through FunnelsActorsQuery.
+        event_filters.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Field(chain=["events", "event"]),
+                right=ast.Constant(value=FLAG_CALLED_EVENT),
+            )
+        )
 
         query = ast.SelectQuery(
             select=fields,

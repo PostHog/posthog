@@ -23,7 +23,14 @@ def test_trace_dumps_declared_fields_in_camel_case_and_every_field_is_required_i
         error_count=0,
         tree=[
             contracts.TraceNode(
-                id="trace-1", kind="trace", name="Trace", model=None, stats=stats, has_error=False, children=[]
+                id="trace-1",
+                kind="trace",
+                name="Trace",
+                label="Trace",
+                model=None,
+                stats=stats,
+                has_error=False,
+                children=[],
             )
         ],
         timeline=[],
@@ -31,6 +38,7 @@ def test_trace_dumps_declared_fields_in_camel_case_and_every_field_is_required_i
         thread_node_ids=[],
         default_node_id="trace-1",
         node_ids_by_alias={},
+        git=None,
     )
 
     dumped = trace.model_dump(mode="json", by_alias=True)
@@ -50,6 +58,7 @@ def test_trace_dumps_declared_fields_in_camel_case_and_every_field_is_required_i
         "threadNodeIds",
         "defaultNodeId",
         "nodeIdsByAlias",
+        "git",
     }
     assert dumped["totals"]["cacheWriteTokens"] is None
     assert dumped["person"] == {"distinctId": "user-1", "label": "ada@example.com"}
@@ -58,6 +67,7 @@ def test_trace_dumps_declared_fields_in_camel_case_and_every_field_is_required_i
         "id",
         "kind",
         "name",
+        "label",
         "model",
         "stats",
         "hasError",

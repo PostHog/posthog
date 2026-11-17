@@ -1,3 +1,4 @@
+import sys
 import math
 import time
 import asyncio
@@ -20,6 +21,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
     SYNC_DISABLED_JOB_ERROR,
 )
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
@@ -33,6 +35,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DestinationConfigurationError,
     DestinationDeliveryError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    INCOMPLETE_RUN_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
     GROUP_TABLE_HANDLES,
@@ -306,6 +311,7 @@ class TestProcessSingle:
             "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
             "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.",
             str(DestinationConfigurationError("Prod", "The host name does not exist.")),
+            f"{ADOPTION_ACCESS_ERROR} 'orders', because the access rules of the table or of its source changed",
         ],
     )
     @pytest.mark.asyncio
@@ -343,6 +349,9 @@ class TestProcessSingle:
             ("ExternalDataSchema matching query does not exist.", False),
             # A destination the customer configured refuses the connection.
             (str(DestinationConfigurationError("Prod", "The host name does not exist.")), False),
+            # A batch aged out of its claim window (IncompleteRunError) — self-healing, and
+            # already tracked by its own metric, so it must not also hit error tracking.
+            (INCOMPLETE_RUN_ERROR, False),
             # A genuine non-retryable failure must still surface so real bugs aren't hidden.
             ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
             # Storage backend out of disk space is an operational condition operators need to
@@ -2137,6 +2146,9 @@ class TestFailRun:
             pytest.param("Decimal value is too large to store in a Decimal128", True, id="decimal_overflow"),
             pytest.param("Primary key required for incremental syncs", True, id="missing_primary_key"),
             pytest.param(
+                f"{ADOPTION_ACCESS_ERROR} 'orders', because the access rules changed", True, id="adoption_refused"
+            ),
+            pytest.param(
                 "XMinioStorageFull: storage backend has reached its minimum free drive threshold",
                 False,
                 id="our_storage_full",
@@ -2311,6 +2323,9 @@ class TestUpdateJobStatusToFailed:
         # failed" check and the write below — this must be a no-op, not a second
         # DoesNotExist raised on top of the batch's original failure.
         with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.close_old_connections"
+            ),
             patch(
                 "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects.filter",
             ) as mock_filter,
@@ -3944,7 +3959,9 @@ class TestUnlockGroup:
         fresh_conn = _make_healthy_conn()
         batches = [_make_batch()]
 
-        retry_error = psycopg.OperationalError("connection refused")
+        # Not a self-healing shape like a dropped connection or a connection refusal, so
+        # the retry exhaustion below must still reach error tracking.
+        retry_error = psycopg.OperationalError("password authentication failed for user")
         mock_unlock = AsyncMock(
             side_effect=[psycopg.OperationalError("another command is already in progress"), retry_error]
         )
@@ -4173,7 +4190,8 @@ class TestHeartbeatLoop:
 
         task = asyncio.create_task(consumer._heartbeat_loop())
         await asyncio.sleep(0.03)
-        time.sleep(1.0)  # block the event loop so the heartbeat cannot run
+        # nosemgrep: no-fixed-sleeps-in-tests -- blocks the event loop past the stall-dump deadline
+        time.sleep(1.0)
         assert "most recent call first" in capfd.readouterr().err
 
         await asyncio.sleep(0.03)  # the heartbeat resumes and arms the timer again
@@ -5315,6 +5333,29 @@ class TestBatchPhaseTracking:
         consumer._report_health()
         assert BATCHES_IN_PHASE.labels(phase="write")._value.get() == 0
 
+    @pytest.mark.parametrize(
+        "ticks, expected_dumps",
+        [
+            pytest.param(["a"], 1, id="first_trip_dumps"),
+            pytest.param(["a", "a", "a"], 1, id="same_batch_dumps_once"),
+            pytest.param(["a", "b"], 2, id="different_batch_dumps_again"),
+        ],
+    )
+    def test_watchdog_trip_dumps_thread_stacks_once_per_stuck_batch(
+        self, ticks: list[str], expected_dumps: int
+    ) -> None:
+        consumer = _make_consumer(stuck_batch_timeout_seconds=0.0)
+        consumer._health_reporter = lambda: None
+
+        with patch.object(batch_consumer_module.faulthandler, "dump_traceback") as dump:
+            for batch_id in ticks:
+                consumer._inflight_started = {batch_id: time.monotonic() - 10}
+                consumer._report_health()
+
+        assert dump.call_count == expected_dumps
+        for call in dump.call_args_list:
+            assert call.kwargs == {"file": sys.stderr, "all_threads": True}
+
     def test_watchdog_trip_names_the_phase_the_batch_stopped_in(self) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
 
@@ -5328,8 +5369,9 @@ class TestBatchPhaseTracking:
             consumer._report_health()
 
         assert calls == []  # tripped: liveness withheld
-        logger.error.assert_called_once()
-        kwargs = logger.error.call_args.kwargs
+        tripped = [c for c in logger.error.call_args_list if "stuck_batch_watchdog_tripped" in c.args[0]]
+        assert len(tripped) == 1
+        kwargs = tripped[0].kwargs
         assert kwargs.get("batch_id") == batch.id
         assert kwargs.get("phase") == "write"
         assert kwargs.get("phase_seconds") is not None

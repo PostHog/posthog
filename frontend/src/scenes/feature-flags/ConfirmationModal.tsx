@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { IconWarning } from '@posthog/icons'
 import { LemonDialog, Link } from '@posthog/lemon-ui'
 
@@ -19,8 +21,21 @@ interface ConfirmationModalProps {
     dependentFlags?: DependentFlag[] // Feature flags that depend on this flag (only shown when disabling)
     isBeingDisabled?: boolean // Whether the flag is being disabled (controls dependent flags warning)
     featureFlagConfirmationEnabled?: boolean // Whether the team has feature flag confirmation enabled in settings
+    releasesToEveryone?: boolean // Whether saving turns the flag on for everyone (only for multi-changes type)
     onConfirm: () => void
     onCancel?: () => void
+}
+
+function WarningCallout({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="mt-4 p-3 border border-warning bg-warning-highlight rounded">
+            <p className="my-0 flex items-center gap-2">
+                <IconWarning className="text-warning" />
+                <strong>{title}</strong>
+            </p>
+            <p className="mb-0">{children}</p>
+        </div>
+    )
 }
 
 /**
@@ -36,6 +51,7 @@ export function openConfirmationModal({
     dependentFlags,
     isBeingDisabled = false,
     featureFlagConfirmationEnabled = false,
+    releasesToEveryone = false,
     onConfirm,
     onCancel,
 }: ConfirmationModalProps): void {
@@ -100,30 +116,30 @@ export function openConfirmationModal({
                             <li key={index}>{change}</li>
                         ))}
                     </ul>
+                    {releasesToEveryone && (
+                        <WarningCallout title="This releases the flag to all users">
+                            After you save, every user who evaluates <strong>{featureFlag.key}</strong> gets it
+                            immediately.
+                        </WarningCallout>
+                    )}
                     {isBeingDisabled && dependentFlags && dependentFlags.length > 0 && (
-                        <div className="mt-4 p-3 border border-warning bg-warning-highlight rounded">
-                            <p className="my-0 flex items-center gap-2">
-                                <IconWarning className="text-warning" />
-                                <strong>Cannot disable this feature flag</strong>
-                            </p>
-                            <p className="mb-0">
-                                This flag is referenced by {dependentFlags.length} other feature flag
-                                {dependentFlags.length === 1 ? '' : 's'}:{' '}
-                                {dependentFlags.map((flag, index) => (
-                                    <span key={flag.id}>
-                                        {index > 0 && (index === dependentFlags.length - 1 ? ' and ' : ', ')}
-                                        <Link
-                                            to={urls.featureFlag(flag.id)}
-                                            target="_blank"
-                                            aria-label={`Open ${flag.key}`}
-                                        >
-                                            <strong>{flag.key}</strong>
-                                        </Link>
-                                    </span>
-                                ))}
-                                . Please update or disable the dependent flags first.
-                            </p>
-                        </div>
+                        <WarningCallout title="Cannot disable this feature flag">
+                            This flag is referenced by {dependentFlags.length} other feature flag
+                            {dependentFlags.length === 1 ? '' : 's'}:{' '}
+                            {dependentFlags.map((flag, index) => (
+                                <span key={flag.id}>
+                                    {index > 0 && (index === dependentFlags.length - 1 ? ' and ' : ', ')}
+                                    <Link
+                                        to={urls.featureFlag(flag.id)}
+                                        target="_blank"
+                                        aria-label={`Open ${flag.key}`}
+                                    >
+                                        <strong>{flag.key}</strong>
+                                    </Link>
+                                </span>
+                            ))}
+                            . Please update or disable the dependent flags first.
+                        </WarningCallout>
                     )}
                     {allMessages.map((message, index) => (
                         <p key={index} className="mt-4">
@@ -138,6 +154,12 @@ export function openConfirmationModal({
 
     // Determine if the primary button should be disabled
     const hasBlockingDependentFlags = isBeingDisabled && dependentFlags && dependentFlags.length > 0
+    let confirmed = false
+
+    if (releasesToEveryone) {
+        // pinned: analytics event names
+        posthog.capture('feature flag release to everyone confirmation shown')
+    }
 
     LemonDialog.open({
         title,
@@ -148,14 +170,27 @@ export function openConfirmationModal({
                     ? `${capitalizeFirstLetter(activeNewValue ? 'enable' : 'disable')} flag`
                     : type === 'rollout'
                       ? 'Update conditions'
-                      : 'Save changes',
+                      : releasesToEveryone
+                        ? 'Release to all users'
+                        : 'Save changes',
             status: type === 'flag-status' && !activeNewValue ? 'danger' : 'default',
-            onClick: hasBlockingDependentFlags ? undefined : onConfirm,
+            onClick: hasBlockingDependentFlags
+                ? undefined
+                : () => {
+                      confirmed = true
+                      onConfirm()
+                  },
             disabled: hasBlockingDependentFlags,
         },
         secondaryButton: {
             children: 'Cancel',
             onClick: onCancel,
+        },
+        // Escape, the close icon and the overlay skip the Cancel button, so count every close without a confirm.
+        onAfterClose: () => {
+            if (releasesToEveryone && !confirmed) {
+                posthog.capture('feature flag release to everyone confirmation canceled')
+            }
         },
     })
 }

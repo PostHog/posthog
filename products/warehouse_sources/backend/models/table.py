@@ -44,6 +44,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import (
     CORRUPTED_PARQUET_METADATA_MESSAGE,
+    INTERNAL_CH_ERROR_USER_MESSAGES,
     QueryErrorCategory,
     classify_query_error,
     wrap_clickhouse_query_error,
@@ -98,18 +99,22 @@ ExtractErrors = {
     "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
     # A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
     "Failed to get object info: No response body.. HTTP response code: 403": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    # Same HEAD-request shape as the 403 above, but for a key that isn't there at all.
+    "Failed to get object info: No response body.. HTTP response code: 404": "The provided file doesn't exist in the bucket. Check the files URL pattern, then try again.",
     # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
     # tables) use a different vocabulary than ClickHouse's native S3 errors above.
     "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
     "Could not list objects in bucket": "Access was denied to the provided bucket. Check that the provided credentials can list this bucket (s3:ListBucket), then try again.",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
+    "The specified blob does not exist": "The file in your files URL doesn't exist in the container. Check the container name and file path, then try again.",
     # ClickHouse names the format in this message (CSV, CSVWithNames, Parquet, ...), so match the shared tail.
     "there are no files with provided path in S3 or all files are empty": "No files match your Files URL pattern, or all the matching files are empty. Check the folder path and wildcards, then try again.",
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
     "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
+    "Failed to parse Parquet Thrift metadata": CORRUPTED_PARQUET_METADATA_MESSAGE,
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
     # TOO_MANY_REDIRECTS, raised when the URL pattern points at something that answers with a
@@ -187,13 +192,20 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
 
-# Capture bookkeeping that a history table carries next to `valid_from`, `valid_to` and `_ph_deleted`,
+# Capture and layout bookkeeping that a history table carries next to its validity columns and `_ph_deleted`,
 # which already tell a reader when a version held and whether it is a delete. The names mirror the
 # constants in `cdc/batcher.py`, which this module does not import because that pulls in pyarrow.
-HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset({"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at"})
+HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset(
+    {"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at", "_ph_history_partition"}
+)
 # Set in `options` when the sync registers a table as a schema's history table. Column names cannot
 # tell the two apart, because a source table can have its own `valid_from` and `valid_to` columns.
 HISTORY_TABLE_OPTION = "history_table"
+# Set in `options` when the sync creates a history table named `<table>_history` with the validity
+# columns `_ph_valid_from` / `_ph_valid_to`. A history table without it is older and keeps `_cdc`,
+# `valid_from` and `valid_to`.
+HISTORY_NAMING_OPTION = "history_naming"
+PH_HISTORY_NAMING = "ph_validity"
 
 
 # Characters that carry quoting meaning once a column name is written into SQL. The structure
@@ -616,8 +628,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def is_history_table(self) -> bool:
         return (self.options or {}).get(HISTORY_TABLE_OPTION) is True
 
-    def mark_as_history_table(self) -> None:
-        self.options = {**(self.options or {}), HISTORY_TABLE_OPTION: True}
+    def mark_as_history_table(self, *, ph_naming: bool = False) -> None:
+        self.options = {
+            **(self.options or {}),
+            HISTORY_TABLE_OPTION: True,
+            **({HISTORY_NAMING_OPTION: PH_HISTORY_NAMING} if ph_naming else {}),
+        }
+
+    @property
+    def has_ph_history_naming(self) -> bool:
+        return (self.options or {}).get(HISTORY_NAMING_OPTION) == PH_HISTORY_NAMING
 
     def hidden_columns(self) -> frozenset[str]:
         """The plumbing columns to keep out of the catalog for this table."""
@@ -855,7 +875,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     )
                     break
                 except Exception as err:
-                    if i >= attempts - 1:
+                    # A query-performance-limit error (timeout, memory, size) is a property of this
+                    # query against this file, not a cluster blip - it fails the same way on every
+                    # retry, so retrying only ties the request up for `attempts` rounds of the same
+                    # multi-minute query instead of surfacing the failure.
+                    is_terminal = classify_query_error(err) == QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+                    if is_terminal or i >= attempts - 1:
                         if not is_expected_warehouse_read_error(err):
                             capture_exception(err)
                         if safe_expose_ch_error:
@@ -994,28 +1019,46 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # instead of on the node chdb already could not finish on.
             table_size_mib=self.size_in_s3_mib,
         )
-        try:
-            tag_queries(
-                team_id=self.team.pk,
-                table_id=self.id,
-                warehouse_query=True,
-                name="get_count",
-                product=Product.WAREHOUSE,
-                feature=Feature.QUERY,
-            )
+        tag_queries(
+            team_id=self.team.pk,
+            table_id=self.id,
+            warehouse_query=True,
+            name="get_count",
+            product=Product.WAREHOUSE,
+            feature=Feature.QUERY,
+        )
 
-            result = sync_execute(
-                f"SELECT count() FROM {s3_table_func}",
-                args=placeholder_context.values,
-                settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
-            )
-        except Exception as err:
-            if not is_expected_warehouse_read_error(err):
-                capture_exception(err)
-            if safe_expose_ch_error:
-                self._safe_expose_ch_error(err)
-            else:
-                raise
+        # The cluster is a little broken right now, and so this can intermittently fail.
+        # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
+        attempts = 5
+        result = None
+        for i in range(attempts):
+            try:
+                result = sync_execute(
+                    f"SELECT count() FROM {s3_table_func}",
+                    args=placeholder_context.values,
+                    settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
+                )
+                break
+            except Exception as err:
+                # A query-performance-limit error (timeout, memory, size) is a property of this
+                # query against this file, not a cluster blip - it fails the same way on every
+                # retry, so retrying only ties the request up for `attempts` rounds of the same
+                # multi-minute query instead of surfacing the failure.
+                is_terminal = classify_query_error(err) == QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+                if is_terminal or i >= attempts - 1:
+                    if not is_expected_warehouse_read_error(err):
+                        capture_exception(err)
+                    if safe_expose_ch_error:
+                        self._safe_expose_ch_error(err)
+                    else:
+                        raise
+
+                # Pause execution slightly to not overload clickhouse
+                time.sleep(2**i)
+
+        if result is None:
+            raise Exception("No count returned by clickhouse in get_count")
 
         return int(result[0][0])
 
@@ -1086,6 +1129,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             DIRECT_TRINO_SCHEMA_OPTION,
             DIRECT_TRINO_TABLE_OPTION,
         )
+        from products.warehouse_sources.backend.logic.source_inputs import (  # noqa: PLC0415 - the store imports this model package
+            SourceInputsStore,
+        )
 
         columns = self.columns or {}
 
@@ -1110,7 +1156,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             postgres_schema = (
                 self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION)
                 if isinstance(self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION), str)
-                else (self.external_data_source.job_inputs or {}).get("schema", "public")
+                else SourceInputsStore.load_settings(self.external_data_source).get("schema", "public")
             )
             postgres_table_name = (
                 self.options.get(DIRECT_POSTGRES_TABLE_OPTION)
@@ -1129,7 +1175,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         if self.external_data_source and self.external_data_source.is_direct_mysql:
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             mysql_schema = (
                 self.options.get(DIRECT_MYSQL_SCHEMA_OPTION)
                 if isinstance(self.options.get(DIRECT_MYSQL_SCHEMA_OPTION), str)
@@ -1150,7 +1196,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         if self.external_data_source and self.external_data_source.is_direct_snowflake:
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             snowflake_catalog = (
                 self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION), str)
@@ -1179,7 +1225,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if self.external_data_source and self.external_data_source.is_direct_redshift:
             # Redshift is a Postgres fork and reuses DirectPostgresTable's schema-qualified,
             # double-quoted table-reference rendering (see DirectRedshiftTable).
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             redshift_catalog = (
                 self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION), str)
@@ -1212,7 +1258,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and self.external_data_source.direct_engine == "motherduck"
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             motherduck_database = (
                 self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION), str)
@@ -1244,7 +1290,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and (self.external_data_source.direct_engine == "trino" or is_managed_trino_table)
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             trino_catalog = (
                 self.options.get(DIRECT_TRINO_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_TRINO_CATALOG_OPTION), str)
@@ -1280,7 +1326,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and self.external_data_source.direct_engine == "clickhouse"
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             # Every direct-ClickHouse table is discovered from the source's single configured
             # database, so the live source config is authoritative. Prefer it over the per-table
             # option, which can be stale — e.g. stored as "default" when the source was first synced
@@ -1509,6 +1555,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         if user_facing_message is not None:
             raise Exception(user_facing_message)
+
+        # NETWORK_ERROR, SOCKET_TIMEOUT and the other codes in INTERNAL_CH_ERROR_USER_MESSAGES are
+        # ClickHouse-infrastructure conditions with nothing to do with the customer's bucket.
+        # wrap_clickhouse_query_error already gave them their own safe, generic message; the bucket
+        # fallback below would otherwise send the customer chasing credentials for a problem on our end.
+        code_name = getattr(err, "code_name", None)
+        if code_name and (infra_message := INTERNAL_CH_ERROR_USER_MESSAGES.get(code_name.upper())):
+            raise Exception(infra_message)
 
         raise Exception(
             "Could not read the files from your storage bucket. Check that the files URL pattern, file format, "

@@ -1,4 +1,18 @@
-import { buildIntegerMatcher, buildStringMatcher, getDefaultConfig, overrideWithEnv } from '~/common/config/config'
+import { execFile } from 'child_process'
+import { join } from 'path'
+import { promisify } from 'util'
+
+import { getExternalRequestConfig } from '~/common/config'
+import {
+    buildIntegerMatcher,
+    buildStringMatcher,
+    getDefaultConfig,
+    overrideConfigWithEnv,
+    overrideWithEnv,
+} from '~/common/config/config'
+import { MISSING_DATABASE_URL_MESSAGE } from '~/common/config/database-url'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 
 describe('config', () => {
     test('overrideWithEnv 1', () => {
@@ -28,15 +42,134 @@ describe('config', () => {
         expect(config.TASK_TIMEOUT).toEqual(3008.12)
     })
 
+    function readExternalRequestTimeout(value: string): number {
+        const previous = process.env.EXTERNAL_REQUEST_TIMEOUT_MS
+        process.env.EXTERNAL_REQUEST_TIMEOUT_MS = value
+        try {
+            return getExternalRequestConfig().EXTERNAL_REQUEST_TIMEOUT_MS
+        } finally {
+            if (previous === undefined) {
+                delete process.env.EXTERNAL_REQUEST_TIMEOUT_MS
+            } else {
+                process.env.EXTERNAL_REQUEST_TIMEOUT_MS = previous
+            }
+        }
+    }
+
+    type Row = [value: string, expected: number | 'default']
+    const everyReader: Row[] = [
+        ['"3008"', 3008],
+        ["'3008'", 3008],
+        ['" 3008.12 "', 3008.12],
+        ['.5', 0.5],
+        ['"3008', 'default'],
+        ['abc', 'default'],
+    ]
+    const overrideRows: Row[] = [
+        ['Infinity', Infinity],
+        ['10ms', 10],
+        ['', 'default'],
+        [' ', 'default'],
+    ]
+
+    describe.each<[string, (value: string) => number, number, Row[]]>([
+        [
+            'overrideWithEnv',
+            (value) => overrideWithEnv(getDefaultConfig(), { TASK_TIMEOUT: value }).TASK_TIMEOUT,
+            30,
+            overrideRows,
+        ],
+        [
+            'overrideConfigWithEnv',
+            (value) => overrideConfigWithEnv({ TASK_TIMEOUT: 30 }, { TASK_TIMEOUT: value }).TASK_TIMEOUT,
+            30,
+            overrideRows,
+        ],
+        [
+            'getExternalRequestConfig',
+            readExternalRequestTimeout,
+            3000,
+            [
+                ['0x10', 16],
+                ['', 0],
+                ['""', 'default'],
+                ['3000ms', 'default'],
+                ['Infinity', 'default'],
+                ['"Infinity"', 'default'],
+            ],
+        ],
+    ])('%s', (_reader, read, defaultValue, ownRows) => {
+        test.each([...everyReader, ...ownRows])('reads the env value %p as %p', (value, expected) => {
+            expect(read(value)).toEqual(expected === 'default' ? defaultValue : expected)
+        })
+    })
+
+    test.each(['', '0x10', '""', '3000ms'])(
+        'overrideWithEnv reads the external request env value %p as the request config does',
+        (value) => {
+            const config = overrideWithEnv(getDefaultConfig(), { EXTERNAL_REQUEST_TIMEOUT_MS: value })
+
+            expect(config.EXTERNAL_REQUEST_TIMEOUT_MS).toEqual(readExternalRequestTimeout(value))
+        }
+    )
+
+    test('a service started with quoted and unparsable numbers reads the quoted one and logs the other', async () => {
+        const { stdout } = await promisify(execFile)(
+            join(__dirname, '../node_modules/.bin/tsx'),
+            [
+                '-e',
+                "import('~/common/config/config').then(({ defaultConfig: c }) => console.log(JSON.stringify({ CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: c.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS, TASK_TIMEOUT: c.TASK_TIMEOUT })))",
+            ],
+            {
+                cwd: join(__dirname, '..'),
+                env: {
+                    ...process.env,
+                    NODE_ENV: 'production',
+                    DEBUG: '',
+                    LOG_LEVEL: 'info',
+                    CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: '"1000"',
+                    TASK_TIMEOUT: 'abc',
+                },
+            }
+        )
+        const lines = stdout
+            .split('\n')
+            .filter((line) => line.startsWith('{'))
+            .map((line) => parseJSON(line))
+
+        expect(lines).toContainEqual({ CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 1000, TASK_TIMEOUT: 30 })
+        expect(lines).toContainEqual(
+            expect.objectContaining({
+                level: 'error',
+                msg: expect.stringContaining('TASK_TIMEOUT'),
+                value: 'abc',
+                default: 30,
+            })
+        )
+    }, 60_000)
+
+    test.each([
+        ['true', true],
+        ['1', false],
+        ['yes', false],
+        ['TRUE', false],
+        [undefined, false],
+    ])('turns sandbox email sending on only for exactly "true" (got %s)', (value, expected) => {
+        const config = overrideWithEnv(getDefaultConfig(), { WORKFLOWS_SANDBOX_SENDER_ENABLED: value })
+
+        expect(config.WORKFLOWS_SANDBOX_SENDER_ENABLED).toBe(expected)
+    })
+
     describe('DATABASE_URL', () => {
-        test('Error if DATABASE_URL is not set AND POSTHOG_DB_NAME is not set', () => {
+        test('Error only when Postgres is opened if DATABASE_URL is not set AND POSTHOG_DB_NAME is not set', () => {
             const env = {
                 DATABASE_URL: '',
                 POSTHOG_DB_NAME: '',
             }
-            expect(() => overrideWithEnv(getDefaultConfig(), env)).toThrow(
-                'You must specify either DATABASE_URL or the database options POSTHOG_DB_NAME, POSTHOG_DB_USER, POSTHOG_DB_PASSWORD, POSTHOG_POSTGRES_HOST, POSTHOG_POSTGRES_PORT!'
-            )
+            const config = overrideWithEnv(getDefaultConfig(), env)
+
+            expect(config.DATABASE_URL).toEqual('')
+            expect(() => new PostgresRouter(config)).toThrow(MISSING_DATABASE_URL_MESSAGE)
         })
 
         test('Set DATABASE_URL to a string composed of URL-encoded connection options if DATABASE_URL is not explictly set', () => {

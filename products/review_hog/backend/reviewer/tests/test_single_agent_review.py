@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
 from products.review_hog.backend.reviewer.constants import (
+    DEVEX_LENS,
     FLASH_LENSES,
     FLASH_MUST_FIX_CAP_MULTIPLIER,
     SINGLE_AGENT_SOURCE,
@@ -230,6 +231,36 @@ def test_a_delta_prompt_shows_only_the_changed_blocks_and_names_the_baseline(
     assert ("## Changes since the last review" in prompt) is expect_section
     assert (f"git diff {delta_since} HEAD" in prompt) is expect_section
     assert "$(" not in prompt
+
+
+@pytest.mark.parametrize(
+    "changed_code_only,discarded",
+    [
+        pytest.param(True, "discards a P2 or P3 finding", id="automatic_follow_up"),
+        pytest.param(False, "discards a P3 finding", id="requested_follow_up"),
+    ],
+)
+def test_a_whole_pr_follow_up_prompt_names_the_lines_changed_since_the_last_review(
+    pr_metadata: PRMetadata, changed_code_only: bool, discarded: str
+) -> None:
+    change = ChangedSinceReview(
+        lines={"a.py": {10, 11, 12, 41}, "b.py": set()},
+        files_without_patch={"data.json"},
+        changed_line_counts={"a.py": 4, "data.json": 3},
+    )
+    prompt = SingleAgentPrompt(
+        repository="o/r",
+        pr_metadata=pr_metadata,
+        pr_files=[_file("a.py", "x = 1"), _file("b.py", "y = 1")],
+        prior_findings=[],
+        guidelines="rubric",
+        changed_since_review=change,
+        changed_code_only=changed_code_only,
+    ).render()
+
+    assert "- `data.json`: the whole file\n- `a.py`: lines 10-12, 41\n" in prompt
+    assert "`b.py`:" not in prompt
+    assert discarded in prompt
 
 
 class TestComposeFlashFindings:
@@ -711,6 +742,9 @@ def test_turn_stats_count_every_candidate_once_per_session() -> None:
     assert stats.must_fix == {"main": 0, "performance_reliability": 0, "contracts_security": 1}
     assert (stats.after_dedup, stats.kept, stats.dropped) == (2, 1, {"dedup_anchor": 1, "cap": 1})
     assert sum(stats.candidates.values()) == stats.kept + sum(stats.dropped.values())
+    devex = _issue("2003-1-1", IssuePriority.CONSIDER, DEVEX_LENS.source)
+    assert flash_turn_stats([main], selection, reviewable_lines=120, devex_lens=True).candidates["devex"] == 0
+    assert flash_turn_stats([main, devex], selection, reviewable_lines=120, devex_lens=True).candidates["devex"] == 1
 
 
 def test_turn_stats_split_posted_must_fix_by_whether_the_push_changed_its_code() -> None:

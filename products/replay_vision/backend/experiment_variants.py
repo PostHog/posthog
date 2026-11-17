@@ -39,7 +39,7 @@ LATEST_OBSERVATIONS_PER_VARIANT = 2
 
 class _Median(Aggregate):
     function = "percentile_cont"
-    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)"
+    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)%(filter)s"
     output_field = FloatField()
 
 

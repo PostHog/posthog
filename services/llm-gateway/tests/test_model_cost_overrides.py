@@ -116,6 +116,9 @@ class TestOverrideSurfacesThroughRefresh:
         [
             ("claude-fable-5", "anthropic", 200_000),
             ("claude-fable-5-1", "anthropic", 200_000),
+            ("claude-fable-5-2", "anthropic", 1_000_000),
+            ("us.anthropic.claude-fable-5-2", "bedrock_converse", 1_000_000),
+            ("global.anthropic.claude-fable-5-2", "bedrock_converse", 1_000_000),
             ("claude-opus-5-5", "anthropic", 200_000),
             ("claude-sonnet-5-5", "anthropic", 1_000_000),
             ("gpt-6.1-sol", "openai", 1_050_000),
@@ -171,6 +174,7 @@ class TestOverrideSurfacesThroughRefresh:
         assert "claude-opus-4-8" in model_ids
         assert "claude-fable-5" in model_ids
         assert "claude-fable-5-1" in model_ids
+        assert "claude-fable-5-2" in model_ids
         assert "gpt-6.1-sol" in model_ids
 
     @pytest.mark.parametrize("product", ["posthog_code", "background_agents", "slack_app", "workflows"])
@@ -203,7 +207,13 @@ class TestOverrideSurfacesThroughRefresh:
         assert "claude-sonnet-5-5" in model_ids
 
 
-CLAUDE_BRIDGE_MODELS = ["claude-fable-5", "claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5"]
+CLAUDE_BRIDGE_MODELS = [
+    "claude-fable-5",
+    "claude-fable-5-1",
+    "claude-fable-5-2",
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+]
 
 
 @pytest.fixture

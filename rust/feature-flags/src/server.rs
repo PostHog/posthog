@@ -242,37 +242,35 @@ pub async fn serve_with_rate_limiter_clock<C>(
         Some(config.group_type_cache_ttl_seconds),
     ));
 
-    // Initialize the cohort membership provider for realtime/behavioral cohorts.
-    // Requires both the behavioral cohorts DB pool AND a non-empty team ID collection.
-    // When "none" (default), NoOp is used regardless of DB availability,
-    // so no realtime cohort queries hit the hot path.
+    // Initialize the cohort membership provider for realtime/behavioral cohorts whenever the
+    // behavioral cohorts DB pool exists: a team access row at `serving` routes a team's cohorts
+    // even when REALTIME_COHORT_EVALUATION_TEAM_IDS is "none". A team that routes no cohort
+    // never calls the provider, so no realtime cohort query reaches its hot path.
     let cohort_membership_provider: Arc<dyn CohortMembershipProvider> =
-        if config.realtime_cohort_evaluation_team_ids != TeamIdCollection::None {
-            if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
-                tracing::info!(
-                    cache_ttl_seconds = config.cohort_membership_cache_ttl_seconds,
-                    cache_max_entries = config.cohort_membership_cache_max_entries,
-                    lookup_timeout_ms = config.realtime_cohort_lookup_timeout_ms,
-                    "Realtime cohort evaluation enabled with behavioral cohorts DB"
-                );
-                let realtime = RealtimeCohortMembershipProvider::with_lookup_timeout(
-                    pool,
-                    Duration::from_millis(config.realtime_cohort_lookup_timeout_ms),
-                );
-                Arc::new(CachedCohortMembershipProvider::new(
-                    realtime,
-                    Some(config.cohort_membership_cache_ttl_seconds),
-                    Some(config.cohort_membership_cache_max_entries),
-                ))
-            } else {
+        if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
+            tracing::info!(
+                cache_ttl_seconds = config.cohort_membership_cache_ttl_seconds,
+                cache_max_entries = config.cohort_membership_cache_max_entries,
+                lookup_timeout_ms = config.realtime_cohort_lookup_timeout_ms,
+                "Realtime cohort evaluation enabled with behavioral cohorts DB"
+            );
+            let realtime = RealtimeCohortMembershipProvider::with_lookup_timeout(
+                pool,
+                Duration::from_millis(config.realtime_cohort_lookup_timeout_ms),
+            );
+            Arc::new(CachedCohortMembershipProvider::new(
+                realtime,
+                Some(config.cohort_membership_cache_ttl_seconds),
+                Some(config.cohort_membership_cache_max_entries),
+            ))
+        } else {
+            if config.realtime_cohort_evaluation_team_ids != TeamIdCollection::None {
                 tracing::warn!(
                     "REALTIME_COHORT_EVALUATION_TEAM_IDS is set but \
                      BEHAVIORAL_COHORTS_READ_DATABASE_URL is not configured; realtime \
                      cohort lookups will treat everyone as a non-member"
                 );
-                Arc::new(NoOpCohortMembershipProvider)
             }
-        } else {
             Arc::new(NoOpCohortMembershipProvider)
         };
 
@@ -329,12 +327,15 @@ pub async fn serve_with_rate_limiter_clock<C>(
         .clone()
         .unwrap_or_else(|| redis_client.clone());
 
+    let hypercache_s3_timeout = Duration::from_millis(config.hypercache_s3_timeout_ms);
+
     let mut flags_hypercache_config = HyperCacheConfig::new(
         "feature_flags".to_string(),
         "flags.json".to_string(),
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
+    flags_hypercache_config.s3_timeout = hypercache_s3_timeout;
     // Etag-paired on the Django writer side, which makes HyperCacheReader refuse read repair.
     flags_hypercache_config.enable_etag = true;
 
@@ -380,6 +381,7 @@ pub async fn serve_with_rate_limiter_clock<C>(
         config.object_storage_bucket.clone(),
     );
     team_hypercache_config.token_based = true;
+    team_hypercache_config.s3_timeout = hypercache_s3_timeout;
     // Left out of read repair: a hit here is trusted as proof of a valid token (see
     // get_team_from_cache_or_pg), with no Postgres re-check. Team deletion clears Redis
     // before S3, so a request landing in that gap reads the deleted team from S3; repairing
@@ -413,6 +415,7 @@ pub async fn serve_with_rate_limiter_clock<C>(
     );
     // Etag-paired, same as flags.json above.
     flags_with_cohorts_config.enable_etag = true;
+    flags_with_cohorts_config.s3_timeout = hypercache_s3_timeout;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -458,6 +461,7 @@ pub async fn serve_with_rate_limiter_clock<C>(
         config.object_storage_bucket.clone(),
     );
     config_hypercache_config.token_based = true;
+    config_hypercache_config.s3_timeout = hypercache_s3_timeout;
     config_hypercache_config.read_repair_ttl_seconds = read_repair_ttl_seconds;
 
     if !config.object_storage_endpoint.is_empty() {

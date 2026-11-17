@@ -5,6 +5,7 @@ import asyncio
 import datetime as dt
 import threading
 import contextlib
+from contextlib import ExitStack
 from typing import Any
 
 import pytest
@@ -39,7 +40,12 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
+from posthog.session_recordings.recordings.errors import RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
+    BumpStuckCounterInput,
+    bump_stuck_counter_activity,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import _ObservationState, stream_observation_progress
@@ -58,7 +64,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.quota import QuotaSnapshot
-from products.replay_vision.backend.temporal import ApplyScannerWorkflow
+from products.replay_vision.backend.temporal import ACTIVITIES, ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _extract_segments,
     _inject_known_freeform_tags,
@@ -68,7 +74,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     call_scanner_provider_activity,
 )
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_by_team_activity
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
@@ -91,6 +97,10 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_ineligible_activity,
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
+)
+from products.replay_vision.backend.temporal.activities.observation_steps import (
+    finalize_observation_activity,
+    prepare_observation_activity,
 )
 from products.replay_vision.backend.temporal.activities.resolve_experiment_variant import (
     resolve_experiment_variant_activity,
@@ -143,10 +153,13 @@ from products.replay_vision.backend.temporal.types import (
     EventTable,
     FetchSessionEventsInputs,
     FetchSessionNetworkInputs,
+    FinalizeObservationInputs,
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
+    PrepareObservationInputs,
+    PrepareObservationOutput,
     ResolveExperimentVariantOutput,
     ScannerCallOutput,
     ScannerLlmInputs,
@@ -234,9 +247,7 @@ class TestCountInFlightAppliesActivity:
         _make_observation(sibling, session_id="s4", status=ObservationStatus.PENDING)  # team only
         _make_observation(other_team_scanner, session_id="s5", status=ObservationStatus.PENDING)  # other team
 
-        result = count_in_flight_by_team_activity(
-            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-        )
+        result = count_in_flight_applies(CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         assert result == InFlightApplyCounts(scanner=2, team=3)
 
@@ -252,9 +263,7 @@ class TestCountInFlightAppliesActivity:
             scanner_in_flight_rows=1,
         )
 
-        result = count_in_flight_by_team_activity(
-            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-        )
+        result = count_in_flight_applies(CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
         assert result == InFlightApplyCounts(scanner=2, team=2)
 
@@ -1033,7 +1042,7 @@ class TestEgressConsentRecheck:
         team = await sync_to_async(self._team_without_consent)()
         # The activity derives the team from the asset row (no team_id in the payload), so it must exist.
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4")
-        with patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as mock_client:
+        with patch("products.replay_vision.backend.gemini_client.build_gemini_client") as mock_client:
             with pytest.raises(ConsentWithdrawnError) as exc_info:
                 await ActivityEnvironment().run(
                     upload_video_to_gemini_activity,
@@ -2621,6 +2630,19 @@ class TestFetchSessionNetworkActivity:
         assert len(mod._next_batch([block(mod._MAX_BATCH_COMPRESSED_BYTES * 4)], 0)) == 1
 
     @pytest.mark.asyncio
+    async def test_a_deleted_recording_reads_as_no_network_data(self) -> None:
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        with (
+            patch.object(mod, "list_blocks_async", AsyncMock(side_effect=RecordingDeletedError("deleted"))),
+            patch.object(mod, "_collect", AsyncMock()) as collect,
+        ):
+            payload = await mod._load_payload(team_id=1, session_id="sess-1")
+
+        assert collect.await_count == 0
+        assert payload == SessionNetworkPayload()
+
+    @pytest.mark.asyncio
     async def test_a_listing_over_the_size_ceiling_is_refused(self) -> None:
         from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
 
@@ -2719,7 +2741,7 @@ class TestCleanupGeminiFileActivity:
         await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-ok": 0.0})
         fake_client = MagicMock()
         with patch(
-            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.gemini_files_client",
             return_value=fake_client,
         ):
             await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-ok"))
@@ -2734,7 +2756,7 @@ class TestCleanupGeminiFileActivity:
         fake_client = MagicMock()
         fake_client.files.delete.side_effect = RuntimeError("gemini down")
         with patch(
-            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.gemini_files_client",
             return_value=fake_client,
         ):
             await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-transient"))
@@ -2751,12 +2773,28 @@ class TestCleanupGeminiFileActivity:
         fake_client = MagicMock()
         fake_client.files.delete.side_effect = APIError(code=code, response_json={})
         with patch(
-            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.gemini_files_client",
             return_value=fake_client,
         ):
             await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-gone"))
         assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone") == 0
         assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-gone") is None
+
+    @pytest.mark.parametrize("code", [403, 404])
+    @pytest.mark.asyncio
+    async def test_keeps_tracking_when_the_gateway_refuses_the_delete(self, gemini_redis, code: int) -> None:
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-refused", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-refused": 0.0})
+        fake_client = MagicMock()
+        fake_client.files.delete.side_effect = APIError(
+            code=code, response_json={"error": {"code": code, "details": [{"domain": "posthog.com"}]}}
+        )
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.gemini_files_client",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-refused"))
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-refused") == 1
 
 
 def _build_inputs(**overrides: Any) -> ApplyScannerInputs:
@@ -2787,7 +2825,11 @@ class _WorkflowMocks:
         self.activity_calls: list[tuple[Any, Any]] = []
         self.child_calls: list[tuple[tuple, dict]] = []
 
-    async def execute_activity(self, activity_fn: Any, activity_input: Any, **_: Any) -> Any:
+    async def execute_activity(self, activity_fn: Any, activity_input: Any, **kwargs: Any) -> Any:
+        # Without a task_queue the call lands on the Replay Vision queue, so its worker must register the activity.
+        # pytest.fail raises a BaseException, which the workflow's fail-soft `except Exception` blocks can't swallow.
+        if kwargs.get("task_queue") is None and activity_fn not in ACTIVITIES:
+            pytest.fail(f"{activity_fn.__name__} is not registered on the Replay Vision worker")
         self.activity_calls.append((activity_fn, activity_input))
         if activity_fn in self.activity_errors:
             raise self.activity_errors[activity_fn]
@@ -2804,6 +2846,7 @@ async def _run_workflow(
     inputs: ApplyScannerInputs,
     mocks: _WorkflowMocks,
     workflow_id: str = "wf-test",
+    folded: bool = False,
 ) -> None:
     workflow_info = MagicMock()
     workflow_info.workflow_id = workflow_id
@@ -2814,6 +2857,8 @@ async def _run_workflow(
         # `wf.logger` requires a real workflow event loop, which this direct-call harness skips.
         patch("temporalio.workflow.logger"),
         patch("temporalio.workflow.now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
+        # Histories from before the fold replay the per-step activities, so both paths stay covered.
+        patch("temporalio.workflow.patched", return_value=folded),
     ):
         await ApplyScannerWorkflow().run(inputs)
 
@@ -2864,6 +2909,175 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     assert cleanup_input.gemini_file_name == "files/x"
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("finalize_fails", [False, True])
+async def test_folded_apply_scanner_workflow_runs_two_activities_around_the_model_call(finalize_fails: bool) -> None:
+    new_observation_id = uuid.uuid4()
+    model_output = MonitorOutput(verdict="yes", reasoning="user exported", confidence=0.9)
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            prepare_observation_activity: PrepareObservationOutput(asset=EnsureSessionAssetOutput(asset_id=42)),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=model_output),
+        },
+        activity_errors={finalize_observation_activity: ApplicationError("db down")} if finalize_fails else {},
+    )
+
+    if finalize_fails:
+        with pytest.raises(ApplicationError, match="db down"):
+            await _run_workflow(_build_inputs(), mocks, folded=True)
+    else:
+        await _run_workflow(_build_inputs(), mocks, folded=True)
+
+    pipeline = [
+        create_observation_activity,
+        prepare_observation_activity,
+        upload_video_to_gemini_activity,
+        call_scanner_provider_activity,
+        finalize_observation_activity,
+    ]
+    # Finalize deletes the Gemini file itself once the result is saved. When finalize fails, the
+    # workflow still marks the row failed and deletes the file.
+    expected = (
+        [*pipeline, mark_observation_failed_activity, cleanup_gemini_file_activity] if finalize_fails else pipeline
+    )
+    assert [fn for fn, _ in mocks.activity_calls] == expected
+    finalize_input = next(arg for fn, arg in mocks.activity_calls if fn is finalize_observation_activity)
+    assert finalize_input.gemini_file_name == "files/x"
+    assert finalize_input.exported_asset_id == 42
+    assert finalize_input.call_output.model_output == model_output
+
+
+_APPLY_STEPS = "products.replay_vision.backend.temporal.activities.observation_steps"
+
+
+def _inline_sync_to_async(fn: Any, **_: Any) -> Any:
+    # Runs the sync step on the test's own thread, so these database-free tests never reach Django connections.
+    async def run(*args: Any, **kwargs: Any) -> Any:
+        return fn(*args, **kwargs)
+
+    return run
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failing_step, expect_error, stalled_step",
+    [
+        # The network capture is a side input, so the scan runs without it.
+        ("fetch_session_network", False, None),
+        ("fetch_session_events", True, None),
+        ("resolve_experiment_variant", True, None),
+        # An ineligible session must not wait out a stalled sibling, or the retries end it as failed.
+        ("fetch_session_events", True, "ensure_session_asset"),
+        # The network fetch is not watched for ineligibility, but must still stop when the activity ends.
+        ("fetch_session_events", True, "fetch_session_network"),
+    ],
+)
+async def test_prepare_observation_activity_only_absorbs_a_network_failure(
+    failing_step: str, expect_error: bool, stalled_step: str | None
+) -> None:
+    observation_id = uuid.uuid4()
+    async_steps = {
+        name: AsyncMock()
+        for name in (
+            "fetch_session_events",
+            "fetch_session_network",
+            "ensure_session_asset",
+            "resolve_experiment_variant",
+        )
+    }
+    async_steps["ensure_session_asset"].return_value = EnsureSessionAssetOutput(asset_id=42)
+    async_steps["resolve_experiment_variant"].return_value = ResolveExperimentVariantOutput(
+        applicable=True, experiment_variant="test"
+    )
+    async_steps[failing_step].side_effect = IneligibleSessionError("unexposed", kind=IneligibleSessionKind.NOT_EXPOSED)
+    stall_cancelled = asyncio.Event()
+    if stalled_step:
+
+        async def stall(_: object) -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                stall_cancelled.set()
+                raise
+
+        async_steps[stalled_step].side_effect = stall
+    mark_running = MagicMock()
+    with ExitStack() as stack:
+        stack.enter_context(patch(f"{_APPLY_STEPS}.mark_observation_running", mark_running))
+        stack.enter_context(patch(f"{_APPLY_STEPS}.database_sync_to_async", _inline_sync_to_async))
+        stack.enter_context(patch("products.replay_vision.backend.temporal.decorators.close_stale_db_connections"))
+        for name, mock in async_steps.items():
+            stack.enter_context(patch(f"{_APPLY_STEPS}.{name}", mock))
+        call = prepare_observation_activity(
+            PrepareObservationInputs(observation_id=observation_id, team_id=1, session_id="s", resolve_experiment=True)
+        )
+        if expect_error:
+            with pytest.raises(IneligibleSessionError):
+                await asyncio.wait_for(call, timeout=5)
+            assert stall_cancelled.is_set() == bool(stalled_step)
+            return
+        output = await call
+
+    mark_running.assert_called_once()
+    assert output.asset.asset_id == 42
+    assert output.experiment_resolution is not None
+    assert output.experiment_resolution.experiment_variant == "test"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail", ["mark_succeeded", "event"])
+async def test_finalize_observation_activity_only_raises_when_the_result_write_fails(fail: str) -> None:
+    calls: list[str] = []
+    mark_succeeded = MagicMock(side_effect=lambda _: calls.append("mark_succeeded"))
+    if fail == "mark_succeeded":
+        mark_succeeded.side_effect = RuntimeError("db down")
+
+    async def emit_event(_: object) -> None:
+        calls.append("event")
+        if fail == "event":
+            raise RuntimeError("capture down")
+
+    async def cleanup(_: object) -> None:
+        calls.append("cleanup")
+
+    inputs = FinalizeObservationInputs(
+        team_id=1,
+        session_id="s",
+        scanner_id=uuid.uuid4(),
+        observation_id=uuid.uuid4(),
+        scanner_type=ScannerType.MONITOR,
+        exported_asset_id=42,
+        call_output=ScannerCallOutput(model_output=MonitorOutput(verdict="yes", reasoning="r", confidence=0.9)),
+        gemini_file_name="files/x",
+    )
+    with (
+        patch(f"{_APPLY_STEPS}.mark_observation_succeeded", mark_succeeded),
+        patch(f"{_APPLY_STEPS}.emit_observation_event", emit_event),
+        patch(f"{_APPLY_STEPS}.embed_observation", AsyncMock()),
+        patch(f"{_APPLY_STEPS}.cleanup_gemini_file", cleanup),
+        patch(f"{_APPLY_STEPS}.database_sync_to_async", _inline_sync_to_async),
+        patch(f"{_APPLY_STEPS}.asyncio.sleep", AsyncMock()),
+        patch("products.replay_vision.backend.temporal.decorators.close_stale_db_connections"),
+    ):
+        if fail == "mark_succeeded":
+            with pytest.raises(RuntimeError, match="db down"):
+                await finalize_observation_activity(inputs)
+            # A retry of the activity must not repeat delivery, so nothing runs after a failed write.
+            assert calls == []
+            return
+        await finalize_observation_activity(inputs)
+
+    # The result is saved before any delivery step, and a failed delivery step neither raises nor skips the cleanup.
+    assert calls[0] == "mark_succeeded"
+    assert sorted(calls[1:]) == ["cleanup", "event", "event", "event"]
 
 
 @pytest.mark.asyncio
@@ -3007,6 +3221,28 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
     assert mocks.activity_calls[-1][1].error_reason.startswith(f"{expected_kind}:")
     # The video is never uploaded when the render fails, so there is nothing to bill or clean up.
     assert upload_video_to_gemini_activity not in called
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_bumps_the_stuck_counter_when_a_render_times_out() -> None:
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        child_error=_wrap_in_child_workflow_error(
+            TemporalTimeoutError("timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[])
+        ),
+    )
+
+    with pytest.raises(Exception):
+        await _run_workflow(_build_inputs(session_id="sess-raster"), mocks)
+
+    bumps = [arg for fn, arg in mocks.activity_calls if fn is bump_stuck_counter_activity]
+    assert bumps == [BumpStuckCounterInput(team_id=1, session_id="sess-raster")]
+    assert mocks.activity_calls[-1][1].error_reason.startswith("rasterization_failed:")
 
 
 @pytest.mark.asyncio
@@ -3718,10 +3954,7 @@ class TestUploadedFileNotActive:
             state=types.FileState.FAILED,
             error=types.FileStatus(code=code, message="the provider quoted 'wf-secret-name' back at us"),
         )
-        with (
-            patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as mock_client,
-            patch("products.replay_vision.backend.gemini_client.genai.AsyncClient"),
-        ):
+        with patch("products.replay_vision.backend.gemini_client.build_gemini_client") as mock_client:
             mock_client.return_value.files.upload.return_value = failed_file
             mock_client.return_value.aio.aclose = AsyncMock()
             with patch(
@@ -3748,7 +3981,7 @@ class TestUploadThroughTheGateway:
         return Team.objects.create(organization=org, name="gateway-upload-team")
 
     @pytest.mark.asyncio
-    async def test_the_upload_runs_on_the_teams_client_and_closes_it(self) -> None:
+    async def test_the_upload_runs_on_the_gateway_client_and_closes_it(self) -> None:
         team = await sync_to_async(self._team)()
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
         uri = "https://generativelanguage.googleapis.com/v1beta/files/abc"
@@ -3760,7 +3993,7 @@ class TestUploadThroughTheGateway:
         )
         module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
         with (
-            patch(f"{module}.replay_gemini_client", new=AsyncMock(return_value=gemini)) as factory,
+            patch(f"{module}.replay_gemini_client", return_value=gemini),
             patch(f"{module}.track_uploaded_file", AsyncMock()),
             patch(f"{module}.asyncio.sleep", AsyncMock()),
         ):
@@ -3768,42 +4001,12 @@ class TestUploadThroughTheGateway:
                 upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
             )
 
-        factory.assert_awaited_once_with(team.id)
         upload = gemini.raw.files.upload.call_args.kwargs
         assert "http_options" not in upload and upload["config"].http_options is None
         assert upload["config"].mime_type == "video/mp4"
         gemini.raw.files.get.assert_called_once_with(name="files/abc")
         assert (uploaded.file_uri, uploaded.gemini_file_name) == (uri, "files/abc")
         gemini.aclose.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_flag_off_uploads_direct_with_the_gateway_configured(self) -> None:
-        team = await sync_to_async(self._team)()
-        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
-        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
-        gateway_settings = {
-            "AI_GATEWAY_URL": "https://ai-gateway.example/v1",
-            "AI_GATEWAY_API_KEY": "phs_gateway",
-            "REPLAY_VISION_GEMINI_API_KEY": "replay-vision-google-key",
-        }
-        with (
-            override_settings(**gateway_settings),
-            patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=False),
-            patch("products.replay_vision.backend.gemini_client.build_gemini_client") as build,
-            patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as raw_client,
-            patch(f"{module}.track_uploaded_file", AsyncMock()),
-        ):
-            raw_client.return_value.aio.aclose = AsyncMock()
-            raw_client.return_value.files.upload.return_value = types.File(
-                name="files/abc", state=types.FileState.ACTIVE, uri="https://g/files/abc"
-            )
-            uploaded = await ActivityEnvironment().run(
-                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
-            )
-
-        raw_client.assert_called_once_with(api_key="replay-vision-google-key")
-        build.assert_not_called()
-        assert uploaded.gemini_file_name == "files/abc"
 
 
 class TestGeminiErrorRedaction:
@@ -4328,7 +4531,7 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
 
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 1
-    # The distinct problem types ride the row so the watch feed can name the kind of issue.
+    # The distinct problem types ride the row so the highlight feed can name the kind of issue.
     assert succeeded.scanner_result.signal_problem_types == ["bug"]
     # And the headline rides it too, so the card names the finding rather than counting it.
     assert [(s.problem_type, s.headline) for s in succeeded.scanner_result.signal_summaries] == [

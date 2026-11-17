@@ -33,12 +33,12 @@ from products.signals.backend.scout_harness.rubrics import (
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run, resolve_report_channel_variant
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY
+from products.signals.backend.task_profiles import SCOUT_SUGGESTIONS
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
 )
 from products.skills.backend.models.skills import LLMSkillFile
-from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, extract_json_from_text
 from products.tasks.backend.facade.contracts import SessionFile
 
@@ -423,7 +423,7 @@ async def run_rubric_generation(team_id: int, config_id: str, generation_id: str
             team, config, generation.reference_context, generation_context=generation.context
         )
         sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=True)(
-            team.id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
+            team.id, SIGNALS_REPORT_RESEARCH_ENV_NAME, SCOUT_SUGGESTIONS
         )
         runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=True)(
             team.id, STEP_SCOUT_RUBRICS
@@ -458,10 +458,8 @@ async def run_rubric_generation(team_id: int, config_id: str, generation_id: str
                 prompt=prompt,
                 context=context,
                 step_name="scout_rubrics",
-                # Reuse the suggestions origin's inference routing for this internal session.
-                origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-                internal=True,
-                mcp_builtin_agent_key="scout",
+                # Reuse the suggestions profile's inference routing for this internal session.
+                profile=SCOUT_SUGGESTIONS,
                 mcp_gateway_server_ids=[],
                 ai_stage="scout_suggestions",
                 on_task_run_created=link_task,

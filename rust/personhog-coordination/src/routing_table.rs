@@ -367,7 +367,7 @@ impl RoutingTable {
     ) -> Result<()> {
         const BACKOFF_CAP: Duration = Duration::from_secs(15);
 
-        let mut consecutive_failures: u32 = 0;
+        let mut consecutive_failures = util::RunFailures::default();
         // Set by the coordination loop whenever it does real work;
         // consumed by each failure note to decide crash-loop vs fresh
         // failure. Arc because the watch loop runs as a spawned task.
@@ -398,7 +398,9 @@ impl RoutingTable {
             let backoff = self
                 .config
                 .run_retry_backoff
-                .saturating_mul(2u32.saturating_pow(consecutive_failures.saturating_sub(1)))
+                .saturating_mul(
+                    2u32.saturating_pow(consecutive_failures.consecutive().saturating_sub(1)),
+                )
                 .min(BACKOFF_CAP);
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
@@ -557,6 +559,31 @@ impl RoutingTable {
                             }
                         }
                     }
+                }
+            });
+        }
+
+        // A deleted registration leaves this router out of every freeze
+        // quorum until it re-registers, which ending the run does.
+        {
+            let store = Arc::clone(&self.store);
+            let router_name = self.config.router_name.clone();
+            let retry_interval = self.config.heartbeat_interval;
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                let lost = util::await_held_key_lost(
+                    &store,
+                    util::HeldKey::Router(&router_name),
+                    lease_id,
+                    retry_interval,
+                    &token,
+                )
+                .await;
+                match lost {
+                    Some(how) => Err(Error::invalid_state(format!(
+                        "registration of router {router_name} {how}; re-registering"
+                    ))),
+                    None => Ok(()),
                 }
             });
         }

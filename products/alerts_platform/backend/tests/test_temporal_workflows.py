@@ -37,6 +37,7 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL
+from products.alerts_platform.backend.delivery.transport import DeliveryError, RefusedEverywhere
 from products.alerts_platform.backend.facade.contracts import (
     AlertBatchKey,
     AlertDeliveryRequest,
@@ -343,11 +344,15 @@ async def test_delivery_waits_out_a_held_thread_and_fails_when_it_never_frees(
         if frees_after is None or scheduled - attempts[0] < frees_after:
             raise ApplicationError("thread held", type=THREAD_BUSY, non_retryable=True)
 
+    @activity.defn(name="alerts_platform_deliver_routes_activity")
+    async def no_routes(request: AlertDeliveryRequest) -> None:
+        pass
+
     async with Worker(
         environment.client,
         task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
         workflows=DELIVERY_WORKFLOWS,
-        activities=[held_thread],
+        activities=[held_thread, no_routes],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         handle = await environment.client.start_workflow(
@@ -375,7 +380,7 @@ async def test_delivery_waits_out_a_held_thread_and_fails_when_it_never_frees(
 
 
 @pytest.mark.asyncio
-async def test_a_split_delivery_sends_every_part_in_turn_even_after_one_fails(
+async def test_a_split_delivery_sends_every_part_then_routes_each_even_after_one_fails(
     environment: WorkflowEnvironment,
 ) -> None:
     steps: list[str] = []
@@ -390,11 +395,15 @@ async def test_a_split_delivery_sends_every_part_in_turn_even_after_one_fails(
         if request.part == 0:
             raise ApplicationError("channel refused", non_retryable=True)
 
+    @activity.defn(name="alerts_platform_deliver_routes_activity")
+    async def route(request: AlertDeliveryRequest) -> None:
+        steps.append(f"route {request.part}")
+
     async with Worker(
         environment.client,
         task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
         workflows=DELIVERY_WORKFLOWS,
-        activities=[deliver, emit],
+        activities=[deliver, emit, route],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         handle = await environment.client.start_workflow(
@@ -416,7 +425,58 @@ async def test_a_split_delivery_sends_every_part_in_turn_even_after_one_fails(
             await handle.result()
 
     assert isinstance(failure.value.cause, ActivityError)
-    assert steps == ["send 0", "send 1", "send 2"]
+    assert steps == ["send 0", "send 1", "send 2", "route 0", "route 1", "route 2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "refusal, attempts",
+    [
+        (RefusedEverywhere("1 destination(s) failed: Slack refused the message: not_in_channel."), 1),
+        (DeliveryError("2 destination(s) failed: not_in_channel; ConnectTimeout"), 3),
+    ],
+)
+async def test_a_delivery_refused_everywhere_is_not_retried(
+    environment: WorkflowEnvironment, refusal: DeliveryError, attempts: int
+) -> None:
+    calls: list[str] = []
+
+    def refused(request: AlertDeliveryRequest) -> None:
+        calls.append(request.configuration_id)
+        raise refusal
+
+    with (
+        patch.object(alert_workflows, "deliver_evaluation", side_effect=refused),
+        patch.object(alert_workflows, "deliver_routes", return_value=0),
+    ):
+        async with Worker(
+            environment.client,
+            task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+            workflows=DELIVERY_WORKFLOWS,
+            activities=DELIVERY_ACTIVITIES,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await environment.client.start_workflow(
+                "alerts-platform-deliver-preview",
+                AlertDeliveryRequest(
+                    source=SourceKind.LOGS,
+                    team_id=1,
+                    configuration_id="cfg-1",
+                    evaluation_key="eval-1",
+                    destination_alert_id="legacy-1",
+                    event_ids_by_kind={},
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+                execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
+            )
+            with pytest.raises(WorkflowFailureError) as failure:
+                await handle.result()
+
+    assert isinstance(failure.value.cause, ActivityError)
+    assert isinstance(failure.value.cause.cause, ApplicationError)
+    assert "not_in_channel" in str(failure.value.cause.cause)
+    assert len(calls) == attempts
 
 
 @pytest.mark.asyncio
@@ -663,6 +723,7 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
     )
     info = MagicMock(
         workflow_start_time=actual_start,
+        start_time=actual_start,
         typed_search_attributes=attributes,
         workflow_id="tick",
         run_id="run",
@@ -675,6 +736,7 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
             workflow, "execute_activity", AsyncMock(return_value=AlertDemand(batch_keys_by_source={}))
         ) as discover,
         patch.object(workflow, "start_child_workflow", AsyncMock()) as dispatch,
+        patch.object(workflow, "logger"),
     ):
         result = await AlertsPlatformOrchestrateWorkflow().run(OrchestrateInputs())
     assert discover.await_args is not None

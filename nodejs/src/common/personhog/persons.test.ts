@@ -11,7 +11,14 @@ import type {
 import { parseJSON } from '~/common/utils/json-parse'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 
-import { PersonHogPersonOperations, PersonhogFencedError, PersonhogPropertiesSizeError } from './persons'
+import {
+    PersonHogPersonOperations,
+    PersonhogFencedError,
+    PersonhogPersonNotFoundError,
+    PersonhogPropertiesDepthError,
+    PersonhogPropertiesSizeError,
+    PersonhogUnprocessablePersonError,
+} from './persons'
 
 const textEncoder = new TextEncoder()
 
@@ -95,6 +102,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     releaseFence: () => ({}),
     releaseFences: () => ({}),
     foldPersonDocument: () => ({}),
+    raisePersonVersion: () => ({ raised: false }),
 }
 
 function createOperations(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): {
@@ -203,6 +211,22 @@ describe('PersonHogPersonOperations', () => {
         })
     })
 
+    describe('fetchPersonById', () => {
+        it('marks a person whose stored row the leader cannot parse as non-retriable', async () => {
+            const { ops } = createOperations({
+                getPerson: () => {
+                    throw new ConnectError('stored person properties cannot be parsed', Code.DataLoss)
+                },
+            })
+
+            const error = await ops.fetchPersonById(7, '42', undefined, { consistency: 'strong' }).catch((e) => e)
+
+            expect(error).toBeInstanceOf(PersonhogUnprocessablePersonError)
+            expect(error.isRetriable).toBe(false)
+            expect(error.handledVerdict).toBe('unprocessable_person')
+        })
+    })
+
     describe('updatePersonProperties', () => {
         it('maps each op onto its own proto field and decodes the response person', async () => {
             const handler = jest.fn()
@@ -278,7 +302,11 @@ describe('PersonHogPersonOperations', () => {
                     throw new ConnectError('person 42 not found', Code.NotFound)
                 },
             })
-            await expect(notFoundOps.updatePersonProperties(foldedUpdate)).rejects.toBeInstanceOf(NoRowsUpdatedError)
+            const notFoundError = await notFoundOps.updatePersonProperties(foldedUpdate).catch((e) => e)
+            expect(notFoundError).toBeInstanceOf(PersonhogPersonNotFoundError)
+            expect(notFoundError).toBeInstanceOf(NoRowsUpdatedError)
+            expect(notFoundError.handledVerdict).toBe('person_not_found')
+            expect(notFoundError.personId).toBe('42')
 
             const { ops: tooBigOps } = createOperations({
                 updatePersonProperties: () => {
@@ -292,6 +320,14 @@ describe('PersonHogPersonOperations', () => {
             expect(sizeError).toBeInstanceOf(PersonhogPropertiesSizeError)
             expect(sizeError.teamId).toBe(7)
             expect(sizeError.personId).toBe('42')
+
+            const { ops: tooDeepOps } = createOperations({
+                updatePersonProperties: () => {
+                    throw new ConnectError('set_properties exceeds the nesting limit', Code.InvalidArgument)
+                },
+            })
+            const depthError = await tooDeepOps.updatePersonProperties(foldedUpdate).catch((e) => e)
+            expect(depthError).toBeInstanceOf(PersonhogPropertiesDepthError)
 
             // Codes without a domain meaning pass through untouched for the
             // caller's generic retry handling.

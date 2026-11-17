@@ -6,6 +6,7 @@ from itertools import groupby
 from operator import itemgetter
 from urllib.parse import urlsplit
 
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.security.url_validation import (
     ResolvedIPs,
@@ -15,7 +16,7 @@ from posthog.security.url_validation import (
     validate_url_and_pin_ips,
 )
 
-from . import model
+from . import model, row_writes
 
 
 class AzureBlobIntegrationError(Exception):
@@ -33,12 +34,12 @@ class AzureBlobIntegration:
     integration: model.Integration
     connection_string: str
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != model.Integration.IntegrationKind.AZURE_BLOB.value:
             raise AzureBlobIntegrationError(
                 f"Integration provided is not an Azure Blob integration (got kind='{integration.kind}')"
             )
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
         try:
             self.connection_string = self.integration.sensitive_config["connection_string"]
@@ -51,7 +52,7 @@ class AzureBlobIntegration:
         team_id: int,
         connection_string: str,
         created_by: "User | None" = None,
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         account_name = cls._extract_account_name(connection_string)
         if not account_name:
             raise AzureBlobIntegrationError(
@@ -71,20 +72,13 @@ class AzureBlobIntegration:
             "connection_string": connection_string,
         }
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=model.Integration.IntegrationKind.AZURE_BLOB.value,
-            integration_id=account_name,
-            defaults={
-                "config": config,
-                "sensitive_config": sensitive_config,
-                "created_by": created_by,
-            },
+        integration, _ = row_writes.creator_accessor(model.Integration.IntegrationKind.AZURE_BLOB.value).upsert(
+            team_id,
+            account_name,
+            config=config,
+            sensitive_config=sensitive_config,
+            created_by_id=created_by.id if created_by else None,
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration
 

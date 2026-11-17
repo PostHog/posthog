@@ -339,6 +339,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'replay-vision-requests',
         filters: { source: 'internal-events', events: [{ id: '$replay_vision_request_completed', type: 'events' }] },
     },
+    'signals-report-ready': {
+        sub_template_id: 'signals-report-ready',
+        type: 'internal_destination',
+        context_id: 'signals-reports',
+        filters: { source: 'internal-events', events: [{ id: '$signals_report_ready', type: 'events' }] },
+    },
 }
 
 const FLAG_ACTOR_NAME = "{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}"
@@ -1431,90 +1437,137 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             name: 'Post to Slack on insight alert firing',
             description: 'Post to a Slack channel when this insight alert fires',
             inputs: {
-                blocks: {
+                blocks: { value: [] },
+                attachments: {
                     value: [
                         {
-                            type: 'header',
-                            text: {
-                                type: 'plain_text',
-                                text: "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
-                            },
-                        },
-                        {
-                            // plain_text (not mrkdwn) so user-controlled names in the breach text can't
-                            // inject Slack markup/links/mentions. Newlines still render as line breaks.
-                            type: 'section',
-                            text: {
-                                type: 'plain_text',
-                                text: '{event.properties.breaches}',
-                            },
-                        },
-                        {
-                            type: 'context',
-                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
-                        },
-                        // A hog template that is a single {…} expression resolves to the expression's raw
-                        // value, so this string becomes a whole block: a chart of the alerted insight when
-                        // one was rendered (`insight_chart_url`, set for any firing alert by
-                        // dispatch_alert_notification), otherwise the plain divider. Slack has no way to
-                        // omit a block conditionally, and an image block with an empty URL fails the send.
-                        "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
-                        {
-                            type: 'actions',
-                            // The alert id in the block_id is what lets the datetimepicker action identify
-                            // its alert — unlike select options, datetimepicker elements carry no value.
-                            block_id: 'insight_alert_snooze:{event.properties.alert_id}',
-                            elements: [
+                            color: '#D97706',
+                            fallback:
+                                "{concat(event.properties.slack_alert_type == 'Anomaly detected' ? 'Anomaly alert' : 'Insight alert', ' ‘', event.properties.alert_name, '’ triggered')}",
+                            blocks: [
                                 {
-                                    // Points to the anomaly investigation notebook when present, otherwise falls
-                                    // back to the alert page (Slack can't conditionally hide a button, so the
-                                    // one button does double duty).
-                                    url: "{event.properties.investigation_notebook_url ? event.properties.investigation_notebook_url : concat(project.url, '/insights/', event.properties.insight_id, '/alerts?alert_id=', event.properties.alert_id, '&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack')}",
-                                    text: {
-                                        text: "{event.properties.investigation_notebook_url ? 'View Investigation' : 'View Alert'}",
-                                        type: 'plain_text',
-                                    },
-                                    type: 'button',
-                                },
-                                {
-                                    url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
-                                    text: { text: 'View Insight', type: 'plain_text' },
-                                    type: 'button',
-                                },
-                                {
-                                    action_id: 'insight_alert_snooze',
-                                    placeholder: { text: 'Snooze…', type: 'plain_text' },
-                                    options: [
+                                    type: 'rich_text',
+                                    elements: [
                                         {
-                                            text: { text: 'For 1 hour', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|1h',
-                                        },
-                                        {
-                                            text: { text: 'For 6 hours', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|6h',
-                                        },
-                                        {
-                                            text: { text: 'For 1 day', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|1d',
-                                        },
-                                        {
-                                            text: { text: 'For 1 week', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|1w',
-                                        },
-                                        {
-                                            text: { text: 'Pick a date & time…', type: 'plain_text' },
-                                            value: '{event.properties.alert_id}|custom',
+                                            type: 'rich_text_section',
+                                            elements: [
+                                                {
+                                                    type: 'text',
+                                                    text: "{concat('⚠️ ', event.properties.slack_alert_type == 'Anomaly detected' ? 'Anomaly alert' : 'Insight alert', ' ‘')}",
+                                                    style: {
+                                                        bold: true,
+                                                    },
+                                                },
+                                                {
+                                                    type: 'link',
+                                                    url: '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}',
+                                                    text: '{event.properties.alert_name}',
+                                                    style: { bold: true },
+                                                },
+                                                { type: 'text', text: '’ triggered', style: { bold: true } },
+                                            ],
                                         },
                                     ],
-                                    type: 'static_select',
+                                },
+                                {
+                                    type: 'rich_text',
+                                    elements: [
+                                        {
+                                            type: 'rich_text_section',
+                                            elements: [
+                                                {
+                                                    type: 'text',
+                                                    text: '📁 Project: ',
+                                                },
+                                                {
+                                                    type: 'link',
+                                                    url: '{project.url}',
+                                                    text: '{project.name}',
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                "{event.properties.slack_alert_details ?? {'type': 'section', 'text': {'type': 'plain_text', 'text': substring(event.properties.breaches, 1, 3000)}}}",
+                                "{event.properties.slack_alert_timing ?? {'type': 'context', 'elements': [{'type': 'plain_text', 'text': event.timestamp}]}}",
+                                "{event.properties.slack_alert_tags ?? {'type': 'divider'}}",
+                            ],
+                        },
+                        {
+                            blocks: [
+                                "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
+                                {
+                                    type: 'actions',
+                                    block_id: 'insight_alert_snooze:{event.properties.alert_id}',
+                                    elements: [
+                                        {
+                                            url: "{event.properties.investigation_notebook_url ? event.properties.investigation_notebook_url : concat(project.url, '/insights/', event.properties.insight_id, '/alerts?alert_id=', event.properties.alert_id, '&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack')}",
+                                            text: {
+                                                text: "{event.properties.investigation_notebook_url ? '🔎 View investigation' : '🔎 View alert'}",
+                                                type: 'plain_text',
+                                            },
+                                            type: 'button',
+                                        },
+                                        {
+                                            url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
+                                            text: {
+                                                text: '📊 View insight',
+                                                type: 'plain_text',
+                                            },
+                                            type: 'button',
+                                        },
+                                        {
+                                            action_id: 'insight_alert_snooze',
+                                            placeholder: {
+                                                text: 'Snooze…',
+                                                type: 'plain_text',
+                                            },
+                                            options: [
+                                                {
+                                                    text: {
+                                                        text: 'For 1 hour',
+                                                        type: 'plain_text',
+                                                    },
+                                                    value: '{event.properties.alert_id}|1h',
+                                                },
+                                                {
+                                                    text: {
+                                                        text: 'For 6 hours',
+                                                        type: 'plain_text',
+                                                    },
+                                                    value: '{event.properties.alert_id}|6h',
+                                                },
+                                                {
+                                                    text: {
+                                                        text: 'For 1 day',
+                                                        type: 'plain_text',
+                                                    },
+                                                    value: '{event.properties.alert_id}|1d',
+                                                },
+                                                {
+                                                    text: {
+                                                        text: 'For 1 week',
+                                                        type: 'plain_text',
+                                                    },
+                                                    value: '{event.properties.alert_id}|1w',
+                                                },
+                                                {
+                                                    text: {
+                                                        text: 'Pick a date & time…',
+                                                        type: 'plain_text',
+                                                    },
+                                                    value: '{event.properties.alert_id}|custom',
+                                                },
+                                            ],
+                                            type: 'static_select',
+                                        },
+                                    ],
                                 },
                             ],
                         },
                     ],
                 },
-                text: {
-                    value: 'Alert triggered: {event.properties.insight_name}',
-                },
+                text: { value: '' },
             },
         },
         {
@@ -1855,6 +1908,14 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'signals-report-ready': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['signals-report-ready'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook when an Inbox report is ready',
+            description: 'Send a webhook when a self-driving Inbox report is ready',
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1864,50 +1925,54 @@ export const getSubTemplate = (
     return HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].find((x) => x.template_id === template.id) || null
 }
 
-export const eventToHogFunctionContextId = (event: string | undefined): HogFunctionConfigurationContextId => {
-    switch (event) {
-        case '$error_tracking_issue_created':
-        case '$error_tracking_issue_reopened':
-        case '$error_tracking_issue_spiking':
-        case '$error_tracking_issue_resolved':
-        case '$error_tracking_issue_suppressed':
-        case '$error_tracking_issue_assigned':
-        case '$error_tracking_issue_unassigned':
-        case '$error_tracking_issue_merged':
-        case '$error_tracking_issue_split':
-            return 'error-tracking'
-        case '$insight_alert_firing':
-            return 'insight-alerts'
-        case '$experiment_metric_significant':
-            return 'experiment-alerts'
-        case '$activity_log_entry_created':
-            return 'activity-log'
-        case '$discussion_mention_created':
-            return 'discussion-mention'
-        case '$logs_alert_firing':
-        case '$logs_alert_resolved':
-        case '$logs_alert_auto_disabled':
-        case '$logs_alert_errored':
-            return 'logs-alerting'
-        case '$health_check_issue_firing':
-        case '$health_check_issue_resolved':
-            return 'health-alerts'
-        case '$batch_export_run_failed':
-            return 'batch-export-alerts'
-        case '$billing_alert_firing':
-        case '$billing_alert_resolved':
-        case '$billing_alert_errored':
-        case '$billing_alert_auto_disabled':
-            return 'billing-alerts'
-        case '$replay_vision_alert_firing':
-        case '$replay_vision_alert_resolved':
-        case '$replay_vision_alert_errored':
-        case '$replay_vision_alert_auto_disabled':
-        case '$replay_vision_alert_match':
-            return 'replay-vision-alerts'
-        case '$replay_vision_request_completed':
-            return 'replay-vision-requests'
-        default:
-            return 'standard'
-    }
-}
+const CONTEXT_EVENTS: [HogFunctionConfigurationContextId, string[]][] = [
+    [
+        'error-tracking',
+        [
+            '$error_tracking_issue_created',
+            '$error_tracking_issue_reopened',
+            '$error_tracking_issue_spiking',
+            '$error_tracking_issue_resolved',
+            '$error_tracking_issue_suppressed',
+            '$error_tracking_issue_assigned',
+            '$error_tracking_issue_unassigned',
+            '$error_tracking_issue_merged',
+            '$error_tracking_issue_split',
+        ],
+    ],
+    ['insight-alerts', ['$insight_alert_firing']],
+    ['experiment-alerts', ['$experiment_metric_significant']],
+    ['activity-log', ['$activity_log_entry_created']],
+    ['discussion-mention', ['$discussion_mention_created']],
+    [
+        'logs-alerting',
+        ['$logs_alert_firing', '$logs_alert_resolved', '$logs_alert_auto_disabled', '$logs_alert_errored'],
+    ],
+    ['health-alerts', ['$health_check_issue_firing', '$health_check_issue_resolved']],
+    ['batch-export-alerts', ['$batch_export_run_failed']],
+    [
+        'billing-alerts',
+        ['$billing_alert_firing', '$billing_alert_resolved', '$billing_alert_errored', '$billing_alert_auto_disabled'],
+    ],
+    [
+        'replay-vision-alerts',
+        [
+            '$replay_vision_alert_firing',
+            '$replay_vision_alert_resolved',
+            '$replay_vision_alert_errored',
+            '$replay_vision_alert_auto_disabled',
+            '$replay_vision_alert_match',
+        ],
+    ],
+    ['replay-vision-requests', ['$replay_vision_request_completed']],
+    ['signals-reports', ['$signals_report_ready']],
+]
+
+const EVENT_CONTEXT_IDS = new Map<string, HogFunctionConfigurationContextId>(
+    CONTEXT_EVENTS.flatMap(([contextId, events]) =>
+        events.map((event): [string, HogFunctionConfigurationContextId] => [event, contextId])
+    )
+)
+
+export const eventToHogFunctionContextId = (event: string | undefined): HogFunctionConfigurationContextId =>
+    (event ? EVENT_CONTEXT_IDS.get(event) : undefined) ?? 'standard'

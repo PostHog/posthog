@@ -162,15 +162,12 @@ export function RetentionBarChart({
                 isPercentage,
                 goalLines,
                 series,
-                tooltip: {
-                    ...INSIGHT_TOOLTIP_CONFIG,
-                    resolveClickToNearestSeries: resultMenuEnabled && !inSharedMode,
-                },
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
                 isIntervalView,
                 period,
                 timezone,
             }),
-        [resultMenuEnabled, inSharedMode, isPercentage, goalLines, series, isIntervalView, period, timezone]
+        [isPercentage, goalLines, series, isIntervalView, period, timezone]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
@@ -189,6 +186,7 @@ export function RetentionBarChart({
             config={barConfig}
             tooltip={renderTooltip}
             onPointClick={canClick ? onPointClick : undefined}
+            onPointContextMenu={resultMenuEnabled && !inSharedMode && canClick ? onPointClick : undefined}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

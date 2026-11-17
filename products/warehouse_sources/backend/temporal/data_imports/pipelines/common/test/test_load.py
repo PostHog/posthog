@@ -1,6 +1,7 @@
 import uuid
+import decimal
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,19 +9,28 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.db import OperationalError
 
 import pyarrow as pa
+import deltalake
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    HISTORY_NAMING,
+    HISTORY_PARTITION_COLUMN,
+)
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     IncrementalFieldMissingFromDataError,
     PostLoadResult,
+    _seed_cdc_companion_from_snapshot,
     get_incremental_field_value,
     notify_revenue_analytics_that_sync_has_completed,
     run_post_load_operations,
     update_job_row_count,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
+    make_local_table_ref,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
     SUMMARY_EVENT,
     record_post_load_phases,
@@ -35,6 +45,8 @@ _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelin
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
+_HISTORY_TABLE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table"
+_DELTA_TABLE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
 
 
 def _make_schema(
@@ -449,6 +461,75 @@ class TestGetIncrementalFieldValue:
         table = pa.table({"id": ["a", "b"], "created": [10, 20]})
         assert get_incremental_field_value(self._schema("created"), table) == 20
 
+    @parameterized.expand(
+        [
+            ("max_string", pa.string(), "integer", "max", ["9.5", "100", None, "76"], decimal.Decimal("100")),
+            ("min_string", pa.string(), "integer", "min", ["9.5", "100", None, "76"], decimal.Decimal("9.5")),
+            ("max_large_string", pa.large_string(), "numeric", "max", ["9.5", "100", None], decimal.Decimal("100")),
+            ("min_large_string", pa.large_string(), "numeric", "min", ["9.5", "100", None], decimal.Decimal("9.5")),
+            (
+                "max_oversized",
+                pa.string(),
+                "integer",
+                "max",
+                ["9" * 77, "1" + "0" * 77],
+                decimal.Decimal("1" + "0" * 77),
+            ),
+            (
+                "min_oversized",
+                pa.large_string(),
+                "numeric",
+                "min",
+                ["9" * 77, "1" + "0" * 77],
+                decimal.Decimal("9" * 77),
+            ),
+            ("max_placeholder", pa.string(), "integer", "max", ["None", "100", None], decimal.Decimal("100")),
+            ("min_placeholder", pa.large_string(), "numeric", "min", ["None", "100", None], decimal.Decimal("100")),
+            ("all_null", pa.string(), "integer", "max", [None, "None"], None),
+            ("empty", pa.large_string(), "numeric", "min", [], None),
+        ]
+    )
+    def test_numeric_cursor_stored_as_text_aggregates_numerically(
+        self,
+        _name: str,
+        column_type: pa.DataType,
+        field_type: str,
+        aggregate: Literal["max", "min"],
+        values: list[Optional[str]],
+        expected: Optional[decimal.Decimal],
+    ):
+        values = [val + "0" * 38 if val is not None and "." in val else val for val in values]
+        table = pa.table({"created": pa.array(values, type=column_type)})
+        schema = self._schema("created")
+        schema.incremental_field_type = field_type
+
+        value = get_incremental_field_value(schema, table, aggregate=aggregate)
+
+        assert value == expected
+        cursor_schema = ExternalDataSchema(sync_type_config={"incremental_field_type": field_type})
+        if expected is None or expected == expected.to_integral_value():
+            assert cursor_schema.serialize_incremental_value(value) == (int(expected) if expected is not None else None)
+
+    @parameterized.expand(
+        [
+            ("integer", "max", "1e640", 640),
+            ("numeric", "min", "-1e640", 640),
+            ("numeric", "max", "1e10000", 0),
+        ]
+    )
+    def test_numeric_text_cursor_rejects_values_beyond_integer_text_limit(
+        self, field_type: str, aggregate: Literal["max", "min"], value: str, digit_limit: int
+    ):
+        schema = self._schema("created")
+        schema.incremental_field_type = field_type
+        table = pa.table({"created": [value]})
+
+        with (
+            patch("sys.get_int_max_str_digits", return_value=digit_limit),
+            pytest.raises(ValueError, match="supported integer digit limit"),
+        ):
+            get_incremental_field_value(schema, table, aggregate=aggregate)
+
     def test_missing_column_raises_actionable_error_matched_by_non_retryable_map(self):
         # A label like "created_at" persisted instead of the real field must fail with guidance
         # (not a raw pyarrow KeyError), and the message must keep matching the Any_Source_Errors
@@ -537,3 +618,33 @@ class TestNotifyRevenueAnalyticsThatSyncHasCompleted:
         assert schema.team.revenue_analytics_config.notified_first_sync is True
         schema.team.revenue_analytics_config.save.assert_called_once()
         logger.aexception.assert_not_called()
+
+
+class TestSeedHistoryTableFromSnapshot:
+    @pytest.mark.asyncio
+    async def test_a_new_history_table_is_seeded_partitioned_with_every_row_current(self, tmp_path):
+        # Seeded through the plain writer instead, every new history table would start unpartitioned.
+        snapshot_path = str(tmp_path / "snapshot")
+        deltalake.write_deltalake(snapshot_path, pa.table({"id": [1, 2], "name": ["a", "b"]}))
+        history_path = str(tmp_path / "history")
+        history_ref = make_local_table_ref(history_path)
+        history_ref.reset_table = AsyncMock()  # type: ignore[method-assign]
+        schema = MagicMock()
+        schema.name = "orders"
+
+        with (
+            patch(f"{_HISTORY_TABLE_MODULE}.history_naming", return_value=HISTORY_NAMING),
+            patch(f"{_DELTA_TABLE_MODULE}.DeltaTableRef", return_value=history_ref),
+            patch(f"{_LOAD_MODULE}.run_post_load_operations", AsyncMock()),
+        ):
+            await _seed_cdc_companion_from_snapshot(
+                schema=schema,
+                job=MagicMock(),
+                source=MagicMock(),
+                snapshot_delta_table_ref=make_local_table_ref(snapshot_path),
+                logger=MagicMock(),
+            )
+
+        table = deltalake.DeltaTable(history_path)
+        assert table.metadata().partition_columns == [HISTORY_PARTITION_COLUMN]
+        assert table.to_pyarrow_table().column(HISTORY_PARTITION_COLUMN).to_pylist() == ["current", "current"]

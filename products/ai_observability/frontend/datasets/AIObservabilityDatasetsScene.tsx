@@ -23,6 +23,7 @@ import { ResourceTags } from '../components/ResourceTags'
 import { datasetsEmptyState } from '../emptyState/datasetsEmptyState'
 import type { DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic, getDatasetDetailUrl } from './aiObservabilityDatasetsLogic'
+import { DatasetRetentionNotice } from './DatasetRetentionNotice'
 
 export const scene: SceneExport = {
     component: AIObservabilityDatasetsScene,
@@ -48,6 +49,7 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
                 return (
                     <Link
                         to={datasetUrl(dataset.id)}
+                        data-attr="dataset-open"
                         data-testid="dataset-link"
                         className="block max-w-full @max-[50rem]/datasets:max-w-48 truncate font-semibold"
                     >
@@ -87,10 +89,11 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
         {
             title: 'Status',
             key: 'status',
+            width: 112,
             render: function renderStatus(_, dataset) {
                 return (
-                    <LemonTag type={dataset.archived ? 'muted' : 'success'}>
-                        {dataset.archived ? 'Archived' : 'Active'}
+                    <LemonTag type={dataset.expiring_soon ? 'warning' : dataset.archived ? 'muted' : 'success'}>
+                        {dataset.expiring_soon ? 'Expiring soon' : dataset.archived ? 'Archived' : 'Active'}
                     </LemonTag>
                 )
             },
@@ -129,38 +132,44 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    to={datasetUrl(dataset.id)}
-                                    data-attr={`dataset-item-${dataset.id}-dropdown-view`}
-                                    fullWidth
-                                >
-                                    View
-                                </LemonButton>
-
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={toAccessControlLevel(dataset.user_access_level)}
-                                >
+                                <div data-attr="dataset-dropdown-view">
                                     <LemonButton
-                                        status={dataset.archived ? undefined : 'danger'}
-                                        onClick={() =>
-                                            dataset.archived ? restoreDataset(dataset.id) : archiveDataset(dataset.id)
-                                        }
-                                        loading={archivingDatasetId === dataset.id}
-                                        disabledReason={
-                                            archivingDatasetId && archivingDatasetId !== dataset.id
-                                                ? 'Another dataset is being archived'
-                                                : undefined
-                                        }
-                                        data-attr={`dataset-${dataset.id}-dropdown-${
-                                            dataset.archived ? 'unarchive' : 'archive'
-                                        }`}
+                                        to={datasetUrl(dataset.id)}
+                                        data-attr={`dataset-item-${dataset.id}-dropdown-view`}
                                         fullWidth
                                     >
-                                        {dataset.archived ? 'Unarchive' : 'Archive'}
+                                        View
                                     </LemonButton>
-                                </AccessControlAction>
+                                </div>
+
+                                <div data-attr={`dataset-dropdown-${dataset.archived ? 'unarchive' : 'archive'}`}>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.LlmAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={toAccessControlLevel(dataset.user_access_level)}
+                                    >
+                                        <LemonButton
+                                            status={dataset.archived ? undefined : 'danger'}
+                                            onClick={() =>
+                                                dataset.archived
+                                                    ? restoreDataset(dataset.id)
+                                                    : archiveDataset(dataset.id)
+                                            }
+                                            loading={archivingDatasetId === dataset.id}
+                                            disabledReason={
+                                                archivingDatasetId && archivingDatasetId !== dataset.id
+                                                    ? 'Another dataset is being archived'
+                                                    : undefined
+                                            }
+                                            data-attr={`dataset-${dataset.id}-dropdown-${
+                                                dataset.archived ? 'unarchive' : 'archive'
+                                            }`}
+                                            fullWidth
+                                        >
+                                            {dataset.archived ? 'Unarchive' : 'Archive'}
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                </div>
                             </>
                         }
                     />
@@ -171,6 +180,7 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
 
     return (
         <div className="@container/datasets space-y-4">
+            <DatasetRetentionNotice />
             <div className="flex gap-2 items-center flex-wrap" aria-label="Dataset filters">
                 {navigation}
                 <LemonSegmentedButton

@@ -1,5 +1,6 @@
 from django.db import models
 
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 
 
@@ -18,6 +19,5 @@ class DashboardVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from products.dashboards.backend.models.dashboard import Dashboard
-
-        return Dashboard
+        # The dashboards product registers its model from its AppConfig.ready().
+        return registered_model("Dashboard")

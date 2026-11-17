@@ -72,9 +72,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             )
 
         try:
-            task = Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
-                id=ctx.task_id
-            )
+            task = Task.objects.select_related("created_by", "github_user_integration").get(id=ctx.task_id)
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 

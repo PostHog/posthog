@@ -56,12 +56,13 @@ from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredential
 from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
 from posthog.auth import ACCOUNT_BLOCKED_DETAIL
 from posthog.caching.login_device_cache import check_and_cache_login_device
-from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
-from posthog.email import is_email_available
+from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, POSTHOG_INTERNAL_EMAIL_SUFFIX
+from posthog.email import EmailRecipientUndeliverableError, is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
+from posthog.helpers.dev_oauth_connectors import seeded_dev_oauth_connector_links
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.sso import (
     GITHUB_EMAIL_LOOKUP_ERROR,
@@ -81,6 +82,7 @@ from posthog.helpers.two_factor_session import (
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import IdentityProviderConfig, OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # imported for its signal receivers too
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -258,9 +260,23 @@ class CodeBasedVerificationRequired(APIException):
     default_detail = "Code-based verification is required."
     default_code = "code_based_verification_required"
 
-    def __init__(self, email: str | None = None):
+    def __init__(self, email: str | None = None, inbox_provider: InboxProvider | None = None):
         detail = email if email else self.default_detail
         super().__init__(detail=detail, code=self.default_code)
+        self.extra = {"inbox_provider": inbox_provider}
+
+
+class LoginCodeEmailUndeliverable(APIException):
+    status_code = 400
+    default_detail = "We can't send email to this address, so we can't send you a login code."
+    default_code = "login_code_email_undeliverable"
+
+
+def _send_login_code(request: HttpRequest, user: User, *, is_resend: bool = False) -> bool:
+    try:
+        return code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=is_resend)
+    except EmailRecipientUndeliverableError:
+        raise LoginCodeEmailUndeliverable()
 
 
 class EmailVerificationPending(APIException):
@@ -272,32 +288,35 @@ class EmailVerificationPending(APIException):
     default_detail = "Email verification is required."
     default_code = "verify_email_pending"
 
-    def __init__(self, user_uuid: str):
+    def __init__(self, user_uuid: str, inbox_provider: InboxProvider | None = None):
         super().__init__(detail=user_uuid, code=self.default_code)
+        self.extra = {"inbox_provider": inbox_provider}
 
 
-def is_email_verified_for_login(user: User) -> bool:
+def require_verified_email_for_login(user: User) -> None:
     """
     Send a verification code when the login policy requires it.
 
-    Returns whether login may continue for this user. Legacy users with a null
-    verification state are still allowed to sign in.
+    Raises EmailVerificationPending when login may not continue for this user. Legacy users with
+    a null verification state get a code but are still allowed to sign in. The error carries the
+    user uuid, so call this only after the caller checked a credential.
     """
     if not is_email_available():
-        return True
+        return
 
     if user.is_email_verified is True:
-        return True
+        return
 
     if is_email_verification_disabled(user):
-        return True
+        return
 
+    if user.is_email_verified is None:
+        email_verification_code_verifier.send_code(user)
+        return
+
+    inbox_lookup = InboxProviderLookup.start(user.email)
     email_verification_code_verifier.send_code(user)
-    if user.is_email_verified is False:
-        return False
-
-    # legacy None users are still allowed to log in
-    return True
+    raise EmailVerificationPending(str(user.uuid), inbox_provider=inbox_lookup.result())
 
 
 class LoginSerializer(serializers.Serializer):
@@ -416,10 +435,7 @@ class LoginSerializer(serializers.Serializer):
         if refused:
             raise exceptions.PermissionDenied(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
-        if not is_email_verified_for_login(user):
-            # A fresh code was just emailed; hand the frontend the uuid so it can route to
-            # the code entry page.
-            raise EmailVerificationPending(str(user.uuid))
+        require_verified_email_for_login(user)
 
         # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
         if not resolve_login_organization(user):
@@ -428,7 +444,10 @@ class LoginSerializer(serializers.Serializer):
                 code="verified_domain_required",
             )
 
-        clear_two_factor_session_flags(request)
+        # A re-auth keeps the 2FA flag so that the signed-in session works while the user enters
+        # the second factor. Without the flag, enforced 2FA refuses every other request until logout.
+        if not was_authenticated_before_login_attempt:
+            clear_two_factor_session_flags(request)
 
         if self._check_if_2fa_required(user):
             request.session["user_authenticated_but_no_2fa"] = user.pk
@@ -447,14 +466,13 @@ class LoginSerializer(serializers.Serializer):
             else:
                 # Code-based verification - skip if this is a reauth (user already authenticated)
                 if not was_authenticated_before_login_attempt:
-                    code_based_verification_sent = code_based_verifier.create_and_send_code_based_verification(
-                        request, user
-                    )
+                    inbox_lookup = InboxProviderLookup.start(user.email)
+                    code_based_verification_sent = _send_login_code(request, user)
                     if code_based_verification_sent:
                         # Increment the resend throttle counter so the initial send counts towards the limit
                         resend_throttle = CodeBasedVerificationResendThrottle()
                         resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
-                        raise CodeBasedVerificationRequired(user.email)
+                        raise CodeBasedVerificationRequired(user.email, inbox_provider=inbox_lookup.result())
                     else:
                         # if we failed to send the email, we should fall through to allow login without code-based verification
                         pass
@@ -525,20 +543,20 @@ class LoginPrecheckSerializer(serializers.Serializer):
     @staticmethod
     def _available_local_methods(email: str, *, saml_available: bool, oidc_available: bool = False) -> dict[str, Any]:
         """
-        Report whether this account can log in with a password, and which of its linked social
-        identities are actually usable on this instance, so the login form can stop offering a
-        password box (or a dead SSO button) to an account that cannot use it.
+        Report whether an account exists for this email, whether it can log in with a password,
+        and which of its linked social identities are actually usable on this instance.
 
-        An email with no active user looks identical to a user who does have a password — a typo
-        must never be a dead end, and it keeps the account-existence signal limited to accounts
-        that are genuinely passwordless.
+        The auth page asks for the email first and uses `account_exists` to choose between the
+        login step and the signup step. Signup already refuses an email that has an account, so
+        this tells a caller nothing the signup precheck does not.
         """
         # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
         # describe a different account than the one a password would authenticate: case-insensitive,
-        # and deterministic (active first, then last logged in) if case variations coexist.
-        user = EmailLookupHandler.get_user_by_email(email)
+        # and deterministic (active first, then last logged in) if case variations coexist. A
+        # deactivated account counts as existing, because signup cannot reuse its email either.
+        user = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if user is None:
-            return {"password_login_available": True, "social_providers": []}
+            return {"account_exists": False, "password_login_available": True, "social_providers": []}
 
         # Mirrors `UserSerializer.get_has_password`: `has_usable_password()` is True for an empty
         # password, so the `bool(...)` half of the check is load-bearing.
@@ -555,6 +573,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
             usable_providers.add("oidc")
 
         return {
+            "account_exists": True,
             "password_login_available": password_login_available,
             "social_providers": sorted(linked_providers & usable_providers),
         }
@@ -728,9 +747,31 @@ class DevLoginUserSerializer(serializers.Serializer):
     )
 
 
+class DevOAuthConnectorSerializer(serializers.Serializer):
+    client_id = serializers.CharField(
+        read_only=True, help_text="Client ID of the connector application, which is its CIMD document URL."
+    )
+    client_name = serializers.CharField(read_only=True, help_text="Application name, shown on the auth screens.")
+    logo_uri = serializers.CharField(
+        read_only=True, allow_null=True, help_text="HTTPS logo from the connector's CIMD document, or null."
+    )
+    redirect_host = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Host of the application's redirect URI."
+    )
+    authorize_path = serializers.CharField(
+        read_only=True,
+        help_text="The /oauth/authorize path the connector sends people to, for the login page's next parameter.",
+    )
+
+
 class DevLoginUserListSerializer(serializers.Serializer):
     users = DevLoginUserSerializer(
         many=True, read_only=True, help_text="Every active user, seeded accounts first, then most recently used."
+    )
+    oauth_connectors = DevOAuthConnectorSerializer(
+        many=True,
+        read_only=True,
+        help_text="Connector applications registered by generate_demo_data, to start a pending OAuth connection.",
     )
 
 
@@ -762,7 +803,9 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         for entry in users:
             entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
 
-        return Response({"users": users})
+        return Response(
+            DevLoginUserListSerializer({"users": users, "oauth_connectors": seeded_dev_oauth_connector_links()}).data
+        )
 
 
 class TwoFactorSerializer(serializers.Serializer):
@@ -1211,7 +1254,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
-        if not code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=True):
+        if not _send_login_code(request, user, is_resend=True):
             raise serializers.ValidationError(
                 {"detail": "Could not send verification code."},
                 code="code_based_verification_email_failed",
@@ -1566,6 +1609,25 @@ def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None 
         # Matching `log_user_login_activity`: a failed audit write must not fail the re-auth itself
         logger.exception("Failed to log SSO re-authentication activity", user_id=user.id, error=e)
         capture_exception(e)
+
+
+def social_grant_staff_to_google_workspace_members(
+    backend: BaseAuth, response: dict[str, Any], user: User | None = None, **kwargs: Any
+) -> None:
+    """
+    Employees on dev ask for Django staff. This step grants it when they log in to dev with Google,
+    so they do not have to ask. The `hd` claim confirms that our Google Workspace manages the account.
+    """
+    if (
+        settings.CLOUD_DEPLOYMENT == "DEV"
+        and backend.name == "google-oauth2"
+        and user is not None
+        and not user.is_staff
+        and user.email.endswith(POSTHOG_INTERNAL_EMAIL_SUFFIX)
+        and response.get("hd") in settings.ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS
+    ):
+        user.is_staff = True
+        user.save(update_fields=["is_staff"])
 
 
 def social_login_notification(

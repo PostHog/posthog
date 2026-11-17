@@ -333,6 +333,36 @@ class TestCompactIfFragmented:
             assert table.version() - version_before == expected_commits
             assert table.to_pyarrow_table().num_rows == rows_before
 
+    @parameterized.expand(
+        [
+            # Nine tiny files in each of four partitions. A capped pass compacts the two it may take.
+            ("capped_delta_rs", False, 2, 2 + 2 * 9),
+            ("capped_deltalite", True, 2, 2 + 2 * 9),
+            ("under_the_cap_delta_rs", False, 4, 4),
+            ("under_the_cap_deltalite", True, 4, 4),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_one_pass_compacts_at_most_the_partition_cap(
+        self, _name: str, deltalite_engine: bool, max_partitions: int, files_after: int
+    ):
+        with (
+            tempfile.TemporaryDirectory() as path,
+            override_settings(
+                DATA_WAREHOUSE_DELTALITE_COMPACTION=deltalite_engine,
+                DATA_WAREHOUSE_COMPACT_MAX_PARTITIONS_PER_PASS=max_partitions,
+            ),
+        ):
+            TestCompactDuringRebuild._fill(path, partitions=4, files_per_partition=9)
+            rows_before = deltalake.DeltaTable(path).to_pyarrow_table().sort_by("id").to_pydict()
+
+            ran = await DeltaMaintenance(make_local_table_ref(path)).compact_if_fragmented(threshold=1)
+
+            table = deltalake.DeltaTable(path)
+            assert ran is True
+            assert len(table.file_uris()) == files_after
+            assert table.to_pyarrow_table().sort_by("id").to_pydict() == rows_before
+
 
 class TestCompactConflictRetry:
     @pytest.mark.asyncio
@@ -828,18 +858,29 @@ class TestCompactDuringRebuild:
     @parameterized.expand(
         [
             # Seven tiny files per partition: a compaction removes six files from each.
-            ("below_the_budget_delta_rs", False, 2, 13, "skipped", 14),
-            ("at_the_budget_delta_rs", False, 2, 12, "compacted", 2),
-            ("below_the_budget_deltalite", True, 2, 13, "skipped", 14),
-            ("at_the_budget_deltalite", True, 2, 12, "compacted", 2),
+            ("below_the_budget_delta_rs", False, 2, 13, 100, "skipped", 14),
+            ("at_the_budget_delta_rs", False, 2, 12, 100, "compacted", 2),
+            ("below_the_budget_deltalite", True, 2, 13, 100, "skipped", 14),
+            ("at_the_budget_deltalite", True, 2, 12, 100, "compacted", 2),
             # A backlog over the budget compacts only the partitions that reach it.
-            ("backlog_capped_delta_rs", False, 4, 12, "compacted", 2 + 2 * 7),
-            ("backlog_capped_deltalite", True, 4, 12, "compacted", 2 + 2 * 7),
+            ("backlog_capped_delta_rs", False, 4, 12, 100, "compacted", 2 + 2 * 7),
+            ("backlog_capped_deltalite", True, 4, 12, 100, "compacted", 2 + 2 * 7),
+            # The budget needs every partition, but one pass takes at most the partition cap.
+            ("partition_capped_delta_rs", False, 4, 24, 3, "compacted", 3 + 1 * 7),
+            ("partition_capped_deltalite", True, 4, 24, 3, "compacted", 3 + 1 * 7),
+            ("partition_cap_of_one_deltalite", True, 4, 12, 1, "compacted", 1 + 3 * 7),
         ]
     )
     @pytest.mark.asyncio
     async def test_compacts_up_to_the_budget(
-        self, _name: str, deltalite_engine: bool, partitions: int, budget: int, outcome: str, files_after: int
+        self,
+        _name: str,
+        deltalite_engine: bool,
+        partitions: int,
+        budget: int,
+        max_partitions: int,
+        outcome: str,
+        files_after: int,
     ):
         with (
             tempfile.TemporaryDirectory() as path,
@@ -849,7 +890,7 @@ class TestCompactDuringRebuild:
             rows_before = deltalake.DeltaTable(path).to_pyarrow_table().sort_by("id").to_pydict()
 
             result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(
-                min_removable_files=budget
+                min_removable_files=budget, max_partitions=max_partitions
             )
 
             table = deltalake.DeltaTable(path)
@@ -882,7 +923,7 @@ class TestCompactDuringRebuild:
             )
 
             with patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=plan)):
-                result = await maintenance.compact_during_rebuild(min_removable_files=6)
+                result = await maintenance.compact_during_rebuild(min_removable_files=6, max_partitions=100)
 
             files = deltalake.DeltaTable(path).file_uris()
             assert result == "compacted"
@@ -906,7 +947,9 @@ class TestCompactDuringRebuild:
         ):
             self._fill(path, partitions=2, files_per_partition=7)
 
-            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=1)
+            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(
+                min_removable_files=1, max_partitions=100
+            )
 
             assert result == "failed"
             assert capture.called is expect_capture
@@ -921,7 +964,9 @@ class TestCompactDuringRebuild:
             self._fill(path, partitions=3, files_per_partition=4)
             version_before = deltalake.DeltaTable(path).version()
 
-            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=9)
+            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(
+                min_removable_files=9, max_partitions=100
+            )
 
             table = deltalake.DeltaTable(path)
             assert result == "compacted"
@@ -1389,10 +1434,10 @@ class TestRunScheduled:
 
 class TestVacuumOnARealTable:
     """Lite vacuum finds dead files only through tombstones, and a checkpoint drops tombstones older
-    than `delta.deletedFileRetentionDuration`. These tests shorten that window to one second."""
+    than `delta.deletedFileRetentionDuration`. These tests shorten that window to zero."""
 
     def _table_with_dropped_tombstones(self, root: str) -> None:
-        config = {"delta.checkpointInterval": "5", "delta.deletedFileRetentionDuration": "interval 1 seconds"}
+        config = {"delta.checkpointInterval": "5", "delta.deletedFileRetentionDuration": "interval 0 seconds"}
         deltalake.write_deltalake(
             root, pa.table({"p": ["a"] * 3, "x": [1, 2, 3]}), partition_by=["p"], configuration=config
         )
@@ -1401,8 +1446,6 @@ class TestVacuumOnARealTable:
                 root, pa.table({"p": ["a"] * 3, "x": [1, 2, 3]}), partition_by=["p"], mode="overwrite"
             )
         assert len(_dead_files(root)) == 3
-        # The tombstones must age past the window before the next checkpoint drops them.
-        time.sleep(1.1)
         for i in range(6):
             deltalake.write_deltalake(root, pa.table({"p": ["b"], "x": [i]}), partition_by=["p"], mode="append")
 
@@ -1485,3 +1528,50 @@ class TestVacuumOnARealTable:
             assert os.path.exists(sibling)
             assert recently_tombstoned <= _parquet_files(root)
             assert deltalake.DeltaTable(root).to_pyarrow_table().num_rows == 1
+
+
+class TestCompactHistoryPartitions:
+    @parameterized.expand(
+        [
+            ("below_the_threshold", 4, 4, _DEFAULT_PLAN, 4, 4),
+            # The month that is still filling takes a file from every close, so it fragments too.
+            ("current_and_month_above_the_threshold", 12, 12, _DEFAULT_PLAN, 1, 1),
+            ("only_the_month_above_the_threshold", 4, 12, _DEFAULT_PLAN, 4, 1),
+            # Every file is larger than the planned bin, so a compaction would remove none of them.
+            (
+                "planned_bin_smaller_than_the_files",
+                12,
+                12,
+                CompactionPlan(target_size=1, max_concurrent_tasks=1, compression_ratio=1.0, slot_budget_mb=1.0),
+                12,
+                12,
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_compacts_each_fragmented_partition(
+        self,
+        _name: str,
+        current_files: int,
+        month_files: int,
+        plan: CompactionPlan,
+        current_after: int,
+        month_after: int,
+    ):
+        with tempfile.TemporaryDirectory() as path:
+            for partition, count in (("current", current_files), ("2026-01", month_files)):
+                for i in range(count):
+                    deltalake.write_deltalake(
+                        path,
+                        pa.table({"id": [i], "_ph_history_partition": [partition]}),
+                        mode="append",
+                        partition_by=["_ph_history_partition"],
+                    )
+            maintenance = _make_maintenance(deltalake.DeltaTable(path))
+            with patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=plan)):
+                ran = await maintenance.compact_history_partitions("_ph_history_partition")
+
+            files = deltalake.DeltaTable(path).file_uris()
+            assert ran is (current_after < current_files or month_after < month_files)
+            assert sum("_ph_history_partition=current/" in f for f in files) == current_after
+            assert sum("_ph_history_partition=2026-01/" in f for f in files) == month_after

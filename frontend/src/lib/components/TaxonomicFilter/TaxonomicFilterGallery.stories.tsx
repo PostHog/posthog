@@ -9,14 +9,11 @@ import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__
 import { TaxonomicFilter, TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -56,7 +53,6 @@ const USAGES: Usage[] = [
         entry: 'properties',
         props: {
             onChange: noop,
-            triggerVariant: 'input',
             eventNames: ['$pageview'],
             hasRowOperator: true,
             allowRelativeDateOptions: true,
@@ -332,14 +328,9 @@ const VARIANTS: { key: string; label: string; blurb: string }[] = [
         blurb: 'Generic popover wrapper; resting state is a button.',
     },
     {
-        key: 'properties:button',
-        label: 'PropertyFilters — button trigger',
+        key: 'properties',
+        label: 'PropertyFilters',
         blurb: 'Property-filter rows; the add control is a button.',
-    },
-    {
-        key: 'properties:input',
-        label: 'PropertyFilters — input trigger',
-        blurb: 'Replay-style input add control (triggerVariant: input).',
     },
     {
         key: 'universal',
@@ -352,34 +343,6 @@ const VARIANTS: { key: string; label: string; blurb: string }[] = [
         blurb: 'Bespoke per-product search box (TaxonomicFilterSearchInput + InfiniteSelectResults) with inline pills. Logs and error tracking each hand-rolled their own.',
     },
 ]
-
-function variantKey(usage: Usage): string {
-    if (usage.entry === 'properties') {
-        return `properties:${usage.props.triggerVariant ?? 'button'}`
-    }
-    return usage.entry
-}
-
-const STORY_TITLE: Record<string, string> = {
-    'rebuild-menu': 'rebuild menu on (only the wrapper entry points change)',
-    'classic-picker': 'classic picker with category dropdown',
-}
-
-/**
- * The surface a given variant actually renders on a given story. The rebuild
- * flag only swaps the two wrapper entry points, so a raw `TaxonomicFilter`
- * stays on the classic picker even on the rebuild story. This label makes that
- * explicit per cell instead of letting the story title imply otherwise.
- */
-function surfaceFor(key: string, story: string): string {
-    // Only the two rebuild wrappers (TaxonomicPopover, TaxonomicPropertyFilter)
-    // get the rebuild menu. Raw TaxonomicFilter and UniversalFilters never do.
-    const getsRebuild = key === 'popover' || key.startsWith('properties')
-    if (getsRebuild && story === 'rebuild-menu') {
-        return 'rebuild menu'
-    }
-    return 'classic picker'
-}
 
 function UsagePreview({ usage, storyKey }: { usage: Usage; storyKey: string }): JSX.Element {
     // Raw TaxonomicFilter has no resting state — it IS the open panel, and it
@@ -485,44 +448,30 @@ function UniversalFilterGroupBody(): JSX.Element {
     )
 }
 
-function Gallery({ variant }: { variant: string }): JSX.Element {
+function Gallery(): JSX.Element {
     useMountedLogic(actionsModel)
     useMountedLogic(cohortsModel)
 
-    // The rebuild menu is gated by both the flag (set per story) and this
-    // persisted preference. The preference is a real-user escape hatch back to
-    // the classic UI; a fixture should always show the rebuild when flagged in,
-    // regardless of whatever a dev left in their Storybook localStorage.
-    const { setUseNewMenu } = useActions(taxonomicMenuPreferenceLogic)
-    useOnMountEffect(() => setUseNewMenu(true))
-
     return (
         <div className="p-4">
-            <h1 className="text-xl font-bold mb-2">Taxonomic filter gallery — {STORY_TITLE[variant] ?? variant}</h1>
+            <h1 className="text-xl font-bold mb-2">Taxonomic filter gallery</h1>
             <p className="text-sm text-secondary mb-4 max-w-3xl">
                 The taxonomic-filter family collapses to a handful of unique presentations. Most call sites just pass a
                 different <code>taxonomicGroupTypes</code> to the same one. Each cell renders one variant and lists the
-                call sites that use it with the props that differ. The badge on each cell is the surface it actually
-                renders. The rebuild flag only swaps the two wrapper entry points, so raw <code>TaxonomicFilter</code>{' '}
-                stays on the classic picker even on the rebuild story. Raw <code>TaxonomicFilter</code> has no resting
+                call sites that use it with the props that differ. Raw <code>TaxonomicFilter</code> has no resting
                 state, so it reveals on "Show picker".
             </p>
             <div className="grid grid-cols-1 xl:grid-cols-2 border-l border-t">
                 {VARIANTS.map((v) => {
-                    const usages = USAGES.filter((usage) => variantKey(usage) === v.key)
+                    const usages = USAGES.filter((usage) => usage.entry === v.key)
                     if (usages.length === 0) {
                         return null
                     }
-                    const storyKey = `gallery-${variant}-${v.key}`
+                    const storyKey = `gallery-${v.key}`
                     return (
                         <div key={v.key} className="border-r border-b p-4 flex flex-col gap-3 min-w-0">
                             <div>
-                                <div className="flex items-center gap-2">
-                                    <h1 className="text-base font-bold">{v.label}</h1>
-                                    <span className="text-2xs uppercase tracking-wide px-1.5 py-0.5 rounded bg-surface-secondary text-secondary whitespace-nowrap">
-                                        {surfaceFor(v.key, variant)}
-                                    </span>
-                                </div>
+                                <h1 className="text-base font-bold">{v.label}</h1>
                                 <p className="text-xs text-secondary">{v.blurb}</p>
                             </div>
                             <div className="min-w-0">
@@ -562,7 +511,7 @@ const meta: Meta = {
         docs: {
             description: {
                 component:
-                    'A catalogue of every distinct taxonomic-filter usage across the app, repeated for each live variant, to drive simplification.',
+                    'A catalogue of every distinct taxonomic-filter usage across the app, to drive simplification.',
             },
         },
     },
@@ -572,11 +521,6 @@ const meta: Meta = {
 export default meta
 type Story = StoryObj
 
-export const RebuildMenu: Story = {
-    render: () => <Gallery variant="rebuild-menu" />,
-    parameters: { featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true } },
-}
-
-export const ClassicPicker: Story = {
-    render: () => <Gallery variant="classic-picker" />,
+export const AllUsages: Story = {
+    render: () => <Gallery />,
 }

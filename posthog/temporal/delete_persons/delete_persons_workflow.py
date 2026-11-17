@@ -26,12 +26,13 @@ def _chunked(items: list, size: int) -> typing.Iterator[list]:
         yield chunk
 
 
-def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) -> int:
+def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int], run_id: str | None = None) -> int:
     """Tombstone specific persons by id via personhog and publish their ClickHouse tombstones.
 
     A hard delete would leave live ClickHouse rows above the version 0 a re-created person starts at.
+    ``run_id`` is the workflow run, which every retry of the activity shares.
     """
-    from posthog.models.person.bulk_delete import tombstone_and_publish_persons_by_uuids
+    from posthog.models.person.bulk_delete import DeletionRun, tombstone_and_publish_persons_by_uuids
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import GetPersonsRequest
@@ -48,7 +49,9 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
         if not uuids:
             return 0
 
-        return tombstone_and_publish_persons_by_uuids(team_id, uuids)
+        return tombstone_and_publish_persons_by_uuids(
+            team_id, uuids, run=DeletionRun(run_id=run_id) if run_id else None
+        )
 
 
 def _require_team_deleted(team_id: int) -> None:
@@ -155,7 +158,14 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
             id_slice = inputs.person_ids[start : start + inputs.batch_size]
             if not id_slice:
                 return 0, False
-            deleted = await asyncio.to_thread(_delete_specific_persons_via_personhog, inputs.team_id, id_slice)
+            info = temporalio.activity.info()
+            deleted = await asyncio.to_thread(
+                _delete_specific_persons_via_personhog,
+                inputs.team_id,
+                id_slice,
+                # A retry under the first attempt's op id replays its recorded conflicts instead of trying again.
+                f"{info.workflow_run_id}:{info.attempt}",
+            )
             should_continue = start + inputs.batch_size < len(inputs.person_ids)
         else:
             # Whole team: delete up to batch_size and keep going until a batch is short.

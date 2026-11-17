@@ -4,6 +4,7 @@ use crate::{
         concurrency_metrics::{ConcurrencyEnterTime, ConcurrencyLimitWait},
         errors::{ClientFacingError, FlagError},
         flags_rate_limiter::RateLimitResult,
+        request_outcome::OutcomeMarks,
         types::{
             FlagsQueryParams, FlagsResponse, FlagsResponseV4, LegacyFlagsResponse, ServiceResponse,
         },
@@ -235,6 +236,8 @@ pub async fn flags<C>(
     // the shim being removed or absent on routes that bypass it (e.g. a
     // future `/flags`-only sub-router).
     body_read_duration: Option<Extension<BodyReadDuration>>,
+    // Populated by the `record_request_outcome` middleware.
+    outcome_marks: Option<Extension<OutcomeMarks>>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
@@ -360,6 +363,9 @@ where
         queue_time_ms,
         concurrency_limit_wait_ms,
         body_read_ms,
+        outcome_marks: outcome_marks
+            .map(|Extension(marks)| marks)
+            .unwrap_or_default(),
         ..Default::default()
     };
 

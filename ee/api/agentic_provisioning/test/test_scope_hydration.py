@@ -48,7 +48,7 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
     def _refresh(self, refresh_token: str):
         return self._post_api(
             TOKEN_URL,
-            {"grant_type": "refresh_token", "refresh_token": refresh_token, **self._client_credentials()},
+            {"grant_type": "refresh_token", "refresh_token": refresh_token, **self._client_auth()},
         )
 
     def test_issuance_hydrates_with_previously_provisioned_teams(self):

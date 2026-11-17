@@ -4,12 +4,15 @@ import http from 'node:http'
 import net, { AddressInfo } from 'node:net'
 import { register } from 'prom-client'
 
-import { getExternalRequestConfig } from '~/common/config'
+import { getDefaultCommonConfig, getExternalRequestConfig } from '~/common/config'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
 import {
     FetchOptions,
+    ResponseTooLargeError,
     SecureRequestError,
     fetch,
     internalFetch,
@@ -38,6 +41,9 @@ beforeAll(async () => {
         } else if (url.pathname === '/status/404') {
             res.writeHead(404)
             res.end()
+        } else if (url.pathname === '/bom') {
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end('\ufeff{"ok":true}')
         } else if (url.pathname === '/stream/50') {
             res.writeHead(200, { 'content-type': 'application/json' })
             for (let i = 0; i < 50; i++) {
@@ -59,23 +65,16 @@ afterAll(async () => {
     await new Promise<void>((resolve, reject) => testServer.close((err) => (err ? reject(err) : resolve())))
 })
 
-async function withIsolatedProxy(
-    proxy: net.Server,
+async function withIsolatedRequestModule(
+    overrides: Record<string, string>,
     run: (fresh: typeof import('./request')) => Promise<void>
 ): Promise<void> {
-    const proxySockets = new Set<net.Socket>()
-    proxy.on('connection', (socket: net.Socket) => proxySockets.add(socket))
-    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
-    const overrides: Record<string, string> = {
-        NODE_ENV: 'test',
-        HTTPS_PROXY: `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`,
-        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: '200',
-    }
-    const originalValues = Object.fromEntries(Object.keys(overrides).map((name) => [name, process.env[name]]))
-    Object.assign(process.env, overrides)
+    const env = { NODE_ENV: 'test', ...overrides }
+    const originalValues = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]))
+    Object.assign(process.env, env)
     try {
         await jest.isolateModulesAsync(async () => {
-            // request.ts reads the proxy URL and the timeouts once, at module load.
+            // request.ts reads its config once, at module load.
             const fresh: typeof import('./request') = require('./request')
             try {
                 await run(fresh)
@@ -91,6 +90,25 @@ async function withIsolatedProxy(
                 process.env[name] = value
             }
         }
+    }
+}
+
+async function withIsolatedProxy(
+    proxy: net.Server,
+    run: (fresh: typeof import('./request')) => Promise<void>
+): Promise<void> {
+    const proxySockets = new Set<net.Socket>()
+    proxy.on('connection', (socket: net.Socket) => proxySockets.add(socket))
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+    try {
+        await withIsolatedRequestModule(
+            {
+                HTTPS_PROXY: `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`,
+                EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: '200',
+            },
+            run
+        )
+    } finally {
         proxySockets.forEach((socket) => socket.destroy())
         proxy.close()
     }
@@ -177,31 +195,28 @@ describe('fetch', () => {
 
         // Both modes run the check, because it sits above the `allowUnsafe` early return. Every
         // caller passes `!isProdEnv()`, so a check below that return never runs in a test.
-        it.each(['production', 'test'])(
-            'logs a listed host in NODE_ENV=%s and still allows the request',
-            async (nodeEnv) => {
-                const originalNodeEnv = process.env.NODE_ENV
-                process.env.NODE_ENV = nodeEnv
-                try {
-                    // A host per case: noteOobDomain logs one line per host, team and guard per
-                    // window, so a shared host would suppress the second case.
-                    await expect(
-                        raiseIfUserProvidedUrlUnsafe(`https://${nodeEnv}.abc.oast.me/path`)
-                    ).resolves.not.toThrow()
-                } finally {
-                    process.env.NODE_ENV = originalNodeEnv
-                }
-
-                expect(info).toHaveBeenCalledWith(
-                    'security.oob_domain_seen',
-                    expect.objectContaining({
-                        host: `${nodeEnv}.abc.oast.me`,
-                        domain: 'oast.me',
-                        guard: 'node_request',
-                    })
+        it.each(['production', 'test'])('refuses a listed host in NODE_ENV=%s', async (nodeEnv) => {
+            const originalNodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = nodeEnv
+            try {
+                // A host per case: checkOobDomain logs one line per host, team and guard per
+                // window, so a shared host would suppress the second case.
+                await expect(raiseIfUserProvidedUrlUnsafe(`https://${nodeEnv}.abc.oast.me/path`)).rejects.toThrow(
+                    'Hostname is not allowed'
                 )
+            } finally {
+                process.env.NODE_ENV = originalNodeEnv
             }
-        )
+
+            expect(info).toHaveBeenCalledWith(
+                'security.oob_domain_seen',
+                expect.objectContaining({
+                    host: `${nodeEnv}.abc.oast.me`,
+                    domain: 'oast.me',
+                    guard: 'node_request',
+                })
+            )
+        })
     })
 
     describe('fetch call', () => {
@@ -460,6 +475,155 @@ describe('fetch', () => {
             expect(speedup).toBeGreaterThan(3)
         })
     })
+
+    describe('new connection limit per IP address', () => {
+        const ipv4 = { address: '127.0.0.1', family: 4 }
+        // Nothing listens on ::1 or 127.0.0.2, so a request reaches the origin only through the fallback to 127.0.0.1.
+        const ipv6First = [{ address: '::1', family: 6 }, ipv4]
+        const deadIpv4First = [{ address: '127.0.0.2', family: 4 }, ipv4]
+        const ipv4Mapped = [{ address: '::ffff:127.0.0.1', family: 6 }]
+        const connectionLimitRedis = createRedisV2PoolFromConfig({
+            connection: { url: getDefaultCommonConfig().REDIS_URL },
+            poolMinSize: 1,
+            poolMaxSize: 2,
+        })
+
+        beforeEach(async () => {
+            for (const key of ['127.0.0.1', '1:127.0.0.1', '2:127.0.0.1']) {
+                await deleteKeysWithPrefix(connectionLimitRedis, `@posthog/new-connections/${key}`)
+            }
+        })
+
+        test.each<{
+            name: string
+            enforced: string
+            addresses: { address: string; family: number }[]
+            expected: (number | string)[]
+            expectedConnections: number
+            teams?: number[]
+        }>([
+            {
+                name: 'rejects over the limit',
+                enforced: 'true',
+                addresses: [ipv4],
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'only counts when not enforced',
+                enforced: 'false',
+                addresses: [ipv4],
+                expected: [200, 200, 200],
+                expectedConnections: 3,
+            },
+            {
+                name: 'keeps IPv6 unlimited and the IPv4 fallback',
+                enforced: 'true',
+                addresses: ipv6First,
+                expected: [200, 200, 'ECONNREFUSED'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'charges each IPv4 fallback it keeps once',
+                enforced: 'true',
+                addresses: [...deadIpv4First, ipv4],
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'keeps every IPv4 fallback when not enforced',
+                enforced: 'false',
+                addresses: deadIpv4First,
+                expected: [200, 200, 200],
+                expectedConnections: 3,
+            },
+            {
+                name: 'limits an IPv4-mapped IPv6 address as IPv4',
+                enforced: 'true',
+                addresses: ipv4Mapped,
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'limits an IPv4 address in the URL',
+                enforced: 'true',
+                addresses: [],
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'gives each team its own budget',
+                enforced: 'true',
+                addresses: [ipv4],
+                teams: [1, 1, 1, 2],
+                expected: [200, 200, 'ConnectionRateLimitError', 200],
+                expectedConnections: 3,
+            },
+        ])(
+            '$name, for an origin that closes every connection',
+            async ({ enforced, addresses, expected, expectedConnections, teams }) => {
+                let connections = 0
+                const closing = http.createServer((_req, res) => {
+                    res.setHeader('connection', 'close')
+                    res.end('ok')
+                })
+                closing.on('connection', () => connections++)
+                await new Promise<void>((resolve) => closing.listen(0, '127.0.0.1', resolve))
+                const host = addresses.length === 0 ? '127.0.0.1' : 'localhost'
+                const url = `http://${host}:${(closing.address() as AddressInfo).port}/`
+                try {
+                    await withIsolatedRequestModule(
+                        {
+                            EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: '0.001',
+                            EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: '2',
+                            EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: enforced,
+                        },
+                        async (fresh) => {
+                            require('./connection-rate-limiter').limitNewConnectionsWith(connectionLimitRedis, 5_000)
+                            jest.mocked(require('dns/promises').lookup).mockResolvedValue(addresses)
+                            const {
+                                fetchAttribution,
+                            }: typeof import('./fetch-attribution') = require('./fetch-attribution')
+                            const outcomes = []
+                            for (const teamId of teams ?? range(3).map(() => undefined)) {
+                                outcomes.push(
+                                    await fetchAttribution
+                                        .run({ teamId }, () => fresh.fetch(url))
+                                        .then(
+                                            (response) => response.status,
+                                            (error) => error.code ?? error.name
+                                        )
+                                )
+                            }
+
+                            expect(outcomes).toEqual(expected)
+                            expect(connections).toBe(expectedConnections)
+                        }
+                    )
+                } finally {
+                    closing.closeAllConnections()
+                    closing.close()
+                }
+            }
+        )
+
+        test('returns each address in a DNS answer once', async () => {
+            await withIsolatedRequestModule(
+                { EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: '1' },
+                async (fresh) => {
+                    require('./connection-rate-limiter').limitNewConnectionsWith(connectionLimitRedis, 5_000)
+                    jest.mocked(require('dns/promises').lookup).mockResolvedValue([ipv4, ipv4, ...ipv4Mapped])
+                    const result = await new Promise((resolve, reject) =>
+                        fresh.httpStaticLookup('localhost', {}, (error, addresses) =>
+                            error ? reject(error) : resolve(addresses)
+                        )
+                    )
+
+                    expect(result).toEqual([ipv4])
+                }
+            )
+        })
+    })
 })
 
 type IsolatedRequest = {
@@ -468,88 +632,73 @@ type IsolatedRequest = {
     readNegativeCacheCounter: (result: string) => Promise<number>
 }
 
-// request.ts reads the DNS settings once, at module load, so each case loads a fresh copy with its own environment.
-async function withDnsConfig(env: Record<string, string>, run: (isolated: IsolatedRequest) => Promise<void>) {
-    const originalValues = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]))
-    Object.assign(process.env, env)
-    try {
-        await jest.isolateModulesAsync(async () => {
-            const request: typeof import('./request') = require('./request')
-            const lookup = jest.mocked(require('dns/promises').lookup)
-            const registry: typeof register = require('prom-client').register
-            const readNegativeCacheCounter = async (result: string): Promise<number> =>
-                (await registry.getSingleMetric('node_dns_negative_cache_total')!.get()).values.find(
-                    (value) => value.labels.result === result
-                )?.value ?? 0
-            try {
-                await run({ request, lookup, readNegativeCacheCounter })
-            } finally {
-                await request.closeSharedAgents(100)
-            }
-        })
-    } finally {
-        for (const [name, value] of Object.entries(originalValues)) {
-            if (value === undefined) {
-                delete process.env[name]
-            } else {
-                process.env[name] = value
-            }
+// The DNS negative cache and the hosts file names are module state, so each case loads a fresh copy of request.ts.
+async function withIsolatedRequest(run: (isolated: IsolatedRequest) => Promise<void>, hostsFile = '') {
+    await jest.isolateModulesAsync(async () => {
+        const actualFs = jest.requireActual('node:fs')
+        jest.doMock('node:fs', () => ({
+            ...actualFs,
+            readFileSync: (path: string, ...args: unknown[]) =>
+                path === '/etc/hosts' ? hostsFile : actualFs.readFileSync(path, ...args),
+        }))
+        const request: typeof import('./request') = require('./request')
+        const lookup = jest.mocked(require('dns/promises').lookup)
+        const registry: typeof register = require('prom-client').register
+        const readNegativeCacheCounter = async (result: string): Promise<number> =>
+            (await registry.getSingleMetric('node_dns_negative_cache_total')!.get()).values.find(
+                (value) => value.labels.result === result
+            )?.value ?? 0
+        try {
+            await run({ request, lookup, readNegativeCacheCounter })
+        } finally {
+            await request.closeSharedAgents(100)
         }
-    }
+    })
 }
 
 const dnsError = (code: string): Error => Object.assign(new Error(`getaddrinfo ${code} example.com`), { code })
 
-describe('DNS lookup settings', () => {
-    it('resolves hostnames as absolute names when absolute lookups are enabled', async () => {
-        await withDnsConfig({ EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: 'true' }, async ({ request, lookup }) => {
+describe('DNS lookups', () => {
+    it('resolves dotted hostnames as absolute names and leaves other names as given', async () => {
+        await withIsolatedRequest(async ({ request, lookup }) => {
             lookup.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
 
             await request.raiseIfUserProvidedUrlUnsafe('https://example.com/path')
             await request.raiseIfUserProvidedUrlUnsafe('https://already-absolute.com./path')
             await request.raiseIfUserProvidedUrlUnsafe('https://1.1.1.1/path')
+            await request.raiseIfUserProvidedUrlUnsafe('http://maildev:1080/path')
+            await request.raiseIfUserProvidedUrlUnsafe('http://My.Alias.test:1080/path')
 
             expect(lookup.mock.calls.map(([hostname]) => hostname)).toEqual([
                 'example.com.',
                 'already-absolute.com.',
                 '1.1.1.1',
+                'maildev',
+                'my.alias.test',
             ])
-        })
+        }, '127.0.0.1 localhost\n# 10.0.0.9 commented.test\n10.1.2.3\tmy.alias.test other.alias.test\n')
     })
 
-    it('resolves hostnames as given when absolute lookups are disabled', async () => {
-        await withDnsConfig({ EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: 'false' }, async ({ request, lookup }) => {
-            lookup.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
+    it('skips the lookup for a hostname that recently returned ENOTFOUND', async () => {
+        await withIsolatedRequest(async ({ request, lookup, readNegativeCacheCounter }) => {
+            lookup.mockRejectedValue(dnsError('ENOTFOUND'))
 
-            await request.raiseIfUserProvidedUrlUnsafe('https://example.com/path')
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow(
+                'Invalid hostname'
+            )
+            await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow(
+                'Invalid hostname'
+            )
 
-            expect(lookup).toHaveBeenCalledWith('example.com', { all: true })
+            expect(lookup).toHaveBeenCalledTimes(1)
+            expect(await readNegativeCacheCounter('hit')).toEqual(1)
         })
-    })
-
-    it('skips the lookup for a hostname that recently returned ENOTFOUND in enforce mode', async () => {
-        await withDnsConfig(
-            { EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: 'enforce' },
-            async ({ request, lookup, readNegativeCacheCounter }) => {
-                lookup.mockRejectedValue(dnsError('ENOTFOUND'))
-
-                await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow(
-                    'Invalid hostname'
-                )
-                await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow(
-                    'Invalid hostname'
-                )
-
-                expect(lookup).toHaveBeenCalledTimes(1)
-                expect(await readNegativeCacheCounter('hit')).toEqual(1)
-            }
-        )
     })
 
     // A timeout can come from an overloaded resolver rather than from the hostname. Caching it would fail healthy
     // destinations for as long as the resolver stays slow.
     it.each(['EAI_AGAIN', 'ETIMEOUT'])('does not cache a %s failure', async (code) => {
-        await withDnsConfig({ EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: 'enforce' }, async ({ request, lookup }) => {
+        await withIsolatedRequest(async ({ request, lookup }) => {
             lookup.mockRejectedValue(dnsError(code))
 
             await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
@@ -557,32 +706,6 @@ describe('DNS lookup settings', () => {
 
             expect(lookup).toHaveBeenCalledTimes(2)
         })
-    })
-
-    it('still looks up a cached hostname in shadow mode and counts what enforce mode would skip', async () => {
-        await withDnsConfig(
-            { EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: 'shadow' },
-            async ({ request, lookup, readNegativeCacheCounter }) => {
-                lookup.mockRejectedValueOnce(dnsError('ENOTFOUND'))
-                lookup.mockRejectedValueOnce(dnsError('ENOTFOUND'))
-                lookup.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
-
-                await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
-                await expect(request.raiseIfUserProvidedUrlUnsafe('https://example.com')).rejects.toThrow()
-                await request.raiseIfUserProvidedUrlUnsafe('https://example.com')
-                await request.raiseIfUserProvidedUrlUnsafe('https://example.com')
-
-                expect(lookup).toHaveBeenCalledTimes(4)
-                expect(await readNegativeCacheCounter('shadow_hit')).toEqual(3)
-                expect(await readNegativeCacheCounter('shadow_hit_resolved')).toEqual(2)
-            }
-        )
-    })
-
-    it('rejects an unknown negative cache mode at startup', async () => {
-        await expect(
-            withDnsConfig({ EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: 'on' }, () => Promise.resolve())
-        ).rejects.toThrow('EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE must be one of off, shadow, enforce')
     })
 })
 
@@ -726,6 +849,29 @@ describe('_fetch response body handling', () => {
     it('should parse headers', async () => {
         const response = await internalFetch(baseUrl)
         expect(response.headers['content-type']).toBeDefined()
+    })
+
+    const streamedBodyBytes = range(50).reduce((total, i) => total + JSON.stringify({ id: i }).length + 1, 0)
+
+    it.each([
+        ['under the limit', streamedBodyBytes + 1, false],
+        ['exactly at the limit', streamedBodyBytes, false],
+        ['over the limit', streamedBodyBytes - 1, true],
+    ])('caps a streamed body %s', async (_name, maxResponseBytes, rejects) => {
+        const response = await internalFetch(`${baseUrl}/stream/50`, { maxResponseBytes })
+        if (rejects) {
+            await expect(response.text()).rejects.toBeInstanceOf(ResponseTooLargeError)
+        } else {
+            expect(await response.text()).toHaveLength(streamedBodyBytes)
+        }
+    })
+
+    it.each([
+        ['uncapped', undefined],
+        ['capped', 1024],
+    ])('strips a leading BOM from a %s body', async (_name, maxResponseBytes) => {
+        const response = await internalFetch(`${baseUrl}/bom`, { maxResponseBytes })
+        expect(await response.json()).toEqual({ ok: true })
     })
 
     it('should fully read streamed/chunked response bodies', async () => {

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import { ToolInputValidationError } from '@/lib/errors'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
+import { withConditionIds } from '@/tools/featureFlags/conditionIds'
 import { resolveFlagsByKey } from '@/tools/featureFlags/resolveFlagsByKey'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
@@ -161,7 +162,10 @@ const experimentGetByFlagKey = (): ToolBase<typeof schema, Result> => ({
             path: `/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(String(experimentId))}/`,
         })
         const experimentWithUrl = await withPostHogUrl(context, experiment, `/experiments/${experiment.id}`)
-        return { ...withVariantScreenshotUrls(experimentWithUrl, context.api.publicBaseUrl), found: true }
+        return {
+            ...withConditionIds(withVariantScreenshotUrls(experimentWithUrl, context.api.publicBaseUrl)),
+            found: true,
+        }
     },
 })
 

@@ -1,3 +1,3 @@
 export interface WebAnalyticsLogicProps {
-    context?: 'web-analytics' | 'page-visibility'
+    context?: 'web-analytics'
 }

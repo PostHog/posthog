@@ -284,6 +284,29 @@ describe('biSceneLogic', () => {
         expect(logic.values.agentUpdateState).toBeNull()
     })
 
+    it('keeps parameter edits pending with auto-update off and restores them through undo', () => {
+        const node = catalogMetricWorksheet({
+            name: 'event_count',
+            definition: {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT count(*) FROM events WHERE event = {event}',
+                values: { event: '$pageview' },
+            },
+        })!
+        logic.actions.restoreWorksheet(node)
+        logic.actions.recordWorksheet(true)
+        editor.actions.setAutoUpdate(false)
+        const lastRun = logic.values.lastRunQuery
+        editor.actions.setSnapshotParameters(editor.values.config.querySnapshot!, { event: 'signup' })
+        expect(logic.values.worksheet.source.values).toEqual({ event: 'signup' })
+        expect(logic.values.worksheet.config.catalogMetric).toBe('event_count')
+        expect(logic.values.lastRunQuery).toEqual(lastRun)
+        logic.actions.undo()
+        expect(logic.values.worksheet.source.values).toEqual({ event: '$pageview' })
+        logic.actions.redo()
+        expect(logic.values.worksheet.config.querySnapshot?.values).toEqual({ event: 'signup' })
+    })
+
     it('opens catalog definitions as fixed snapshots and waits for Run', async () => {
         const runQuery = jest.fn(() => [200, { columns: ['revenue'], results: [[42]] }])
         useMocks({

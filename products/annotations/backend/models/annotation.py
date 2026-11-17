@@ -6,19 +6,10 @@ from django.utils import timezone
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
+from products.annotations.backend.facade.enums import AnnotationCreationType, AnnotationScope
+
 
 class Annotation(ModelActivityMixin, models.Model):
-    class Scope(models.TextChoices):
-        INSIGHT = "dashboard_item", "insight"
-        DASHBOARD = "dashboard", "dashboard"
-        PROJECT = "project", "project"
-        ORGANIZATION = "organization", "organization"
-        RECORDING = "recording", "recording"
-
-    class CreationType(models.TextChoices):
-        USER = "USR", "user"
-        GITHUB = "GIT", "GitHub"
-
     content = models.CharField(max_length=8192, null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, null=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -31,11 +22,13 @@ class Annotation(ModelActivityMixin, models.Model):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True, related_name="+")
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    scope = models.CharField(max_length=24, choices=Scope, default=Scope.INSIGHT)
+    scope = models.CharField(max_length=24, choices=AnnotationScope.choices, default=AnnotationScope.INSIGHT.value)
     # Optional emoji shown in place of the default badge when surfacing the annotation.
     # Long enough to hold a single multi-codepoint grapheme (ZWJ sequences, skin-tone modifiers).
     emoji = models.CharField(max_length=16, null=True, blank=True)
-    creation_type = models.CharField(max_length=3, choices=CreationType, default=CreationType.USER)
+    creation_type = models.CharField(
+        max_length=3, choices=AnnotationCreationType.choices, default=AnnotationCreationType.USER.value
+    )
     date_marker = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
     hidden_in_user_interface = models.BooleanField(null=True, blank=True)

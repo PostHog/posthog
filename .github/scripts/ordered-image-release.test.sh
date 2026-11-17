@@ -196,7 +196,6 @@ git -C "$scratch/executing" -c core.hooksPath=/dev/null -c commit.gpgsign=false 
 git -C "$scratch/executing" -c core.hooksPath=/dev/null -c commit.gpgsign=false merge -q --no-ff feature -m merge
 GITHUB_SHA="$(git -C "$scratch/executing" rev-parse HEAD)"
 export GITHUB_SHA
-export GITHUB_REF=refs/heads/main GITHUB_REF_NAME=main
 test "$(git -C "$scratch/executing" rev-list --first-parent --count HEAD)" = 3
 test "$(git -C "$scratch/executing" rev-list --count HEAD)" = 4
 : > "$GITHUB_OUTPUT"
@@ -212,14 +211,35 @@ git -C "$scratch/mirror" -c advice.detachedHead=false checkout -q --detach "$GIT
 (cd "$scratch/mirror" && bash "$helper" tag)
 test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
 echo 'PASS two clones of one history preserve first-parent ordinal and tag'
+export REAL_GIT
+REAL_GIT="$(command -v git)"
+export FETCH_CALLS="$scratch/fetch-calls"
+cat > "$scratch/shims/git" <<'SHIM'
+#!/usr/bin/env bash
+if [ "$1" = fetch ]; then
+    printf '%s\n' "$*" >> "$FETCH_CALLS"
+    exit 1
+fi
+exec "$REAL_GIT" "$@"
+SHIM
+chmod +x "$scratch/shims/git"
+: > "$FETCH_CALLS"
+: > "$GITHUB_OUTPUT"
+(cd "$scratch/executing" && bash "$helper" tag) > "$scratch/tag-annotations"
+test ! -s "$FETCH_CALLS"
+test ! -s "$scratch/tag-annotations"
+test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
+echo 'PASS complete checkout generates a tag without fetching'
 git clone -q --depth 1 "file://$scratch/executing" "$scratch/shallow"
 test "$(git -C "$scratch/shallow" rev-parse --is-shallow-repository)" = true
 test "$(git -C "$scratch/shallow" rev-list --first-parent --count HEAD)" = 1
 : > "$GITHUB_OUTPUT"
-(cd "$scratch/shallow" && bash "$helper" tag)
-test "$(git -C "$scratch/shallow" rev-parse --is-shallow-repository)" = false
-test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
-echo 'PASS shallow checkout fetches its configured origin and recovers first-parent ordinal'
+(cd "$scratch/shallow" && bash "$helper" tag) > "$scratch/shallow-annotations"
+test ! -s "$FETCH_CALLS"
+test ! -s "$GITHUB_OUTPUT"
+grep -Fxq '::warning title=Ordered release tag skipped::The checkout must fetch full history.' "$scratch/shallow-annotations"
+echo 'PASS shallow checkout warns without fetching or producing a tag'
+rm "$scratch/shims/git"
 GITHUB_SHA="$(git -C "$scratch/mirror" rev-parse HEAD^1)"
 git -C "$scratch/mirror" cat-file -e "$GITHUB_SHA^{commit}"
 test "$GITHUB_SHA" != "$(git -C "$scratch/mirror" rev-parse HEAD)"
@@ -241,9 +261,13 @@ has_gnu_timeout() {
 
 check_standalone_timeout() {
     local client="$1" started="$SECONDS" elapsed pid
+    local scratch="$scratch/$client"
+    mkdir "$scratch"
+    mkfifo "$scratch/hung-pipe"
+    export GITHUB_OUTPUT="$scratch/output"
     : > "$GITHUB_OUTPUT"
     : > "$scratch/standalone-processes"
-    PATH="$scratch/standalone:$system_path" REGCTL="$scratch/standalone/regctl" \
+    PATH="${scratch%/*}/standalone:$system_path" REGCTL="${scratch%/*}/standalone/regctl" \
         COPY_TIMEOUT_SECONDS=1 READBACK_TIMEOUT_SECONDS=1 HUNG_CLIENT="$client" \
         HUNG_PID="$scratch/hung-pid" HUNG_PIPE="$scratch/hung-pipe" \
         COMPLETION_MARKER="$scratch/standalone-completed" PROCESS_IDENTITIES="$scratch/standalone-processes" \
@@ -269,7 +293,6 @@ check_standalone_timeout() {
 
 if PATH="$system_path" has_gnu_timeout; then
     mkdir "$scratch/standalone"
-    mkfifo "$scratch/hung-pipe"
     cat > "$scratch/standalone/client" <<'CLIENT'
 #!/usr/bin/env bash
 case "$(ps -p "$PPID" -o comm=)" in *timeout) ;; *) exit 1 ;; esac
@@ -286,8 +309,14 @@ CLIENT
     chmod +x "$scratch/standalone/client"
     ln -s client "$scratch/standalone/regctl"
     ln -s client "$scratch/standalone/aws"
-    check_standalone_timeout regctl
-    check_standalone_timeout aws
+    check_standalone_timeout regctl &
+    regctl_test_pid=$!
+    check_standalone_timeout aws &
+    aws_test_pid=$!
+    status=0
+    wait "$regctl_test_pid" || status=1
+    wait "$aws_test_pid" || status=1
+    test "$status" = 0
 else
     echo 'SKIP standalone helper timeouts: GNU coreutils timeout is unavailable'
 fi

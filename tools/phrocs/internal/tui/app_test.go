@@ -2,13 +2,23 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
 	"github.com/posthog/posthog/phrocs/internal/docker"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
+
+// Most tests feed output events back to back and read the viewport right
+// after, so they run without the refresh throttle.
+func TestMain(m *testing.M) {
+	outputRefreshInterval = 0
+	os.Exit(m.Run())
+}
 
 // testConfig creates a Config with the named stub processes (no autostart).
 func testConfig(names ...string) *config.Config {
@@ -308,6 +318,27 @@ func TestCopyMode_setAnchor(t *testing.T) {
 	m = update(m, keypress('c'))
 	if m.copyAnchor != m.copyCursor {
 		t.Errorf("first c in copy mode should set anchor to copyCursor (%d), got %d", m.copyCursor, m.copyAnchor)
+	}
+}
+
+func TestOutput_refreshIsThrottled(t *testing.T) {
+	outputRefreshInterval = time.Hour
+	t.Cleanup(func() { outputRefreshInterval = 0 })
+	m := readyModel(t, "backend")
+	p, _ := m.mgr.Get("backend")
+
+	p.AppendLine("first")
+	m = update(m, process.OutputMsg{Name: "backend"})
+	p.AppendLine("second")
+	next, cmd := m.Update(process.OutputMsg{Name: "backend"})
+	m = next.(Model)
+	if strings.Contains(m.viewport.GetContent(), "second") || cmd == nil {
+		t.Fatalf("second refresh inside the interval should be queued, content %q", m.viewport.GetContent())
+	}
+
+	m = update(m, outputRefreshMsg{})
+	if !strings.Contains(m.viewport.GetContent(), "second") {
+		t.Errorf("queued refresh should load new output, content %q", m.viewport.GetContent())
 	}
 }
 

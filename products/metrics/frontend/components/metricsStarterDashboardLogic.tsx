@@ -223,12 +223,7 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                             : {}),
                     }
                     const query: MetricsQuery = { kind: NodeKind.MetricsQuery, clauses: [clause] }
-                    await insightsApi.create({
-                        name: metricName,
-                        saved: true,
-                        dashboards: [dashboard.id],
-                        query,
-                    })
+                    await insightsApi.create({ name: metricName, saved: true, query }, [dashboard.id])
                     created++
                 }
                 actions.createDashboardSuccess(dashboard)

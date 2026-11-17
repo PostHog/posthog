@@ -16,6 +16,7 @@ import re
 from collections.abc import Callable
 from datetime import timedelta
 from enum import StrEnum
+from functools import cached_property
 
 from django.utils import timezone
 
@@ -29,11 +30,11 @@ from posthog.utils import absolute_uri
 
 from products.signals.backend.artefact_schemas import SIGNALS_PRODUCT, TASK_RUN_TYPE_DISCUSSION
 from products.signals.backend.enums import ReportTaskActionKind
-from products.signals.backend.free_trial import FREE_TRIAL_PR_MESSAGE, self_driving_free_trial_enabled
 from products.signals.backend.implementation_pr import ImplementationPr, fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
+from products.signals.backend.pr_ci_status import any_conflicting, pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.task_profiles import INBOX
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.ai_run_defaults import resolve_ai_run_defaults
 
@@ -49,7 +50,12 @@ GET_IT_MERGED_FLAG_DISABLED_REASON = "Get it merged is not available for this pr
 GET_IT_MERGED_NO_PR_DISABLED_REASON = "This report has no open, approved pull request to merge."
 MAKE_IT_GREEN_FLAG_DISABLED_REASON = "Make it green is not available for this project yet."
 MAKE_IT_GREEN_NO_PR_DISABLED_REASON = "This report has no open pull request."
-MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON = "CI is not failing on this report's pull request."
+MAKE_IT_GREEN_NOTHING_TO_FIX_DISABLED_REASON = (
+    "CI is not failing on this report's pull request, and it has no merge conflicts."
+)
+RESOLVE_CONFLICTS_FLAG_DISABLED_REASON = "Resolve conflicts is not available for this project yet."
+RESOLVE_CONFLICTS_NO_PR_DISABLED_REASON = "This report has no open pull request."
+RESOLVE_CONFLICTS_NO_CONFLICT_DISABLED_REASON = "This report's pull request has no merge conflicts."
 
 # Mirrors `REPORT_FALLBACK_RUNTIME` in `inboxTaskKickoffLogic.ts`. Sent only when no project or
 # personal default resolves, because a model sent with the run wins over every default.
@@ -65,6 +71,7 @@ FALLBACK_RUNTIME_SELECTION: dict[str, str] = {
 class ReportDiscussionIntent(StrEnum):
     MERGE_PR = "merge_pr"
     FIX_CI = "fix_ci"
+    RESOLVE_CONFLICTS = "resolve_conflicts"
 
 
 # --- Text ported from `inboxTaskKickoffLogic.ts`. Keep it byte-identical. ---
@@ -72,6 +79,8 @@ class ReportDiscussionIntent(StrEnum):
 MERGE_PR_REQUEST = "Get this approved PR merged. Fix failing CI and resolve any merge conflicts, then use the repository's merge process. Ask me before you make a decision I did not make."
 
 FIX_CI_REQUEST = "Make CI green on this PR. Fix the failing checks and resolve any merge conflicts, then stop. Do not merge it. Ask me before you make a decision I did not make."
+
+RESOLVE_CONFLICTS_REQUEST = "Resolve the merge conflicts on this PR. Update it from its base branch, keep the intent of both sides, then stop. Do not merge it. Ask me before you make a decision I did not make."
 
 REPORT_DISCUSSION_STATE_INSTRUCTIONS = "If you carry an action out that finishes what the report asked for, record it on the report with the inbox MCP tools (`inbox-reports-set-state`): set the state to resolved with the reason `fixed_outside_posthog` and a short note that says what you did. Opening a pull request does not finish it — the PR is linked to the report and merging it resolves the report, so setting the state to resolved would close the PR you just opened. If the exchange shows the report holds no work to do, set the state to suppressed with the reason that says why and a short note. Before either, read the report again and leave its state alone when somebody else holds it or an implementation PR is already open on it: that work is not yours to end. Answering a question changes nothing about the report, so leave its state alone."
 
@@ -81,7 +90,9 @@ REPORT_DISCUSSION_FEEDBACK_INSTRUCTIONS = "The opening question has a separate, 
 
 MERGE_PR_WORK_INSTRUCTIONS = "Read the report first and find its open, approved pull request with the inbox MCP tools. Work only on that pull request, on its own branch. Do not open a second PR. Fix failing CI checks with the smallest change that keeps what the reviewer approved. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them, then run the affected tests. Then merge it with the repository's own merge process: read its contribution guide and agent instructions first, and use its merge queue when it has one. This request approves the merge of this pull request only. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, a new review that requests changes, a failure that this PR did not cause, or a merge rule that needs a person. Do not change the report state: the merge resolves the report."
 
-FIX_CI_WORK_INSTRUCTIONS = "Read the report first and find its open pull request whose CI checks fail with the inbox MCP tools. If more than one open pull request has failing checks, ask the person which one to fix. Work only on that pull request, on its own branch. Do not open a second PR. Read the contribution guide and agent instructions of the repository first. Fix each failing CI check with the smallest change that keeps what the pull request does, and run the affected tests before you push. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them. Stop when the checks pass. Do not merge the pull request, do not add it to a merge queue, and do not approve it: a person reviews and merges it. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, or a failure that this PR did not cause. Do not change the report state."
+FIX_CI_WORK_INSTRUCTIONS = "Read the report first and find its open pull request whose CI checks fail or that conflicts with its base branch, with the inbox MCP tools. If more than one open pull request has failing checks or conflicts, ask the person which one to fix. Work only on that pull request, on its own branch. Do not open a second PR. Read the contribution guide and agent instructions of the repository first. Fix each failing CI check with the smallest change that keeps what the pull request does, and run the affected tests before you push. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them. Stop when the checks pass. Do not merge the pull request, do not add it to a merge queue, and do not approve it: a person reviews and merges it. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, or a failure that this PR did not cause. Do not change the report state."
+
+RESOLVE_CONFLICTS_WORK_INSTRUCTIONS = "Read the report first and find its open pull request that conflicts with its base branch, with the inbox MCP tools. If more than one open pull request conflicts, ask the person which one to update. Work only on that pull request, on its own branch. Do not open a second PR. Read the contribution guide and agent instructions of the repository first. Update the branch from its base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them. Run the affected tests, push, and stop. If a conflict has two plausible resolutions that change what the pull request does, do not guess: lay out the options and ask the person. Do not fix CI failures that the update did not cause: name them in your summary. Do not merge the pull request, do not add it to a merge queue, and do not approve it: a person reviews and merges it. Do not change the report state."
 
 
 def merge_pr_intro(report_url: str) -> str:
@@ -90,6 +101,10 @@ def merge_pr_intro(report_url: str) -> str:
 
 def fix_ci_intro(report_url: str) -> str:
     return f"A person asked you to make CI green on the pull request of the PostHog Inbox report at {report_url}, without merging it, in the message after this block."
+
+
+def resolve_conflicts_intro(report_url: str) -> str:
+    return f"A person asked you to resolve the merge conflicts on the pull request of the PostHog Inbox report at {report_url}, without merging it, in the message after this block."
 
 
 def answer_only_intro(report_url: str) -> str:
@@ -119,22 +134,33 @@ def _is_open(pr: ImplementationPr) -> bool:
     return not pr.merged and pr.state not in ("closed", "merged")
 
 
-def _open_pull_requests_ci_failing(team_id: int, prs: list[ImplementationPr]) -> bool:
-    """Whether CI fails on any open pull request. Reads False when GitHub cannot answer, so the
-    action stays unavailable rather than guess. It can wait on GitHub, so callers run it after
-    every cheaper gate."""
+@frozen
+class OpenPullRequestsCi:
+    """CI and conflict state across a report's open pull requests."""
+
+    ci_failing: bool
+    has_conflict: bool
+
+
+def _open_pull_requests_ci(team_id: int, prs: list[ImplementationPr]) -> OpenPullRequestsCi:
+    """Each flag reads False when GitHub cannot answer, so an action stays unavailable rather than guess."""
     references = [
         parsed for pr in prs if _is_open(pr) if (parsed := GitHubIntegration.parse_pull_request_url(pr.url)) is not None
     ]
     if not references:
-        return False
-    return rollup_ci_status(references, pr_ci_statuses_for_references(team_id, references)) == "failing"
+        return OpenPullRequestsCi(ci_failing=False, has_conflict=False)
+    statuses = pr_ci_statuses_for_references(team_id, references)
+    return OpenPullRequestsCi(
+        ci_failing=rollup_ci_status(references, statuses) == "failing",
+        has_conflict=any_conflicting(references, statuses),
+    )
 
 
-@frozen
+@frozen(slots=False)
 class ReportActionState:
     """The parts of a report's current state that decide which actions it offers."""
 
+    team_id: int
     status: str
     actionability: str | None
     already_addressed: bool | None
@@ -151,6 +177,7 @@ class ReportActionState:
         judgment = SignalReportArtefact.latest_actionability(report.id)
         prompts = report.suggested_prompts if isinstance(report.suggested_prompts, list) else []
         return cls(
+            team_id=report.team_id,
             status=report.status,
             actionability=judgment.actionability,
             already_addressed=judgment.already_addressed,
@@ -167,6 +194,12 @@ class ReportActionState:
     @property
     def has_open_pull_request(self) -> bool:
         return any(_is_open(pr) for pr in self.pull_requests)
+
+    @cached_property
+    def open_pull_requests_ci(self) -> OpenPullRequestsCi:
+        """Read once and shared by the actions that gate on it. It can wait on GitHub, so callers read
+        it after every cheaper gate."""
+        return _open_pull_requests_ci(self.team_id, list(self.pull_requests))
 
     @property
     def is_action_capable(self) -> bool:
@@ -238,9 +271,6 @@ def get_it_merged_action(
         disabled_reason = GET_IT_MERGED_NO_PR_DISABLED_REASON
     if disabled_reason is None and not context.pr_actions_flag_enabled():
         disabled_reason = GET_IT_MERGED_FLAG_DISABLED_REASON
-    # The merge pushes to the PR, so a trial org gets the same refusal as Create PR.
-    if disabled_reason is None and self_driving_free_trial_enabled(context.team):
-        disabled_reason = FREE_TRIAL_PR_MESSAGE
     url = action_report_url(report)
     return ReportTaskAction(
         kind=ReportTaskActionKind.GET_IT_MERGED,
@@ -260,17 +290,40 @@ def make_it_green_action(
         disabled_reason = MAKE_IT_GREEN_NO_PR_DISABLED_REASON
     if disabled_reason is None and not context.pr_actions_flag_enabled():
         disabled_reason = MAKE_IT_GREEN_FLAG_DISABLED_REASON
-    if disabled_reason is None and not _open_pull_requests_ci_failing(report.team_id, list(state.pull_requests)):
-        disabled_reason = MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON
-    # The fix pushes to the PR, so a trial org gets the same refusal as Create PR.
-    if disabled_reason is None and self_driving_free_trial_enabled(context.team):
-        disabled_reason = FREE_TRIAL_PR_MESSAGE
+    if disabled_reason is None:
+        ci = state.open_pull_requests_ci
+        if not (ci.ci_failing or ci.has_conflict):
+            disabled_reason = MAKE_IT_GREEN_NOTHING_TO_FIX_DISABLED_REASON
     return ReportTaskAction(
         kind=ReportTaskActionKind.MAKE_IT_GREEN,
         disabled_reason=disabled_reason,
         question=message or FIX_CI_REQUEST,
         instructions=(fix_ci_intro(action_report_url(report)), FIX_CI_WORK_INSTRUCTIONS, NO_CHECKOUT_INSTRUCTIONS),
         intent=ReportDiscussionIntent.FIX_CI,
+        custom_message=bool(message),
+    )
+
+
+def resolve_conflicts_action(
+    context: ReportTaskActionContext, report: SignalReport, state: ReportActionState, message: str | None = None
+) -> ReportTaskAction:
+    disabled_reason = context.ai_consent_disabled_reason
+    if disabled_reason is None and not state.has_open_pull_request:
+        disabled_reason = RESOLVE_CONFLICTS_NO_PR_DISABLED_REASON
+    if disabled_reason is None and not context.pr_actions_flag_enabled():
+        disabled_reason = RESOLVE_CONFLICTS_FLAG_DISABLED_REASON
+    if disabled_reason is None and not state.open_pull_requests_ci.has_conflict:
+        disabled_reason = RESOLVE_CONFLICTS_NO_CONFLICT_DISABLED_REASON
+    return ReportTaskAction(
+        kind=ReportTaskActionKind.RESOLVE_CONFLICTS,
+        disabled_reason=disabled_reason,
+        question=message or RESOLVE_CONFLICTS_REQUEST,
+        instructions=(
+            resolve_conflicts_intro(action_report_url(report)),
+            RESOLVE_CONFLICTS_WORK_INSTRUCTIONS,
+            NO_CHECKOUT_INSTRUCTIONS,
+        ),
+        intent=ReportDiscussionIntent.RESOLVE_CONFLICTS,
         custom_message=bool(message),
     )
 
@@ -322,6 +375,7 @@ def list_report_task_actions(context: ReportTaskActionContext, report: SignalRep
     return [
         get_it_merged_action(context, report, state),
         make_it_green_action(context, report, state),
+        resolve_conflicts_action(context, report, state),
         *suggested_prompt_actions(context, report, state),
     ]
 
@@ -343,6 +397,8 @@ def resolve_report_task_action(
         return get_it_merged_action(context, report, state, message)
     if kind == ReportTaskActionKind.MAKE_IT_GREEN:
         return make_it_green_action(context, report, state, message)
+    if kind == ReportTaskActionKind.RESOLVE_CONFLICTS:
+        return resolve_conflicts_action(context, report, state, message)
     if kind == ReportTaskActionKind.ASK:
         return ask_action(context, report, state, message) if message else None
     if suggested_prompt_index is None:
@@ -387,10 +443,16 @@ def _intro_line_pattern(intro: Callable[[str], str]) -> str:
     return re.escape(f"- {prefix}") + r"\S+" + re.escape(suffix)
 
 
+# The actions whose runs push to the report's pull request, so only one of them may run at a time.
+PULL_REQUEST_ACTION_KINDS = frozenset(
+    {ReportTaskActionKind.GET_IT_MERGED, ReportTaskActionKind.MAKE_IT_GREEN, ReportTaskActionKind.RESOLVE_CONFLICTS}
+)
+
 # The intros of the runs that push to the report's pull request. Two of them at once would push to the
 # same branch. The request after the block can be the caller's own text, so only the intro is fixed.
 _PULL_REQUEST_RUN_INTRO_LINE = re.compile(
-    "|".join(f"^{_intro_line_pattern(intro)}$" for intro in (merge_pr_intro, fix_ci_intro)), re.MULTILINE
+    "|".join(f"^{_intro_line_pattern(intro)}$" for intro in (merge_pr_intro, fix_ci_intro, resolve_conflicts_intro)),
+    re.MULTILINE,
 )
 
 PULL_REQUEST_RUN_START_GRACE = timedelta(minutes=2)
@@ -414,8 +476,9 @@ def is_pull_request_run_request(description: str | None) -> bool:
 def active_pull_request_run(*, team_id: int, report_id: str) -> ActiveReportRun | None:
     """The report's run that pushes to its pull request and is still working, if any.
 
-    Such a run is a discussion framed by `merge_pr_intro` or `fix_ci_intro`. The inbox sends the same
-    intros, so this finds runs started from either surface, whatever their request says.
+    Such a run is a discussion framed by `merge_pr_intro`, `fix_ci_intro`, or `resolve_conflicts_intro`.
+    The inbox sends the same intros, so this finds runs started from either surface, whatever their
+    request says.
     """
     discussion_task_ids = [
         run.task_id
@@ -455,7 +518,8 @@ def task_create_data(report: SignalReport, prompt: str) -> dict:
         # A report title can be longer than a task title allows.
         "title": ((report.title or "").strip() or "Ask AI about report")[:TASK_TITLE_MAX_LENGTH],
         "description": prompt,
-        "origin_product": tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+        "origin_product": INBOX.origin_product,
+        "profile": INBOX.key,
         "signal_report": report,
         "signal_report_task_relationship": TASK_RUN_TYPE_DISCUSSION,
     }
@@ -534,7 +598,7 @@ def inbox_report_action_properties(
         # The message text is never sent: it can name a customer's own entities.
         "question_source": "custom" if action.custom_message else "suggested",
         "suggestion_count": 1
-        if action.kind in (ReportTaskActionKind.GET_IT_MERGED, ReportTaskActionKind.MAKE_IT_GREEN)
+        if action.kind in PULL_REQUEST_ACTION_KINDS
         else len(state.suggested_prompts if state is not None else report.suggested_prompts or []),
         "report_action": action.kind.value,
         "outcome": outcome,

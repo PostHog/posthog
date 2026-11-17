@@ -2,7 +2,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     createInsightStory,
     expandFirstPropertyFilter,
@@ -80,7 +79,6 @@ const manyStepsFixture = {
     ...funnelTopToBottomFixture,
     result: Array.from({ length: 10 }, (_, i) => ({
         ...funnelTopToBottomFixture.result[0],
-        action_id: `step_${i + 1}`,
         name: `step_${i + 1}`,
         order: i,
         count: Math.round(12000 * 0.9 ** i),
@@ -98,21 +96,9 @@ const manyStepsFixture = {
     },
 }
 
-// One bar per step, so the step to step conversion chips sit in the gaps between steps.
-export const BarLabels: Story = {
-    render: () => <StoryRender insightFixture={funnelTopToBottomFixture} />,
-    parameters: { featureFlags: [FEATURE_FLAGS.FUNNEL_STEPS_BAR_LABELS] },
-}
-
 // Steps shrink to fit the width instead of scrolling, with the rate on each bar.
-export const BarLabelsManySteps: Story = {
+export const ManySteps: Story = {
     render: () => <StoryRender insightFixture={manyStepsFixture} width={1520} />,
-    parameters: { featureFlags: [FEATURE_FLAGS.FUNNEL_STEPS_BAR_LABELS] },
-}
-
-export const BarLabelsBreakdown: Story = {
-    render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} />,
-    parameters: { featureFlags: [FEATURE_FLAGS.FUNNEL_STEPS_BAR_LABELS] },
 }
 
 export const Breakdown: Story = {
@@ -164,3 +150,26 @@ EditSceneViewports.parameters = {
     },
 }
 EditSceneViewports.play = waitForFunnelToStabilize
+
+export const AlertThresholds: Story = {
+    render: () => (
+        <StoryRender
+            insightFixture={{
+                ...funnelTopToBottomFixture,
+                query: {
+                    ...funnelTopToBottomFixture.query,
+                    source: {
+                        ...funnelTopToBottomFixture.query.source,
+                        funnelsFilter: {
+                            ...funnelTopToBottomFixture.query.source.funnelsFilter,
+                            goalLines: [
+                                { label: 'Upper threshold', value: 80, borderColor: '#d14343' },
+                                { label: 'Lower threshold', value: 20, borderColor: '#d14343' },
+                            ],
+                        },
+                    },
+                },
+            }}
+        />
+    ),
+}

@@ -41,6 +41,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     TtlSchedule,
 )
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
@@ -58,6 +59,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     DateRangeOverMax,
     PerQueryOptedOut,
     PropertyAccessControlled,
+    ReachesRetentionFloor,
     UnsupportedFilterType,
     _oom_pin_key,
     _sticky_team_count_key,
@@ -82,6 +84,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import ensure_web_overview_precomputed
 from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
     can_use_lazy_precompute as can_use_stats_lazy_precompute,
 )
@@ -216,6 +219,72 @@ class TestCheckCommonEligibility(BaseTest):
         prop = PersonPropertyFilter(key="email", value="a@b.com", operator=PropertyOperator.EXACT)
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._check(use_precompute=None, properties=[prop])
+
+    @parameterized.expand(
+        [
+            # With 1-month retention at 2026-03-20 12:00 UTC, the build floor is 2026-02-25.
+            ("not_enforced", False, "2026-02-01", None, True),
+            ("current_period_reaches_floor", True, "2026-02-24", None, False),
+            ("compare_period_reaches_floor", True, "2026-03-10", "2026-02-24", False),
+            ("both_periods_after_floor", True, "2026-03-10", "2026-02-25", True),
+        ]
+    )
+    def test_range_reaching_the_retention_floor_goes_live(
+        self, _name: str, enforced: bool, date_from: str, compare_from: str | None, eligible: bool
+    ) -> None:
+        self.team.event_retention_months = 1
+        self.team.save()
+
+        def check() -> None:
+            check_common_eligibility(
+                team=self.team,
+                use_web_analytics_precompute=None,
+                conversion_goal=None,
+                sampling=None,
+                modifiers=None,
+                properties=[],
+                resolve_date_range=lambda: (
+                    datetime.fromisoformat(date_from).replace(tzinfo=UTC),
+                    datetime(2026, 3, 20, tzinfo=UTC),
+                ),
+                resolve_compare_date_from=lambda: (
+                    datetime.fromisoformat(compare_from).replace(tzinfo=UTC) if compare_from else None
+                ),
+            )
+
+        with (
+            override_settings(
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk], EVENTS_DATA_RETENTION_ENFORCED=enforced
+            ),
+            time_machine.travel(datetime(2026, 3, 20, 12, tzinfo=UTC), tick=False),
+        ):
+            if eligible:
+                check()
+            else:
+                with self.assertRaises(ReachesRetentionFloor):
+                    check()
+
+    @parameterized.expand([("no_compare", False, True), ("compare_reaches_floor", True, False)])
+    def test_runner_gate_sends_a_floor_reaching_compare_period_live(
+        self, _name: str, compare: bool, eligible: bool
+    ) -> None:
+        self.team.event_retention_months = 1
+        self.team.save()
+        runner = WebOverviewQueryRunner(
+            query=WebOverviewQuery(
+                dateRange=DateRange(date_from="2026-03-01", date_to="2026-03-19"),
+                compareFilter=CompareFilter(compare=compare),
+                properties=[],
+            ),
+            team=self.team,
+        )
+        with (
+            override_settings(
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk], EVENTS_DATA_RETENTION_ENFORCED=True
+            ),
+            time_machine.travel(datetime(2026, 3, 20, 12, tzinfo=UTC), tick=False),
+        ):
+            assert can_use_lazy_precompute(runner, log_prefix="web_overview") is eligible
 
     @mock.patch(f"{_COMMON}.team_has_property_access_rules", return_value=True)
     def test_team_with_property_access_controls_falls_through_to_live(self, _mock) -> None:
@@ -712,6 +781,54 @@ class TestWebEnsurePrecomputed(BaseTest):
         assert kwargs.get("cache_key_context") == (
             {"traffic_classification": "cookieless-missing-ua-v1"} if enabled else None
         )
+
+    @parameterized.expand(
+        [
+            ("no_bot_filter", [], {"traffic_classification": "cookieless-missing-ua-v1"}),
+            (
+                "bot_filter",
+                [EventPropertyFilter(key="$virt_is_bot", operator=PropertyOperator.EXACT, value=["false"])],
+                {"traffic_classification": "cookieless-missing-ua-v1+sdk-missing-ua-v1"},
+            ),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_only_queries_that_classify_traffic_get_a_new_hash(
+        self, _name: str, properties: list, expected: dict, mock_ensure: mock.Mock
+    ) -> None:
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=_overview(properties=properties),
+            modifiers=HogQLQueryModifiers(cookielessTrafficIsRegular=True),
+        )
+        ensure_web_overview_precomputed(runner, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 8, tzinfo=UTC))
+        assert mock_ensure.call_args.kwargs["cache_key_context"] == expected
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_test_account_cohort_that_classifies_traffic_gets_a_new_hash(self, mock_ensure: mock.Mock) -> None:
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        bot_leaf = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "event_type": "events",
+            "value": "performed_event",
+            "event_filters": [{"key": "$virt_is_bot", "type": "event", "value": ["true"], "operator": "exact"}],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="bots", filters={"properties": {"type": "AND", "values": [bot_leaf]}}
+        )
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "not_in"}]
+        self.team.save()
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=_overview().model_copy(update={"filterTestAccounts": True}),
+            modifiers=HogQLQueryModifiers(cookielessTrafficIsRegular=True),
+        )
+        ensure_web_overview_precomputed(runner, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 8, tzinfo=UTC))
+        assert mock_ensure.call_args.kwargs["cache_key_context"] == {
+            "traffic_classification": "cookieless-missing-ua-v1+sdk-missing-ua-v1"
+        }
 
     def tearDown(self):
         redis.get_client().delete(_oom_pin_key(self.team.pk))

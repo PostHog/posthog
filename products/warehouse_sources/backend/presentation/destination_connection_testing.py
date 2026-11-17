@@ -6,7 +6,7 @@ from uuid import uuid4
 from django.db import models
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationKind, IntegrationRecord
 
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import (
@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataDestina
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
     CONFIG_FAILURES,
     DestinationConnectionCheckError,
+    check_motherduck_destination,
     check_postgres_destination,
 )
 
@@ -128,15 +129,24 @@ _CREDENTIAL_STEP_COUNT: dict[str, int] = {
 }
 
 
-def connection_test_type(destination_type: str, integration: Integration) -> str | None:
+def has_connection_test(destination_type: str) -> bool:
+    """Whether creating a destination of this type tests its connection first."""
+    return destination_type in (
+        ExternalDataDestination.Type.POSTGRES,
+        ExternalDataDestination.Type.S3,
+        ExternalDataDestination.Type.MOTHERDUCK,
+    ) or (destination_type in _TEST_TYPES)
+
+
+def connection_test_type(destination_type: str, integration: IntegrationRecord) -> str | None:
     """The batch exports test that covers this destination, or None when there is none."""
     if destination_type == ExternalDataDestination.Type.S3:
-        return "AwsS3" if integration.kind == Integration.IntegrationKind.AWS_S3 else "S3Compatible"
+        return "AwsS3" if integration.kind == IntegrationKind.AWS_S3 else "S3Compatible"
     return _TEST_TYPES.get(destination_type)
 
 
 def run_connection_test(
-    destination_type: str, integration: Integration, config: Mapping[str, Any] | None
+    destination_type: str, integration: IntegrationRecord, config: Mapping[str, Any] | None
 ) -> ConnectionTestRun | None:
     """Run each step of the destination's connection test, and stop at the first failed step.
 
@@ -186,13 +196,36 @@ _POSTGRES_STEP = DestinationTestStep(
 )
 
 
-def run_postgres_connection_test(integration: Integration, config: Mapping[str, Any] | None) -> ConnectionTestRun:
+_MOTHERDUCK_STEP = DestinationTestStep(
+    name="Connect to MotherDuck",
+    description="Connect to the database and check that the access token can create tables in the schema.",
+    result=None,
+)
+
+
+def run_postgres_connection_test(integration: IntegrationRecord, config: Mapping[str, Any] | None) -> ConnectionTestRun:
     """Run the Postgres check as a single step, so it reports like the other connection tests."""
+    return _run_single_step_check(_POSTGRES_STEP, check_postgres_destination, integration, config)
+
+
+def run_motherduck_connection_test(
+    integration: IntegrationRecord, config: Mapping[str, Any] | None
+) -> ConnectionTestRun:
+    """Run the MotherDuck check as a single step, so it reports like the other connection tests."""
+    return _run_single_step_check(_MOTHERDUCK_STEP, check_motherduck_destination, integration, config)
+
+
+def _run_single_step_check(
+    template: DestinationTestStep,
+    check: Callable[[IntegrationRecord, dict[str, Any] | None], None],
+    integration: IntegrationRecord,
+    config: Mapping[str, Any] | None,
+) -> ConnectionTestRun:
     try:
-        check_postgres_destination(integration, dict(config) if isinstance(config, Mapping) else None)
+        check(integration, dict(config) if isinstance(config, Mapping) else None)
     except DestinationConnectionCheckError as error:
         step = replace(
-            _POSTGRES_STEP,
+            template,
             result=DestinationTestStepResult(
                 status=DestinationConnectionTestStepStatus.FAILED.value, message=str(error)
             ),
@@ -205,7 +238,7 @@ def run_postgres_connection_test(integration: Integration, config: Mapping[str, 
         return ConnectionTestRun(steps=(step,), failure=failure)
 
     step = replace(
-        _POSTGRES_STEP,
+        template,
         result=DestinationTestStepResult(status=DestinationConnectionTestStepStatus.PASSED.value, message=None),
     )
     return ConnectionTestRun(steps=(step,), failure=None)

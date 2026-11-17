@@ -1,0 +1,59 @@
+# Example: { type: tool-call, toolCallId: t1, toolName: search, input: { q: "x" } }
+
+id: vercel_sdk
+
+rules:
+    - on:
+          type: text
+          content: { is: string }
+      emit:
+          content: $.content
+
+    - on:
+          type: input_text
+          text: { is: string }
+      emit:
+          content: $.text
+
+    - on:
+          type: input_image
+          image_url: { is: string }
+      emit:
+          content:
+              - image: $.image_url
+
+    - on:
+          type: tool-call
+          id: { exists: true }
+          function:
+              name: { is: string }
+      emit:
+          content: ''
+          toolCall:
+              id: $.id
+              name: $.function.name
+              args: $.function.arguments
+
+    # `function: { exists: false }` keeps this from competing with the function variant above.
+    - on:
+          type: tool-call
+          toolName: { is: string }
+          function: { exists: false }
+      emit:
+          content: ''
+          toolCall:
+              id: $.toolCallId
+              name: $.toolName
+              args:
+                  coalesce:
+                      - $.input
+                      - {}
+
+    - on:
+          type: tool-result
+          toolName: { is: string }
+      emit:
+          role: tool_result
+          content:
+              stringify: $.output
+          toolCallId: $.toolCallId

@@ -2,8 +2,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -23,9 +26,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.models import PropertyDefinition
-
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import PropertyDefinition
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 
@@ -180,6 +182,32 @@ class TestConversionGoalProcessorRefactor(BaseTest):
 
     @parameterized.expand(
         [
+            # With 1-month retention at 2026-03-20 12:00 UTC, the build floor is 2026-02-25.
+            ("not_enforced", False, 14, True),
+            ("lookback_after_floor", True, 7, True),
+            ("lookback_reaches_floor", True, 14, False),
+        ]
+    )
+    def test_precompute_skipped_when_touchpoint_lookback_reaches_retention_floor(
+        self, _name: str, enforced: bool, attribution_window_days: int, expected: bool
+    ):
+        self.team.event_retention_months = 1
+        self.team.save()
+        processor = self._processor()
+        processor.config.conversion_goal_precomputation_enabled = True
+        processor.config.attribution_window_days = attribution_window_days
+
+        with (
+            override_settings(EVENTS_DATA_RETENTION_ENFORCED=enforced),
+            time_machine.travel(datetime(2026, 3, 20, 12, tzinfo=UTC), tick=False),
+        ):
+            assert (
+                processor._should_use_precompute(datetime(2026, 3, 10, tzinfo=UTC), datetime(2026, 3, 19, tzinfo=UTC))
+                is expected
+            )
+
+    @parameterized.expand(
+        [
             ("revenue_math_property", {"math_property": "$virt_revenue"}, False),
             (
                 "revenue_currency_property",
@@ -217,7 +245,7 @@ class TestConversionGoalProcessorRefactor(BaseTest):
 
     def test_action_step_on_revenue_property_is_not_precomputable(self):
         # An action goal pulls its steps' filters into the INSERT, so they must be checked too.
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Paying purchase",
             steps_json=[

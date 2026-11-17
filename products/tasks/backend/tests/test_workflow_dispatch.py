@@ -28,6 +28,7 @@ from products.tasks.backend.facade.api import (
     maintain_workflow_dispatch_outbox,
     resume_task_run_in_cloud,
 )
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus
 from products.tasks.backend.logic.services.workflow_dispatch import (
     RestartSnapshot,
@@ -56,6 +57,9 @@ from products.tasks.backend.metrics import WORKFLOW_DISPATCH_ATTEMPT_TOTAL
 from products.tasks.backend.models import Channel, ChannelMembership, Task, TaskRun, TaskWorkflowDispatch
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
+
+SIGNAL_REPORT_PROFILE = get_task_profile("signals.custom_agent")
+SLACK_PROFILE = get_task_profile("slack")
 
 
 class TestWorkflowDispatchPayload(SimpleTestCase):
@@ -525,7 +529,7 @@ class TestWorkflowDispatchPersistence(TestCase):
             team=self.team,
             title="Deferred start",
             description="Created without starting the workflow",
-            origin_product=Task.OriginProduct.SLACK,
+            profile=SLACK_PROFILE,
             user_id=creator_id,
             create_pr=False,
             mode="interactive",
@@ -549,7 +553,7 @@ class TestWorkflowDispatchPersistence(TestCase):
             team=self.team,
             title="Scheduled follow-up",
             description="Review the report after more data arrives",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SIGNAL_REPORT_PROFILE,
             user_id=creator_id,
             create_pr=False,
             scheduled_at=scheduled_at,
@@ -605,8 +609,10 @@ class TestWorkflowDispatchPersistence(TestCase):
             state=state,
         )
 
-        self.assertEqual(materialize_due_scheduled_task_runs(100), 1)
+        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
+            self.assertEqual(materialize_due_scheduled_task_runs(100), 1)
 
+        log_started.assert_called_once_with(due, [self.task_run.id])
         due.refresh_from_db()
         future.refresh_from_db()
         local.refresh_from_db()
@@ -824,6 +830,50 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.assertEqual(due.status, TaskRun.Status.CANCELLED)
         self.assertEqual(future.status, TaskRun.Status.CANCELLED)
         self.assertEqual(dispatch.status, TaskWorkflowDispatch.Status.DEAD)
+        self.assertEqual(materialize_due_scheduled_task_runs(10), 0)
+
+    def test_due_run_on_task_deleted_out_of_band_is_cancelled(self) -> None:
+        now = django_timezone.now()
+        deleted_task = Task.objects.create(
+            team=self.team,
+            created_by=self.task_run.task.created_by,
+            title="Deleted task",
+            description="Deleted without the scheduled-run cleanup",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        state = {
+            "pending_dispatch": {
+                "user_id": self.task_run.task.created_by_id,
+                "create_pr": False,
+                "posthog_mcp_scopes": "full",
+            }
+        }
+        orphaned = TaskRun.objects.create(
+            task=deleted_task,
+            team=self.team,
+            status=TaskRun.Status.NOT_STARTED,
+            scheduled_at=now - timedelta(minutes=2),
+            state=state,
+        )
+        live = TaskRun.objects.create(
+            task=self.task_run.task,
+            team=self.team,
+            status=TaskRun.Status.NOT_STARTED,
+            scheduled_at=now - timedelta(minutes=1),
+            state=state,
+        )
+        Task.objects.filter(id=deleted_task.id).update(deleted=True, deleted_at=now)
+
+        self.assertEqual(materialize_due_scheduled_task_runs(10), 1)
+
+        orphaned.refresh_from_db()
+        live.refresh_from_db()
+        self.assertEqual(orphaned.status, TaskRun.Status.CANCELLED)
+        self.assertIsNotNone(orphaned.completed_at)
+        assert orphaned.error_message is not None
+        self.assertIn("canceled because the task was deleted", orphaned.error_message)
+        self.assertFalse(TaskWorkflowDispatch.objects.unscoped().filter(task_run=orphaned).exists())
+        self.assertEqual(live.status, TaskRun.Status.QUEUED)
         self.assertEqual(materialize_due_scheduled_task_runs(10), 0)
 
     @parameterized.expand(

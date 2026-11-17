@@ -2,6 +2,7 @@
 
 from collections.abc import Collection, Iterable
 from datetime import datetime
+from graphlib import TopologicalSorter
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -26,6 +27,7 @@ from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
 from ..models.node import Node, NodeType
 from .incremental import get_incremental_config
+from .node_suspension import query_fingerprint
 from .saved_query_freshness import saved_query_materialized_at
 from .tier_run_report import MATERIALIZING_TYPES
 
@@ -108,10 +110,27 @@ def get_saved_query_sql(team_id: int, saved_query_id: UUID | str) -> str | None:
     return sql if isinstance(sql, str) else None
 
 
-def all_saved_query_names(team_id: int) -> dict[str, str]:
+def saved_query_data_revision(team_id: int, name: str) -> str | None:
+    """A token that changes when the rows the named saved query returns can change: an edit to its
+    HogQL, or a new materialization. None when no saved query in this team has this name."""
+    saved_query = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, name=name)
+        .exclude(deleted=True)
+        .only("id", "team_id", "query", "last_run_at")
+        .first()
+    )
+    if saved_query is None:
+        return None
+    materialized_at = saved_query_materialized_at(saved_query)
+    return f"{query_fingerprint(saved_query.query) or ''}:{materialized_at.isoformat() if materialized_at else ''}"
+
+
+def all_saved_query_names(team_id: int, *, ids: Collection[UUID] | None = None) -> dict[str, str]:
     """The current name of every saved query in this team that still resolves. One query."""
-    rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "name")
-    return {str(saved_query_id): name for saved_query_id, name in rows}
+    saved_queries = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True)
+    if ids is not None:
+        saved_queries = saved_queries.filter(id__in=ids)
+    return {str(saved_query_id): name for saved_query_id, name in saved_queries.values_list("id", "name")}
 
 
 def saved_query_definitions(team_id: int, *, ids: Collection[UUID] | None = None) -> list[SavedQueryDefinition]:
@@ -124,7 +143,17 @@ def saved_query_definitions(team_id: int, *, ids: Collection[UUID] | None = None
         saved_queries_in_team = saved_queries_in_team.filter(id__in=ids)
     saved_queries = list(
         saved_queries_in_team.exclude(deleted=True)
-        .only("id", "name", "query", "is_test", "managed_viewset_id", "origin", "created_at", "incremental_config")
+        .only(
+            "id",
+            "name",
+            "query",
+            "is_test",
+            "managed_viewset_id",
+            "origin",
+            "created_at",
+            "created_by_id",
+            "incremental_config",
+        )
         .order_by("created_at", "id")
     )
     materializing_ids = set(
@@ -150,6 +179,7 @@ def _definition(saved_query: DataWarehouseSavedQuery, *, materializes: bool) -> 
         created_at=saved_query.created_at,
         refreshes_incrementally=get_incremental_config(saved_query) is not None,
         calls_decision_functions=calls_decision_functions(hogql),
+        created_by_id=saved_query.created_by_id,
     )
 
 
@@ -258,11 +288,14 @@ def get_materialized_table_uri(team_id: int, saved_query_id: UUID | str) -> str 
     writes to (``_build_model_table_uri``), so a reader lands on the table that run produced.
     """
     saved_query = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id).exclude(deleted=True).first()
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        .exclude(deleted=True)
+        .select_related("table")
+        .first()
     )
     if saved_query is None or not saved_query.is_materialized:
         return None
-    return f"{settings.BUCKET_URL}/{saved_query.folder_path}/{saved_query.normalized_name}"
+    return f"{settings.BUCKET_URL}/{saved_query.folder_path}/{saved_query.storage_name}"
 
 
 def get_node_ids_for_saved_queries(team_id: int, saved_query_ids: Iterable[UUID | str]) -> dict[str, str]:
@@ -331,6 +364,16 @@ def dependent_saved_query_ids(team_id: int, saved_query_ids: Collection[UUID]) -
     for source_id, target_id in edges:
         dependents[source_id].add(target_id)
     return {saved_query_id: frozenset(ids) for saved_query_id, ids in dependents.items()}
+
+
+def saved_query_ids_upstream_first(team_id: int, saved_query_ids: Collection[UUID]) -> list[UUID]:
+    """Order saved query ids so every upstream view precedes its downstream views."""
+    view_ids = set(saved_query_ids)
+    sorter: TopologicalSorter[UUID] = TopologicalSorter({view_id: set() for view_id in sorted(view_ids)})
+    for source_id, target_ids in dependent_saved_query_ids(team_id, view_ids).items():
+        for target_id in target_ids & view_ids:
+            sorter.add(target_id, source_id)
+    return list(sorter.static_order())
 
 
 def saved_query_node_ids(team_id: int, saved_query_id: UUID | str) -> set[str]:
@@ -408,6 +451,31 @@ def upstream_saved_query_ids(team_id: int, saved_query_id: UUID | str) -> frozen
         .exclude(saved_query_id=saved_query_id)
         .values_list("saved_query_id", flat=True)
     )
+
+
+def downstream_saved_query_ids(team_id: int, saved_query_id: UUID | str) -> frozenset[UUID]:
+    """The saved queries that read from this one, directly or through other views in any DAG."""
+    start_node_ids = _node_ids_standing_for(team_id, {str(saved_query_id)})
+    reached = reachable_node_ids(team_id, start_node_ids, upstream=False, max_depth=None)
+    return frozenset(
+        Node.objects.filter(team_id=team_id, id__in=reached, saved_query_id__isnull=False)
+        .exclude(saved_query_id=saved_query_id)
+        .values_list("saved_query_id", flat=True)
+    )
+
+
+def unbuilt_upstream_saved_query_ids(
+    team_id: int, saved_query_id: UUID | str, *, engine: DataModelingJobEngine
+) -> frozenset[UUID]:
+    """The upstream saved queries of this one that have never completed a build on ``engine``."""
+    upstream_ids = upstream_saved_query_ids(team_id, saved_query_id)
+    built_ids = DataModelingJob.objects.filter(
+        team_id=team_id,
+        saved_query_id__in=upstream_ids,
+        engine=engine,
+        status=DataModelingJobStatus.COMPLETED,
+    ).values_list("saved_query_id", flat=True)
+    return upstream_ids - frozenset(built_ids)
 
 
 def last_query_change_at(team_id: int, saved_query_ids: Collection[UUID]) -> datetime | None:

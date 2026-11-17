@@ -19,6 +19,11 @@ from posthog.test.persons import add_cohort_members, create_person
 
 from products.cohorts.backend.models.cohort import Cohort, CohortConditionFlags, CohortType, ImportResolution
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
@@ -905,6 +910,8 @@ class TestCohortIsFlagCompatible(BaseTest):
             ("realtime_mixed_only_person_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, None, False),
             ("realtime_mixed_only_events_ts", CohortType.REALTIME, _MIXED_FILTERS, None, _FIXED_TS, False),
             ("realtime_mixed_both_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, _FIXED_TS, True),
+            # Nothing maintains the membership of a cohort that is off, whatever stamps it carries.
+            ("realtime_off_mixed_both_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, _FIXED_TS, False),
             # Realtime + no recognized filter types: never compatible, regardless of timestamps
             ("realtime_empty_filters_no_ts", CohortType.REALTIME, {}, None, None, False),
             ("realtime_empty_filters_with_ts", CohortType.REALTIME, {}, _FIXED_TS, _FIXED_TS, False),
@@ -942,8 +949,35 @@ class TestCohortIsFlagCompatible(BaseTest):
             team=self.team,
             filters=filters,
             cohort_type=cohort_type,
+            realtime_enabled_at=None if _label.startswith("realtime_off") else _FIXED_TS,
             last_backfill_person_properties_at=person_ts,
             last_backfill_events_at=events_ts,
+        )
+        self.assertEqual(cohort.is_flag_compatible, expected)
+
+    @parameterized.expand(
+        [
+            # A load-test team's runs stamp its cohorts too, but its flags never read membership.
+            ("processing", RealtimeCohortLevel.PROCESSING, False),
+            # After a revoke no edit clears the stamps, so they must not open flags and workflows.
+            ("revoked", RealtimeCohortLevel.OFF, False),
+            ("serving", RealtimeCohortLevel.SERVING, True),
+            # The legacy realtime workflow stamped cohorts on teams that have no access at all.
+            ("no_access", None, True),
+        ]
+    )
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
+    def test_stamps_do_not_count_on_a_row_below_serving(self, _label, level, expected):
+        if level is not None:
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=level, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters=_BEHAVIORAL_FILTERS,
+            cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=_FIXED_TS,
+            last_backfill_events_at=_FIXED_TS,
         )
         self.assertEqual(cohort.is_flag_compatible, expected)
 

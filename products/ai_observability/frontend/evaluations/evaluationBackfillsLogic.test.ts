@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -21,6 +22,7 @@ import {
 import type { EvaluationBackfillApi, EvaluationBackfillEstimateApi } from '../generated/api.schemas'
 import { evaluationBackfillsLogic } from './evaluationBackfillsLogic'
 import { llmEvaluationLogic } from './llmEvaluationLogic'
+import { requestBackfillStart } from './pendingBackfillStarts'
 import type { EvaluationConfig } from './types'
 
 jest.mock('../generated/api', () => ({
@@ -80,6 +82,7 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
         window_end: '2024-01-02T00:00:00Z',
         conditions: [{ properties: [], rollout_percentage: 100 }],
         rerun_existing: false,
+        max_units: null,
         total_count: 10,
         dispatched_count: 8,
         completed_count: null,
@@ -423,16 +426,28 @@ describe('evaluationBackfillsLogic', () => {
     })
 
     it('anchors a relative preset on the project timezone', async () => {
-        const timezone = 'America/New_York'
-        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, timezone })
-        await mountAndSettle()
+        jest.useFakeTimers()
+        try {
+            // New York leaves daylight time on Nov 1, so a 14-day window spans the change.
+            jest.setSystemTime(new Date('2026-11-02T15:00:00Z'))
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, timezone: 'America/New_York' })
+            mountLogic()
+            await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS)
+            await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess', 'requestEstimateSuccess'])
+            estimateMock.mockClear()
 
-        logic.actions.setWindowRange('-7d', null)
-        await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+            // Not the -7d default, so the request differs from the one the mount already sent.
+            logic.actions.setWindowRange('-14d', null)
+            await jest.advanceTimersByTimeAsync(ESTIMATE_DEBOUNCE_MS)
+            await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
 
-        const body = estimateMock.mock.calls[estimateMock.mock.calls.length - 1][2]
-        expect(body.window_start).toEqual(dayjs().tz(timezone).startOf('day').subtract(7, 'day').toISOString())
-        expect(Math.abs(dayjs(body.window_end).diff(dayjs(), 'second'))).toBeLessThan(5)
+            const body = estimateMock.mock.calls[estimateMock.mock.calls.length - 1][2]
+            // Midnight on Oct 19 is still daylight time (UTC-4), not today's UTC-5.
+            expect(body.window_start).toEqual('2026-10-19T04:00:00.000Z')
+            expect(body.window_end).toEqual(new Date().toISOString())
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('polls the list while a backfill is running and stops once none is', async () => {
@@ -447,6 +462,35 @@ describe('evaluationBackfillsLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
         expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(false)
+    })
+
+    it('starts the default range once counted when a create asked for it, and only once', async () => {
+        requestBackfillStart(EVALUATION_ID)
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['requestEstimateSuccess', 'createBackfill', 'createBackfillDone'])
+        expect(createMock).toHaveBeenCalledTimes(1)
+
+        logic.actions.requestEstimateSuccess(estimate())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(createMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('starts nothing from a link that only claims a start was requested', async () => {
+        router.actions.push(router.values.location.pathname, { backfill_start: 'requested' })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(createMock).not.toHaveBeenCalled()
+    })
+
+    it('still starts a requested backfill after leaving the tab before the count landed', async () => {
+        requestBackfillStart(EVALUATION_ID)
+        mountLogic()
+        logic.unmount()
+
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['createBackfill', 'createBackfillDone'])
+        expect(createMock).toHaveBeenCalledTimes(1)
     })
 
     it('keeps polling a finished run until its coverage lands', async () => {

@@ -18,7 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
+from products.tasks.backend.constants import RESUME_SNAPSHOT_KIND, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.babysit_pr.prompts import (
@@ -70,7 +70,6 @@ from .activities.feature_flags import (
 )
 from .activities.forward_pending_message import forward_pending_user_message
 from .activities.get_sandbox_exit_reason import GetSandboxExitReasonInput, get_sandbox_exit_reason
-from .activities.get_sandbox_for_repository import GetSandboxForRepositoryOutput
 from .activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -79,11 +78,13 @@ from .activities.get_task_processing_context import (
 from .activities.materialize_context_layer import MaterializeContextLayerInput, materialize_context_layer_in_sandbox
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
+    REPOSITORY_CLONE_RETRY_DELAYS_SECONDS,
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
     CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
+    GetSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryInput,
@@ -146,9 +147,11 @@ from .credential_refresh import CredentialRefreshExitReason, run_credential_refr
 from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
 
 DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
+RUN_ENDING_FOLLOWUP_ERROR_TYPES = ("ActiveSessionCapError",)
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE = "tasks-fail-run-on-primary-clone-failure"
 _PATCH_ID_SHARED_STARTUP_TIMING = "tasks-shared-startup-timing"
+_PATCH_ID_BACKGROUND_SLACK_AND_TRACK = "tasks-background-slack-and-track"
 
 
 class _TaskCompletedDuringSandboxCreation(Exception):
@@ -210,6 +213,7 @@ class ResumedSandboxState:
     last_agent_heartbeat_at: Optional[str] = None
     sandbox_ttl_expires_at: Optional[str] = None
     sandbox_ttl_snapshot_taken: bool = False
+    sandbox_ttl_snapshot_saved: bool = False
     sandbox_rotation_idle: bool = False
     first_command_dispatched_recorded: bool = False
     first_agent_activity_recorded: bool = False
@@ -303,6 +307,7 @@ class TaskEvent(StrEnum):
     SANDBOX_GONE = "sandbox_gone"
     QUOTA_RECHECK = "quota_recheck"
     SANDBOX_TTL_APPROACHING = "sandbox_ttl_approaching"
+    SANDBOX_TTL_REACHED = "sandbox_ttl_reached"
 
 
 class CIFollowUpDecision(StrEnum):
@@ -345,18 +350,13 @@ SELF_DRIVING_QUOTA_RECHECK_INTERVAL = timedelta(minutes=5)
 
 _ORIGIN_PRODUCT_SIGNAL_REPORT = "signal_report"
 
-# Gates the forward of the agent_final_text signal to the Slack relay. A worker without the
-# handler records that signal in history and sends nothing, so a replay that forwards it emits a
-# command the history does not have (TMPRL1100). Every worker now has the handler, so the patch is
-# deprecated; delete it once histories that carry the marker drain.
-_PATCH_ID_SLACK_AGENT_FINAL_TEXT = "tasks-slack-agent-final-text"
-
 # Progress steps of sandbox setup. The Slack plan shows them until the first turn starts.
 _SLACK_SETUP_PROGRESS_STEPS = frozenset({"sandbox", "clone", "checkout", "wizard", "agent"})
 
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
 _PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT = "tasks-rotation-activity-before-boot"
+_PATCH_ID_END_RUN_AT_SANDBOX_LIMIT = "tasks-end-run-at-sandbox-limit"
 
 
 def _check_rotation_activity_before_boot() -> bool:
@@ -443,10 +443,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._ci_resume_snapshot_created: bool = False
         self._sandbox_ttl_expires_at: Optional[datetime] = None
         self._sandbox_ttl_snapshot_taken: bool = False
+        self._sandbox_ttl_snapshot_saved: bool = False
         # Decided once at workflow start; gates the placeholder skip + relay spawn.
         self._is_agent_design_enabled: bool = False
-        # See _PATCH_ID_SLACK_AGENT_FINAL_TEXT.
-        self._forwards_agent_final_text: bool = False
         self._dev_stack_preview_enabled: bool = False
         # Deadline-based so heartbeats waking the event loop don't keep resetting the timer.
         self._self_driving_quota_next_check_at: Optional[datetime] = None
@@ -659,10 +658,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return TaskEvent.CI_FOLLOW_UP
 
     def _self_driving_quota_recheck_scheduled(self) -> bool:
+        if not self._self_driving_quota_checks_active or self._context is None:
+            return False
+        if (self.context.state or {}).get("self_driving_funding", {}).get("funding") == "trial" and workflow.patched(
+            "self-driving-trial-quota-rechecks"
+        ):
+            return True
         return (
             self._self_driving_quota_checks_active
             and self._context is not None
             and self.context.origin_product == _ORIGIN_PRODUCT_SIGNAL_REPORT
+            and (self.context.state or {}).get("billing_product") != "posthog_ai"
             # Research / repo-selection / custom-agent sessions run with create_pr=False and can
             # never open the billable PR; rechecking them would let the quota gate cancel
             # in-flight research.
@@ -747,6 +753,28 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.sleep(remaining.total_seconds())
         return TaskEvent.SANDBOX_TTL_APPROACHING
 
+    def _sandbox_limit_scheduled(self) -> bool:
+        return (
+            self._sandbox_ttl_expires_at is not None
+            and self._sandbox_ttl_snapshot_taken
+            and workflow.patched(_PATCH_ID_END_RUN_AT_SANDBOX_LIMIT)
+        )
+
+    def _can_end_before_sandbox_limit(self) -> bool:
+        return (
+            self._sandbox_ttl_snapshot_saved
+            and self._sandbox_rotation_block_reason() is None
+            and self._pending_followup is None
+            and not self._pending_followups
+        )
+
+    async def _wait_for_sandbox_limit(self) -> TaskEvent:
+        assert self._sandbox_ttl_expires_at is not None
+        remaining = self._sandbox_ttl_expires_at - workflow.now()
+        if remaining.total_seconds() > 0 and not self._can_end_before_sandbox_limit():
+            await workflow.sleep(remaining.total_seconds())
+        return TaskEvent.SANDBOX_TTL_REACHED
+
     async def _wait_for_quota_recheck(self):
         if self._self_driving_quota_next_check_at is None:
             self._self_driving_quota_next_check_at = workflow.now() + SELF_DRIVING_QUOTA_RECHECK_INTERVAL
@@ -827,6 +855,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             possible_events.append(asyncio.create_task(self._wait_for_max_run_duration(max_run_duration)))
         if self._sandbox_deadline_snapshot_scheduled():
             possible_events.append(asyncio.create_task(self._wait_for_sandbox_deadline()))
+        if self._sandbox_limit_scheduled():
+            possible_events.append(asyncio.create_task(self._wait_for_sandbox_limit()))
         if ci_follow_up_scheduled:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
         if not warm_idle and self._self_driving_quota_recheck_scheduled():
@@ -1196,9 +1226,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
             self._sandbox_url = sandbox_url
             self._sandbox_connect_token = sandbox_connect_token
-            if self._is_agent_design_enabled:
-                workflow.deprecate_patch(_PATCH_ID_SLACK_AGENT_FINAL_TEXT)
-                self._forwards_agent_final_text = True
 
             relay_task: asyncio.Task[None] | None = self._spawn_event_relay(
                 sandbox_url, sandbox_connect_token, sandbox_id
@@ -1357,6 +1384,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                     allow_pruning=False,
                                 )
                             )
+                            self._sandbox_ttl_snapshot_saved = saved
                             if not routing_restored:
                                 detail = (
                                     "This run can't take more messages: moving it to a fresh sandbox failed "
@@ -1420,12 +1448,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             # here as well so loop exit doesn't depend on signal delivery order.
                             if not self._task_completed:
                                 self._completion_status = "cancelled"
-                                self._completion_error = (
-                                    "Stopped automatically: the organization reached its "
-                                    "self-driving pull request limit."
-                                )
+                                self._completion_error = "Stopped automatically: the organization reached its self-driving pull request limit."
                                 self._task_completed = True
                     case TaskEvent.SANDBOX_GONE:
+                        await self._mark_sandbox_gone()
+                    case TaskEvent.SANDBOX_TTL_REACHED:
+                        workflow.logger.info(
+                            "sandbox_limit_reached_without_rotation",
+                            extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+                        )
                         await self._mark_sandbox_gone()
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._has_dispatchable_followup():
@@ -1621,95 +1652,77 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # Skip teardown on a continue_as_new hand-off (a `return` here would swallow the
             # ContinueAsNewError); the loops are already stopped and the sandbox lives on.
             if not continuing_as_new:
-                if self._active_followup_task is not None:
-                    await self._cancel_relay(self._active_followup_task)
-                    self._active_followup_task = None
-                if credential_refresh_task is not None:
-                    await self._cancel_relay(credential_refresh_task)
-                if permission_response_task is not None:
-                    await self._cancel_relay(permission_response_task)
-                if preview_task is not None:
-                    await self._cancel_relay(preview_task)
-                if agent_shadow_task is not None:
-                    await self._cancel_relay(agent_shadow_task)
-                await self._flush_boot_telemetry_tasks()
-                await self._flush_pending_progress_activities()
-                await self._close_dev_stack_preview_progress()
+                try:
+                    if self._active_followup_task is not None:
+                        await self._cancel_relay(self._active_followup_task)
+                        self._active_followup_task = None
+                    if credential_refresh_task is not None:
+                        await self._cancel_relay(credential_refresh_task)
+                    if permission_response_task is not None:
+                        await self._cancel_relay(permission_response_task)
+                    if preview_task is not None:
+                        await self._cancel_relay(preview_task)
+                    if agent_shadow_task is not None:
+                        await self._cancel_relay(agent_shadow_task)
+                    await self._flush_boot_telemetry_tasks()
+                    await self._flush_pending_progress_activities()
+                    await self._close_dev_stack_preview_progress()
 
-                cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
-                if cleanup_sandbox_id:
+                    cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
+                    if cleanup_sandbox_id:
+                        if (
+                            self._context
+                            and self._context.mode == "interactive"
+                            and self._context.use_modal_resume_snapshots
+                        ):
+                            await self._create_resume_snapshot(
+                                cleanup_sandbox_id,
+                                reason="teardown",
+                                allow_pruning=True,
+                            )
+
+                        await self._read_sandbox_logs(cleanup_sandbox_id)
+                        await self._cleanup_sandbox(
+                            cleanup_sandbox_id,
+                            complete_stream=True,
+                        )
+                        sandbox_cleaned = True
+                        self._sandbox_id_for_cleanup = None
+                    elif not run_stream_completed and (self._context is None or self._context.environment == "cloud"):
+                        await self._complete_run_stream(run_id)
+
+                    if sandbox_cleaned and self._slack_thread_context and self._context:
+                        await self._post_slack_update(sandbox_cleaned=True)
+                finally:
                     if (
                         self._context
-                        and self._context.mode == "interactive"
-                        and self._context.use_modal_resume_snapshots
+                        and self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
+                        and (self.context.state or {}).get("billing_product") != "posthog_ai"
+                        and workflow.patched("signals-publish-spend-on-completion")
                     ):
-                        await self._create_resume_snapshot(
-                            cleanup_sandbox_id,
-                            reason="teardown",
-                            allow_pruning=True,
-                        )
-
-                    await self._read_sandbox_logs(cleanup_sandbox_id)
-                    await self._cleanup_sandbox(
-                        cleanup_sandbox_id,
-                        complete_stream=True,
-                    )
-                    sandbox_cleaned = True
-                    self._sandbox_id_for_cleanup = None
-                elif not run_stream_completed and (self._context is None or self._context.environment == "cloud"):
-                    await self._complete_run_stream(run_id)
-
-                if sandbox_cleaned and self._slack_thread_context and self._context:
-                    await self._post_slack_update(sandbox_cleaned=True)
-
-                if (
-                    self._context
-                    and self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
-                    and workflow.patched("signals-publish-spend-on-completion")
-                ):
-                    try:
-                        await workflow.execute_activity(
-                            complete_signal_spend,
-                            run_id,
-                            start_to_close_timeout=timedelta(minutes=20),
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                        )
-                    except Exception:
-                        workflow.logger.exception("Failed to finalize signal spend", extra={"run_id": run_id})
+                        try:
+                            await workflow.execute_activity(
+                                complete_signal_spend,
+                                run_id,
+                                start_to_close_timeout=timedelta(minutes=15),
+                                schedule_to_close_timeout=timedelta(minutes=15),
+                                retry_policy=RetryPolicy(
+                                    initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)
+                                ),
+                            )
+                        except temporalio.exceptions.ActivityError:
+                            workflow.logger.exception(
+                                "signals.spend.accounting_failed", extra={"run_id": run_id, "stage": "task_completion"}
+                            )
 
     async def _provision_and_start_agent(self, input: ProcessTaskInput, run_id: str) -> tuple[str, str, str | None]:
         """Initial-run setup: resolve agent-design, provision the sandbox, start the agent
         server. Returns (sandbox_id, sandbox_url, connect_token). Skipped on continue_as_new."""
-        if self._slack_thread_context:
-            self._is_agent_design_enabled = await self._resolve_agent_design_flag()
-        await self._update_task_run_status("in_progress")
-
-        # Announce the first progress step immediately so the desktop card
-        # shows up before any provisioning log lines arrive.
-        sandbox_label = "Restoring sandbox" if self.context.is_snapshot_resume else "Setting up sandbox"
-        await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup", wait=False)
-
-        await self._track_workflow_event(
-            "task_run_started",
-            {
-                "run_id": run_id,
-                "task_id": self.context.task_id,
-                "repository": self.context.repository,
-                "team_id": self.context.team_id,
-            },
-        )
-
-        # Agent-design path owns this surface via per-turn relay children.
-        if not self._is_agent_design_enabled:
-            await self._post_slack_update()
-        elif self._slack_thread_context:
-            # The first turn's relay starts now, so the plan shows while the sandbox provisions.
-            await self._start_slack_agent_design_relay(
-                self._slack_thread_context, setup_title=sandbox_label, person_message=self._opening_person_message
-            )
-            self._early_slack_relay_open = True
-
-        sandbox_output = await self._get_sandbox_for_repository()
+        if workflow.patched(_PATCH_ID_BACKGROUND_SLACK_AND_TRACK):
+            sandbox_output = await self._get_sandbox_alongside_pre_provision_steps(run_id)
+        else:
+            await self._run_pre_provision_steps(run_id)
+            sandbox_output = await self._get_sandbox_for_repository()
         sandbox_id = sandbox_output.sandbox_id
         self._boot_path = sandbox_output.boot_path
         self._image_source = sandbox_output.image_source
@@ -1779,6 +1792,73 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             },
         )
         return sandbox_id, agent_server_output.sandbox_url, agent_server_output.connect_token
+
+    async def _run_pre_provision_steps(self, run_id: str) -> None:
+        if self._slack_thread_context:
+            self._is_agent_design_enabled = await self._resolve_agent_design_flag()
+        await self._update_task_run_status("in_progress")
+
+        # Announce the first progress step immediately so the desktop card
+        # shows up before any provisioning log lines arrive.
+        sandbox_label = self._sandbox_setup_label()
+        await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup", wait=False)
+
+        await self._track_workflow_event("task_run_started", self._task_run_started_properties(run_id))
+
+        # Agent-design path owns this surface via per-turn relay children.
+        if not self._is_agent_design_enabled:
+            await self._post_slack_update()
+        elif self._slack_thread_context:
+            # The first turn's relay starts now, so the plan shows while the sandbox provisions.
+            await self._start_slack_agent_design_relay(
+                self._slack_thread_context, setup_title=sandbox_label, person_message=self._opening_person_message
+            )
+            self._early_slack_relay_open = True
+
+    async def _get_sandbox_alongside_pre_provision_steps(self, run_id: str) -> GetSandboxForRepositoryOutput:
+        if self._slack_thread_context:
+            self._is_agent_design_enabled = await self._resolve_agent_design_flag()
+        await self._update_task_run_status("in_progress")
+        sandbox_label = self._sandbox_setup_label()
+        await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup", wait=False)
+        announce = asyncio.create_task(self._announce_run_started(sandbox_label))
+        if self._is_agent_design_enabled:
+            self._slack_setup_chain = announce
+            self._early_slack_relay_open = True
+        track = asyncio.create_task(
+            self._track_workflow_event("task_run_started", self._task_run_started_properties(run_id))
+        )
+        try:
+            sandbox_output = await self._get_sandbox_for_repository()
+        except asyncio.CancelledError:
+            announce.cancel()
+            track.cancel()
+            await asyncio.gather(announce, track, return_exceptions=True)
+            raise
+        except Exception:
+            await asyncio.gather(announce, track, return_exceptions=True)
+            raise
+        await asyncio.gather(announce, track)
+        return sandbox_output
+
+    async def _announce_run_started(self, sandbox_label: str) -> None:
+        if not self._is_agent_design_enabled:
+            await self._post_slack_update()
+        elif self._slack_thread_context:
+            await self._start_slack_agent_design_relay(
+                self._slack_thread_context, setup_title=sandbox_label, person_message=self._opening_person_message
+            )
+
+    def _sandbox_setup_label(self) -> str:
+        return "Restoring sandbox" if self.context.is_snapshot_resume else "Setting up sandbox"
+
+    def _task_run_started_properties(self, run_id: str) -> dict[str, Any]:
+        return {
+            "run_id": run_id,
+            "task_id": self.context.task_id,
+            "repository": self.context.repository,
+            "team_id": self.context.team_id,
+        }
 
     async def _collect_agent_shadow_result(self, sandbox_id: str) -> None:
         try:
@@ -1866,6 +1946,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     self._sandbox_ttl_expires_at.isoformat() if self._sandbox_ttl_expires_at else None
                 ),
                 sandbox_ttl_snapshot_taken=self._sandbox_ttl_snapshot_taken,
+                sandbox_ttl_snapshot_saved=self._sandbox_ttl_snapshot_saved,
                 sandbox_rotation_idle=self._sandbox_rotation_idle,
                 first_command_dispatched_recorded=self._first_command_dispatched_recorded,
                 first_agent_activity_recorded=self._first_agent_activity_recorded,
@@ -1918,6 +1999,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             datetime.fromisoformat(resumed.sandbox_ttl_expires_at) if resumed.sandbox_ttl_expires_at else None
         )
         self._sandbox_ttl_snapshot_taken = resumed.sandbox_ttl_snapshot_taken
+        self._sandbox_ttl_snapshot_saved = resumed.sandbox_ttl_snapshot_saved
         self._first_command_dispatched_recorded = resumed.first_command_dispatched_recorded
         self._first_agent_activity_recorded = resumed.first_agent_activity_recorded
         self._boot_path = resumed.boot_path
@@ -2030,7 +2112,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     snapshot_external_id=None,
                     used_snapshot=False,
                     should_create_snapshot=True,
-                    snapshot_kind=SNAPSHOT_KIND_FILESYSTEM,
                     snapshot_mount_path=None,
                     snapshot_source="none",
                     image_source=fresh_image_source,
@@ -2055,7 +2136,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup", wait=False)
 
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
-        has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
+        has_clone_credentials = (
+            self.context.has_github_credentials
+            or can_clone_without_integration
+            or (self.context.has_gitlab_credentials and workflow.patched("tasks-gitlab-clone-2026-11"))
+        )
 
         repositories_to_clone = [] if used_snapshot or not has_clone_credentials else self.context.repositories
         will_clone = bool(repositories_to_clone)
@@ -2096,9 +2181,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             repository=repository,
                             github_token=prepared.github_token,
                             shallow_clone=prepared.shallow_clone,
+                            gitlab_token=prepared.gitlab_token,
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        schedule_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=len(REPOSITORY_CLONE_RETRY_DELAYS_SECONDS) + 1),
                     )
                 except Exception as error:
                     if _is_dead_sandbox_failure(error):
@@ -2638,7 +2725,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._boot_milestones_before_ready.append((event_name, now))
         task = asyncio.create_task(self._track_boot_milestone(event_name, properties))
         self._boot_telemetry_tasks.append(task)
-        task.add_done_callback(self._boot_telemetry_tasks.remove)
 
     def _record_boot_milestone_sample(self, event_name: str, since_agent_ready_ms: int) -> None:
         record_agent_boot_milestone_ms(
@@ -2687,7 +2773,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _flush_boot_telemetry_tasks(self) -> None:
         while self._boot_telemetry_tasks:
-            await asyncio.gather(*tuple(self._boot_telemetry_tasks))
+            pending = [task for task in self._boot_telemetry_tasks if not task.done()]
+            self._boot_telemetry_tasks.clear()
+            if pending:
+                await asyncio.gather(*pending)
 
     async def _report_sandbox_deadline_outcome(self, *, outcome: str, reason: str | None, duration: timedelta) -> None:
         """Report how a sandbox deadline resolved, for the rollout's metrics.
@@ -2995,7 +3084,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self.context.state = {
             **(self.context.state or {}),
             "snapshot_external_id": snapshot.external_id,
-            "snapshot_kind": snapshot.snapshot_kind,
+            "snapshot_kind": RESUME_SNAPSHOT_KIND,
             "snapshot_mount_path": snapshot.snapshot_mount_path,
             "same_run_resume": True,
             "same_run_resume_idle": True,
@@ -3317,7 +3406,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "sandbox_id": sandbox_id,
                         "reason": reason,
                         "snapshot_external_id": result.external_id,
-                        "snapshot_kind": result.snapshot_kind,
                         "duration_ms": result.duration_ms,
                     },
                 )
@@ -3329,7 +3417,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "run_id": self.context.run_id,
                         "sandbox_id": sandbox_id,
                         "reason": reason,
-                        "snapshot_kind": result.snapshot_kind,
                         "duration_ms": result.duration_ms,
                         "error": result.error,
                     },
@@ -3487,8 +3574,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.signal
     async def agent_final_text(self, payload: dict[str, Any]) -> None:
-        if not self._forwards_agent_final_text:
-            return
         await self._forward_to_slack_relay(
             SlackAgentDesignRelayWorkflow.agent_final_text, payload, "slack_final_text_forward_failed"
         )
@@ -3752,12 +3837,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     **error_properties,
                 },
             )
+            cause = e.cause if isinstance(e, temporalio.exceptions.ActivityError) else None
+            run_ending = (
+                isinstance(cause, temporalio.exceptions.ApplicationError)
+                and cause.type in RUN_ENDING_FOLLOWUP_ERROR_TYPES
+            )
+            if message_id and (run_ending or self.context.mode == "interactive"):
+                dedupe_key = _message_dedupe_key(message_id, actor_user_id, context)
+                if dedupe_key in self._accepted_message_id_set:
+                    self._accepted_message_id_set.discard(dedupe_key)
+                    self._accepted_message_ids.remove(dedupe_key)
+            if run_ending:
+                assert isinstance(cause, temporalio.exceptions.ApplicationError)
+                self._completion_status = "failed"
+                self._completion_error = cause.message
+                self._completion_error_type = cause.type
+                self._task_completed = True
+                return None
             if self.context.mode == "interactive":
-                if message_id:
-                    dedupe_key = _message_dedupe_key(message_id, actor_user_id, context)
-                    if dedupe_key in self._accepted_message_id_set:
-                        self._accepted_message_id_set.discard(dedupe_key)
-                        self._accepted_message_ids.remove(dedupe_key)
                 if user_originated:
                     # A user follow-up can arrive without a message_id, so the card can't hinge on
                     # one; the generated group still gives the user a failure notice instead of a
