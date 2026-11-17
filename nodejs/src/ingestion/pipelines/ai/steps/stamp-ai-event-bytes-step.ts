@@ -1,8 +1,7 @@
+import { AI_EVENT_BYTES_PROPERTY } from '~/ingestion/common/ai-event-types'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
-
-const AI_EVENT_BYTES_PROPERTY = '$ai_event_bytes'
 
 type StampAiEventBytesInput = {
     normalizedEvent: PluginEvent
