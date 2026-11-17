@@ -5,14 +5,24 @@ from collections.abc import Mapping
 
 from posthog.dataclasses import frozen
 
+from ..settings import DEFAULT_DOCS_PATHS, WriterSettings
+
 WRITER_CHANGE_ARTIFACT_NAME = "writer-change.json"
-MAX_WRITER_CHANGE_BYTES = 8 * 1024 * 1024
+MAX_WRITER_CHANGE_BYTES = 30 * 1024 * 1024
 MAX_WRITTEN_FILE_BYTES = 1024 * 1024
 MAX_WRITTEN_BYTES = 4 * 1024 * 1024
 MAX_CHANGED_FILES = 300
 MAX_PATH_BYTES = 255
 MAX_WRITTEN_FILE_LINES = 15_000
 MAX_WRITTEN_LINES = 40_000
+COMPANION_PATHS = frozenset({"vercel.json", "src/navs/index.js"})
+
+
+def docs_folders_of(writer: WriterSettings, docs_content_root: object) -> tuple[str, ...]:
+    if writer.docs_paths:
+        return writer.docs_paths
+    content_root = docs_content_root.strip("/") if isinstance(docs_content_root, str) else ""
+    return (content_root or DEFAULT_DOCS_PATHS.strip("/"),)
 
 
 @frozen

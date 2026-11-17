@@ -25,7 +25,7 @@ from products.tasks.backend.facade.contracts import TaskRunDTO
 
 from ..facade.contracts import DocsRequest
 from ..feature_flags import open_pull_requests_flag_state
-from ..settings import DEFAULT_DOCS_PATHS, WriterSettings, docs_source_for, writer_settings
+from ..settings import WriterSettings, docs_source_for, writer_settings
 from .docs_pages import (
     DOCS_SOURCE_EXTENSIONS,
     are_only_page_entries_changed,
@@ -63,7 +63,14 @@ from .server_commit import (
     build_commit,
     publish_ref,
 )
-from .writer_change import WriterChange, WriterChangeRefused, parse_writer_change, writer_change_artifact
+from .writer_change import (
+    COMPANION_PATHS,
+    WriterChange,
+    WriterChangeRefused,
+    docs_folders_of,
+    parse_writer_change,
+    writer_change_artifact,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -633,16 +640,11 @@ def drafted_files(changed_files: list[dict]) -> list[dict]:
 
 
 PAGE_CHANGING_STATUSES = frozenset({"added", "removed"})
-COMPANION_PATHS = frozenset({"vercel.json", "src/navs/index.js"})
 MAX_COMPANION_PATCH_CHARACTERS = 16_384
 
 
 def docs_folders_for(writer: WriterSettings, task_id: UUID, team_id: int) -> tuple[str, ...]:
-    if writer.docs_paths:
-        return writer.docs_paths
-    stored_root = tasks_facade.read_task_state_entry(task_id, team_id, DOCS_CONTENT_ROOT_STATE_KEY)
-    content_root = stored_root.strip("/") if isinstance(stored_root, str) else ""
-    return (content_root or DEFAULT_DOCS_PATHS.strip("/"),)
+    return docs_folders_of(writer, tasks_facade.read_task_state_entry(task_id, team_id, DOCS_CONTENT_ROOT_STATE_KEY))
 
 
 def publication_refusal(
