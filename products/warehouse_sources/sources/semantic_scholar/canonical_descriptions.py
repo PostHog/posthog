@@ -45,4 +45,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "isInfluential": "Whether Semantic Scholar classifies the reference as influential.",
         },
     },
+    "paper_authors": {
+        "description": "Authors of papers in the configured search results, with their profile metrics. Authors without an author ID are excluded.",
+        "docs_url": API_DOCS_URL,
+        "columns": {
+            "paper_id": "The identifier of the paper in the search results.",
+            "authorId": "The Semantic Scholar identifier for the author.",
+            "externalIds": "Identifiers for the author in other sources, such as ORCID and DBLP.",
+            "url": "The page for the author on Semantic Scholar.",
+            "name": "The name of the author.",
+            "affiliations": "Organizational affiliations of the author.",
+            "homepage": "The homepage of the author.",
+            "paperCount": "The total number of papers by the author.",
+            "citationCount": "The total number of citations of papers by the author.",
+            "hIndex": "The h-index of the author.",
+        },
+    },
 }
