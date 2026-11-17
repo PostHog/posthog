@@ -3,7 +3,7 @@ from typing import Optional
 from django.db import models, router
 from django.db.models import F, Value
 from django.db.models.expressions import CombinedExpression
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Lower
 from django.utils import timezone
 
 from posthog.models.utils import UUIDTModel
@@ -37,6 +37,10 @@ class MessageRecipientPreference(UUIDTModel):
             "identifier",
         )
         db_table = "posthog_messagerecipientpreference"
+        indexes = [
+            # Send-time opt-out checks match email addresses regardless of capitalization.
+            models.Index(F("team"), Lower("identifier"), name="msg_recip_pref_team_lower_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"Preferences for {self.identifier}"
