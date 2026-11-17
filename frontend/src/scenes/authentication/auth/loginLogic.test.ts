@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { handleLoginRedirect, redirectAfterLogin } from 'lib/utils/loginRedirect'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
-import { getRadarSignalsId, startRadarSignals } from 'scenes/authentication/shared/radarSignals'
+import { getRadarSignalsId, markRadarSignalsIdSent, startRadarSignals } from 'scenes/authentication/shared/radarSignals'
 
 import { initKea } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -20,6 +20,7 @@ jest.mock('posthog-js')
 jest.mock('scenes/authentication/shared/radarSignals', () => ({
     startRadarSignals: jest.fn(),
     getRadarSignalsId: jest.fn(() => Promise.resolve('signals_abc')),
+    markRadarSignalsIdSent: jest.fn(),
 }))
 
 // isWebKitBrowser() reads navigator.vendor: "Apple Computer, Inc." on WebKit, "Google Inc." on Chromium.
@@ -344,9 +345,10 @@ describe('loginLogic', () => {
                 { radar_client_id: 'client_123' },
                 [['client_123']],
                 { radar_signals_id: 'signals_abc' },
+                [['signals_abc']],
             ],
-            ['sends no token when the precheck names none', {}, [], {}],
-        ])('%s', async (_name, precheckExtra, expectedStartCalls, expectedTokenField) => {
+            ['sends no token when the precheck names none', {}, [], {}, []],
+        ])('%s', async (_name, precheckExtra, expectedStartCalls, expectedTokenField, expectedSentCalls) => {
             setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
             useMocks({
                 post: {
@@ -369,6 +371,7 @@ describe('loginLogic', () => {
             const loginBody = createSpy.mock.calls.find(([url]) => url === 'api/login')?.[1]
             expect(jest.mocked(startRadarSignals).mock.calls).toEqual(expectedStartCalls)
             expect(loginBody).toEqual({ email: 'user@example.com', password: 'a-password', ...expectedTokenField })
+            expect(jest.mocked(markRadarSignalsIdSent).mock.calls).toEqual(expectedSentCalls)
         })
 
         it('sends the login without a token when the token never arrives', async () => {

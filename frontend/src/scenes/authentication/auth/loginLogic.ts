@@ -106,15 +106,20 @@ async function radarSignalsIdFor(precheckResponse: PrecheckResponseType): Promis
     if (!precheckResponse.radar_client_id) {
         return ''
     }
-    const lookup = import('scenes/authentication/shared/radarSignals')
-        .then(({ getRadarSignalsId }) => getRadarSignalsId())
-        .catch(() => '')
+    const radarSignals = import('scenes/authentication/shared/radarSignals')
+    const lookup = radarSignals.then(({ getRadarSignalsId }) => getRadarSignalsId()).catch(() => '')
     let timer: ReturnType<typeof setTimeout> | undefined
     const deadline = new Promise<string>((resolve) => {
         timer = setTimeout(() => resolve(''), RADAR_SIGNALS_WAIT_MS)
     })
     try {
-        return await Promise.race([lookup, deadline])
+        const radarSignalsId = await Promise.race([lookup, deadline])
+        if (radarSignalsId) {
+            // Marked only when the token goes out, so a token that arrives after the deadline is still sent with the next attempt
+            const { markRadarSignalsIdSent } = await radarSignals
+            markRadarSignalsIdSent(radarSignalsId)
+        }
+        return radarSignalsId
     } finally {
         clearTimeout(timer)
     }
