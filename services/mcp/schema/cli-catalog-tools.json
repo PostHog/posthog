@@ -39311,7 +39311,12 @@
             "method": "PATCH",
             "path": "/api/organizations/{organization_id}/projects/{id}/",
             "pathParams": ["id"],
-            "fallbacks": [],
+            "fallbacks": [
+                {
+                    "param": "id",
+                    "scope": "projectId"
+                }
+            ],
             "query": null,
             "body": [
                 {
