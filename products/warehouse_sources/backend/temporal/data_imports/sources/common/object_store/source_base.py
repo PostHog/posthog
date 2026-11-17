@@ -1,7 +1,9 @@
+import dataclasses
 from abc import abstractmethod
 from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Any, ClassVar, Generic, NoReturn, Optional
+from typing import Any, ClassVar, Generic, NoReturn, Optional, cast
 
 import pyarrow as pa
 from botocore.exceptions import ClientError
@@ -38,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     INVALID_CONFIG_ERROR,
     NO_SUCH_BUCKET_ERROR,
     NO_TABLE_FILES_ERROR,
+    TABLE_FILES_MISSING_ERROR,
     TOO_MANY_FILES_ERROR,
     WRONG_REGION_ERROR,
     ObjectStorageError,
@@ -93,6 +96,24 @@ def _http_status(error: BaseException) -> int | None:
                 return status
         current = current.__cause__
     return None
+
+
+@contextmanager
+def _missing_files_policy(inputs: SourceInputs) -> Iterator[None]:
+    """Make a missing table retryable when it has synced before.
+
+    A writer that replaces a table, such as a full refresh that deletes a Delta table and writes it
+    again, leaves the table's folder empty for a short time. A sync in that gap sees the same thing
+    as a sync after a real deletion, and a non-retryable error would turn syncing off for good. A
+    table that never synced has a bad location, not a gap, so it keeps the non-retryable error.
+    """
+    try:
+        yield
+    except ObjectStorageError as e:
+        message = str(e)
+        if not inputs.schema_has_ever_synced or not message.startswith(NO_TABLE_FILES_ERROR):
+            raise
+        raise ObjectStorageError(f"{TABLE_FILES_MISSING_ERROR}{message[len(NO_TABLE_FILES_ERROR) :]}") from e
 
 
 def validate_store_location(config: StoreConfig) -> None:
@@ -184,6 +205,18 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             TOO_MANY_FILES_ERROR: None,
             FILE_PARSE_ERROR: None,
             DELTA_UNSUPPORTED_ERROR: None,
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        return {TABLE_FILES_MISSING_ERROR}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            TABLE_FILES_MISSING_ERROR: (
+                "The files behind this table weren't in the bucket on this sync, so the table keeps its last "
+                "synced data. PostHog tries again on the next sync. If the files were deleted, remove the table "
+                "or restore the files."
+            ),
         }
 
     def _discover(
@@ -296,6 +329,19 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         return _source_schema(table)
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
+        # A table can be found missing while the response is built (a Delta table, or the listing of
+        # an incremental read) or later, when `items` lists the files of a full read.
+        with _missing_files_policy(inputs):
+            response = self._pipeline_response(config, inputs)
+        read_items = response.items
+
+        def items() -> Iterator[pa.Table]:
+            with _missing_files_policy(inputs):
+                yield from cast(Iterator[pa.Table], read_items())
+
+        return dataclasses.replace(response, items=items)
+
+    def _pipeline_response(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         store = self.open_store(self.object_store_config(config))
         table = TableDefinition.from_schema_metadata(inputs.schema_name, inputs.schema_metadata) or self._find_table(
             store, config, inputs.schema_name, inputs.logger

@@ -1,11 +1,13 @@
 import io
 import time
 import uuid
+import dataclasses
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -18,7 +20,9 @@ import structlog
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import source_base
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import build_cursor_manager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import delta, source_base
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import CsvOptions
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
     CsvColumnType,
@@ -65,6 +69,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     FakeObjectStorageConfig,
     FakeObjectStorageSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.inputs import source_inputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
 R2_ACCOUNT = "0123456789abcdef0123456789abcdef"
@@ -1022,3 +1027,50 @@ class TestSourceForPipeline:
         response = source.source_for_pipeline(FakeObjectStorageConfig(values=S3_CONNECTION_INPUTS), inputs)
 
         assert response.preserve_column_names is preserve
+
+    @parameterized.expand(
+        [
+            ("synced_files_table_in_a_rewrite_gap", "files", True, False),
+            ("synced_delta_table_without_a_log", "delta_without_a_log", True, False),
+            ("synced_delta_table_with_an_empty_log", "delta_with_an_empty_log", True, False),
+            ("never_synced_files_table", "files", False, True),
+            ("never_synced_delta_table", "delta_without_a_log", False, True),
+        ]
+    )
+    def test_a_table_with_no_files_turns_syncing_off_only_when_it_never_synced(
+        self, _name: str, layout: str, has_synced: bool, turns_syncing_off: bool
+    ) -> None:
+        source = FakeObjectStorageSource()
+        if layout == "files":
+            metadata = TableDefinition(
+                name="orders",
+                kind="files",
+                path="orders",
+                scope="folder",
+                file_format="csv",
+                csv=CsvOptions(),
+                pattern=None,
+                source_format="infer",
+            ).schema_metadata()
+            bucket = {"other/x.csv": "id\n1\n"}
+        else:
+            metadata = {"kind": "delta", "path": "orders", "format": "delta", "pattern": None, "csv": {}}
+            bucket = {"orders/part-0.parquet": "x"} if layout == "delta_without_a_log" else {}
+        inputs = dataclasses.replace(
+            source_inputs("orders", source_cursor=build_cursor_manager(source, None, LOGGER)),
+            schema_metadata=metadata,
+            schema_has_ever_synced=has_synced,
+        )
+
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            write_files(root, bucket)
+            if layout == "delta_with_an_empty_log":
+                (root / "orders" / "_delta_log").mkdir(parents=True)
+            source.open_store = MagicMock(return_value=local_store(root))  # type: ignore[method-assign]
+
+            with patch.object(delta.time, "sleep"), pytest.raises(ObjectStorageError) as error:
+                response = source.source_for_pipeline(FakeObjectStorageConfig(values=S3_CONNECTION_INPUTS), inputs)
+                list(cast(Iterable[pa.Table], response.items()))
+
+        assert error_message_matches(str(error.value), source.get_non_retryable_errors()) is turns_syncing_off

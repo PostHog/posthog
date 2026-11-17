@@ -7,6 +7,9 @@ NO_SUCH_BUCKET_ERROR = "The bucket doesn't exist"
 WRONG_REGION_ERROR = "The bucket is in a different region"
 NO_IMPORTABLE_FILES_ERROR = "No importable files were found"
 NO_TABLE_FILES_ERROR = "No files are available for table"
+# The retryable form of `NO_TABLE_FILES_ERROR`, for a table that synced before. It must not contain
+# that prefix, because the non-retryable match is a case-insensitive substring match.
+TABLE_FILES_MISSING_ERROR = "No files were found on this run for table"
 TOO_MANY_FILES_ERROR = "The table has more files than PostHog can import"
 FILE_PARSE_ERROR = "Couldn't parse the file"
 DELTA_UNSUPPORTED_ERROR = "The Delta table uses features PostHog can't read"
