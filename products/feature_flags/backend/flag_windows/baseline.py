@@ -4,7 +4,8 @@ week.
 The error rate is the share of people (or groups) with an event that have at least one `$exception`. A single value
 can't be aligned by weekday and hour for a window that spans days, so the baseline keeps the counts of each hour and
 week. The window computes the baseline of each UTC day it covers once, and the score compares each bucket after the edit
-with the hour that the bucket starts in.
+with the hour that the bucket starts in. `errors_by_hour` counts the day itself the same way, so that the window's error
+rate and the baseline share a denominator.
 
 Hours are UTC clock hours. In a timezone with daylight saving time, an earlier week is one hour off the local time of
 day for part of the year.
@@ -61,30 +62,50 @@ def error_baseline(
     # HogQL caps the rows of a query, and a capped result would drop the latest hours without an error.
     if HOURS_PER_DAY * weeks > MAX_SELECT_RETURNED_ROWS:
         raise ValueError(f"The baseline holds {HOURS_PER_DAY * weeks} hours, more than {MAX_SELECT_RETURNED_ROWS}")
+    midnight = datetime.combine(day, time(), tzinfo=UTC)
+    counts = _errors_by_hour_and_week(
+        team, group_type_indexes, midnight - weeks * WEEK, weeks, "flag_error_baseline_by_hour"
+    )
+    return {
+        actor_kind: [
+            # The weeks count from the oldest, and the baseline lists the latest first.
+            BaselineHour(start=midnight + hour * HOUR, weeks=tuple(reversed(by_week)))
+            for hour, by_week in enumerate(by_hour)
+        ]
+        for actor_kind, by_hour in counts.items()
+    }
+
+
+def errors_by_hour(
+    team: Team, group_type_indexes: Sequence[int | None], day: date
+) -> dict[int | None, list[HourErrors]]:
+    """The errors of each UTC hour of `day` itself, by kind of actor, counted like the baseline so that the score
+    compares two rates with the same denominator. The list index is the UTC hour."""
+    midnight = datetime.combine(day, time(), tzinfo=UTC)
+    counts = _errors_by_hour_and_week(team, group_type_indexes, midnight, 1, "flag_errors_by_hour")
+    return {actor_kind: [by_week[0] for by_week in by_hour] for actor_kind, by_hour in counts.items()}
+
+
+def _errors_by_hour_and_week(
+    team: Team, group_type_indexes: Sequence[int | None], origin: datetime, weeks: int, query_type: str
+) -> dict[int | None, list[list[HourErrors]]]:
+    """For each kind of actor and each UTC hour of the day at `origin`, the errors of that day and the `weeks - 1`
+    days a week, two weeks and so on after it, from the oldest."""
     actor_kinds = list(dict.fromkeys(group_type_indexes))
     if not actor_kinds:
         return {}
-
-    midnight = datetime.combine(day, time(), tzinfo=UTC)
-    origin = midnight - weeks * WEEK
     counts = {
         actor_kind: [[HourErrors(active=0, with_errors=0) for _ in range(weeks)] for _ in range(HOURS_PER_DAY)]
         for actor_kind in actor_kinds
     }
-    for row in run_window_query(team, _query(actor_kinds, origin, weeks), "flag_error_baseline_by_hour"):
+    for row in run_window_query(team, _query(actor_kinds, origin, weeks), query_type):
         week_from_origin, hour = divmod(int(row[0]), HOURS_PER_WEEK)
         values = iter(row[1:])
         for actor_kind in actor_kinds:
-            counts[actor_kind][hour][weeks - week_from_origin - 1] = HourErrors(
+            counts[actor_kind][hour][week_from_origin] = HourErrors(
                 active=int(next(values)), with_errors=int(next(values))
             )
-    return {
-        actor_kind: [
-            BaselineHour(start=midnight + hour * HOUR, weeks=tuple(by_week))
-            for hour, by_week in enumerate(counts[actor_kind])
-        ]
-        for actor_kind in actor_kinds
-    }
+    return counts
 
 
 def _query(actor_kinds: Sequence[int | None], origin: datetime, weeks: int) -> ast.SelectQuery:
@@ -95,7 +116,7 @@ def _query(actor_kinds: Sequence[int | None], origin: datetime, weeks: int) -> a
         columns.append(parse_expr("uniqIf({actor}, {present})", placeholders=placeholders))
         columns.append(parse_expr("uniqIf({actor}, {present} AND event = '$exception')", placeholders=placeholders))
     # The events table sorts each team's events by day, so a query reads every whole day that it touches. One UTC day
-    # per earlier week keeps the query to one day of events per week.
+    # per week keeps the query to one day of events per week.
     in_earlier_weeks = ast.Or(
         exprs=[
             parse_expr(
