@@ -243,7 +243,6 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
     """
     row = _settled_static_cohorts(timezone.now()).filter(team_id=cohort.team_id, id=cohort.cohort_id).first()
     if row is None:
-        # The next pass looks at the cohort again once whatever holds it finishes.
         cache.delete(_hold_cache_key(cohort.cohort_id))
         STATIC_COHORT_RECONCILE_COUNTER.labels(outcome="skipped_busy").inc()
         return
