@@ -11,8 +11,14 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+MAX_LINKED = 100
+
 
 class ReleaseNotFoundError(Exception):
+    pass
+
+
+class InvalidMergeError(Exception):
     pass
 
 
@@ -114,6 +120,17 @@ class ReleaseOwnerDTO:
 
 
 @dataclass(frozen=True)
+class ReleaseSummary:
+    id: UUID
+    name: str
+    description: str
+    auto_named: bool
+    owner_first_name: str | None
+    feature_flag_ids: list[int]
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class ReleaseDTO:
     id: UUID
     name: str
@@ -128,6 +145,23 @@ class ReleaseDTO:
     insight_ids: list[int]
     insights: list[LinkedInsightDTO]
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class CatalogOwnerDTO:
+    id: int
+    uuid: UUID
+    first_name: str
+    last_name: str
+    email: str
+
+
+@dataclass(frozen=True)
+class CatalogReleaseDTO:
+    id: UUID
+    name: str
+    created_at: datetime
+    owner: CatalogOwnerDTO | None
 
 
 @dataclass(frozen=True)

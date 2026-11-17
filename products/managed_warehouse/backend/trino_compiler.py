@@ -465,7 +465,7 @@ def compile_hogql_to_trino_sql(
         output = prepared
         while isinstance(output, ast.SelectSetQuery):
             output = output.initial_select_query
-        needs_row_type_probe = any(_may_hold_anonymous_row(column, trino_context) for column in output.select)
+        needs_row_type_probe = any(_needs_output_type_probe(column, trino_context) for column in output.select)
         return preserve_output_names(prepared) if preserve_clickhouse_output_names else prepared
 
     trino_sql, _ = prepare_and_print_ast(
@@ -502,12 +502,32 @@ def compile_hogql_to_trino_sql(
     )
 
 
-def _may_hold_anonymous_row(column: Any, context: Any) -> bool:
-    """Whether the resolved type of an output column is, or contains, a tuple or an unknown type."""
+_BOOLEAN_TRINO_FUNCTIONS = frozenset({"jsonhas", "multisearchanycaseinsensitive"})
+
+
+def _calls_boolean_function(expression: Any) -> bool:
+    """Whether the expression calls a function that HogQL types as an integer and Trino returns as a boolean."""
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415 -- keeps compiler imports off Django startup
+
+    class _Finder(TraversingVisitor):
+        found = False
+
+        def visit_call(self, node: Any) -> None:
+            if node.name.lower() in _BOOLEAN_TRINO_FUNCTIONS:
+                self.found = True
+            super().visit_call(node)
+
+    finder = _Finder()
+    finder.visit(expression)
+    return finder.found
+
+
+def _needs_output_type_probe(column: Any, context: Any) -> bool:
+    """Whether the resolved type of an output column is, or contains, a tuple, a boolean or an unknown type."""
     from posthog.hogql import ast  # noqa: PLC0415 -- keeps compiler imports off Django startup
 
     def check(constant_type: ast.ConstantType) -> bool:
-        if isinstance(constant_type, ast.TupleType | ast.UnknownType):
+        if isinstance(constant_type, ast.TupleType | ast.BooleanType | ast.UnknownType):
             return True
         if isinstance(constant_type, ast.ArrayType):
             return check(constant_type.item_type)
@@ -520,6 +540,9 @@ def _may_hold_anonymous_row(column: Any, context: Any) -> bool:
     if column.type is None:
         return True
     try:
+        # HogQL types these calls as integers, but the Trino printer emits a boolean for them.
+        if _calls_boolean_function(column):
+            return True
         return check(column.type.resolve_constant_type(context))
     except Exception:  # noqa: BLE001 -- a type that cannot be resolved is probed, which is always safe
         return True

@@ -86,10 +86,11 @@ from posthog.plugins.plugin_server_api import (
     get_hog_flow_in_flight_count,
     rerun_hog_invocations,
 )
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, relative_date_parse_with_delta_mapping
+from posthog.uuidt import UUIDT
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
@@ -105,6 +106,7 @@ from products.cdp.backend.presentation.hog_functions import (
     filter_action_ids,
     filter_cohort_ids,
     gated_template_enabled,
+    is_property_group,
     validate_realtime_cohorts,
 )
 from products.cdp.backend.presentation.hog_invocations.cancel import (
@@ -154,6 +156,7 @@ from products.tasks.backend.facade.workflow_tasks import (
 from products.workflows.backend.facade.activity import (
     bulk_delete_archived_workflows,
     log_workflow_activity,
+    log_workflow_batch_run_activity,
     log_workflow_schedule_activity,
     log_workflow_test_run,
     record_workflow_test_run_origins,
@@ -168,6 +171,7 @@ from products.workflows.backend.facade.api import (
     seed_new_email_steps_with_utm_defaults,
 )
 from products.workflows.backend.facade.batch_jobs import (
+    batch_run_may_send_after_failed_dispatch,
     create_batch_job,
     get_audience_snapshot_page,
     get_batch_job,
@@ -385,6 +389,7 @@ from products.workflows.backend.presentation.views.hog_flow_batch_job import (
 from products.workflows.backend.presentation.views.hog_flow_fields import (
     HOG_FLOW_VARIABLES_MAX_BYTES,
     HogFlowActionTypeField,
+    HogFlowConditionFiltersSerializer,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
 )
@@ -407,12 +412,13 @@ _LookupResult = TypeVar("_LookupResult", Workflow, WorkflowRef, WorkflowEditStat
 _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "source")
 
 WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
+WORKFLOWS_CONDITION_FILTER_GROUPS_FLAG = "workflows-condition-filter-groups"
 
 
-def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
+def _workflows_flag_rolled_out(flag: str, user: Any, organization_id: str) -> bool:
     try:
         return feature_enabled_or_false(
-            WORKFLOWS_COHORT_CONDITIONS_FLAG,
+            flag,
             user.distinct_id,
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
@@ -421,6 +427,10 @@ def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
         )
     except Exception:
         return False
+
+
+def cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
+    return _workflows_flag_rolled_out(WORKFLOWS_COHORT_CONDITIONS_FLAG, user, organization_id)
 
 
 LISTED_ORIGIN_PRODUCTS: list[str] = [
@@ -528,16 +538,18 @@ def _reject_over_cap_duration(action: dict, field: str, context: dict) -> None:
     raise serializers.ValidationError({"config": duration_cap_error(field)})
 
 
-def _cohort_condition_already_stored(action: dict, condition: dict, context: dict) -> bool:
+def _branch_condition_already_stored(
+    action: dict, condition: dict, context: dict, stored_key: str = "stored_branch_conditions"
+) -> bool:
     """
     True when this conditional_branch condition matches one already persisted for the same action.
 
-    Mirrors _wait_condition_already_stored: the cohort-conditions flag polices new adoption, not
-    edits around an accepted condition. Without this, a flag dial-down (or an internal re-save,
-    which has no request to evaluate the flag against) would fail compilation of an active flow's
-    unchanged cohort conditions.
+    Mirrors _wait_condition_already_stored: the cohort-conditions and filter-groups flags police new
+    adoption, not edits around an accepted condition. Without this, a flag dial-down (or an internal
+    re-save, which has no request to evaluate the flag against) would fail compilation of an active
+    flow's unchanged conditions.
     """
-    stored = context.get("stored_cohort_conditions")
+    stored = context.get(stored_key)
     if not stored:
         return False
     action_id = action.get("id")
@@ -1823,13 +1835,19 @@ class HogFlowActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     _cohort_conditions_flag: Optional[bool] = None
+    _condition_filter_groups_flag: Optional[bool] = None
 
     def _cohort_conditions_enabled(self) -> bool:
         if self._cohort_conditions_flag is None:
-            self._cohort_conditions_flag = self._check_cohort_conditions_flag()
+            self._cohort_conditions_flag = self._check_flag(WORKFLOWS_COHORT_CONDITIONS_FLAG)
         return self._cohort_conditions_flag
 
-    def _check_cohort_conditions_flag(self) -> bool:
+    def _condition_filter_groups_enabled(self) -> bool:
+        if self._condition_filter_groups_flag is None:
+            self._condition_filter_groups_flag = self._check_flag(WORKFLOWS_CONDITION_FILTER_GROUPS_FLAG)
+        return self._condition_filter_groups_flag
+
+    def _check_flag(self, flag: str) -> bool:
         try:
             request = self.context.get("request")
             user = getattr(request, "user", None)
@@ -1838,7 +1856,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             get_team = self.context.get("get_team")
             if get_team is None:
                 return False
-            return cohort_conditions_rolled_out(user, str(get_team().organization_id))
+            return _workflows_flag_rolled_out(flag, user, str(get_team().organization_id))
         except Exception:
             return False
 
@@ -2555,15 +2573,30 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if strict:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
                 else:
+                    already_stored = _branch_condition_already_stored(data, condition, self.context)
                     cohorts_supported = (
                         is_conditional_branch
                         and (bool(filter_cohort_ids(filters)) or bool(filter_action_ids(filters)))
-                        and (
-                            _cohort_condition_already_stored(data, condition, self.context)
-                            or self._cohort_conditions_enabled()
-                        )
+                        and (already_stored or self._cohort_conditions_enabled())
                     )
-                    serializer = HogFunctionFiltersSerializer(
+                    uses_filter_groups = (
+                        is_conditional_branch
+                        and isinstance(filters, dict)
+                        and is_property_group(filters.get("properties"))
+                    )
+                    groups_already_stored = _branch_condition_already_stored(
+                        data, condition, self.context, "stored_grouped_branch_conditions"
+                    )
+                    # Refused on lenient web drafts too: a draft that kept the group would count as
+                    # already stored on activation and slip past the flag.
+                    if uses_filter_groups and not (groups_already_stored or self._condition_filter_groups_enabled()):
+                        raise serializers.ValidationError(
+                            {"config": "Filter groups in branch conditions aren't available for this organization."}
+                        )
+                    filters_serializer_class = (
+                        HogFlowConditionFiltersSerializer if uses_filter_groups else HogFunctionFiltersSerializer
+                    )
+                    serializer = filters_serializer_class(
                         data=filters,
                         context={**self.context, "cohort_membership_supported": True}
                         if cohorts_supported
@@ -3825,7 +3858,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         }
 
         # Realtime cohorts an active flow's batch or schedule audience already sends to, so a flag
-        # dial-down polices new adoption only, like stored_cohort_conditions below.
+        # dial-down polices new adoption only, like stored_branch_conditions below.
         self.context["stored_realtime_audience_cohort_ids"] = {
             cohort_id
             for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
@@ -3835,7 +3868,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             for cohort_id in filter_cohort_ids((action.get("config") or {}).get("filters"))
         }
 
-        self.context["stored_cohort_conditions"] = {
+        self.context["stored_branch_conditions"] = {
             action["id"]: [
                 _authored_condition(stored_condition)
                 for stored_condition in [
@@ -3845,6 +3878,21 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 if isinstance(stored_condition, dict)
             ]
             for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
+        }
+
+        # Grouped conditions stored in any status, not only active. Resuming a disabled workflow
+        # revalidates its stored actions, and a Canvas resume has no request to evaluate the flag
+        # against, so an active-only list would refuse a workflow that already holds groups.
+        self.context["stored_grouped_branch_conditions"] = {
+            action["id"]: [
+                _authored_condition(stored_condition)
+                for stored_condition in (action.get("config") or {}).get("conditions") or []
+                if isinstance(stored_condition, dict)
+                and isinstance(stored_condition.get("filters"), dict)
+                and is_property_group(stored_condition["filters"].get("properties"))
+            ]
+            for action in ((instance.actions if instance else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
         }
 
@@ -7987,16 +8035,39 @@ class HogFlowViewSet(
                 raise exceptions.ValidationError(realtime_cohort_cant_finish_error(audience_cohort))
             self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
-            batch_job = create_batch_job(
-                team_id=self.team_id,
-                hog_flow_id=hog_flow.id,
-                created_by_id=cast(User, request.user).id,
-                variables=serializer.validated_data.get("variables", {}),
-                status=serializer.validated_data.get("status"),
-                # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
-                # caller-supplied filters are never what actually runs.
-                filters=hog_flow.trigger_filters,
-            )
+            batch_job_id = UUIDT()
+
+            def log_start() -> None:
+                log_workflow_batch_run_activity(
+                    actor=self._activity_actor(),
+                    workflow_id=hog_flow.id,
+                    name=hog_flow.name,
+                    activity="batch_run_started",
+                    batch_job_id=batch_job_id,
+                    filters=hog_flow.trigger_filters,
+                )
+
+            try:
+                batch_job = create_batch_job(
+                    batch_job_id=batch_job_id,
+                    team_id=self.team_id,
+                    hog_flow_id=hog_flow.id,
+                    created_by_id=cast(User, request.user).id,
+                    variables=serializer.validated_data.get("variables", {}),
+                    status=serializer.validated_data.get("status"),
+                    # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
+                    # caller-supplied filters are never what actually runs.
+                    filters=hog_flow.trigger_filters,
+                )
+            except Exception as error:
+                # Saving dispatches the run, and a dispatch that times out after the plugin server queued it
+                # raises here while the run still sends.
+                if batch_run_may_send_after_failed_dispatch(
+                    team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=batch_job_id, dispatch_error=error
+                ):
+                    log_start()
+                raise
+            log_start()
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
@@ -8063,14 +8134,21 @@ class HogFlowViewSet(
             if data["done"]:
                 break
 
-        if data["done"]:
-            # Conditional so a completion that landed mid-cancel wins over the flip; the
-            # resolver's own terminal write absorbs the reverse race.
-            set_batch_job_status(
-                team_id=self.team_id,
+        # Conditional so a completion that landed mid-cancel wins over the flip; the
+        # resolver's own terminal write absorbs the reverse race.
+        if data["done"] and set_batch_job_status(
+            team_id=self.team_id,
+            batch_job_id=batch_job.id,
+            status=HogFlowBatchJobState.CANCELLED,
+            from_statuses=non_terminal,
+        ):
+            log_workflow_batch_run_activity(
+                actor=self._activity_actor(),
+                workflow_id=hog_flow.id,
+                name=hog_flow.name,
+                activity="batch_run_stopped",
                 batch_job_id=batch_job.id,
-                status=HogFlowBatchJobState.CANCELLED,
-                from_statuses=non_terminal,
+                filters=batch_job.filters,
             )
 
         batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=str(batch_job.id))

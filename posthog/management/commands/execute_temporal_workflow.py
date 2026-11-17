@@ -12,7 +12,6 @@ from posthog.temporal.ai import AI_WORKFLOWS
 from posthog.temporal.ai_observability import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
 from posthog.temporal.backfill_group_type_created_at import WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
 from posthog.temporal.common.client import connect
-from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
 from posthog.temporal.dlq_replay import WORKFLOWS as DLQ_REPLAY_WORKFLOWS
 from posthog.temporal.event_screenshots import WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS
@@ -22,7 +21,6 @@ from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRIC
 from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_WORKFLOWS
 from posthog.temporal.session_replay.enforce_max_replay_retention import ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORDING_WORKFLOWS
-from posthog.temporal.session_replay.surfacing_scoring_sweep import SURFACING_SCORING_SWEEP_WORKFLOWS
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
@@ -30,6 +28,7 @@ from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.facade.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
 from products.data_catalog.backend.facade.temporal import WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS
+from products.data_modeling.backend.facade.temporal import WORKFLOWS as DATA_MODELING_WORKFLOWS
 from products.error_tracking.backend.facade.temporal import WORKFLOWS as ERROR_TRACKING_WORKFLOWS
 from products.logs.backend.temporal.retention_entitlements import WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
 from products.posthog_ai.backend.temporal.backfill import WORKFLOWS as CONVERSATION_BACKFILL_WORKFLOWS
@@ -161,7 +160,6 @@ class Command(BaseCommand):
             + WA_DIGEST_WORKFLOWS
             + DATA_CATALOG_DIGEST_WORKFLOWS
             + ERROR_TRACKING_WORKFLOWS
-            + SURFACING_SCORING_SWEEP_WORKFLOWS
             + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         )
         try:

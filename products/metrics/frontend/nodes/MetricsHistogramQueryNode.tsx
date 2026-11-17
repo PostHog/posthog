@@ -53,6 +53,7 @@ export function MetricsHistogramQueryNode(props: {
         query: props.query,
         key,
         cachedResults: cachedHistogram,
+        loadQueue: props.context.loadQueue,
         loadPriority,
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,

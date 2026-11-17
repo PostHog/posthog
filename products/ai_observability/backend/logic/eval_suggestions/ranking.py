@@ -9,7 +9,7 @@ import re
 import math
 import hashlib
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from typing import Any
 
@@ -25,8 +25,8 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 
 from . import cards, catalog
 from .adapters import AdaptedCheck
-from .call_review import ReviewCard
-from .call_review_queries import CallTypeRow
+from .call_review import REVIEW_TEMPLATE_KEY, ReviewCard
+from .call_review_queries import CALL_TYPE_INPUT_CHARS, CallTypeRow, SnippetMatches
 from .coverage import EvalFix, fix_dedupe_key
 from .judge_calibration import Calibration
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
@@ -68,9 +68,20 @@ FIX_SEVERITY = 1.0
 # A reviewed card names a failure the review model saw several times against a rule in the team's own prompt, which
 # makes it worth more than a judge picked from the catalog.
 REVIEW_SEVERITY = 1.0
-REVIEW_TEMPLATE_KEY = "review"
 # The property that names each kind of call type on a live generation. A call type named by its input has none.
 CALL_TYPE_PROPERTIES = {"prompt_name": "$ai_prompt_name", "span_name": "$ai_span_name"}
+# Plain text that a generation's input holds as is and that the condition matcher's string of the input keeps. The
+# matcher escapes quotes, backslashes and control characters, so they are left out, and so is every character that
+# is special in a LIKE or a regex pattern, so a snippet needs no escaping. Any script's letters are plain, except the
+# Unicode line and paragraph separators.
+_PLAIN_TEXT = re.compile("[A-Za-z0-9 _,:;!/=<>#@&\u00a0-\u2027\u202a-\U0010ffff-]+")
+_JSON_ESCAPE = re.compile(r"\\(u[0-9a-fA-F]{4}|.)")
+MIN_SNIPPET_CHARS = 24
+MAX_SNIPPET_CHARS = 120
+SNIPPET_CANDIDATES = 5
+# The share of the generations a snippet matches that must belong to its call type. The text can also appear in call
+# types outside the busiest ones, or further into another call type's input.
+MIN_SNIPPET_PRECISION = 0.9
 # Words that two phrasings of the same check swap freely, left out of a reviewed card's dedupe key.
 FILLER_WORDS = frozenset(
     "a an the and or of to in on for is are it its that this whether if check checks does do".split()
@@ -490,15 +501,54 @@ def screened_proposal(
     )
 
 
-def call_type_filters(call_types: Sequence[CallTypeRow]) -> list[dict[str, Any]]:
-    """An exact filter on the property that names the call types, or [] for every generation when one property
-    does not name them all. A generation with a prompt name belongs to that prompt's call type even when it has a
-    span name too, so a span-name filter leaves out generations with a prompt name."""
+def prompt_snippets(call_type: CallTypeRow, others: Sequence[CallTypeRow]) -> list[str]:
+    """Plain texts in the start of the call type's input, which every call of the type shares, that no other call
+    type's input holds, longest first."""
+    elsewhere = [other.example_input.lower() for other in others]
+    # The input is JSON cut short, so an escape such as \n reads as a letter after a backslash that the decoded
+    # input does not hold.
+    shared = _JSON_ESCAPE.sub("\0", call_type.example_input[:CALL_TYPE_INPUT_CHARS])
+    snippets: list[str] = []
+    for run in sorted((run.strip() for run in _PLAIN_TEXT.findall(shared)), key=len, reverse=True):
+        if len(run) < MIN_SNIPPET_CHARS:
+            break
+        # Two prompts can open a long run with the same text, so its end is a candidate too.
+        for snippet in (run[:MAX_SNIPPET_CHARS].strip(), run[-MAX_SNIPPET_CHARS:].strip()):
+            if len(snippets) == SNIPPET_CANDIDATES:
+                return snippets
+            unique = not any(snippet.lower() in text for text in elsewhere)
+            if len(snippet) >= MIN_SNIPPET_CHARS and snippet not in snippets and unique:
+                snippets.append(snippet)
+    return snippets
+
+
+def choose_snippet(snippets: Sequence[str], matches: Sequence[SnippetMatches]) -> str | None:
+    """The first snippet whose matches belong mostly to its call type."""
+    for snippet, match in zip(snippets, matches):
+        if match.matched and match.in_call_type / match.matched >= MIN_SNIPPET_PRECISION:
+            return snippet
+    return None
+
+
+def call_type_filters(call_types: Sequence[CallTypeRow], snippets: Mapping[str, str]) -> list[dict[str, Any]] | None:
+    """Filters that select the generations of the call types, or None when no filter can. A judge on every
+    generation would grade mostly calls its question does not apply to.
+
+    Call types named by their input are selected by their snippet, keyed by call type. A generation with a prompt
+    name belongs to that prompt's call type even when it has a span name too, so a span-name filter leaves out
+    generations with a prompt name."""
     sources = {call_type.source for call_type in call_types}
-    source = next(iter(sources)) if len(sources) == 1 else ""
-    key = CALL_TYPE_PROPERTIES.get(source)
+    if sources == {"input"}:
+        if any(call_type.key not in snippets for call_type in call_types):
+            return None
+        chosen = sorted({snippets[call_type.key] for call_type in call_types})
+        if len(chosen) == 1:
+            return [{"key": "$ai_input", "value": chosen[0], "operator": "icontains", "type": "event"}]
+        return [{"key": "$ai_input", "value": "|".join(chosen), "operator": "regex", "type": "event"}]
+    key = CALL_TYPE_PROPERTIES.get(next(iter(sources))) if len(sources) == 1 else None
     if key is None:
-        return []
+        return None
+    source = next(iter(sources))
     names = {"key": key, "value": sorted(c.name for c in call_types), "operator": "exact", "type": "event"}
     if source != "span_name":
         return [names]
@@ -514,19 +564,31 @@ def call_type_filters(call_types: Sequence[CallTypeRow]) -> list[dict[str, Any]]
 
 
 def review_dedupe_key(card: ReviewCard) -> str:
-    """The card's call types and the words of what its judge checks. A later review of the same failure writes a
-    new title and judge prompt, so neither is in the key, and the check's case, punctuation, word order and filler
-    words are left out too. A check reworded beyond that gets a new key."""
+    """The key of the earlier card the review said this one repeats, else the card's call types and the words of
+    what its judge checks. The check's case, punctuation, word order and filler words are left out, so a review
+    that does not name the earlier card still matches a check reworded only that far."""
+    if card.earlier_key:
+        return card.earlier_key
     keys = ",".join(sorted(c.key for c in card.call_types))
     words = sorted(set(re.findall(r"\w+", card.checks.lower())) - FILLER_WORDS)
     return bounded_key(f"review:{keys}:{' '.join(words)}")
 
 
-def review_proposal(card: ReviewCard, profile: TeamProfile, *, judge_model: str, calibration: Calibration) -> Proposal:
-    """A judge on the generations of the card's call types, with the judge's counts and the review's examples."""
-    filters = call_type_filters(card.call_types)
-    # Call types are counted over the last day. Without a filter the judge runs on every generation of the week.
-    weekly_units = 7 * sum(c.calls for c in card.call_types) if filters else profile.generations
+def review_proposal(
+    card: ReviewCard,
+    profile: TeamProfile,
+    *,
+    snippets: Mapping[str, str],
+    judge_model: str,
+    calibration: Calibration,
+) -> Proposal | None:
+    """A judge on the generations of the card's call types, with the judge's counts and the review's examples, or
+    None when no filter selects those generations."""
+    filters = call_type_filters(card.call_types, snippets)
+    if filters is None:
+        return None
+    # Call types are counted over the last day.
+    weekly_units = 7 * sum(c.calls for c in card.call_types)
     cost = judge_cost(weekly_units, profile.mean_input_tokens, judge_model)
     text = cards.review_text(card, cards.cost_clause(cost.weekly_cost_usd, free=False))
     return Proposal(

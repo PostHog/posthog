@@ -191,6 +191,7 @@ const llmDetectorAlert = makeAlert({
                   triggered_metadata: {
                       rationale: 'Signups fell to 640, well below the 960-1030 range of the previous week.',
                       kind: 'drop',
+                      model: 'claude-haiku-5-5',
                   },
               }
             : check

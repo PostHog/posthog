@@ -1,12 +1,8 @@
-import { useMemo } from 'react'
-
 import { IconBuilding, IconPeople, IconPerson, IconSupport } from '@posthog/icons'
 
-import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
-
-import { TodayPeopleRecent, TodayPeopleRecentType, peopleRecentRowKey } from './todayPeople'
-import { TodayExplainerPreview } from './todayPreviewCards'
-import { TodayPreviewTrigger } from './TodayPreviewTrigger'
+import { TodayPeopleRecent, TodayPeopleRecentType } from './todayPeople'
+import { TodayRecentRow } from './TodayRecentRow'
+import { recentRowKey } from './todayRecents'
 
 const RECENT_ICONS: Record<TodayPeopleRecentType, JSX.Element> = {
     person: <IconPerson />,
@@ -33,26 +29,15 @@ export function TodayPeopleRecentRow({
     active: boolean
     dataAttr?: string
 }): JSX.Element {
-    // The shared card stores the payload, so it must keep its identity between renders.
-    const preview = useMemo<TodayExplainerPreview>(
-        () => ({
-            kind: 'explainer',
-            label: recent.name,
-            icon: RECENT_ICONS[recent.type],
-            description: RECENT_DESCRIPTIONS[recent.type],
-        }),
-        [recent.name, recent.type]
-    )
     return (
-        <TodayPreviewTrigger payload={preview}>
-            <SidebarRow
-                value={peopleRecentRowKey(recent.href)}
-                label={recent.name}
-                icon={RECENT_ICONS[recent.type]}
-                to={recent.href}
-                active={active}
-                dataAttr={dataAttr}
-            />
-        </TodayPreviewTrigger>
+        <TodayRecentRow
+            value={recentRowKey(recent.href)}
+            name={recent.name}
+            href={recent.href}
+            icon={RECENT_ICONS[recent.type]}
+            description={RECENT_DESCRIPTIONS[recent.type]}
+            active={active}
+            dataAttr={dataAttr}
+        />
     )
 }

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-13 20:02:35 UTC
+// Generated at: 2026-11-17 10:04:29 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -19,6 +19,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-east-2'
     | 'amazon-bedrock-us-west-2'
+    | 'ambient-fp4'
     | 'ambient-fp8'
     | 'antdigital-fp8'
     | 'anthropic'
@@ -77,6 +78,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp32'
     | 'deepinfra-fp4'
     | 'deepinfra-fp4-flex'
+    | 'deepinfra-fp4-priority'
     | 'deepinfra-fp8'
     | 'deepinfra-fp8-flex'
     | 'deepinfra-fp8-priority'
@@ -88,6 +90,8 @@ export type CanonicalProvider =
     | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'digitalocean'
+    | 'doubleword'
+    | 'featherless'
     | 'featherless-fp4'
     | 'fireworks'
     | 'fireworks-fast'
@@ -128,6 +132,7 @@ export type CanonicalProvider =
     | 'io-net-bf16'
     | 'io-net-fp16'
     | 'io-net-fp4'
+    | 'io-net-fp8'
     | 'io-net-nvfp4'
     | 'ionstream'
     | 'ionstream-flex'
@@ -152,10 +157,13 @@ export type CanonicalProvider =
     | 'modal-fp4'
     | 'modal-mxfp4'
     | 'modal-nvfp4'
+    | 'modelrun-bf16'
+    | 'modelrun-fp4'
     | 'moonshotai'
     | 'moonshotai-highspeed'
     | 'moonshotai-mxfp4'
     | 'morph-bf16'
+    | 'morph-fast'
     | 'morph-fp8'
     | 'morph-us'
     | 'near-ai'
@@ -192,6 +200,7 @@ export type CanonicalProvider =
     | 'parasail-fp8'
     | 'parasail-int4'
     | 'particle-ai-nvfp4'
+    | 'particle-ai-nvfp4-flex'
     | 'particle-ai-us'
     | 'particle-ai-us-flex'
     | 'perceptron'
