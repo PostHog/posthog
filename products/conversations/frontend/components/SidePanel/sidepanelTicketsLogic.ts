@@ -46,6 +46,7 @@ import type {
     SidePanelViewState,
     TicketsLoadState,
 } from '../../types'
+import { markdownToSupportContent } from '../Editor/markdownToSupportContent'
 import { clearSharedTickets, loadTicketsAcrossTabs } from './ticketsAcrossTabs'
 
 function ticketMatchesFilter(ticket: ConversationTicket, filter: SidePanelTicketFilter): boolean {
@@ -903,7 +904,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             // carries an exception and no message — and its crash card promises we attach it
             const draft = appendExceptionToMessage(request?.message ?? '', request?.exception_event)
             if (draft) {
-                actions.setNewTicketDraft(messageToRichContent(draft))
+                actions.setNewTicketDraft(
+                    request?.message_format === 'markdown'
+                        ? markdownToSupportContent(draft)
+                        : messageToRichContent(draft)
+                )
             }
             actions.setNewTicketContext(request?.ticket_context || null)
             actions.setView('new')

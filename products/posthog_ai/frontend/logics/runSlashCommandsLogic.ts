@@ -22,7 +22,7 @@ import { urls } from 'scenes/urls'
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 import { RuntimeAdapterEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import type { ContextUsage } from '../types/streamTypes'
+import type { ContextUsage, ThreadItem } from '../types/streamTypes'
 import type { AgentCommand } from '../types/wireTypes'
 import { captureCommandFeedback } from '../utils/feedbackEvents'
 import {
@@ -34,6 +34,7 @@ import {
     getAppCommand,
     parseSlashCommand,
 } from '../utils/slashCommands'
+import { findSupportTicketDraft } from '../utils/supportTicketDraft'
 import { runInteractionLogic, type RunInteractionLogicProps } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
 
@@ -84,6 +85,7 @@ export interface runSlashCommandsLogicValues {
     bootstrappedRunId: string | null // runStreamLogic
     bootstrappedTaskId: string | null // runStreamLogic
     contextUsage: ContextUsage | null // runStreamLogic
+    threadItems: ThreadItem[] // runStreamLogic
     traceId: string | null // runStreamLogic
     appCommands: AppCommand[]
     commandResult: CommandResult | null
@@ -168,7 +170,7 @@ export const runSlashCommandsLogic: LogicWrapper<runSlashCommandsLogicType> = ke
             projectLogic,
             ['currentProjectId'],
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
-            ['availableCommands', 'bootstrappedRunId', 'bootstrappedTaskId', 'contextUsage', 'traceId'],
+            ['availableCommands', 'bootstrappedRunId', 'bootstrappedTaskId', 'contextUsage', 'threadItems', 'traceId'],
             runInteractionLogic(props),
             ['composerForm', 'isTerminal', 'dataProcessingAccepted'],
         ],
@@ -290,13 +292,15 @@ export const runSlashCommandsLogic: LogicWrapper<runSlashCommandsLogicType> = ke
                         return
                     case 'ticket': {
                         const taskUrl = taskId ? urls.absolute(urls.currentProject(urls.taskDetail(taskId))) : null
+                        const draft = findSupportTicketDraft(values.threadItems)
                         actions.openSupportForm({
                             kind: 'support',
                             target: 'sidePanel',
                             isEmailFormOpen: true,
-                            message: [args, taskUrl ? `PostHog AI task: ${taskUrl}` : null]
+                            message: [args, draft, taskUrl ? `PostHog AI task: ${taskUrl}` : null]
                                 .filter(Boolean)
                                 .join('\n\n'),
+                            message_format: draft ? 'markdown' : 'plain',
                             // Attributes the ticket to this run, like the other PostHog AI ticket handovers.
                             ai_conversation_id: taskId ?? null,
                             ai_trace_id: values.traceId,

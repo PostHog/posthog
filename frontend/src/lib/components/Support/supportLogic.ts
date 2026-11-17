@@ -222,6 +222,8 @@ export type SupportFormFields = {
     email: string
     kind: SupportTicketKind
     message: string
+    /** A markdown message prefills the side panel composer as formatted text. Defaults to plain. */
+    message_format?: 'plain' | 'markdown'
     /**
      * Billing questions are answered on every plan, so a billing CTA earns a support exemption even
      * when the plan itself doesn't include support. This replaced an implicit `target_area === 'billing'`
@@ -483,6 +485,7 @@ export const supportLogic = kea<supportLogicType>([
             isEmailFormOpen,
             kind,
             message,
+            message_format,
             exception_event,
             ticket_context,
             billing_issue,
@@ -497,6 +500,7 @@ export const supportLogic = kea<supportLogicType>([
                 email: email ?? '',
                 kind,
                 message: message ?? values.sendSupportRequest.message ?? '',
+                message_format,
                 exception_event,
                 ticket_context,
                 billing_issue: billing_issue ?? false,

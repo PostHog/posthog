@@ -14,6 +14,7 @@ import { initKeaTests } from '~/test/init'
 import { BillingType, SidePanelTab } from '~/types'
 
 import type { ConversationTicket } from '../../types'
+import { serializeToMarkdown } from '../Editor/SupportEditor'
 import { liveTicketsLogic, sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 import { loadTicketsAcrossTabs } from './ticketsAcrossTabs'
 
@@ -281,6 +282,27 @@ describe('sidepanelTicketsLogic', () => {
         }).toFinishAllListeners()
 
         expect(JSON.stringify(logic.values.newTicketDraft)).toContain('Exception')
+    })
+
+    it.each([
+        ['plain', '\\*\\*What I want:\\*\\* fix my\\_flag'],
+        ['markdown', '**What I want:** fix my\\_flag'],
+    ] as const)('prefills a %s message as the composer would send it', async (messageFormat, expected) => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            supportLogic.actions.openSupportForm({
+                kind: 'support',
+                isEmailFormOpen: true,
+                message: '**What I want:** fix my_flag',
+                message_format: messageFormat,
+                target: 'sidePanel',
+            })
+        }).toFinishAllListeners()
+
+        expect(serializeToMarkdown(logic.values.newTicketDraft!)).toBe(expected)
     })
 
     it('keeps the billing exemption after the support form resets, so backing out of the composer is not a dead end', async () => {

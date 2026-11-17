@@ -1,7 +1,8 @@
 import { JSONContent, getSchema } from '@tiptap/core'
 import { Node as ProseMirrorNode } from '@tiptap/pm/model'
 
-import { SUPPORT_PREVIEW_EXTENSIONS, serializeToMarkdown } from './SupportEditor'
+import { markdownToSupportContent } from './markdownToSupportContent'
+import { SUPPORT_EXTENSIONS, SUPPORT_PREVIEW_EXTENSIONS, serializeToMarkdown } from './SupportEditor'
 
 // jest.setup.ts stubs this module out, which would make schema construction meaningless here
 jest.unmock('@tiptap/extension-code-block-lowlight')
@@ -96,6 +97,24 @@ describe('SupportEditor serialization and preview schema', () => {
         }
         const schema = getSchema([...SUPPORT_PREVIEW_EXTENSIONS])
         expect(() => ProseMirrorNode.fromJSON(schema, hogdeskDoc).check()).not.toThrow()
+    })
+
+    test.each<[string, string, string]>([
+        [
+            'a drafted ticket',
+            '**What I want:** The flag shows control to everyone\n\n**Questions:**\n\n- Why does it ignore the rollout\n\n**Error:**\n\n```\nTypeError: flag is undefined\n```',
+            '**What I want:** The flag shows control to everyone\n\n**Questions:**\n\n- Why does it ignore the rollout\n\n**Error:**\n\n```\nTypeError: flag is undefined\n```',
+        ],
+        [
+            'markdown with nodes the composer lacks',
+            '## Error\n\n> quoted\n\n---\n\nboom',
+            '**Error**\n\nquoted\n\nboom',
+        ],
+    ])('markdownToSupportContent turns %s into a draft the composer loads', (_name, markdown, expected) => {
+        const doc = markdownToSupportContent(markdown)
+
+        expect(() => ProseMirrorNode.fromJSON(getSchema([...SUPPORT_EXTENSIONS]), doc).check()).not.toThrow()
+        expect(serializeToMarkdown(doc)).toBe(expected)
     })
 
     it('preview schema rejects unknown node types so the plain-content fallback kicks in', () => {
