@@ -12073,6 +12073,7 @@ export namespace Schemas {
             api_version: string | null;
             supported_api_versions: Array<string>;
             file_name: string | null;
+            supports_table_discovery: boolean;
         }> | null;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.

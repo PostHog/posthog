@@ -52348,6 +52348,7 @@ export namespace Schemas {
       readonly supported_api_versions?: string[];
       /** @nullable */
       readonly file_name?: string | null;
+      readonly supports_table_discovery?: boolean;
     } | null;
 
     /**
@@ -90251,6 +90252,7 @@ export namespace Schemas {
       readonly supported_api_versions?: string[];
       /** @nullable */
       readonly file_name?: string | null;
+      readonly supports_table_discovery?: boolean;
     } | null;
 
     /**

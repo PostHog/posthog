@@ -507,6 +507,7 @@ export type ExternalDataSchemaApiSource = {
     readonly supported_api_versions?: string[]
     /** @nullable */
     readonly file_name?: string | null
+    readonly supports_table_discovery?: boolean
 } | null
 
 /**
@@ -759,6 +760,7 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly supported_api_versions?: string[]
     /** @nullable */
     readonly file_name?: string | null
+    readonly supports_table_discovery?: boolean
 } | null
 
 /**
