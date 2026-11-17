@@ -9,6 +9,12 @@ Run these commands from the repository root:
 - Run `pnpm --filter=@posthog/mcp run lint:fix` to apply safe Oxlint fixes. It does not apply suggestion fixes that may change behavior.
 - Run `pnpm --filter=@posthog/mcp run fix` before committing JavaScript, TypeScript, JSON, YAML, CSS, or SCSS changes. It applies safe Oxlint fixes, always runs Oxfmt, and fails if either tool fails.
 
+## Product-specific agent text
+
+- **Text about one product lives in that product's files.** `[review]` Put a workflow in a skill under `products/<name>/skills/`. Put a note on a tool's result in `agent_note` in the product's `tools.yaml`. Every product shares `src/tools/exec.ts` and `src/templates/sections/`, so keep product text out of them.
+- A redirect for a removed tool is the exception. It goes in `DEPRECATED_TOOL_REDIRECTS` in `src/tools/exec.ts`.
+- If product text must be in the server instructions, agree the change in `#team-context-and-mcp` before you write it.
+
 ## Unsolicited elicitation: high risk
 
 > [!CAUTION]

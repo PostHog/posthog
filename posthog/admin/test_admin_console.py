@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from pathlib import Path
@@ -54,7 +55,9 @@ from posthog.admin.console.results import (
 )
 from posthog.admin.console.tools import (
     Cell,
+    Choice,
     ConsoleTool,
+    Decision,
     Download,
     FieldGroup,
     Filters,
@@ -213,6 +216,43 @@ class _ActingTool(_Tool):
                 ),
             )
         )
+
+
+class _VerdictForm(forms.Form):
+    item = forms.CharField()
+    verdict = forms.ChoiceField(choices=[("good", "Good"), ("bad", "Bad")])
+    note = forms.CharField(required=False)
+
+
+DECISION = Decision(
+    title="Item 3",
+    text="What the item says.",
+    operation_key="judge",
+    field="verdict",
+    choices=(Choice(label="Good", value="good", tone=Tone.SUCCESS, key="ArrowRight"),),
+    values={"item": "3"},
+    note_field="note",
+    note_label="Why",
+    query="item=4",
+    skip_href="/admin/console/tools/deciding-tool/?item=4",
+    skip_key="ArrowDown",
+)
+
+
+class _DecidingTool(_Tool):
+    key = "deciding-tool"
+    title = "Deciding tool"
+    decided: list[dict[str, str]] = []
+
+    def _judge(self, request: HttpRequest, form: forms.Form | None) -> None:
+        assert form is not None
+        self.decided.append(form.cleaned_data)
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        return [ToolOperation(key="judge", label="Judge", handler=self._judge, form_class=_VerdictForm, listed=False)]
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(blocks=(replace(DECISION, operation_key=request.GET.get("runs", "judge")),))
 
 
 class _SecretTool(_Tool):
@@ -473,6 +513,16 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
+            ),
+            (
+                "decision_value_that_a_button_also_posts",
+                lambda: replace(DECISION, values={"verdict": "good"}),
+                "must not set",
+            ),
+            (
+                "decision_skip_link_off_site",
+                lambda: replace(DECISION, skip_href="//example.com/phish"),
+                "starts with /",
             ),
             (
                 "download_name_that_would_break_the_header",
@@ -979,6 +1029,28 @@ class TestAdminConsoleViews(BaseTest):
         assert 'data-pending-label="Loading..."' in content and "Show details" in content
         assert 'value="2026-10-22"' in content and "Preview" in content
         assert re.search(r'<input type="hidden" name="step" value="details"', content)
+
+    def test_a_decision_runs_its_operation_in_one_click_and_returns_to_the_next_item(self) -> None:
+        _DecidingTool.decided = []
+        with patch.object(console, "get_tool", return_value=_DecidingTool()):
+            page = self.client.get("/admin/console/tools/deciding-tool/").content.decode()
+            response = self.client.post(
+                "/admin/console/tools/deciding-tool/judge/?item=4", {"item": "3", "verdict": "good", "note": "Fine"}
+            )
+
+        assert 'action="/admin/console/tools/deciding-tool/judge/?item=4"' in page
+        assert '<input type="hidden" name="item" value="3"' in page
+        assert re.search(r'name="verdict"\s+value="good"\s+data-console-key="ArrowRight"', page)
+        assert 'href="/admin/console/tools/deciding-tool/?item=4"' in page and 'data-console-key="ArrowDown"' in page
+        # The operation is the Decision's, so the Actions card does not offer its form too.
+        assert "tool-actions-title" not in page
+        assert response["Location"] == "/admin/console/tools/deciding-tool/?item=4"
+        assert _DecidingTool.decided == [{"item": "3", "verdict": "good", "note": "Fine"}]
+
+    def test_a_decision_for_an_operation_the_tool_does_not_offer_fails_the_page(self) -> None:
+        with patch.object(console, "get_tool", return_value=_DecidingTool()):
+            with self.assertRaisesRegex(ValueError, "must offer with a form"):
+                self.client.get("/admin/console/tools/deciding-tool/?runs=missing")
 
     def test_a_tool_operation_needs_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
         client = Client(enforce_csrf_checks=True)

@@ -27,6 +27,7 @@ READ_ROUTES = [
     ("window_unknown_document", "/documents/{unknown}/window/?around_ordinal=0"),
     ("library_list", "/libraries/"),
     ("library_retrieve", "/libraries/{library}/"),
+    ("access", "/access/"),
     ("repository_search", "/repositories/search/?query=billing"),
     ("repository_file", "/repositories/file/?repo=acme/billing&path=src/billing.py"),
 ]
@@ -77,6 +78,19 @@ class TestLibraryLimitedKeys(APIBaseTest):
         self._use_key(self.public)
         assert self._searched_documents() == {str(self.public_document.id)}
         assert self._searched_documents(f"&library_id={self.public.id}") == {str(self.public_document.id)}
+
+    @parameterized.expand([("limited", True), ("whole_project", False)])
+    def test_key_learns_its_project_and_library_without_naming_the_project(
+        self, _ff: Any, _embed: Any, _name: str, limited: bool
+    ) -> None:
+        self._use_key(self.public if limited else None)
+        response = self.client.get("/api/projects/@current/business_knowledge/access/")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {
+            "project_id": self.team.id,
+            "is_limited": limited,
+            "library_id": str(self.public.id) if limited else None,
+        }
 
     def test_limited_key_lists_only_its_library(self, _ff: Any, _embed: Any) -> None:
         self._use_key(self.public)

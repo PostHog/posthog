@@ -1,4 +1,4 @@
-{# One console block. `block` is a Notice, Table, Output, Paging, Stats, Links, Filters or Secret from posthog/admin/console/tools.py. #}
+{# One console block. `block` is a Notice, Table, Output, Paging, Stats, Links, Filters, Secret or Decision from posthog/admin/console/tools.py. #}
 {% if block.kind == "notice" %}
     {% if block.tone %}
         {% include "admin_console/_callout.html" with notice=block %}
@@ -51,4 +51,6 @@
     {% include "admin_console/_links.html" with links=block %}
 {% elif block.kind == "filters" %}
     {% include "admin_console/_filters.html" with filters=block %}
+{% elif block.kind == "decision" %}
+    {% include "admin_console/_decision.html" with decision=block %}
 {% endif %}

@@ -431,17 +431,17 @@
   },
   {
     "temporal_workflow_type": "data-modeling-enrich-view-semantics",
-    "product": "temporal/data_modeling",
+    "product": "data_modeling",
     "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "data-modeling-execute-dag",
-    "product": "temporal/data_modeling",
+    "product": "data_modeling",
     "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "data-modeling-materialize-view",
-    "product": "temporal/data_modeling",
+    "product": "data_modeling",
     "task_queues": "DATA_MODELING_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
   },
   {
@@ -796,6 +796,11 @@
   },
   {
     "temporal_workflow_type": "knowledge-writer-publish",
+    "product": "knowledge_writer",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "knowledge-writer-start-held-requests",
     "product": "knowledge_writer",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
