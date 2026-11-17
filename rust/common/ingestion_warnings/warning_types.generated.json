@@ -308,6 +308,12 @@
       "captureProduced": true
     },
     {
+      "type": "person_properties_depth_violation",
+      "category": "size",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "person_properties_size_violation",
       "category": "size",
       "severity": "error",

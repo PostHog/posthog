@@ -28,7 +28,7 @@ from trino.exceptions import TrinoUserError
 
 from posthog.sync import database_sync_to_async
 
-from products.managed_warehouse.backend import backfill_trino
+from products.managed_warehouse.backend import backfill_trino as backfill_trino_module
 from products.managed_warehouse.backend.duckgres_availability import DuckgresOrganizationStatus
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceJobStatus
 from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob, ManagedWarehouseSourceLifecycle
@@ -94,7 +94,7 @@ def _cp_no_rows():
 def _trino_engine_off(monkeypatch):
     monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: False)
     monkeypatch.setattr(registration_module, "data_imports_trino_flag", lambda organization_id: False)
-    monkeypatch.setattr(registration_module, "data_imports_through_hoglake", lambda organization_id: False)
+    monkeypatch.setattr(registration_module, "data_imports_register_in_hoglake", lambda organization_id: False)
     monkeypatch.setattr(registration_module, "data_imports_gigahog_flag", lambda organization_id: False)
 
 
@@ -188,7 +188,7 @@ async def test_prepare_registration_pins_the_import_jobs_prepared_generation(ate
         lambda organization_id: engine in (ENGINE_HOGLAKE, "gigahog_flag_unanswered"),
     )
     if engine == "gigahog_flag_unanswered":
-        monkeypatch.setattr(registration_module, "data_imports_gigahog_flag", backfill_trino.data_imports_gigahog_flag)
+        monkeypatch.setattr(registration_module, "data_imports_gigahog_flag", backfill_trino_module.data_imports_gigahog_flag)
         monkeypatch.setattr(
             "posthoganalytics.get_feature_flag", MagicMock(side_effect=TimeoutError("flags service timed out"))
         )
@@ -3095,9 +3095,12 @@ def test_hoglake_import_table_name_keeps_hogql_names_out_of_posthog_tables(name:
 def test_registers_in_hoglake_asks_for_the_backend_only_with_the_flag(
     flag_on: bool, backend: Any, expected: bool | str, monkeypatch
 ) -> None:
-    monkeypatch.setattr(registration_module, "data_imports_through_hoglake", lambda organization_id: flag_on)
+    monkeypatch.setattr(
+        registration_module, "data_imports_register_in_hoglake", backfill_trino_module.data_imports_register_in_hoglake
+    )
+    monkeypatch.setattr(backfill_trino_module, "data_imports_through_hoglake", lambda organization_id: flag_on)
     lookup = MagicMock(side_effect=backend) if isinstance(backend, Exception) else MagicMock(return_value=backend)
-    monkeypatch.setattr(registration_module, "trino_backend_for", lookup)
+    monkeypatch.setattr(backfill_trino_module, "trino_backend_for", lookup)
 
     if expected == "retry":
         with pytest.raises(ApplicationError) as raised:
