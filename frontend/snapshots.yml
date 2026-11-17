@@ -11426,6 +11426,10 @@ snapshots:
         hash: v1.k794b7964.f9f8fa8cc5110f61d298be468c1297dec857277af660fe9a2e1eced57dbf4f51.4akPWjaPOB4FuYiqYbuhoIvDyVBbS5_HP-WJfzarEjw
     scenes-app-data-warehouse-settings-failing-destinations--paused--light:
         hash: v1.k794b7964.97ea2ed405206dc8d86b16af69c4168b60bba272ed4927cd17b1da68b5ff9985._-h3M823TnnKmaHHOpaKaf1i2yM7T922YzMMRhestso
+    scenes-app-data-warehouse-settings-schemas--add-table-modal-open--dark:
+        hash: v1.k794b7964.8d8022856d190def40e155347d897763f44b953d1484f2118e88a74ccbaa943e.t6sAFeD87LAVoeXW7hZY2DCtVf305D9ghPsOEQSHfK0
+    scenes-app-data-warehouse-settings-schemas--add-table-modal-open--light:
+        hash: v1.k794b7964.14d0feb8559cad774d492b51aad865c2a75f97a65894a051f8e329a659ed0dbc.-arvk2NXRwzboej0WC5xEGOEGhP-_ny1643ED8kaQ5M
     scenes-app-data-warehouse-settings-schemas--default--dark:
         hash: v1.k794b7964.2731d66d7ae4e5a789e0fc6f8a331b259cbcb3ec25416c79fe3a1ce3e583fdbc.Dgzs4lWk8hphWWfySWhK75GKpeq4fzL3Z9KAkrVVl80
     scenes-app-data-warehouse-settings-schemas--default--light:
@@ -11438,6 +11442,14 @@ snapshots:
         hash: v1.k794b7964.3bcec4692a9a62b116fc38aee9da58cd33c134602ec1a659a281a564c7d704fb.WOQMHP0MZlV4qdn8etO3YYlIcm5odlOGkPBU5f_kfA4
     scenes-app-data-warehouse-settings-schemas--multi-schema--light:
         hash: v1.k794b7964.2f4bd6098d8c54c0b25ed9ee0ef7770a59c4d343191d065b0814299a27a42a22.6jWN3F1ozzMy7KZRTYHY1XPxasFL_u2H8Ybw9WcDjfk
+    scenes-app-data-warehouse-settings-schemas--object-storage--dark:
+        hash: v1.k794b7964.5b15aaf7f11fec1bbcfd58b4254a3b985963de4a7cb74ce0c3c5736ca57acc51.OcyJi1WLrjbmgic9bydj6ZgvQCoi4wcylL_ExgVTnQU
+    scenes-app-data-warehouse-settings-schemas--object-storage--light:
+        hash: v1.k794b7964.b080c55338a542572b7b83829d1658769d6a3b99c7ef5a9d033ee52f7023c3a8.X8ATyHjcKdaOBMhgjlkzUvVHa3hee32dBfQlB1Tg2zU
+    scenes-app-data-warehouse-settings-schemas--object-storage-migrated--dark:
+        hash: v1.k794b7964.b6d3aba731710446b7712d3128330056c8489c55b637e712e02ada9b4b3f9c52.cg4p45fSiF7WV7atA8RQ3-AMV_bU24j3YPcTlWUGZv4
+    scenes-app-data-warehouse-settings-schemas--object-storage-migrated--light:
+        hash: v1.k794b7964.d6f1a66497752a2522dfd574f56c7a89bbc8f1dcee299fa25ca2e32568ad64c2.7FhQ1ue0NDQLTTAV7Uo6b7l0R4iz25U2FEDmuINbFLQ
     scenes-app-data-warehouse-settings-webhook-not-registered-banner--many-tables--dark:
         hash: v1.k794b7964.fec86694675eba5ef60a7c479d4c5e2b8af6db15ac30ea65290c0158a6aa566b.7oBlqrtOAH9HWLo6Aq9vSaWVcVTRmAJ2BbMmcM860dc
     scenes-app-data-warehouse-settings-webhook-not-registered-banner--many-tables--light:
