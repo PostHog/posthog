@@ -1714,6 +1714,11 @@
         "params": [],
         "scope": "project"
     },
+    "stamphogDigests": {
+        "template": "/stamphog/digests",
+        "params": [],
+        "scope": "project"
+    },
     "startups": {
         "template": "/startups",
         "params": [],

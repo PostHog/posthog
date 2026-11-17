@@ -29318,7 +29318,7 @@ export namespace Schemas {
     }
 
     export interface CodeReviewApprovalRoutingPullRequest {
-      /** The pull request title, as stamphog last saw it. */
+      /** The pull request title, as auto-approval last saw it. */
       title: string;
       /** The GitHub login of the pull request author. */
       author: string;
@@ -29330,22 +29330,22 @@ export namespace Schemas {
          */
       merged_at?: string | null;
       /**
-         * Added lines. Null until the pull request merges, because stamphog stores the size at merge.
+         * Added lines. Null until the pull request merges, because auto-approval stores the size at merge.
          * @nullable
          */
       additions?: number | null;
       /**
-         * Deleted lines. Null until the pull request merges, because stamphog stores the size at merge.
+         * Deleted lines. Null until the pull request merges, because auto-approval stores the size at merge.
          * @nullable
          */
       deletions?: number | null;
       /**
-         * Changed files. Null until the pull request merges, because stamphog stores the size at merge.
+         * Changed files. Null until the pull request merges, because auto-approval stores the size at merge.
          * @nullable
          */
       changed_files?: number | null;
       /**
-         * The stamphog reviewer's one sentence about the whole change, from the newest completed review of the pull request that wrote one, at any head. Null when no review wrote one.
+         * The auto-approval reviewer's one sentence about the whole change, from the newest completed review of the pull request that wrote one, at any head. Null when no review wrote one.
          * @nullable
          */
       summary?: string | null;
@@ -29454,7 +29454,7 @@ export namespace Schemas {
       /** Changed files this owner owns. */
       file_count?: number;
       /**
-         * The stamphog reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
+         * The auto-approval reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
          * @nullable
          */
       summary?: string | null;
@@ -29467,7 +29467,7 @@ export namespace Schemas {
       repository: string;
       /** Pull request number. */
       pr_number: number;
-      /** The pull request the run routed, as stamphog last saw it rather than as it was at the run. */
+      /** The pull request the run routed, as auto-approval last saw it rather than as it was at the run. */
       readonly pull_request: CodeReviewApprovalRoutingPullRequest;
       /** The head commit the run routed. */
       head_sha: string;
@@ -29551,7 +29551,7 @@ export namespace Schemas {
       /** Changed files this owner owns. */
       file_count?: number;
       /**
-         * The stamphog reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
+         * The auto-approval reviewer's clause about this owner's part of the change. Set only when the reviewer wrote one clause per owning team, which it does when several teams own changed files.
          * @nullable
          */
       summary?: string | null;
@@ -29564,7 +29564,7 @@ export namespace Schemas {
       repository: string;
       /** Pull request number. */
       pr_number: number;
-      /** The pull request the run routed, as stamphog last saw it rather than as it was at the run. */
+      /** The pull request the run routed, as auto-approval last saw it rather than as it was at the run. */
       readonly pull_request: CodeReviewApprovalRoutingPullRequest;
       /** The head commit the run routed. */
       head_sha: string;
@@ -39844,6 +39844,102 @@ export namespace Schemas {
       filter_test_accounts: boolean;
       /** Metric definitions to use when you compare the digest with a direct query. */
       notes: string[];
+    }
+
+    /**
+     * * `manual` - MANUAL
+     * * `slack_name_match` - SLACK_NAME_MATCH
+     * * `stamphog_config` - STAMPHOG_CONFIG
+     * * `owners_contact` - OWNERS_CONTACT
+     */
+    export type ResolutionSourceEnum = typeof ResolutionSourceEnum[keyof typeof ResolutionSourceEnum];
+
+
+    export const ResolutionSourceEnum = {
+      Manual: 'manual',
+      SlackNameMatch: 'slack_name_match',
+      StamphogConfig: 'stamphog_config',
+      OwnersContact: 'owners_contact',
+    } as const;
+
+    /**
+     * * `pending` - PENDING
+     * * `completed` - COMPLETED
+     * * `failed` - FAILED
+     */
+    export type DigestRunStatusEnum = typeof DigestRunStatusEnum[keyof typeof DigestRunStatusEnum];
+
+
+    export const DigestRunStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * One merged pull request as the digest listed it.
+     */
+    export interface _DigestSummaryPR {
+      /** Pull request number on GitHub. */
+      readonly pr_number: number;
+      /** Pull request title. */
+      readonly title: string;
+      /** Full URL to the pull request on GitHub. */
+      readonly url: string;
+      /** GitHub login of the pull request author. */
+      readonly author_login: string;
+      /** The one-line summary of the change that the digest posted. */
+      readonly summary: string;
+      /** Repository full name, e.g. 'PostHog/posthog'. Blank on older runs. */
+      readonly repository: string;
+    }
+
+    /**
+     * What the digest posted to Slack: the headline and the pull requests it listed.
+     */
+    export interface _DigestSummary {
+      /** Prose about the merges with real consequence. Blank when the digest led with its first line. */
+      readonly headline: string;
+      /** The merged pull requests the digest listed, in the order it listed them. */
+      readonly prs: readonly _DigestSummaryPR[];
+    }
+
+    export interface DigestRun {
+      readonly id: string;
+      /** Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'. */
+      readonly audience_key: string;
+      /** Slack channel this digest was posted to, e.g. 'C012AB3CD'. */
+      readonly slack_channel_id: string;
+      /** Human-readable name of that channel, for display. */
+      readonly slack_channel_name: string;
+      /** Why the digest went to this channel: 'slack_name_match' (no declaration anywhere, so the audience_key matched a same-named Slack channel), 'stamphog_config' (the channel the repo declared under 'digest:' in .stamphog/policy.yml), 'owners_contact' (a teams: entry in a root owners.yaml named it), or 'manual' (no longer produced).
+       *
+       * * `manual` - MANUAL
+       * * `slack_name_match` - SLACK_NAME_MATCH
+       * * `stamphog_config` - STAMPHOG_CONFIG
+       * * `owners_contact` - OWNERS_CONTACT */
+      readonly resolution_source: ResolutionSourceEnum;
+      /** Current state of the digest run (pending, completed, failed).
+       *
+       * * `pending` - PENDING
+       * * `completed` - COMPLETED
+       * * `failed` - FAILED */
+      readonly status: DigestRunStatusEnum;
+      /** Number of merged PRs included in the posted digest. */
+      readonly pr_count: number;
+      /** What the digest posted: its headline and the merged pull requests it listed. Both are empty on a run with nothing to post, and on runs stored before this format. */
+      readonly summary: _DigestSummary;
+      /** Slack message timestamp of the posted digest, if posted. */
+      readonly slack_message_ts: string;
+      /** Error message if the run failed, blank otherwise. */
+      readonly error: string;
+      /** When the digest run was created. */
+      readonly created_at: string;
+      /**
+         * When the digest was posted to Slack, if it was.
+         * @nullable
+         */
+      readonly posted_at: string | null;
     }
 
     /**
@@ -78786,6 +78882,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DatasetRevisionRead[];
+    }
+
+    export interface PaginatedDigestRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DigestRun[];
     }
 
     export interface PaginatedEarlyAccessFeatureList {
@@ -135158,6 +135263,21 @@ export namespace Schemas {
     state?: string[];
     };
 
+    export type CodeReviewApprovalsDigestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by the Slack channel the digest was posted to, e.g. 'C012AB3CD'.
+     */
+    slack_channel_id?: string;
+    };
+
     export type CodeReviewApprovalsPullRequestsListParams = {
     /**
      * Number of results to return per page.
@@ -135225,7 +135345,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open ones and ones closed without merging, because stamphog does not record a close. Omit for both.
+     * true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open ones and ones closed without merging, because auto-approval does not record a close. Omit for both.
      * @nullable
      */
     merged?: boolean | null;

@@ -20,21 +20,75 @@ import type {
     CodeReviewApprovalRoutingRunDetailApi,
     CodeReviewApprovalSyncInstallationRequestApi,
     CodeReviewApprovalSyncInstallationResponseApi,
+    CodeReviewApprovalsDigestsListParams,
     CodeReviewApprovalsPullRequestsListParams,
     CodeReviewApprovalsRepositoriesAvailableRepositoriesRetrieveParams,
     CodeReviewApprovalsRepositoriesListParams,
     CodeReviewApprovalsReviewerRoutingListParams,
     CodeReviewApprovalsReviewerRoutingOwnersListParams,
     CodeReviewApprovalsRunsListParams,
+    DigestRunApi,
     PaginatedCodeReviewApprovalPullRequestListApi,
     PaginatedCodeReviewApprovalRepositoryListApi,
     PaginatedCodeReviewApprovalRoutingRunListApi,
+    PaginatedDigestRunListApi,
     PaginatedReviewRunListApi,
     PatchedCodeReviewApprovalRepositoryWriteApi,
     ReviewRequestApi,
     ReviewRequestResponseApi,
     ReviewRunApi,
 } from './api.schemas'
+
+export const getCodeReviewApprovalsDigestsListUrl = (
+    projectId: string,
+    params?: CodeReviewApprovalsDigestsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/code_review/approvals/digests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/code_review/approvals/digests/`
+}
+
+/**
+ * Read-only history of posted (or attempted) digests, filterable by Slack channel.
+ */
+export const codeReviewApprovalsDigestsList = async (
+    projectId: string,
+    params?: CodeReviewApprovalsDigestsListParams,
+    options?: RequestInit
+): Promise<PaginatedDigestRunListApi> => {
+    return apiMutator<PaginatedDigestRunListApi>(getCodeReviewApprovalsDigestsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCodeReviewApprovalsDigestsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/code_review/approvals/digests/${id}/`
+}
+
+/**
+ * Read-only history of posted (or attempted) digests, filterable by Slack channel.
+ */
+export const codeReviewApprovalsDigestsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DigestRunApi> => {
+    return apiMutator<DigestRunApi>(getCodeReviewApprovalsDigestsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getCodeReviewApprovalsPullRequestsListUrl = (
     projectId: string,

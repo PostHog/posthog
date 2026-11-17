@@ -16,6 +16,8 @@ from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedLi
 
 from ..facade import contracts
 from ..facade.enums import (
+    ChannelResolutionSource,
+    DigestRunStatus,
     LlmSkipReason,
     OwnerKind,
     OwnersFileStatus,
@@ -744,6 +746,120 @@ class ReviewRequestResponseSerializer(serializers.Serializer):
     )
 
 
+# Every field carries a default because DigestRun.summary is a JSON blob whose shape grew over time.
+# A run stored before a key existed, or one that never summarized anything ({}), still renders.
+class _DigestSummaryPRSerializer(serializers.Serializer):
+    """One merged pull request as the digest listed it."""
+
+    pr_number = serializers.IntegerField(read_only=True, default=0, help_text="Pull request number on GitHub.")
+    title = serializers.CharField(read_only=True, default="", help_text="Pull request title.")
+    url = serializers.CharField(read_only=True, default="", help_text="Full URL to the pull request on GitHub.")
+    author_login = serializers.CharField(
+        read_only=True, default="", help_text="GitHub login of the pull request author."
+    )
+    summary = serializers.CharField(
+        read_only=True, default="", help_text="The one-line summary of the change that the digest posted."
+    )
+    repository = serializers.CharField(
+        read_only=True, default="", help_text="Repository full name, e.g. 'PostHog/posthog'. Blank on older runs."
+    )
+
+
+class _DigestSummarySerializer(serializers.Serializer):
+    """What the digest posted to Slack: the headline and the pull requests it listed."""
+
+    headline = serializers.CharField(
+        read_only=True,
+        default="",
+        help_text="Prose about the merges with real consequence. Blank when the digest led with its first line.",
+    )
+    prs = _DigestSummaryPRSerializer(
+        many=True,
+        read_only=True,
+        default=list,
+        help_text="The merged pull requests the digest listed, in the order it listed them.",
+    )
+
+
+@extend_schema_serializer(component_name="DigestRun")
+class DigestRunSerializer(DataclassSerializer):
+    status = serializers.ChoiceField(
+        choices=[(s.value, s.name) for s in DigestRunStatus],
+        read_only=True,
+        help_text="Current state of the digest run (pending, completed, failed).",
+    )
+    resolution_source = serializers.ChoiceField(
+        choices=[(s.value, s.name) for s in ChannelResolutionSource],
+        read_only=True,
+        help_text=(
+            "Why the digest went to this channel: 'slack_name_match' (no declaration anywhere, so the "
+            "audience_key matched a same-named Slack channel), 'stamphog_config' (the channel the repo "
+            "declared under 'digest:' in .stamphog/policy.yml), 'owners_contact' (a teams: entry in a "
+            "root owners.yaml named it), or 'manual' (no longer produced)."
+        ),
+    )
+    posted_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the digest was posted to Slack, if it was.",
+    )
+    summary = serializers.SerializerMethodField(
+        help_text=(
+            "What the digest posted: its headline and the merged pull requests it listed. "
+            "Both are empty on a run with nothing to post, and on runs stored before this format."
+        ),
+    )
+
+    @extend_schema_field(_DigestSummarySerializer)
+    def get_summary(self, obj: contracts.DigestRunDTO) -> dict[str, object]:
+        # The digest writes each line from the PR title and the reviewer's change_summary, and both
+        # already reach any project member through the pull request and review run APIs. Summaries
+        # stored before the prompt dropped body_excerpt were written from PR bodies, which a member
+        # without GitHub repo access must not read. The same change added the `judged` key, so a
+        # summary without it is withheld. Keep body_excerpt out of the digest prompt, or this leaks it.
+        stored = obj.summary if "judged" in obj.summary else {}
+        return _DigestSummarySerializer(stored).data
+
+    class Meta:
+        dataclass = contracts.DigestRunDTO
+        fields = [
+            "id",
+            "audience_key",
+            "slack_channel_id",
+            "slack_channel_name",
+            "resolution_source",
+            "status",
+            "pr_count",
+            "summary",
+            "slack_message_ts",
+            "error",
+            "created_at",
+            "posted_at",
+        ]
+        # Only the fields NOT declared above (see ReviewRunSerializer).
+        read_only_fields = [
+            "id",
+            "audience_key",
+            "slack_channel_id",
+            "slack_channel_name",
+            "pr_count",
+            "slack_message_ts",
+            "error",
+            "created_at",
+        ]
+        extra_kwargs = {
+            "audience_key": {
+                "help_text": "Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'."
+            },
+            "slack_channel_id": {"help_text": "Slack channel this digest was posted to, e.g. 'C012AB3CD'."},
+            "slack_channel_name": {"help_text": "Human-readable name of that channel, for display."},
+            "pr_count": {"help_text": "Number of merged PRs included in the posted digest."},
+            "slack_message_ts": {"help_text": "Slack message timestamp of the posted digest, if posted."},
+            "error": {"help_text": "Error message if the run failed, blank otherwise."},
+            "created_at": {"help_text": "When the digest run was created."},
+        }
+
+
 class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
     """Input shape for creating/updating a repo config.
 
@@ -973,7 +1089,7 @@ class CodeReviewApprovalRoutingRunsQuerySerializer(serializers.Serializer):
         default=None,
         help_text=(
             "true keeps runs of merged pull requests. false keeps runs of pull requests that are not merged: open "
-            "ones and ones closed without merging, because stamphog does not record a close. Omit for both."
+            "ones and ones closed without merging, because auto-approval does not record a close. Omit for both."
         ),
     )
     merged_after = serializers.DateTimeField(
@@ -994,7 +1110,7 @@ class CodeReviewApprovalRoutingRunsQuerySerializer(serializers.Serializer):
     )
 
 
-SIZE_NULL_HELP = "{}. Null until the pull request merges, because stamphog stores the size at merge."
+SIZE_NULL_HELP = "{}. Null until the pull request merges, because auto-approval stores the size at merge."
 
 
 @extend_schema_serializer(component_name="CodeReviewApprovalRoutingPullRequest")
@@ -1002,7 +1118,7 @@ class RoutingPullRequestSerializer(DataclassSerializer):
     class Meta:
         dataclass = contracts.RoutingPullRequestDTO
         extra_kwargs = {
-            "title": {"help_text": "The pull request title, as stamphog last saw it."},
+            "title": {"help_text": "The pull request title, as auto-approval last saw it."},
             "author": {"help_text": "The GitHub login of the pull request author."},
             "url": {"help_text": "Link to the pull request on GitHub."},
             "merged_at": {"help_text": "When the pull request merged. Null when it is not merged."},
@@ -1012,7 +1128,7 @@ class RoutingPullRequestSerializer(DataclassSerializer):
             "summary": {
                 "allow_null": True,
                 "help_text": (
-                    "The stamphog reviewer's one sentence about the whole change, from the newest completed review "
+                    "The auto-approval reviewer's one sentence about the whole change, from the newest completed review "
                     "of the pull request that wrote one, at any head. Null when no review wrote one."
                 ),
             },
@@ -1110,7 +1226,7 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
             "summary": {
                 "allow_null": True,
                 "help_text": (
-                    "The stamphog reviewer's clause about this owner's part of the change. Set only when the "
+                    "The auto-approval reviewer's clause about this owner's part of the change. Set only when the "
                     "reviewer wrote one clause per owning team, which it does when several teams own changed files."
                 ),
             },
@@ -1153,7 +1269,7 @@ class RoutingRunSerializer(DataclassSerializer):
     )
     pull_request = RoutingPullRequestSerializer(
         read_only=True,
-        help_text="The pull request the run routed, as stamphog last saw it rather than as it was at the run.",
+        help_text="The pull request the run routed, as auto-approval last saw it rather than as it was at the run.",
     )
 
     class Meta:

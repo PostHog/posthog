@@ -334,6 +334,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills/:name': ['Skill', 'skill'],
     '/integrations/slack/:integrationId/setup': ['SlackAppWorkspaceSetup', 'slackAppWorkspaceSetup'],
     '/stamphog/install/callback': ['CodeReview', 'stamphogCallback'],
+    '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
     '/streamlit-apps': ['StreamlitApps', 'streamlitApps'],
     '/streamlit-apps/new': ['StreamlitAppEdit', 'streamlitAppNew'],
     '/streamlit-apps/:id': ['StreamlitApp', 'streamlitApp'],
@@ -1258,6 +1259,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     SlackAppWorkspaceSetup: { projectBased: true, name: 'Slack app setup', layout: 'plain' },
+    StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
     StreamlitApps: {
         name: 'Streamlit apps',
         description: 'Build and share custom Python apps that run on your PostHog data.',
@@ -2023,6 +2025,7 @@ export const productUrls = {
     ): string => combineUrl(`/skills/${name}`, params).url,
     communitySkills: (): string => '/skills/community',
     slackAppWorkspaceSetup: (integrationId: number | string): string => `/integrations/slack/${integrationId}/setup`,
+    stamphogDigests: (): string => '/stamphog/digests',
     stamphogCallback: (): string => '/stamphog/install/callback',
     streamlitApps: (): string => '/streamlit-apps',
     streamlitApp: (id: string): string => `/streamlit-apps/${id}`,

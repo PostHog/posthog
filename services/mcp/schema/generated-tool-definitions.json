@@ -3529,6 +3529,22 @@
         "system_prompt_hint": "First call when investigating \"metric X looks wrong\" — magnitude, onset, which labels moved",
         "search_keywords": ["prometheus", "grafana", "alertmanager", "alert", "incident"]
     },
+    "code-review-approvals-digests-list": {
+        "description": "List posted (or attempted) daily digest runs, newest first. Each run reports the audience it drained (a team slug, or `repo:owner/name`), the Slack channel it went to and why routing chose that channel, its status, how many merged PRs it summarized, the Slack message timestamp, and the digest content (`summary`: the headline and each listed PR's number, title, URL, author, repository and one-line summary). Filter by `slack_channel_id` to see one channel's history.",
+        "category": "PostHog Review",
+        "feature": "code_review",
+        "summary": "List auto-approval digest runs",
+        "title": "List auto-approval digest runs",
+        "required_scopes": ["code_review_approval:read"],
+        "api_operations": ["GET /api/projects/{project_id}/code_review/approvals/digests/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
     "code-review-approvals-pull-requests-get": {
         "description": "Get one pull request record from PostHog Review auto-approval (approve-first pull request review) by its internal UUID — the `id` returned by `code-review-approvals-pull-requests-list`, not the GitHub PR number. Returns the repository, title, author, head branch, and merge details. To look a PR up by its GitHub number, use `code-review-approvals-pull-requests-list` with `pr_number`. `routing_mode` is the repository's reviewer routing mode now, and `routing` is the latest routing record (phase, head, trigger, timestamps), null when routing never wrote one. For CI status or merge-timing analytics on a PR, use the engineering analytics `pull-requests` or `pr-lifecycle` tools instead.",
         "category": "PostHog Review",

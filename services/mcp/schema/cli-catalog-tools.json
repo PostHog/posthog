@@ -10290,6 +10290,57 @@
             "validators": []
         }
     },
+    "code-review-approvals-digests-list": {
+        "name": "code-review-approvals-digests-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/code_review/approvals/digests/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "limit",
+                    "key": "limit",
+                    "csv": false
+                },
+                {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "slack_channel_id",
+                    "key": "slack_channel_id",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/code-review"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "code-review-approvals-pull-requests-get": {
         "name": "code-review-approvals-pull-requests-get",
         "kind": "http",
