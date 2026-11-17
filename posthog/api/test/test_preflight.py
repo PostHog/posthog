@@ -135,6 +135,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
             "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "webmcp_available": False,
+            "cimd_verification_token_issuer_url": "",
             "is_test": True,
             **options,
         }
