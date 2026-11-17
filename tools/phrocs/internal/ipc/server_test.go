@@ -366,18 +366,27 @@ func TestServe_sendKeys_unknownProcess(t *testing.T) {
 	}
 }
 
-func TestServe_sendKeys_missingKeys(t *testing.T) {
-	mgr := testManager(t, "web")
-	path := startServe(t, mgr)
+func TestServe_sendKeys_rejected(t *testing.T) {
+	for _, tc := range []struct {
+		name, keys, wantErr string
+	}{
+		{"missing keys", "", "missing keys"},
+		{"process not running", "y\r", "web is stopped, so nothing reads its input"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr := testManager(t, "web")
+			path := startServe(t, mgr)
 
-	resp := send(t, path, map[string]any{"cmd": "send-keys", "process": "web"})
+			resp := send(t, path, map[string]any{"cmd": "send-keys", "process": "web", "keys": tc.keys})
 
-	if resp["ok"] != false {
-		t.Fatalf("ok: got %v, want false", resp["ok"])
-	}
-	errMsg, _ := resp["error"].(string)
-	if !strings.Contains(errMsg, "missing keys") {
-		t.Errorf("error %q does not contain 'missing keys'", errMsg)
+			if resp["ok"] != false {
+				t.Fatalf("ok: got %v, want false", resp["ok"])
+			}
+			errMsg, _ := resp["error"].(string)
+			if !strings.Contains(errMsg, tc.wantErr) {
+				t.Errorf("error %q does not contain %q", errMsg, tc.wantErr)
+			}
+		})
 	}
 }
 
@@ -492,14 +501,41 @@ func TestServe_focus_unknown(t *testing.T) {
 	}
 }
 
-func TestServe_toggleProc_unknown(t *testing.T) {
+func TestServe_processCommands_unknown(t *testing.T) {
+	for _, cmd := range []string{"toggle-proc", "restart", "start", "stop", "status"} {
+		t.Run(cmd, func(t *testing.T) {
+			mgr := testManager(t, "web")
+			path := startServe(t, mgr)
+
+			resp := send(t, path, map[string]any{"cmd": cmd, "process": "nope"})
+
+			if resp["ok"] != false {
+				t.Fatalf("ok: got %v, want false", resp["ok"])
+			}
+			if want := "process not found: nope (known: web)"; resp["error"] != want {
+				t.Fatalf("error: got %v, want %q", resp["error"], want)
+			}
+		})
+	}
+}
+
+func TestServe_restart_runsTheProcess(t *testing.T) {
 	mgr := testManager(t, "web")
+	mgr.SetSend(func(tea.Msg) {})
 	path := startServe(t, mgr)
 
-	resp := send(t, path, map[string]any{"cmd": "toggle-proc", "process": "nope"})
+	resp := send(t, path, map[string]any{"cmd": "restart", "process": "web"})
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true; error: %v", resp["ok"], resp["error"])
+	}
 
-	if resp["ok"] != false {
-		t.Fatalf("ok: got %v, want false", resp["ok"])
+	p, _ := mgr.Get("web")
+	deadline := time.Now().Add(5 * time.Second)
+	for p.Status() != process.StatusDone {
+		if time.Now().After(deadline) {
+			t.Fatalf("restart did not run the process: status %s", p.Status())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

@@ -7,7 +7,9 @@ four can never drift apart.
 The catalog has two parts. The noise is sixty approved metrics over the Hedgebox taxonomy, so the agent
 must pick the needle out of a long list. The catalog fits on the default 100-row page of ``metric-list``,
 so these suites do not test paging. The needles are
-the metrics a case asks about, one per metric kind the catalog supports.
+the metrics a case asks about, one per metric kind the catalog supports. A case that asks for every
+relevant metric, such as a growth update, uses the operations noise, which has no metric that the case
+can use.
 """
 
 from __future__ import annotations
@@ -21,6 +23,10 @@ from products.data_catalog.evals.constants import (
     APPROVED_METRIC_DESCRIPTION,
     APPROVED_METRIC_DISTINGUISHING_FILTER,
     APPROVED_METRIC_NAME,
+    PAYING_CUSTOMERS_METRIC_DEFINITION,
+    PAYING_CUSTOMERS_METRIC_DESCRIPTION,
+    PAYING_CUSTOMERS_METRIC_DISPLAY_NAME,
+    PAYING_CUSTOMERS_METRIC_NAME,
 )
 
 PACK_TOKEN = "evalpack"
@@ -107,6 +113,61 @@ _NOISE_EVENTS: tuple[_NoiseSubject, ...] = (
     ),
 )
 
+# Engineering and file-mix measures that a growth update has no use for. Every event and property is in
+# the Hedgebox taxonomy.
+_OPERATIONS_NOISE_EVENTS: tuple[_NoiseSubject, ...] = (
+    _NoiseSubject(
+        predicate="event = '$exception'",
+        slug="app_exceptions",
+        label="application exceptions",
+    ),
+    _NoiseSubject(
+        predicate="event = '$exception' AND properties.$exception_types LIKE '%TimeoutError%'",
+        slug="checkout_timeouts",
+        label="checkout API timeouts",
+    ),
+    _NoiseSubject(
+        predicate="event = '$exception' AND properties.$exception_types LIKE '%RenderError%'",
+        slug="preview_render_errors",
+        label="file preview render errors",
+    ),
+    _NoiseSubject(
+        predicate="event = '$exception' AND properties.$exception_types LIKE '%TypeError%'",
+        slug="invite_type_errors",
+        label="team invite type errors",
+    ),
+    _NoiseSubject(
+        predicate="event = '$feature_flag_called'",
+        slug="flag_evaluations",
+        label="feature flag evaluations",
+    ),
+    _NoiseSubject(
+        predicate="event = '$pageleave'",
+        slug="page_leaves",
+        label="page leave events",
+    ),
+    _NoiseSubject(
+        predicate="event = 'uploaded_file' AND properties.file_type = 'application/pdf'",
+        slug="pdf_uploads",
+        label="PDF uploads",
+    ),
+    _NoiseSubject(
+        predicate="event = 'uploaded_file' AND properties.file_type LIKE 'image/%'",
+        slug="image_uploads",
+        label="image uploads",
+    ),
+    _NoiseSubject(
+        predicate="event = 'uploaded_file' AND toInt(properties.file_size_b) > 1000000000",
+        slug="large_uploads",
+        label="uploads over 1 GB",
+    ),
+    _NoiseSubject(
+        predicate="event = 'downloaded_file' AND properties.file_type LIKE 'video/%'",
+        slug="video_downloads",
+        label="video downloads",
+    ),
+)
+
 # Each shape is a different measure over the same subject.
 _NOISE_SHAPES: tuple[_NoiseShape, ...] = (
     _NoiseShape(
@@ -166,7 +227,13 @@ def synthesize_noise_metrics() -> tuple[CatalogMetric, ...]:
     return _noise_metrics(_NOISE_EVENTS)
 
 
+def synthesize_operations_noise_metrics() -> tuple[CatalogMetric, ...]:
+    """Sixty approved HogQL metrics on errors, flags, and file mix. None of them belongs in a growth update."""
+    return _noise_metrics(_OPERATIONS_NOISE_EVENTS)
+
+
 NOISE_METRICS = synthesize_noise_metrics()
+OPERATIONS_NOISE_METRICS = synthesize_operations_noise_metrics()
 
 MRR_METRIC = CatalogMetric(
     name=APPROVED_METRIC_NAME,
@@ -177,6 +244,13 @@ MRR_METRIC = CatalogMetric(
 )
 MRR_DISTINGUISHING_TERMS = ("paid_bill", APPROVED_METRIC_DISTINGUISHING_FILTER)
 """Terms an adapted MRR query keeps when it preserves the governed measure: the event and the plan exclusion."""
+
+PAYING_CUSTOMERS_METRIC = CatalogMetric(
+    name=PAYING_CUSTOMERS_METRIC_NAME,
+    display_name=PAYING_CUSTOMERS_METRIC_DISPLAY_NAME,
+    description=PAYING_CUSTOMERS_METRIC_DESCRIPTION,
+    definition=PAYING_CUSTOMERS_METRIC_DEFINITION,
+)
 
 # Neither the name nor the display name says "weekly active accounts", so only the description answers a
 # question phrased that way.

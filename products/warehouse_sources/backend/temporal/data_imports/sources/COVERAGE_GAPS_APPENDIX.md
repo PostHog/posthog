@@ -109,10 +109,10 @@ Diffed against: <https://apidocs.acculynx.com/llms.txt>
 - [x] `Estimate section items (GET /api/v2/estimates/{estimateId}/sections/{estimateSectionId}/items)` — analyze estimated quantities, material costs, labor costs, and item prices beyond estimate totals (high)
 - [x] `Job milestone history (GET /api/v2/jobs/{jobId}/milestone-history)` — measure conversion between milestones and time spent in each stage of a job (high)
 - [x] `Job change history (GET /api/v2/jobs/{jobId}/history)` — analyze job activity, changes, and responsible users over time (medium)
-- [ ] `Supplements and supplement items (GET /api/v2/supplements; GET /api/v2/supplements/{supplementId}/items)` — analyze supplemental work and item costs beyond aggregated financial totals (medium)
-- [ ] `Job contacts (GET /api/v2/jobs/{jobId}/contacts)` — connect each job to additional contacts beyond the primary contact included in jobs (medium)
-- [ ] `Job custom fields and definitions (GET /api/v2/jobs/{jobId}/custom-fields; GET /api/v2/company-settings/custom-fields)` — analyze custom job attributes using their field definitions (medium)
-- [ ] `Job representatives (GET /api/v2/jobs/{jobId}/representatives)` — attribute job outcomes to all assigned representatives and their responsibilities (medium)
+- [x] `Supplements and supplement items (GET /api/v2/supplements; GET /api/v2/supplements/{supplementId}/items)` — analyze supplemental work and item costs beyond aggregated financial totals (medium)
+- [x] `Job contacts (GET /api/v2/jobs/{jobId}/contacts)` — connect each job to additional contacts beyond the primary contact included in jobs (medium)
+- [x] `Job custom fields and definitions (GET /api/v2/jobs/{jobId}/custom-fields; GET /api/v2/company-settings/custom-fields)` — analyze custom job attributes using their field definitions (medium)
+- [x] `Job representatives (GET /api/v2/jobs/{jobId}/representatives)` — attribute job outcomes to all assigned representatives and their responsibilities (medium)
 
 Note: Parsed the official index and embedded OpenAPI operations on reference pages. Existing jobs already include names for categories, trades, work types, and current milestones. Financials expose amendment links; estimate items require requests for each estimate section. Excluded uploads, webhook subscriptions, report schedules, and duplicate financial totals.
 
@@ -154,7 +154,7 @@ Diffed against: <https://dev.adjust.com/en/api/rs-api/reports/>
 - [x] `Event reports (GET /reports-service/report, event metrics)` — measure purchases and other app conversions by acquisition source instead of only installs and sessions (high)
 - [x] `SKAdNetwork reports (GET /reports-service/report, SKAdNetwork metrics)` — analyze iOS campaign attribution through SKAdNetwork installs and conversion values (high)
 - [x] `Events catalog (GET /reports-service/events)` — map readable event names and app tokens to the metric slugs needed for conversion reports (medium)
-- [ ] `Device type reports (GET /reports-service/report, dimensions=day,app,app_token,device_type)` — compare acquisition cost, engagement, and revenue across device types (medium)
+- [x] `Device type reports (GET /reports-service/report, dimensions=day,app,app_token,device_type)` — compare acquisition cost, engagement, and revenue across device types (medium)
 
 Note: Read the official Report Service operations, event catalog, and filter catalog. All six tables use one endpoint with fixed metrics and dimensions. Missing reports need new query shapes; event metrics require discovery through GET /reports-service/events. Excluded CSV, Parquet, and pivot duplicates, plus write and test APIs.
 
@@ -188,7 +188,7 @@ Note: Parsed the embedded OpenAPI spec for the 2.4.7 admin reference, including 
 
 ## AdRoll — gaps
 
-Today (10): `accounts`, `ad_reports`, `adgroups`, `ads`, `advertisable_reports`, `advertisables`, `campaign_reports`, `campaigns`, `organization`, `segments`
+Today (14): `accounts`, `ad_reports`, `adgroups`, `ads`, `advertisable_reports`, `advertisables`, `campaign_reports`, `campaigns`, `contextual_categories`, `organization`, `pixels`, `rules`, `segments`, `users`
 
 Diffed against: <https://apidocs.nextroll.com/crud-api/reference.html>
 
@@ -198,11 +198,11 @@ Diffed against: <https://apidocs.nextroll.com/crud-api/reference.html>
 - [x] `organization (GET /api/v1/organization/get, get_accounts)` — lookup resolving the org/account EIDs that advertisables hang off (medium). `get_advertisables` already backs the `advertisables` table.
 - [x] `pixel (GET /api/v1/advertisable/get_pixel, /api/v1/pixel/get)` — conversion tracking pixel per advertisable (medium)
 - [x] `rules (GET /api/v1/pixel/get_rules, /api/v1/rule/get)` — conversion and retargeting rule definitions that decode segment membership (medium)
-- [ ] `invoice (GET /api/v1/invoice/get)` — billed spend reconciliation against reported campaign spend (medium)
+- [ ] `invoice (GET /api/v1/invoice/get)` — billed spend reconciliation against reported campaign spend (medium). Skipped: `invoice/get` fetches one invoice by a required `invoice` ID, and no CRUD endpoint lists invoice IDs to fan out over.
 - [x] `organization users (GET /api/v1/organization/get_users)` — lookup for who owns/changed campaigns (low)
-- [ ] `product_feeds/get_products` — catalog products behind dynamic creative (low)
-- [ ] `marketplace_deals (GET /api/v1/marketplace_deals/get)` — programmatic deal terms for spend analysis (low)
-- [ ] `contextual_categories` — lookup decoding contextual targeting categories on adgroups (low)
+- [ ] `product_feeds/get_products` — catalog products behind dynamic creative (low). Skipped: a paged search endpoint that needs a feed EID and a search `query`, with an undocumented product shape; a catalog walk would use up the 100-requests-per-day default quota.
+- [ ] `marketplace_deals (GET /api/v1/marketplace_deals/get)` — programmatic deal terms for spend analysis (low). Skipped: it lists the approved, active marketplace deals an advertisable can browse and buy, not deals it bought or spent on, and the reference does not document the Deal object, so no primary key can be verified.
+- [x] `contextual_categories (GET /api/v1/contextual_categories/get_all_contextual_categories)` — lookup decoding contextual targeting categories on adgroups (low)
 - [ ] `dynamic_template/get_all_for_advertisable` — creative template lookup for dynamic ads (low)
 
 Note: NextRoll splits reporting into a separate GraphQL Reporting API (https://apidocs.nextroll.com/graphql-reporting-api/index.html) that supersedes the legacy CRUD /api/v1/report/\* endpoints - delivery and attribution metrics by advertisable, campaign, adgroup, ad, plus granular conversions. The synced report tables use the CRUD API's `entity` data format, the only shape that reference documents: one row per entity with its delivery metrics. Per-day breakdowns and attribution remain a GraphQL Reporting API follow-up. The developers.nextroll.com URL in the payload is an Angular shell with no content; the real reference is apidocs.nextroll.com.
@@ -235,7 +235,7 @@ Note: Parsed the official 2026-07 SDK endpoint inventory and all four API resour
 
 ## AgileCRM — gaps
 
-Today (10): `companies`, `contact_notes`, `contacts`, `deal_notes`, `deals`, `events`, `pipelines`, `tasks`, `ticket_notes`, `tickets`
+Today (12): `campaigns`, `companies`, `contact_documents`, `contact_notes`, `contacts`, `deal_notes`, `deals`, `events`, `pipelines`, `tasks`, `ticket_notes`, `tickets`
 
 Diffed against: <https://raw.githubusercontent.com/agilecrm/rest-api/master/README.md>
 
@@ -243,8 +243,8 @@ Diffed against: <https://raw.githubusercontent.com/agilecrm/rest-api/master/READ
 - [x] `tickets (GET /dev/api/tickets/filter)` — help desk tickets, an entire product area with no coverage today (high)
 - [x] `notes (GET /dev/api/notes, /dev/api/contacts/{id}/notes, /dev/api/opportunity/{id}/notes)` — free-text notes attached to synced contacts and deals (medium) — added as `contact_notes` + `deal_notes` (there is no account-wide GET /dev/api/notes; notes are only exposed per parent)
 - [x] `ticket notes/messages (GET /dev/api/tickets/notes/{ticket-id})` — the conversation thread inside each ticket (medium) — added as `ticket_notes`
-- [ ] `workflows / campaigns (GET /dev/api/workflows)` — marketing campaign definitions that contact automation activity references (medium)
-- [ ] `documents (GET /dev/api/documents/contact/{contact_id}/docs)` — files attached to contacts (low)
+- [x] `workflows / campaigns (GET /dev/api/workflows)` — marketing campaign definitions that contact automation activity references (medium) — added as `campaigns`
+- [x] `documents (GET /dev/api/documents/contact/{contact_id}/docs)` — files attached to contacts (low) — added as `contact_documents`, a fan-out over contacts (there is no account-wide document list)
 
 Note: The AgileCRM README is the only reference; there is no machine-readable spec. Deal endpoints are under /dev/api/opportunity, and the pipeline lookup is under the non-obvious /dev/api/milestone/pipelines path.
 
@@ -7523,9 +7523,9 @@ Diffed against: <https://docs.loopreturns.com/llms.txt>
 - [x] `Products (GET /api/v1/products)` — resolve product references on returned and exchanged items for catalog analysis (high)
 - [x] `Product variants (GET /api/v1/products/{productId}/product-variants)` — resolve variant references for return rates by SKU and product option (high)
 - [x] `Customers (GET /api/v1/customers)` — analyze repeat return behavior and customer cohorts beyond the email on a return (medium)
-- [ ] `Return notes (GET /api/v1/warehouse/return/{id}/notes)` — analyze support explanations and operational handling of returns (medium)
-- [ ] `Inventories (GET /api/v1/inventories)` — compare exchange demand with stock availability by variant and location (medium)
-- [ ] `Locations (GET /api/v1/locations)` — provide location names and metadata for inventory analysis (medium)
+- [ ] `Return notes (GET /api/v1/warehouse/return/{id}/notes)` — analyze support explanations and operational handling of returns (medium) Skipped: per-return lookup only, with no list or date filter, so every sync needs one request per return in the full history at a 300 requests/minute limit.
+- [x] `Inventories (GET /api/v1/inventories)` — compare exchange demand with stock availability by variant and location (medium)
+- [x] `Locations (GET /api/v1/locations)` — provide location names and metadata for inventory analysis (medium)
 
 Note: Fetched llms.txt, then parsed the linked Returns, Orders, Products, Customers, Inventories, Locations, and related OpenAPI specs. Return rows already include line items, exchanges, refunds, and labels, so these are not separate gaps. Variants and notes need parent fan-out; Commerce Data endpoints require matching scopes and account support. Listed paths use the documented v1 server; compatibility with the selectable 2026-07 version needs implementation checks.
 
@@ -10498,11 +10498,11 @@ Diffed against: <https://docs.ruddr.io/llms.txt>
 - [x] `opportunities` — the sales pipeline, a whole analytical domain currently unavailable (high)
 - [x] `opportunity-stages` — lookup table resolving the stage IDs carried on opportunities (high)
 - [x] `project-roles` — lookup resolving the role IDs on project members and time entries (high)
-- [ ] `project-expenses` — cost side of project profitability (medium)
-- [ ] `payments` — cash collection against invoices (medium)
-- [ ] `timesheets` — submission and approval state wrapping the time entries we sync (medium)
+- [x] `project-expenses` — cost side of project profitability (medium)
+- [x] `payments` — cash collection against invoices (medium)
+- [x] `timesheets` — submission and approval state wrapping the time entries we sync (medium)
 - [x] `project-health-reports` — periodic project status history, a natural trend series (medium)
-- [ ] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
+- [x] `practices` — lookup resolving the practice/org-unit IDs on members and projects (medium)
 
 Note: Ruddr documents roughly 78 list endpoints; the connector exposes 17. Beyond those listed, whole domains are unsynced: project budget items (service/product/other/expense, plus monthly variants), revenue recognition entries, revenue adjustments, credit notes, tax rates, cost periods, exchange rate periods, utilization target periods, contacts, companies, expense reports, holidays, skills, disciplines, job titles and member levels. Static endpoint catalog, no dynamic discovery.
 
@@ -13094,20 +13094,20 @@ Note: Parsed the live OpenAPI specification and checked all GET operations, incl
 
 ## Veracode — **thin**
 
-Today (8): `applications`, `categories`, `cwes`, `findings`, `sandboxes`, `sca_findings`, `scans`, `summary_report`
+Today (15): `applications`, `business_units`, `categories`, `cwes`, `findings`, `policies`, `sandboxes`, `sca_findings`, `sca_workspace_issues`, `sca_workspace_libraries`, `sca_workspace_projects`, `sca_workspaces`, `scans`, `summary_report`, `teams`
 
 Diffed against: <https://api.swaggerhub.com/apis/Veracode?limit=100>
 
 - [x] `GET /appsec/v2/applications/{app_guid}/summary_report` — Veracode's headline per-application result: policy compliance status, security score and flaw counts by severity (high)
 - [x] `GET /appsec/v1/cwes` — lookup table resolving the CWE id carried on every findings row we already sync (high)
 - [x] `GET /appsec/v1/categories` — lookup table resolving the finding category id on findings we already sync (high)
-- [ ] `GET /appsec/v1/policies` — lookup resolving the policy GUID/name attached to each application we sync (high)
-- [ ] `GET /v2/teams (Identity API)` — lookup resolving the team GUIDs on applications, enabling per-team risk rollups (high)
+- [x] `GET /appsec/v1/policies` — lookup resolving the policy GUID/name attached to each application we sync (high)
+- [x] `GET /v2/teams (Identity API)` — lookup resolving the team GUIDs on applications, enabling per-team risk rollups (high) — built with `all_for_org=true`, because the endpoint otherwise lists only the teams of the API account
 - [x] `POST /appsec/v1/analytics/report + GET /appsec/v1/analytics/report/{id} (report_type SCANS)` — org-wide scan history — there is no scan/build table at all today, only findings (high) — built on the v2 `POST /analytics/scans/report` endpoint, because Veracode deprecated `report_type` on the v1 endpoint
 - [ ] `POST /appsec/v1/analytics/report (report_type FINDINGS)` — bulk org-wide findings export without per-application fan-out, the vendor's designated warehouse path (medium)
-- [ ] `GET /v2/business_units (Identity API)` — lookup resolving business unit on applications for org-level breakdowns (medium)
+- [x] `GET /v2/business_units (Identity API)` — lookup resolving business unit on applications for org-level breakdowns (medium)
 - [ ] `GET /v2/users (Identity API)` — lookup resolving user ids on annotations, mitigations and application owners (medium)
-- [ ] `GET /v3/workspaces and /v3/workspaces/{id}/issues, /libraries, /projects (SCA Agent API)` — agent-based SCA issues and library inventory, a separate dataset from the appsec SCA findings we sync (medium)
+- [x] `GET /v3/workspaces and /v3/workspaces/{id}/issues, /libraries, /projects (SCA Agent API)` — agent-based SCA issues and library inventory, a separate dataset from the appsec SCA findings we sync (medium) — built as `sca_workspaces` plus three per-workspace tables, off by default
 - [ ] `GET /mpt/v1/scans and /mpt/v1/scans/{id}/findings` — manual penetration test scans and their findings, absent from the appsec findings feed (low)
 
 Note: Veracode has no single spec; it publishes 16 separate OpenAPI specs on SwaggerHub under the Veracode org (applications, findings, identity, policy, summary_report, sca_agent, reporting, sandbox, annotations, etc). Diffed against all of them via the SwaggerHub API. The Annotations API is POST-only (write path) so it cannot be synced. Current coverage is the Applications + Findings + Sandbox specs only; Identity, Policy, Summary Report and Reporting are entirely unrepresented.
@@ -13448,13 +13448,13 @@ Today (9): `content_citations`, `content_keywords`, `performance_answers`, `perf
 
 Diffed against: <https://docs.writesonic.com/reference/content_citations_v2_geo_presence_business_export_content_citations_get>
 
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues` — per-page content optimization issues, the actionable half of the GEO product (high)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/pages` — page-level optimization scores that the issues and recommendations hang off (high)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations` — recommended fixes per page, joins to pages and issues (medium)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues-summary` — issue counts by type, the rollup dimension for reporting (medium)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues` — per-page content optimization issues, the actionable half of the GEO product (high)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/pages` — page-level optimization scores that the issues and recommendations hang off (high)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations` — recommended fixes per page, joins to pages and issues (medium)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/issues-summary` — issue counts by type, the rollup dimension for reporting (medium)
 - [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/scanned-urls` — crawl inventory that resolves which URLs the issue rows refer to (medium)
 - [ ] `GET /v2/seo-auditor/business/export/issues/get-issues` — SEO auditor issue export, a separate product surface with no coverage at all (medium)
-- [ ] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations/all` — account-wide recommendation list rather than per-page (low)
+- [x] `GET /v2/geo/presence/business/export/actionable/content-optimize/recommendations/all` — account-wide recommendation list rather than per-page (low)
 
 Note: The GEO presence export family (citations, keywords, performance answers/prompts/summary, and the config lookups platforms/prompts/topics/websites) is fully covered. Everything else in the Writesonic docs is POST content-generation (article writer, ad copy, social captions) which has no queryable resource semantics and is correctly excluded.
 
@@ -13705,15 +13705,15 @@ Note: api.getzep.com/api/v2/openapi.json returns 401, so I diffed against the do
 
 ## Zero — gaps
 
-Today (11): `Companies`, `Contacts`, `Deals`, `Meetings`, `Memberships`, `Notes`, `Pipelines`, `PipelineStages`, `Tasks`, `Users`, `Workspaces`
+Today (15): `Companies`, `Contacts`, `Deals`, `Lists`, `Meetings`, `Memberships`, `Notes`, `Pipelines`, `PipelineStages`, `Quotes`, `SequenceEnrollments`, `SequenceSteps`, `Tasks`, `Users`, `Workspaces`
 
 Diffed against: <https://docs.zero.inc/llms.txt>
 
-- [ ] `Lists (GET /api/lists)` — resolve listIds already returned on companies, contacts, and deals to named business segments (high)
-- [ ] `Quotes (GET /api/quotes)` — analyze deal quotes, line items, acceptance, total contract value, and recurring revenue (high)
-- [ ] `Sequence enrollments (GET /api/sequenceContactStatuses)` — measure outreach conversion, replies, bounces, unsubscribes, and progress for each contact and sequence (high)
+- [x] `Lists (GET /api/lists)` — resolve listIds already returned on companies, contacts, and deals to named business segments (high) → `lists`
+- [x] `Quotes (GET /api/quotes)` — analyze deal quotes, line items, acceptance, total contract value, and recurring revenue (high) → `quotes` (line items stay a nested array column)
+- [x] `Sequence enrollments (GET /api/sequenceContactStatuses)` — measure outreach conversion, replies, bounces, unsubscribes, and progress for each contact and sequence (high) → `sequence_enrollments`
 - [ ] `Sequences (GET /api/sequences)` — describe outreach campaigns and compare their status, target lists, and enrollment results (medium)
-- [ ] `Sequence steps (GET /api/sequenceSteps)` — identify which outreach steps precede replies, failures, or completed enrollments (medium)
+- [x] `Sequence steps (GET /api/sequenceSteps)` — identify which outreach steps precede replies, failures, or completed enrollments (medium) → `sequence_steps`
 - [ ] `Products (GET /api/products)` — describe quoted products and price variants for revenue analysis by SKU and billing interval (medium)
 - [ ] `Custom activities (GET /api/customActivities)` — analyze recorded business interactions linked to contacts, companies, deals, users, and sequences (medium)
 - [ ] `Custom activity types (GET /api/customActivityTypes)` — describe activity categories and their custom fields for consistent interaction reporting (medium)
@@ -13726,15 +13726,15 @@ Today (19): `Accounts`, `Calls`, `Campaigns`, `Cases`, `Contacts`, `Deals`, `Eve
 
 Diffed against: <https://www.zoho.com/crm/developer/docs/api/v8/api-references.html>
 
-- [ ] `Pipelines and stage maps (GET /crm/v8/settings/pipeline?layout_id={layout_id})` — resolve deal pipeline IDs and stage mappings for funnel analysis and forecasting (high)
-- [ ] `Custom and linking module records (GET /crm/v8/{module_api_name})` — include organization-specific business entities and relationship records that the fixed module list cannot expose (high)
-- [ ] `Timeline of a record (GET /crm/v8/{module_api_name}/{record_id}/__timeline)` — reconstruct field changes and measure deal stage duration, reassignment, and other record transitions (high)
+- [x] `Pipelines and stage maps (GET /crm/v8/settings/pipeline?layout_id={layout_id})` — resolve deal pipeline IDs and stage mappings for funnel analysis and forecasting (high) — added as `Pipelines`, read for every Deals layout
+- [x] `Custom and linking module records (GET /crm/v8/{module_api_name})` — include organization-specific business entities and relationship records that the fixed module list cannot expose (high) — added as one `Custom_<module>` table per discovered module
+- [x] `Timeline of a record (GET /crm/v8/{module_api_name}/{record_id}/__timeline)` — reconstruct field changes and measure deal stage duration, reassignment, and other record transitions (high) — added as `Deal_Timeline` (Deals only, one request per deal)
 - [ ] `Related records (GET /crm/v8/{module_api_name}/{record_id}/{related_list_api_name})` — capture campaign participation and relationships between existing CRM records that separate module tables omit (medium)
 - [ ] `Contact roles of a deal (GET /crm/v8/Deals/{deal_id}/Contact_Roles)` — analyze buying committees and identify each contact role across sales opportunities (medium)
 - [ ] `Emails of a record (GET /crm/v8/{module_api_name}/{record_id}/Emails)` — measure email interactions, follow-up activity, and communication patterns for leads and deals (medium)
 - [ ] `Appointments and Services (GET /crm/v8/Appointments; GET /crm/v8/Services)` — analyze booked services and appointment demand beyond the existing event and task tables (medium)
 - [ ] `Currencies (GET /crm/v8/org/currencies)` — interpret currency codes and exchange rates when comparing deal and invoice values across currencies (medium)
-- [ ] `Territories (GET /crm/v8/settings/territories)` — describe sales regions and their hierarchy for account allocation and regional performance analysis (medium)
+- [x] `Territories (GET /crm/v8/settings/territories)` — describe sales regions and their hierarchy for account allocation and regional performance analysis (medium) — added as `Territories`
 
 Note: Compared the v8 reference operation list and resource pages with the nineteen static tables. Confirmed GET paths in the official zoho/zohocrm-python-sdk-8.0 resource modules, version 6.0.0. Custom and linking modules need dynamic discovery; timelines, emails, and relationships require reads for each parent record. Pipelines require layout IDs, several lookups need additional scopes, and currencies and territories depend on account features.
 
@@ -13767,10 +13767,10 @@ Diffed against: <https://developers.zoom.us/api-hub/meetings/methods/endpoints.j
 - [x] `/report/webinars/{webinarId}/participants (and /past_webinars/{webinarId}/participants)` — webinar attendance rows; webinars are synced but have zero attendance data (high)
 - [x] `/webinars/{webinarId}/registrants` — registration records with approval status, the denominator for webinar show-up rate (high)
 - [x] `/meetings/{meetingId}/registrants` — registration records for registration-enabled meetings we already sync (high)
-- [ ] `/past_meetings/{meetingId}/instances (and /past_webinars/{webinarId}/instances)` — lookup resolving each recurring meeting/webinar ID we sync to its per-occurrence UUIDs, which every report endpoint keys on (high)
-- [ ] `/groups and /groups/{groupId}/members` — lookup table resolving the group IDs carried on the users rows we already sync (high)
-- [ ] `/report/users` — active/inactive host report with per-user meeting counts, minutes and participant totals - Zoom's headline usage metric (high)
-- [ ] `/users/{userId}/recordings` — cloud recording inventory per host, including file size and duration for storage/usage analysis (medium)
+- [x] `/past_meetings/{meetingId}/instances (and /past_webinars/{webinarId}/instances)` — lookup resolving each recurring meeting/webinar ID we sync to its per-occurrence UUIDs, which every report endpoint keys on (high)
+- [x] `/groups and /groups/{groupId}/members` — lookup table resolving the group IDs carried on the users rows we already sync (high)
+- [x] `/report/users` — active/inactive host report with per-user meeting counts, minutes and participant totals - Zoom's headline usage metric (high)
+- [x] `/users/{userId}/recordings` — cloud recording inventory per host, including file size and duration for storage/usage analysis (medium)
 - [ ] `/report/daily` — daily rollup of new users, meetings, participants and minutes per account (medium)
 - [ ] `/webinars/{webinarId}/panelists` — panelist membership per webinar, needed to separate hosts/panelists from attendees (medium)
 - [ ] `/meetings/meeting_summaries and /meetings/{meetingId}/meeting_summary` — account-wide AI meeting summaries, a queryable per-meeting content table (medium)
@@ -13787,10 +13787,10 @@ Diffed against: <https://developer.zuora.com/yaml/apis/zuora-openapi-full-compac
 - [ ] `object-query/invoice-items` — invoice line items - the charge-level grain behind every revenue breakdown; invoice headers alone can't be broken down by product or charge (high)
 - [ ] `object-query/rate-plan-charges` — subscription charge records carrying MRR/TCV, quantity and effective dates - the driver of every recurring revenue metric (high)
 - [ ] `object-query/rate-plans` — links the subscriptions already synced to their catalog rate plans; without it charges can't be rolled up per subscription (high)
-- [ ] `object-query/product-rate-plans` — lookup table resolving the product IDs we already sync into named plans (high)
-- [ ] `object-query/product-rate-plan-charges` — catalog charge definitions and pricing model - the lookup that gives subscription charges their product meaning (high)
-- [ ] `object-query/contacts` — lookup resolving the bill-to and sold-to contact IDs carried on the accounts rows we already sync (high)
-- [ ] `object-query/amendments` — subscription change history (upgrades, downgrades, cancellations) - the state-transition table for churn and expansion analysis (high)
+- [x] `object-query/product-rate-plans` — lookup table resolving the product IDs we already sync into named plans (high)
+- [x] `object-query/product-rate-plan-charges` — catalog charge definitions and pricing model - the lookup that gives subscription charges their product meaning (high)
+- [x] `object-query/contacts` — lookup resolving the bill-to and sold-to contact IDs carried on the accounts rows we already sync (high)
+- [x] `object-query/amendments` — subscription change history (upgrades, downgrades, cancellations) - the state-transition table for churn and expansion analysis (high)
 - [ ] `object-query/debit-memos` — the missing counterpart to the credit_memos table we already sync; AR balances are wrong without it (medium)
 - [ ] `object-query/credit-memo-items` — line-item grain for credit memos, needed to attribute credits to products or invoices (medium)
 - [ ] `object-query/order-actions` — the individual actions inside each order we sync (create/amend/cancel/renew), giving orders analyzable structure (medium)
@@ -13806,19 +13806,19 @@ Out of scope — the Metering/meters API (`/meters/*`): despite the "Metering/me
 
 ## Zylo — gaps
 
-Today (14): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`
+Today (18): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationStats`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PendingContracts`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`, `Users`, `Views`
 
 Diffed against: <https://developer.zylo.com/sitemap.xml>
 
-- [ ] `/v2/users` — the company employee directory - lookup resolving the user IDs on the ApplicationUsers rows we already sync (high)
-- [ ] `/v2/applicationStats` — per-application spend and utilization stats, Zylo's headline metric and the whole point of SaaS management (high)
-- [ ] `/v2/pendingContracts` — contracts in flight/awaiting approval - the renewal pipeline, invisible from the committed Contracts table (high)
+- [x] `/v2/users` — the company employee directory - lookup resolving the user IDs on the ApplicationUsers rows we already sync (high) (`users`)
+- [x] `/v2/applicationStats` — per-application spend and utilization stats, Zylo's headline metric and the whole point of SaaS management (high) (`application_stats`, full refresh only: the stats change daily but the only timestamp filters are the application's own dates)
+- [x] `/v2/pendingContracts` — contracts in flight/awaiting approval - the renewal pipeline, invisible from the committed Contracts table (high) (`pending_contracts`)
 - [ ] `/v2/pendingContractLineItems` — line-item grain for pending contracts, needed to forecast renewal spend by product (medium)
 - [ ] `/v2/applications/{applicationId}/functionalities` — functionality taxonomy per app - the breakdown dimension for redundant-spend analysis across the Applications we sync (medium)
 - [ ] `/v2/zybrary` — Zylo's reference SaaS catalog - lookup enriching synced Applications with vendor/category benchmark data (medium)
 - [ ] `/v2/customFields` — custom field definitions - lookup resolving the customer-defined field IDs that appear on applications, contracts and suppliers (medium)
 - [ ] `/v2/zyloUsers` — Zylo platform users - lookup resolving owner/approver IDs referenced on applications and contracts (medium)
-- [ ] `/v2/views` — application groupings (cost centers, business units) - the org breakdown dimension for spend rollups (medium)
+- [x] `/v2/views` — application groupings (cost centers, business units) - the org breakdown dimension for spend rollups (medium) (`views`; needs the `admin` scope)
 - [ ] `/v2/applicationBudgets/stats` — budget-vs-actual aggregates alongside the raw ApplicationBudgets we already sync (medium)
 - [ ] `/v2/workflows and /v2/workflows/{workflowId}/responses` — app-request and review workflow responses - per-response rows for governance reporting (low)
 - [ ] `/v2/companyDocuments` — document metadata (MSAs, DPAs) linked to suppliers and contracts already synced (low)

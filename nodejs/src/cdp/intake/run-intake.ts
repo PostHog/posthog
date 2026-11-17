@@ -49,7 +49,8 @@ export type RunIntakeDeps = {
     hogflowQueue: Pick<IdempotentJobQueue, 'queueInvocations' | 'queueInvocationsIdempotently' | 'findIdempotencyKey'>
     invocationResultsRowsService: HogInvocationResultsService
     // Absent, or `off` for a team, means the run never touches the intake topics.
-    intake?: { modeOf: (teamId: number) => IntakeMode; producer: IntakeProducer }
+    // `sealsSecrets` means the producer encrypts transactional sends, so a sensitive one may use the intake topics too.
+    intake?: { modeOf: (teamId: number) => IntakeMode; producer: IntakeProducer; sealsSecrets?: boolean }
 }
 
 // Never change the namespace or the name's encoding: a retry inside the claim's window would get another id and
@@ -138,11 +139,7 @@ export class RunIntake {
     // Shadow measures the Kafka path beside the insert: the answer is already decided, so a failed produce changes nothing.
     private async produceShadowCopies(created: Run[]): Promise<void> {
         const intake = this.deps.intake
-        const shadow = intake
-            ? created.filter(
-                  (run) => !carriesSecret(run.invocation) && intake.modeOf(run.invocation.teamId) === 'shadow'
-              )
-            : []
+        const shadow = intake ? created.filter((run) => intake.modeOf(run.invocation.teamId) === 'shadow') : []
         await Promise.all(
             shadow.map((run) =>
                 intake!.producer.produce(

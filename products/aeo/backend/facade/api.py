@@ -61,6 +61,7 @@ from products.aeo.backend.facade.contracts import (
     BrandedSegment,
     BrandKind,
     BrandNotFoundError,
+    BrandSentimentSentence,
     BrandSource,
     BrandStatus,
     BrandSyncResult,
@@ -1264,11 +1265,21 @@ _CHECK_FIELDS = (
     "prompt_version",
     "brand_sentiment",
     "brand_sentiment_score",
+    "brand_sentiment_sentences",
 )
 
 
 def _strings(value: Any) -> tuple[str, ...]:
     return tuple(str(item) for item in value) if isinstance(value, list) else ()
+
+
+def _sentiment_sentences(value: Any) -> tuple[BrandSentimentSentence, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(
+        BrandSentimentSentence(start=item["start"], end=item["end"], label=item["label"], score=item["score"])
+        for item in value
+    )
 
 
 def _to_prompt_check(row: dict[str, Any]) -> PromptCheck:
@@ -1295,6 +1306,7 @@ def _check_values(row: dict[str, Any]) -> dict[str, Any]:
         "prompt_version": row["prompt_version"],
         "brand_sentiment": row["brand_sentiment"],
         "brand_sentiment_score": row["brand_sentiment_score"],
+        "brand_sentiment_sentences": _sentiment_sentences(row["brand_sentiment_sentences"]),
     }
 
 
