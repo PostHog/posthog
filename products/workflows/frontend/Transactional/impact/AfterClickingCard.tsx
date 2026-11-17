@@ -27,8 +27,8 @@ export function AfterClickingCard(): JSX.Element {
                     <div className="flex flex-col gap-2 items-start">
                         <span className="font-semibold">Session replay is off</span>
                         <span className="text-secondary text-sm">
-                            Turn on session replay to record the sessions this email starts, so you can see what people
-                            do after they click.
+                            Replay vision will watch the sessions this email starts and group what people did. It needs
+                            session replay to record those sessions, and link tagging to find them.
                         </span>
                         <LemonButton
                             type="secondary"

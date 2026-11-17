@@ -67,10 +67,10 @@ describe('emailImpactLogic', () => {
     it('loads once the team arrives when the tab mounts first', async () => {
         initKeaTests(true, null as unknown as TeamType)
         logic = emailImpactLogic({ workflowId: 'workflow-1' })
+        const requested = new Promise<void>((resolve) => (onRequest = resolve))
         logic.mount()
-        await expectLogic(logic).toDispatchActions([
-            (action) => action.type === logic.actionTypes.loadImpactSuccess && action.payload.impact !== null,
-        ])
+        await requested
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(requestedFrom).toEqual([String(teamLogic.values.currentTeamId)])
         expect(logic.values.impact).toEqual(IMPACT)
@@ -112,11 +112,16 @@ describe('emailImpactLogic', () => {
             'You need access to querying events to count conversions.',
         ],
         [
-            'any other failure with the retry hint',
+            'a server failure with the shorter-period hint',
             [500, { detail: 'Server error' }],
             "This email's impact couldn't load. Try again, or pick a shorter period.",
         ],
-    ])('explains %s', async (_, response, message) => {
+        [
+            'a request failure without the shorter-period hint',
+            [404, { detail: 'Not found.' }],
+            "This email's impact couldn't load. Try again, and if it keeps failing, contact support.",
+        ],
+    ])('explains %s, and clears it once a retry answers', async (_, response, message) => {
         answer = response as [number, unknown]
         initKeaTests(true, ENVIRONMENT)
         logic = emailImpactLogic({ workflowId: 'workflow-1' })
@@ -124,5 +129,13 @@ describe('emailImpactLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.impactError).toBe(message)
+        expect(logic.values.funnelState).toBe('error')
+
+        answer = [200, IMPACT]
+        logic.actions.loadImpact()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.impactError).toBeNull()
+        expect(logic.values.funnelState).toBe('ready')
     })
 })

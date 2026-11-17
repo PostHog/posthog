@@ -50,6 +50,7 @@ describe('impactSteps', () => {
         ['nothing has answered yet', null, false, null, 'loading'],
         ['the request failed', impact, false, 'Server error', 'error'],
         ['nothing was sent in the period', { ...impact, sent: 0 }, false, null, 'empty'],
+        ['only untracked sends were counted in the period', { ...impact, sent: 0, untracked: 3 }, false, null, 'ready'],
         ['sends answered', impact, false, null, 'ready'],
     ] as const)('shows the funnel as %s', (_, data, loading, error, expected) => {
         expect(impactFunnelState(data, loading, error)).toBe(expected)
@@ -77,6 +78,12 @@ describe('impactSteps', () => {
         const steps = impactSteps({ ...impact, opened: 10 }, 'plan upgraded')
 
         expect(steps[3]).toMatchObject({ value: 20, share: 20 / 90, shareOf: 'delivered' })
+    })
+
+    it('compares clicks to sent when they outnumber deliveries still waiting on a webhook', () => {
+        const steps = impactSteps({ ...impact, delivered: 15, opened: 10 }, 'plan upgraded')
+
+        expect(steps[3]).toMatchObject({ value: 20, share: 20 / 100, shareOf: 'sent' })
     })
 
     it('asks for an event until one is picked', () => {

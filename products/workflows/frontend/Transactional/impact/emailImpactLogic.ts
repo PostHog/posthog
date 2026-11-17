@@ -105,8 +105,12 @@ export type emailImpactLogicType = MakeLogicType<
 >
 
 function impactErrorMessage(error: { status?: number; detail?: string | null } | undefined): string {
-    const missingAccess = error?.status === 403 && error.detail
-    return missingAccess || "This email's impact couldn't load. Try again, or pick a shorter period."
+    if (error?.status === 403 && error.detail) {
+        return error.detail
+    }
+    return !error?.status || error.status >= 500
+        ? "This email's impact couldn't load. Try again, or pick a shorter period."
+        : "This email's impact couldn't load. Try again, and if it keeps failing, contact support."
 }
 
 export const emailImpactLogic = kea<emailImpactLogicType>([

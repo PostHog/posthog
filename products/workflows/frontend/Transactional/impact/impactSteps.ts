@@ -51,7 +51,7 @@ export function impactFunnelState(
     if (!impact) {
         return 'loading'
     }
-    return impact.sent === 0 ? 'empty' : 'ready'
+    return impact.sent === 0 && impact.untracked === 0 ? 'empty' : 'ready'
 }
 
 export function impactSteps(impact: TransactionalEmailImpactApi, event: string | null): ImpactStep[] {
@@ -83,9 +83,12 @@ export function impactSteps(impact: TransactionalEmailImpactApi, event: string |
 
 function clickedStep(impact: TransactionalEmailImpactApi): ImpactStep {
     const step = { key: 'clicked', label: 'Clicked', value: impact.clicked } as const
-    return impact.clicked > impact.opened
+    if (impact.clicked <= impact.opened) {
+        return { ...step, share: share(impact.clicked, impact.opened) }
+    }
+    return impact.clicked <= impact.delivered
         ? { ...step, share: share(impact.clicked, impact.delivered), shareOf: 'delivered' }
-        : { ...step, share: share(impact.clicked, impact.opened) }
+        : { ...step, share: share(impact.clicked, impact.sent), shareOf: 'sent' }
 }
 
 function conversionBase(followed: number, of: number): Pick<ImpactStep, 'shareOf' | 'shareDetail'> {
