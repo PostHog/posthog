@@ -147,15 +147,14 @@ def score_window(
     # Without an error rise, the steps of the error rate are noise, and equal noise steps would look like a dose.
     level_4 = _level_4(shares, excess, parameters.min_share_step) if error_rises else None
     if error_rises:
-        # Each error rise counts by its own distance from the exposure rise, so that a strong rise days later doesn't
-        # lend its strength to a weak rise near the exposure rise.
+        # Each rise counts by its own distance, so that a strong rise days later can't lend strength to an early one.
         error_rise = max(
             error_rises,
             key=lambda start: _strength(error_rises[start], parameters) * _proximity(start, exposure_rise, parameters),
         )
         level_5 = _strength(error_rises[error_rise], parameters)
     else:
-        # Without an error rise, the latest hour stands in for it, so weak evidence counts less as the window gets older.
+        # Without an error rise, the latest hour stands in for it, so weak evidence counts less as the window ages.
         error_rise = max([*shares, *hours], default=edit.edited_at)
         level_5 = max([0.0, *(_strength(hour_excess, parameters) for hour_excess in excess.values())])
     proximity = _proximity(error_rise, exposure_rise, parameters)
@@ -215,10 +214,8 @@ def _split_people(
         return None
     exposed_with_errors = errors.exposed_with_errors if errors else 0
     unexposed_with_errors = errors.unexposed_with_errors if errors else 0
-    # A person whose value changed counts only as exposed, but their earlier errors count as unexposed. The unexposed
-    # rate runs high, which hides a difference rather than inventing one. The people and the errors are separate `uniq`
-    # estimates, so the people with errors can come out above the people in the group, and the proportion test raises
-    # on that.
+    # A person whose value changed counts as exposed, with earlier errors as unexposed, which hides a difference rather
+    # than inventing one. Separate `uniq` estimates can put the errors above the people, and the test raises on that.
     return _Split(
         exposed=Proportion(trials=exposed, successes=min(exposed_with_errors, exposed)),
         unexposed=Proportion(trials=unexposed, successes=min(unexposed_with_errors, unexposed)),
@@ -236,8 +233,7 @@ def _level_1_split(
         counts = exposure.in_condition[match]
         error_counts = errors.in_condition.get(match) if errors else None
     elif match is not None and edit.conditions:
-        # The edit moved the people of some conditions only, so everyone with the flag would compare the people in
-        # those conditions with the people outside them, who can have other error rates for other reasons.
+        # Everyone with the flag would compare the people in the edited conditions with people outside them.
         return None
     return _split_people(counts.with_flag, counts.exposed, error_counts)
 
@@ -246,7 +242,6 @@ def _level_2(exposure: ExposureCounts | None, errors: ErrorCounts | None, parame
     if exposure is None or errors is None or errors.by_last_value is None:
         return None
     split = _split_people(exposure.with_flag, exposure.exposed, errors.by_last_value)
-    # An error without a known value counts in neither group, so the split can be much smaller than all the errors.
     if split is None or not _split_has_volume(split, parameters):
         return None
     exposed_rate = split.exposed.successes / split.exposed.trials
@@ -284,13 +279,11 @@ def _excess_by_hour(
     excess: dict[datetime, _Excess] = {}
     for start, counts in sorted(hours.items()):
         rates = [week.with_errors / week.active for week in earlier.get(start, ()) if week.active]
-        # In a small hour, such as the current hour when it has just started, one person with an error is a rate of 1
-        # with no sampling noise, which would be a rise of any size.
+        # In a small hour, such as one that just started, one error is a rate of 1 with no sampling noise.
         if start < edit_hour or not counts.active or counts.active < min_active or not rates:
             continue
         rate = counts.with_errors / counts.active
         excess_rate = rate - statistics.fmean(rates)
-        # The spread of the earlier weeks, and the sampling noise of the hour itself.
         spread = math.hypot(statistics.pstdev(rates), math.sqrt(rate * (1 - rate) / counts.active))
         z = excess_rate / spread if spread else (math.inf if excess_rate > 0 else 0.0)
         excess[start] = _Excess(rate=excess_rate, z=z)
