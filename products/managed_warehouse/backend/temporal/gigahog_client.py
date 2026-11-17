@@ -190,7 +190,7 @@ def _exchange_for_team(config: GigahogConfig, team_id: int, session: requests.Se
         raise _error_from_response(response, error_type=GigahogTokenError)
     body = response.json()
     storage = body["storage"]
-    storage_expires_at = dt.datetime.fromisoformat(storage["expires_at"])
+    storage_expires_at = dt.datetime.fromisoformat(storage["expiration"])
     if storage_expires_at.tzinfo is None:
         storage_expires_at = storage_expires_at.replace(tzinfo=dt.UTC)
     lifetime = min(

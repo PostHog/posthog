@@ -64,7 +64,7 @@ class _FakeGigahog:
         self.valid_tokens: dict[str, int] = {}
         self.known_teams = {TEAM}
         self.token_expires_in = 900
-        self.storage_expires_at = "2099-01-01T00:00:00+00:00"
+        self.storage_expiration = "2099-01-01T00:00:00Z"
         # Faults the next commit request meets. "lost" commits and drops the response. "conflict" is another
         # writer's commit landing first. "unavailable" refuses without committing. "token_expired" expires the token.
         # "unauthorized" answers 401 whatever the token.
@@ -106,8 +106,10 @@ class _FakeGigahog:
                 "access_key_id": f"team-{team_id}-key",
                 "secret_access_key": f"team-{team_id}-secret",
                 "session_token": f"team-{team_id}-session",
-                "expires_at": self.storage_expires_at,
+                "expiration": self.storage_expiration,
                 "region": "us-east-1",
+                "bucket": "gigahog-bucket",
+                "prefixes": [f"imports/org_id={ORG.lower()}/team_id={team_id}/"],
             },
         }
 
@@ -318,7 +320,9 @@ def test_team_credentials_cover_one_team_and_renew_before_they_expire(gigahog, c
     if case == "token_expires_soon":
         gigahog.token_expires_in = 120
     elif case == "session_expires_soon":
-        gigahog.storage_expires_at = (dt.datetime.now(dt.UTC) + dt.timedelta(seconds=120)).isoformat()
+        gigahog.storage_expiration = (dt.datetime.now(dt.UTC) + dt.timedelta(seconds=120)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
 
     GigahogClient(CONFIG, team_id=TEAM).storage_session()
     second_team = TEAM + 1 if case == "other_team" else TEAM
