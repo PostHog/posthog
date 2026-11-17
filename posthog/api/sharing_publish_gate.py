@@ -136,7 +136,8 @@ def check_can_add_insight_to_dashboard(
     if denied_resources or insight_denied:
         denied = _describe_denied(denied_resources, "this insight" if insight_denied else None)
         raise serializers.ValidationError(
-            f"Can't add this insight: you don't have access to {denied}, and this dashboard is {exposure}."
+            f"Can't add this insight: you don't have access to {denied}, and this dashboard is {exposure}. "
+            "Ask an admin for access."
         )
 
 
@@ -168,8 +169,8 @@ def share_access_error(
         return None
     denied = _describe_denied(denied_resources, _count_insights(len(denied_insights)))
     return (
-        f"Can't enable sharing: this uses {denied}, which you don't have access to. "
-        "Ask an admin for access, or remove them first."
+        f"Can't enable sharing: you don't have access to {denied} that it uses. "
+        f"Ask an admin for access, or remove {_pronoun(denied_resources, len(denied_insights))} first."
     )
 
 
@@ -180,11 +181,15 @@ def insights_denied_to(user_access_control: UserAccessControl, insights: Iterabl
     return [insight for insight in insights if not user_access_control.check_access_level_for_object(insight, "viewer")]
 
 
-def _count_insights(count: int, qualifier: str = "") -> str | None:
+def _count_insights(count: int) -> str | None:
     """A count, not names, because a member without access to an insight can't see its name anywhere else."""
     if not count:
         return None
-    return f"{count} insight{'' if count == 1 else 's'}{qualifier}"
+    return f"{count} insight{'' if count == 1 else 's'}"
+
+
+def _pronoun(tables: Sequence[str], insight_count: int) -> str:
+    return "it" if len(tables) + insight_count == 1 else "them"
 
 
 def _describe_denied(tables: Sequence[str], insights: str | None) -> str:
@@ -304,5 +309,8 @@ def notebook_edit_access_error(user: User, notebook: Any, new_content: dict[str,
     )
     if not denied_resources and not denied_insights:
         return None
-    denied = _describe_denied(denied_resources, _count_insights(len(denied_insights), " you added"))
-    return f"Can't save: you don't have access to {denied}, and this notebook is publicly shared."
+    denied = _describe_denied(denied_resources, _count_insights(len(denied_insights)))
+    return (
+        f"Can't save: you don't have access to {denied} that your changes use, and this notebook is publicly "
+        f"shared. Ask an admin for access, or remove {_pronoun(denied_resources, len(denied_insights))} first."
+    )

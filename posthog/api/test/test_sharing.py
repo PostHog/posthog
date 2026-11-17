@@ -2445,8 +2445,8 @@ class TestSharingBlockedForInsightsWithoutViewAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["detail"] == (
-            "Can't enable sharing: this uses 1 insight, which you don't have access to. "
-            "Ask an admin for access, or remove them first."
+            "Can't enable sharing: you don't have access to 1 insight that it uses. "
+            "Ask an admin for access, or remove it first."
         )
         assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
 
@@ -2478,7 +2478,8 @@ class TestSharingBlockedForInsightsWithoutViewAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["detail"] == (
-            "Can't save: you don't have access to 1 insight you added, and this notebook is publicly shared."
+            "Can't save: you don't have access to 1 insight that your changes use, and this notebook is publicly "
+            "shared. Ask an admin for access, or remove it first."
         )
 
 

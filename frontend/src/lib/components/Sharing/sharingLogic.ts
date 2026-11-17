@@ -4,7 +4,10 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { readableErrorMessage } from 'lib/api-error'
 import { imageSizeError } from 'lib/components/ImageSize/imageSizeUtils'
 import { getInsightId } from 'lib/insights/getInsightId'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -404,6 +407,12 @@ export const sharingLogic = kea<sharingLogicType>([
                 posthog.capture(`dashboard share toggled`, { dashboard_id: props.dashboardId, is_shared: enabled })
             } else if (props.insightShortId) {
                 posthog.capture('insight share toggled', { insight_short_id: props.insightShortId, is_shared: enabled })
+            }
+        },
+        // initKea leaves a validation 400 from this loader to this logic, so toast the server's reason here.
+        setIsEnabledFailure: ({ errorObject }) => {
+            if (errorObject?.status === 400) {
+                lemonToast.error(readableErrorMessage(errorObject) ?? "Couldn't update sharing. Try again.")
             }
         },
         setIsEnabledSuccess: () => {
