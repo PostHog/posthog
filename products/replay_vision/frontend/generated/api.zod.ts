@@ -689,13 +689,6 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .describe(
                 '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
             ),
-        sampling_mode: zod
-            .enum(['focused', 'balanced', 'comprehensive'])
-            .describe('\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive')
-            .optional()
-            .describe(
-                'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive'
-            ),
         credit_limit: zod
             .number()
             .min(1)
@@ -860,13 +853,6 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
-            ),
-        sampling_mode: zod
-            .enum(['focused', 'balanced', 'comprehensive'])
-            .describe('\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive')
-            .optional()
-            .describe(
-                'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive'
             ),
         credit_limit: zod
             .number()
@@ -1408,7 +1394,7 @@ export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
             .max(visionScannersDraftCreateBodyMonthlyCreditBudgetMax)
             .optional()
             .describe(
-                'Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.'
+                'Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.'
             ),
         free_only: zod
             .boolean()
@@ -1428,7 +1414,7 @@ export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                "A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`\/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions."
+                "A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling rate against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`\/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions."
             ),
     })
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")
@@ -1440,7 +1426,6 @@ export const visionScannersEstimateCreateBodySamplingRateDefault = 1
 export const visionScannersEstimateCreateBodySamplingRateMin = 0
 export const visionScannersEstimateCreateBodySamplingRateMax = 1
 
-export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
 export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
 export const visionScannersEstimateCreateBodyExperimentTargetingOneVariantMax = 400
 
@@ -1460,13 +1445,6 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .max(visionScannersEstimateCreateBodySamplingRateMax)
             .default(visionScannersEstimateCreateBodySamplingRateDefault)
             .describe('0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).'),
-        sampling_mode: zod
-            .enum(['focused', 'balanced', 'comprehensive'])
-            .describe('\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive')
-            .default(visionScannersEstimateCreateBodySamplingModeDefault)
-            .describe(
-                "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive"
-            ),
         scanner_id: zod
             .uuid()
             .nullish()
