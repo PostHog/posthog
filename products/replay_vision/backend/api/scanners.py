@@ -465,11 +465,15 @@ class ScannerExperimentTargetingSerializer(serializers.Serializer):
     )
 
 
+class ScannerScopeKind(models.TextChoices):
+    EXPERIMENT = ExperimentScope.kind, "Experiment"
+
+
 class ScannerExperimentScopeSerializer(serializers.Serializer):
     """An experiment scope: the sessions of people exposed to an experiment, labeled by variant."""
 
     kind = serializers.ChoiceField(
-        choices=[(ExperimentScope.kind, "Experiment")],
+        choices=ScannerScopeKind.choices,
         help_text="The kind of scope. Only `experiment` exists today.",
     )
     experiment_id = serializers.IntegerField(
@@ -496,12 +500,32 @@ class ScannerExperimentScopeSerializer(serializers.Serializer):
     )
 
 
+class ScannerExperimentScopeReadSerializer(ScannerExperimentScopeSerializer):
+    """What a read of `scope` can actually return, which is wider than what a write accepts.
+
+    A scope the mirror derived from an older store carries no `variants` when that store watched
+    every variant: both older shapes could leave the variant unset, and `as_stored()` drops a None.
+    Writes still require it, so only the response schema is widened; the backfill that gives every
+    row an explicit variant list retires this difference.
+    """
+
+    variants = serializers.ListField(
+        child=serializers.CharField(max_length=400, allow_blank=False),
+        allow_empty=False,
+        required=False,
+        help_text=(
+            "Every variant the scanner watches. Absent only on a scanner still carrying a scope "
+            "derived from the older targeting shapes, which could mean every variant."
+        ),
+    )
+
+
 SCOPE_SERIALIZERS: dict[str, type[serializers.Serializer]] = {
     ExperimentScope.kind: ScannerExperimentScopeSerializer,
 }
 
 
-@extend_schema_field(ScannerExperimentScopeSerializer(allow_null=True))
+@extend_schema_field(ScannerExperimentScopeReadSerializer(allow_null=True))
 class ScannerScopeField(serializers.JSONField):
     """The scope blob, validated whole against the serializer its `kind` names.
 
@@ -1031,6 +1055,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         self._drop_redacted_targeting_clear(attrs)
         self._drop_redacted_scope_clear(attrs)
         self._validate_scope(attrs)
+        self._retire_the_legacy_store_behind_an_accepted_scope(attrs)
         self._refuse_legacy_shapes_under_the_flag(attrs)
         scout_caller = bool(self.context.get("scout_sandbox_caller"))
         check_scout_scanner_credit_limit(
@@ -1130,6 +1155,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if "scope" not in attrs or attrs["scope"] is None:
             return
         scope = attrs["scope"]
+        # Keeps `resolve_exposure_linkage` off the request path when nothing changed, because it
+        # can run a cold exposure precompute.
+        if self.instance is not None and scope == self.instance.scope:
+            return
         if scope.get("kind") != ExperimentScope.kind:
             return
         get_team = self.context.get("get_team")
@@ -1159,6 +1188,36 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 {"scope": "A scanner's experiment is fixed after creation. Make a new scanner instead."}
             )
 
+    def _retire_the_legacy_store_behind_an_accepted_scope(self, attrs: dict[str, Any]) -> None:
+        """Clear the older store when the scope being written would be mirrored over.
+
+        `save()` derives `scope` from the older stores whenever one of them holds an experiment, so
+        a row whose older store is left in place would have the accepted scope replaced by the
+        mirror and the request would return 200 without applying the edit. Clearing that store in
+        the same save leaves the written scope as the only source.
+        """
+        scope = attrs.get("scope")
+        if not scope or self.instance is None:
+            return
+        if scope == self._mirrored_scope():
+            return
+        if self.instance.experiment_targeting:
+            attrs["experiment_targeting"] = None
+        if self.instance.scanner_type == ScannerType.EXPERIMENT:
+            # The native type keeps its experiment in `scanner_config`, where the mirror reads it.
+            config = dict(attrs.get("scanner_config") or self.instance.scanner_config or {})
+            if config.pop("experiment_id", None) is not None:
+                config.pop("variants", None)
+                attrs["scanner_config"] = config
+
+    def _mirrored_scope(self) -> dict[str, Any] | None:
+        """The scope this row's save would derive from its own older stores, or None for a create."""
+        if self.instance is None:
+            return None
+        from products.replay_vision.backend.scope.load import derive_scope  # noqa: PLC0415
+
+        return derive_scope(self.instance)
+
     def _refuse_a_legacy_write_that_moves_the_scope(self, attrs: dict[str, Any]) -> None:
         """Stop the two stores from disagreeing about which experiment a scanner watches.
 
@@ -1169,7 +1228,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         targeting = attrs.get("experiment_targeting")
         if not targeting:
             return
-        if attrs.get("scope"):
+        scope = attrs.get("scope")
+        # A read returns both fields, so the editor sends both back. Only a scope that disagrees
+        # with the targeting is a second writer.
+        if scope and scope != self._mirrored_scope():
             raise serializers.ValidationError(
                 {"experiment_targeting": "Set either `scope` or `experiment_targeting`, not both."}
             )
@@ -1202,7 +1264,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # so an unchanged resend never equals the stored value byte for byte.
         stored_experiment = (instance.experiment_targeting or {}).get("experiment_id") if instance else None
         retargets = bool(targeting) and (targeting or {}).get("experiment_id") != stored_experiment
-        writes_a_scope = "scope" in attrs and attrs["scope"] is not None
+        stored_scope = instance.scope if instance is not None and isinstance(instance.scope, dict) else None
+        writes_a_scope = "scope" in attrs and attrs["scope"] is not None and attrs["scope"] != stored_scope
         if not (becomes_experiment_type or retargets or writes_a_scope):
             return
         if not scope_api_enabled(get_team(), acting_user(self.context)):

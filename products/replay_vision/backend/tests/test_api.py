@@ -1870,6 +1870,65 @@ class TestScannerScope(_VisionAPITestCase):
         )
         self.assertEqual(moved.status_code, 400, moved.json())
 
+    def test_a_rename_that_resends_the_mirrored_scope_passes_with_the_flag_off(self) -> None:
+        # The editor sends the whole scanner back on save, and the mirror has put a scope on every
+        # row that already watches an experiment.
+        scanner = self._create_scanner(
+            name="old-name",
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": self.experiment.id, "variants": ["control"]},
+        )
+        scanner.refresh_from_db()
+        self.assertIsNotNone(scanner.scope)
+
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=False):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/",
+                data={"name": "new-name", "scope": scanner.scope},
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.name, "new-name")
+
+    def test_a_save_that_resends_targeting_and_its_mirrored_scope_passes(self) -> None:
+        # A read of a targeted scanner returns both stores, so the editor sends both back.
+        scanner = self._create_scanner(name="targeted", experiment_targeting={"experiment_id": self.experiment.id})
+        scanner.refresh_from_db()
+        self.assertIsNotNone(scanner.scope)
+
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={
+                "name": "targeted-renamed",
+                "experiment_targeting": {"experiment_id": self.experiment.id},
+                "scope": scanner.scope,
+            },
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.name, "targeted-renamed")
+
+    def test_a_scope_edit_on_a_legacy_targeted_scanner_is_applied(self) -> None:
+        # The mirror derives `scope` from `experiment_targeting` on save, so leaving that store in
+        # place would replace the written scope and return 200 without applying the edit.
+        scanner = self._create_scanner(name="legacy", experiment_targeting={"experiment_id": self.experiment.id})
+
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scope": {**self.scope, "variants": ["control"]}},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        assert scanner.scope is not None
+        self.assertEqual(scanner.scope["variants"], ["control"])
+        self.assertFalse(scanner.experiment_targeting)
+
 
 class TestScannerLifecycleTelemetry(_VisionAPITestCase):
     def test_create_reports_config_choices(self) -> None:

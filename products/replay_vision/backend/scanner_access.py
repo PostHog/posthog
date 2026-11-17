@@ -19,11 +19,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerDisabledReason
-from products.replay_vision.backend.scope.load import (
-    EXPERIMENT_ID_SNAPSHOT_STORES,
-    experiment_id_of,
-    snapshot_experiment_id,
-)
+from products.replay_vision.backend.scope.load import EXPERIMENT_ID_SNAPSHOT_STORES, experiment_id_of
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -161,9 +157,18 @@ def snapshot_experiment_scope_q(
         q |= Q(**{f"{path}__isnull": True for path in paths})
     ids = list(experiment_ids)
     if ids:
+        # Every store that names an experiment must name an accessible one. The stores can disagree
+        # while a row still carries a scope the mirror has not caught up with, and an OR would let
+        # the readable store of such a row unlock what the others restrict.
+        # nosemgrep: orm-field-injection (every path is built from fixed strings; prefix is allowlisted above)
+        named = Q()
         for path in paths:
             # nosemgrep: orm-field-injection (every path is built from fixed strings; prefix is allowlisted above)
-            q |= Q(**{f"{path}__in": ids})
+            named |= Q(**{f"{path}__in": ids})
+        for path in paths:
+            # nosemgrep: orm-field-injection (every path is built from fixed strings; prefix is allowlisted above)
+            named &= Q(**{f"{path}__isnull": True}) | Q(**{f"{path}__in": ids})
+        q |= named
     return q
 
 
@@ -190,9 +195,14 @@ def accessible_observations(
 def can_read_observation(access: UserAccessControl, team_id: int, observation: "ReplayObservation") -> bool:
     """`accessible_observations` for one loaded row, read off its snapshot: no query for an untargeted scan,
     and one targeted lookup otherwise, instead of every accessible experiment in the project."""
-    experiment_id = snapshot_experiment_id(observation.scanner_snapshot)
-    experiment_ids = {experiment_id} if experiment_id is not None else set()
-    return not experiment_ids or bool(accessible_experiment_ids(access, team_id, experiment_ids) & experiment_ids)
+    snapshot = observation.scanner_snapshot or {}
+    experiment_ids = {
+        experiment_id
+        for store in EXPERIMENT_ID_SNAPSHOT_STORES
+        if (experiment_id := (snapshot.get(store) or {}).get("experiment_id")) is not None
+    }
+    # Every named experiment must be accessible, for the reason in `snapshot_experiment_scope_q`.
+    return not experiment_ids or accessible_experiment_ids(access, team_id, experiment_ids) >= experiment_ids
 
 
 def readable_observation_scanner_ids(access: UserAccessControl, team_id: int) -> list[uuid.UUID]:
