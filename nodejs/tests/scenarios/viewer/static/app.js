@@ -44,15 +44,14 @@ const s = (tag, attrs = {}, ...children) => {
 }
 
 let navigation = 0
-let renderedFor = 0
 
 const renderFor =
-    (token) =>
+    (token, onPaint) =>
     (...children) => {
         if (token !== navigation) {
             return false
         }
-        renderedFor = token
+        onPaint()
         app.replaceChildren(
             ...children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false)
         )
@@ -1236,7 +1235,6 @@ async function runPage(runId, startAtSeconds, render) {
         timer = undefined
         playButton.textContent = 'Play'
     }
-    stopReplay = pause
     playButton.addEventListener('click', () => {
         if (timer) {
             return pause()
@@ -1256,7 +1254,7 @@ async function runPage(runId, startAtSeconds, render) {
     })
     slider.addEventListener('input', () => show(Number(slider.value)))
     const reason = detail.statusReason
-    render(
+    const painted = render(
         h('a', { href: `#/cards/${detail.cardId}` }, `← ${detail.cardId}`),
         h('h1', {}, detail.cardId, ' ', statusPill(detail.status)),
         h(
@@ -1307,6 +1305,10 @@ async function runPage(runId, startAtSeconds, render) {
         h('h2', {}, 'Measurements'),
         h('div', { class: 'panel', style: 'padding:0' }, measurementsTable(detail))
     )
+    if (!painted) {
+        return
+    }
+    stopReplay = pause
     const start = Math.min(from + startAtSeconds * 1000, to)
     slider.value = start
     show(start)
@@ -1314,7 +1316,8 @@ async function runPage(runId, startAtSeconds, render) {
 
 async function route() {
     const token = ++navigation
-    const render = renderFor(token)
+    let loading
+    const render = renderFor(token, () => clearTimeout(loading))
     stopReplay()
     hideTooltip()
     const [path, query] = location.hash.split('?')
@@ -1328,7 +1331,7 @@ async function route() {
                 a.dataset.nav === (page || 'cards') || (page === 'cards' && a.dataset.nav === 'cards')
             )
         )
-    const loading = setTimeout(() => renderedFor === token || render(h('p', { class: 'muted' }, 'Loading…')), 300)
+    loading = setTimeout(() => render(h('p', { class: 'muted' }, 'Loading…')), 300)
     try {
         if (page === 'runs' && id) {
             await runPage(id, startAt, render)
@@ -1341,8 +1344,6 @@ async function route() {
         }
     } catch (error) {
         render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))
-    } finally {
-        clearTimeout(loading)
     }
 }
 
