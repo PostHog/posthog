@@ -4,6 +4,7 @@ const INITIAL_FAILURES = 3
 const REPEAT_INTERVAL = 10
 const RUNS_PER_PAGE = 100
 const HISTORY_PAGES = 10
+const MAX_RUN_DURATION_MS = 6 * 60 * 60 * 1000
 const STALE_INDEX_RETRY_MS = 2000
 const SLACK_CHANNEL = 'C0B11J29GP9'
 
@@ -17,7 +18,7 @@ const LANES = {
             job: 'Publish eligible shared-image channels',
             image: 'PostHog shared-image channels',
             consequence:
-                'One or more shared-image channels were not published, so workers on those channels stay on their previous image. See the linked run for publication evidence.',
+                'Shared-image channel publication did not complete cleanly. Workers on channels that were not verified may remain on their previous image. See the publication evidence in the linked run for the affected channels.',
         },
     ],
     'Build and deploy node container image': [
@@ -125,6 +126,8 @@ async function* loadOlderRuns(actions, coordinates, trigger, readJobs, delay) {
     }
 
     const seen = new Set([trigger.id])
+    const waiting = new Set()
+    let oldestFetchedCreation = Infinity
     for (let page = 1; page <= HISTORY_PAGES; page++) {
         let runs = await readPage(page)
         if (page === 1 && !runs.some((run) => run.id === trigger.id)) {
@@ -135,14 +138,28 @@ async function* loadOlderRuns(actions, coordinates, trigger, readJobs, delay) {
             }
         }
 
-        for (const run of runs.sort(newestFirst)) {
+        for (const run of runs) {
+            oldestFetchedCreation = Math.min(oldestFetchedCreation, Date.parse(run.created_at))
             if (seen.has(run.id) || newestFirst(run, trigger) <= 0) {
                 continue
             }
             seen.add(run.id)
+            waiting.add(run)
+        }
+
+        const exhausted = runs.length < RUNS_PER_PAGE
+        const latestUnreadCompletion = exhausted ? -Infinity : oldestFetchedCreation + MAX_RUN_DURATION_MS
+        const ready = []
+        for (const run of waiting) {
+            if (Date.parse(run.updated_at) > latestUnreadCompletion) {
+                waiting.delete(run)
+                ready.push(run)
+            }
+        }
+        for (const run of ready.sort(newestFirst)) {
             yield { run, jobs: await readJobs(run) }
         }
-        if (runs.length < RUNS_PER_PAGE) {
+        if (exhausted) {
             yield null
             return
         }
@@ -161,8 +178,15 @@ module.exports = async (
     const actions = github.rest.actions
     const coordinates = context.repo
     const readJobs = async ({ id }) => {
-        const { data } = await actions.listJobsForWorkflowRun({ ...coordinates, run_id: id, per_page: 100 })
-        return data.jobs
+        const jobs = []
+        const perPage = 100
+        for (let page = 1; ; page++) {
+            const { data } = await actions.listJobsForWorkflowRun({ ...coordinates, run_id: id, per_page: perPage, page })
+            jobs.push(...data.jobs)
+            if (data.jobs.length < perPage || jobs.length >= data.total_count) {
+                return jobs
+            }
+        }
     }
     const jobs = await readJobs(run)
     const messages = await streakMessages({ run, jobs }, loadOlderRuns(actions, coordinates, run, readJobs, delay))

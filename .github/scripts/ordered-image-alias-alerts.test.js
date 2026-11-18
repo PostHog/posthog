@@ -40,7 +40,10 @@ function failingHistory(count) {
     return Array.from({ length: count }, (_, i) => nodeRun(100 - i, 'failure'))
 }
 
-function fakeHistory(entries, { stalePages = 0, slackResponse = { ok: true, json: async () => ({ ok: true }) } } = {}) {
+function fakeHistory(
+    entries,
+    { stalePages = 0, addedAfterFirstPage, slackResponse = { ok: true, json: async () => ({ ok: true }) } } = {}
+) {
     const calls = []
     const delays = []
     const messages = []
@@ -49,10 +52,12 @@ function fakeHistory(entries, { stalePages = 0, slackResponse = { ok: true, json
     const github = {
         rest: {
             actions: {
-                async listJobsForWorkflowRun({ run_id }) {
-                    calls.push(run_id)
+                async listJobsForWorkflowRun({ run_id, per_page, page }) {
+                    calls.push(page === 1 ? run_id : `list jobs ${run_id} page ${page}`)
                     assert.ok(jobs.has(run_id))
-                    return { data: { jobs: jobs.get(run_id) } }
+                    const available = jobs.get(run_id)
+                    const start = (page - 1) * per_page
+                    return { data: { jobs: available.slice(start, start + per_page), total_count: available.length } }
                 },
                 async listWorkflowRuns(params) {
                     calls.push(`list runs ${params.page}`)
@@ -61,13 +66,14 @@ function fakeHistory(entries, { stalePages = 0, slackResponse = { ok: true, json
                     assert.equal(params.event, 'push')
                     assert.equal(params.status, 'completed')
                     assert.match(params.created, /^<=/)
-                    const matching = runs.filter((run) => run.created_at <= params.created.slice(2))
+                    const visible = params.page > 1 && addedAfterFirstPage ? [addedAfterFirstPage, ...runs] : runs
+                    const matching = visible.filter((run) => run.created_at <= params.created.slice(2))
                     if (params.page === 1 && stalePages > 0) {
                         stalePages--
                         matching.shift()
                     }
                     const start = (params.page - 1) * params.per_page
-                    return { data: { workflow_runs: matching.slice(start, start + params.per_page) } }
+                    return { data: { workflow_runs: matching.slice(start, start + params.per_page).map((run) => ({ ...run })) } }
                 },
             },
         },
@@ -174,7 +180,7 @@ test('uses the failed channel job even when the workflow and alias succeeded', a
     assert.equal(messages.length, 1)
     assert.match(messages[0], /^PostHog shared-image channels \(Container Images CD\).*failed in 3/)
     assert.ok(messages[0].endsWith(
-        'One or more shared-image channels were not published, so workers on those channels stay on their previous image. See the linked run for publication evidence.'
+        'Shared-image channel publication did not complete cleanly. Workers on channels that were not verified may remain on their previous image. See the publication evidence in the linked run for the affected channels.'
     ))
 })
 
@@ -251,12 +257,14 @@ test('a skipped, cancelled, or absent triggering job only needs the triggering j
 })
 
 test('does not read further once a success has three preceding failures', async () => {
-    const trigger = nodeRun(101, 'success')
-    const history = fakeHistory([trigger, ...failingHistory(5)])
+    const trigger = nodeRun(50000, 'success')
+    const failures = [49999, 49998, 49997, 49996].map((id) => nodeRun(id, 'failure'))
+    const older = Array.from({ length: 100 }, (_, index) => nodeRun(1000 - index, 'skipped'))
+    const history = fakeHistory([trigger, ...failures, ...older])
     const messages = await history.process(trigger.run)
     assert.equal(messages.length, 1)
     assert.match(messages[0], /succeeded after at least three consecutive failures/)
-    assert.deepEqual(history.calls, [101, 'list runs 1', 100, 99, 98])
+    assert.deepEqual(history.calls, [50000, 'list runs 1', 49999, 49998, 49997])
 })
 
 test('counts a sparse streak of 13 when the preceding success is on page 2', async () => {
@@ -276,16 +284,102 @@ test('counts a sparse streak of 13 when the preceding success is on page 2', asy
     assert.equal(history.calls.at(-1), 183)
 })
 
-test('stops after ten full pages without announcing an unsettled failure streak', async () => {
+test('stops after ten full pages without reading the jobs of unconfirmed runs', async () => {
     const trigger = nodeRun(2000, 'failure')
     const older = [nodeRun(1999, 'failure'), nodeRun(1998, 'failure')]
     const skipped = Array.from({ length: 997 }, (_, index) => nodeRun(1997 - index, 'skipped'))
     const history = fakeHistory([trigger, ...older, ...skipped, nodeRun(1000, 'success')])
 
     assert.deepEqual(await history.process(trigger.run), [])
-    assert.equal(history.calls.length, 1010)
-    assert.ok(!history.calls.includes('list runs 11'))
-    assert.ok(!history.calls.includes(1000))
+    assert.deepEqual(history.calls, [2000, ...Array.from({ length: 10 }, (_, i) => `list runs ${i + 1}`)])
+})
+
+test('withholds an alert when three failures pass the six-hour bound and the first success is beyond ten full pages', async () => {
+    const trigger = nodeRun(50000, 'failure')
+    const recentFailures = [49999, 49998].map((id) => nodeRun(id, 'failure'))
+    const skipped = Array.from({ length: 997 }, (_, index) => nodeRun(1000 - index, 'skipped'))
+    const successAfterCap = nodeRun(3, 'success')
+    const history = fakeHistory([trigger, ...recentFailures, ...skipped, successAfterCap])
+
+    assert.deepEqual(await history.process(trigger.run), [])
+    assert.deepEqual(history.calls, [
+        50000,
+        'list runs 1',
+        49999,
+        49998,
+        ...Array.from({ length: 9 }, (_, i) => `list runs ${i + 2}`),
+    ])
+})
+
+function completedAt(entry, seconds) {
+    entry.run.updated_at = new Date(seconds * 1000).toISOString()
+    return entry
+}
+
+function pageBoundaryHistory(recentFailures, lastOnFirstPage, firstOnNextPage) {
+    return [
+        nodeRun(1000, 'failure'),
+        ...Array.from({ length: 98 }, (_, i) => nodeRun(999 - i, i < recentFailures ? 'failure' : 'skipped')),
+        nodeRun(901, lastOnFirstPage),
+        nodeRun(900, firstOnNextPage),
+    ]
+}
+
+test('cross-page completion order 1000 failure, 999 failure, 900 success, 901 failure has a streak of two', async () => {
+    const [trigger, ...older] = pageBoundaryHistory(1, 'failure', 'success')
+    completedAt(older.at(-1), 902)
+    const history = fakeHistory([trigger, ...older])
+
+    assert.deepEqual(await history.process(trigger.run), [])
+    assert.deepEqual(history.calls.slice(0, 4), [1000, 'list runs 1', 'list runs 2', 999])
+    assert.equal(history.calls.at(-1), 900)
+    assert.ok(!history.calls.includes(901))
+})
+
+test('cross-page completion order 1000 through 989 failures, 900 failure, 901 success has a streak of thirteen', async () => {
+    const [trigger, ...older] = pageBoundaryHistory(11, 'success', 'failure')
+    completedAt(older.at(-1), 902)
+    const history = fakeHistory([trigger, ...older])
+
+    const messages = await history.process(trigger.run)
+    assert.equal(messages.length, 1)
+    assert.match(messages[0], /failed in 13 consecutive runs/)
+    assert.ok(messages[0].includes('<https://example.com/runs/900|first failure>'))
+})
+
+test('orders a later-created success after two earlier-created failures inside one page', async () => {
+    const messages = await messagesFor(nodeRun(103, 'failure'), [
+        nodeRun(102, 'success'),
+        completedAt(nodeRun(101, 'failure'), 102.5),
+        completedAt(nodeRun(100, 'failure'), 102.25),
+    ])
+
+    assert.equal(messages.length, 1)
+    assert.match(messages[0], /failed in 3 consecutive runs/)
+    assert.ok(messages[0].includes('<https://example.com/runs/100|first failure>'))
+})
+
+test('does not count a failure twice when a new completion shifts the next page by one run', async () => {
+    const [trigger, ...older] = pageBoundaryHistory(0, 'failure', 'success')
+    completedAt(trigger, 1002)
+    const newRun = completedAt(nodeRun(1001, 'failure'), 1003).run
+    const history = fakeHistory([trigger, ...older], { addedAfterFirstPage: newRun })
+
+    assert.deepEqual(await history.process(trigger.run), [])
+    assert.equal(history.calls.filter((call) => call === 901).length, 1)
+})
+
+test('counts the alias job from page 2 and reads exactly 100 jobs in one call', async () => {
+    const [trigger, ...older] = failingHistory(3)
+    for (const [entry, unrelated] of [[trigger, 100], [older[0], 99]]) {
+        entry.jobs.unshift(...Array.from({ length: unrelated }, (_, i) => ({ name: `Build component ${i}`, conclusion: 'success' })))
+    }
+    const history = fakeHistory([trigger, ...older])
+
+    const messages = await history.process(trigger.run)
+    assert.equal(messages.length, 1)
+    assert.match(messages[0], /failed in 3 consecutive runs/)
+    assert.deepEqual(history.calls, [100, 'list jobs 100 page 2', 'list runs 1', 99, 98])
 })
 
 test('retries a stale first page and posts once from fresh history', async () => {

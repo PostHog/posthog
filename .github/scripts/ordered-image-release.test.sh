@@ -115,7 +115,7 @@ $ORDERED_ALIAS|failure|1|
 $ORDERED_ALIAS|source-digest-unavailable|1|
 $ORDERED_ALIAS|destination-unavailable|1|
 $ORDERED_ALIAS|unverified-aliases|1|
-$ORDERED_ALIAS||1|
+$ORDERED_ALIAS||1|outcome-not-reported
 |present-at-expected-digest|1|tag-unavailable
 CASES
 

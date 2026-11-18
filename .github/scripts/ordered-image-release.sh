@@ -135,7 +135,7 @@ publish_alias() {
 }
 
 require_verified_alias() {
-    local tag="$1" outcome="$2"
+    local tag="$1" outcome="${2:-outcome-not-reported}"
     if [ -z "$tag" ]; then
         outcome='tag-unavailable'
     fi
