@@ -265,12 +265,15 @@ describe('TransactionalEmailsTable', () => {
         const { container } = renderWithCodeSends({}, { wizardOffered, selfHosted })
         await waitFor(() => {
             expect(container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')).toBeInTheDocument()
-            expect(
-                container
-                    .querySelector('[data-attr=wizard-command-block]')
-                    ?.textContent?.includes('npx @posthog/wizard email') ?? false
-            ).toBe(wizardShown)
+            if (wizardShown) {
+                expect(container.querySelector('[data-attr=wizard-command-block]')).toHaveTextContent(
+                    'npx @posthog/wizard email'
+                )
+            }
         })
+        if (!wizardShown) {
+            expect(container.querySelector('[data-attr=wizard-command-block]')).not.toBeInTheDocument()
+        }
         expect(screen.queryByText('Or use your own coding agent') !== null).toBe(wizardShown)
         expect(container.querySelector('[data-attr=send-from-code-snippet]')).not.toBeInTheDocument()
 
