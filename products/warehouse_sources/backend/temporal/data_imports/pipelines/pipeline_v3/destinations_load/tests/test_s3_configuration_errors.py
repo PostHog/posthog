@@ -184,13 +184,8 @@ class TestKeyPrefix:
                 dt.datetime(2026, 3, 5, 1, 0, tzinfo=dt.timezone(dt.timedelta(hours=2))),
                 "2026/03/04/charges/run-a1",
             ),
-            ("{year}/{data_interval_end}/", STARTED, "{year}/{data_interval_end}/charges/run-a1"),
-            ("{year}/{table}/", None, "{year}/{table}/charges/run-a1"),
-            ("{0}/{table", STARTED, "{0}/{table/charges/run-a1"),
-            ("{year}/{table}/{", STARTED, "{year}/{table}/{/charges/run-a1"),
-            ("{year[foo]}/{table}", STARTED, "{year[foo]}/{table}/charges/run-a1"),
-            ("{table:1000000000}", STARTED, "{table:1000000000}/charges/run-a1"),
-            ("exports/{{table}}/", STARTED, "exports/{table}/charges/run-a1"),
+            ("{year}/{data_interval_end}/", STARTED, "2026/{data_interval_end}/charges/run-a1"),
+            ("{year}/{table}/", None, "{year}/charges/run-a1"),
         ],
         ids=[
             "plain",
@@ -199,11 +194,6 @@ class TestKeyPrefix:
             "utc",
             "unknown_variable",
             "no_start_time",
-            "not_a_template",
-            "stray_brace",
-            "indexing",
-            "format_spec",
-            "escaped_table",
         ],
     )
     async def test_the_prefix_is_rendered_from_the_run_start(

@@ -64,11 +64,7 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     get_s3_integration,
     s3_client,
 )
-from products.batch_exports.backend.facade.key_prefix import (
-    datetime_template_variables,
-    key_prefix_template_fields,
-    render_key_prefix_template,
-)
+from products.batch_exports.backend.facade.key_prefix import datetime_template_variables, render_key_prefix_template
 from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
@@ -145,12 +141,8 @@ EXPONENTIAL_BACKOFF_COEFFICIENT = ConcurrentS3Consumer.EXPONENTIAL_BACKOFF_COEFF
 RefreshCredentials = Callable[[], Awaitable[AWSCredentials]]
 
 
-def render_key_prefix(prefix: str, *, run_started_at: dt.datetime | None, table: str) -> str | None:
-    """Fill the prefix the way a batch export fills its key prefix, with times from the run's start in UTC.
-
-    Returns None when the prefix names a variable there is no value for, or is not a valid
-    template. The caller then uses the prefix as typed, which is what batch exports does.
-    """
+def render_key_prefix(prefix: str, *, run_started_at: dt.datetime | None, table: str) -> str:
+    """Fill the prefix the way a batch export fills its key prefix, with times from the run's start in UTC."""
     variables = {"table": table}
     if run_started_at is not None:
         variables |= datetime_template_variables(run_started_at.astimezone(dt.UTC))
@@ -308,21 +300,11 @@ class S3DestinationWriter:
         self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip().strip("/")
         self._region: str = (config.get("region") or "").strip()
         raw_prefix: str = config.get("prefix") or ""
-        rendered_prefix = render_key_prefix(raw_prefix, run_started_at=ctx.run_started_at, table=ctx.table_name)
-        if rendered_prefix is None:
-            logger.warning(
-                "s3_destination_prefix_used_as_is",
-                destination_name=ctx.destination_name,
-                prefix=raw_prefix,
-                msg=f"The prefix '{raw_prefix}' is used as typed, since it names a template variable that has no value",
-            )
-        self._prefix: str = (rendered_prefix if rendered_prefix is not None else raw_prefix).strip("/")
+        self._prefix: str = render_key_prefix(
+            raw_prefix, run_started_at=ctx.run_started_at, table=ctx.table_name
+        ).strip("/")
         # A prefix that places `{table}` itself already gives each table its own folder.
-        self._table_folder: str = (
-            ""
-            if rendered_prefix is not None and "table" in key_prefix_template_fields(raw_prefix)
-            else self._ctx.table_name
-        )
+        self._table_folder: str = "" if "{table}" in raw_prefix else ctx.table_name
         self._use_virtual_style_addressing = bool(config.get("use_virtual_style_addressing"))
         self._compression: ParquetCompression = config.get("compression") or DEFAULT_COMPRESSION
 

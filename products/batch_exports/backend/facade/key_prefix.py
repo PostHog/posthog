@@ -7,12 +7,10 @@ file destinations fill a prefix exactly as a batch export does.
 
 from products.batch_exports.backend.temporal.destinations.utils import (
     datetime_template_variables,
-    key_prefix_template_fields,
     render_key_prefix_template,
 )
 
 __all__ = [
     "datetime_template_variables",
-    "key_prefix_template_fields",
     "render_key_prefix_template",
 ]
