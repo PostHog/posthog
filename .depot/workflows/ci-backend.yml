@@ -1670,20 +1670,22 @@ jobs:
             - name: Check deleted migrations
               if: steps.fetch-deleted-migrations.outcome == 'success'
               run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
-            # hoglint runs in shadow: it reports, as annotations and a step summary, the boundary
-            # findings a pull request adds, and the step always exits 0, so it can never fail the
-            # job or flag a deterministic failure. It runs before the scaffold, which edits
-            # tracked files that compare would read as part of the change.
+            # hoglint runs in shadow, so the step always exits 0: it can never fail the job or flag
+            # a deterministic failure. A finding in a file the pull request changes becomes an
+            # annotation, and the step summary lists the rest, which master carries until the
+            # ledger catches up. The full view (`--all`) lists every row, which the default view
+            # can cut short. It runs before the scaffold, which edits tracked files that compare
+            # would read as part of the change.
             - name: Check boundaries (hoglint, shadow)
               env:
                   HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
               run: |
                   output="$RUNNER_TEMP/hoglint.txt"
                   if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-                      timeout --kill-after=10s 5m hoglint compare --base HEAD^1 > "$output" 2>&1 || true
+                      timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2>&1 || true
                       python .github/scripts/hoglint_shadow.py "$output" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
                   else
-                      timeout --kill-after=10s 5m hoglint check > "$output" 2>&1 || true
+                      timeout --kill-after=10s 5m hoglint check --all > "$output" 2>&1 || true
                       python .github/scripts/hoglint_shadow.py "$output" --until "$HOGLINT_SHADOW_UNTIL" || true
                   fi
             - name: Bootstrap scaffold product

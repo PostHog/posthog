@@ -724,19 +724,19 @@ jobs:
               run: lint-imports
 
             # hoglint takes over from the two steps above, and runs in shadow until then. A
-            # vendor-only diff does not start Backend CI, so it runs here too. It reports the
-            # boundary findings a pull request adds, as annotations and a step summary, and the
-            # step always exits 0.
+            # vendor-only diff does not start Backend CI, so it runs here too. A finding in a file
+            # the pull request changes becomes an annotation, and the step summary lists the rest.
+            # The step always exits 0.
             - name: Check boundaries (hoglint, shadow)
               env:
                   HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
               run: |
                   output="$RUNNER_TEMP/hoglint.txt"
                   if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-                      timeout --kill-after=10s 5m hoglint compare --base HEAD^1 > "$output" 2>&1 || true
+                      timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2>&1 || true
                       python .github/scripts/hoglint_shadow.py "$output" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
                   else
-                      timeout --kill-after=10s 5m hoglint check > "$output" 2>&1 || true
+                      timeout --kill-after=10s 5m hoglint check --all > "$output" 2>&1 || true
                       python .github/scripts/hoglint_shadow.py "$output" --until "$HOGLINT_SHADOW_UNTIL" || true
                   fi
 
