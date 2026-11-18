@@ -1968,14 +1968,13 @@ class FeatureFlagSerializer(
         for dependency in dependencies:
             if _runtime_supports_dependency(runtime, dependency.evaluation_runtime):
                 continue
-            dependency_runtime = _describe_runtime(dependency.evaluation_runtime)
             # A dependency the flag already stores fails only because this write changes the runtime.
             attr = "evaluation_runtime" if dependency.id in stored_dependency_ids else "filters"
+            # The message names only the ID the caller supplied, not the target's runtime.
             message = (
-                f"Cannot depend on flag (ID: {dependency.id}) because it evaluates "
-                f"{dependency_runtime} and this flag evaluates {_describe_runtime(runtime)}. Where flag "
-                f"{dependency.id} doesn't evaluate, this flag reads it as false. Set flag {dependency.id} "
-                f"to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set this flag to evaluate {dependency_runtime}."
+                f"Cannot depend on flag (ID: {dependency.id}) because it does not evaluate in every runtime "
+                f"this flag evaluates in. Set flag {dependency.id} to evaluate on both client and server, or set "
+                f"this flag to evaluate in the same runtime as flag {dependency.id}."
             )
             raise serializers.ValidationError({attr: ErrorDetail(message, code=DEPENDENCY_RUNTIME_MISMATCH)})
 
