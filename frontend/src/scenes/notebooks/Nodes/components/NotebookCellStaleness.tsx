@@ -2,7 +2,7 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 
 import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 
-import type { notebookNodeSQLV2LogicType } from '../notebookNodeSQLV2LogicType'
+import type { notebookNodeSQLV2LogicType } from '../notebookNodeSQLV2Logic'
 import { NotebookRunDownstreamBanner } from './NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './NotebookStaleCellBanner'
 
