@@ -19,7 +19,7 @@ export function TraceHeaderHost({
     timestampHint,
     backLink,
 }: TraceHeaderHostProps): JSX.Element | null {
-    const { trace } = useValues(traceViewLogic({ traceId, timestampHint }))
+    const { trace, overview } = useValues(traceViewLogic({ traceId, timestampHint }))
     const viewModel = traceViewModelLogic({ hostId, traceId, timestampHint })
     const { searchBox } = useValues(viewModel)
     const { setQuery, stepMatch } = useActions(viewModel)
@@ -30,7 +30,7 @@ export function TraceHeaderHost({
     const { reviewStatus, reviewStatusFailed } = useValues(reviewLogic)
     const { loadReviewStatus } = useActions(reviewLogic)
 
-    if (!trace) {
+    if (!overview) {
         return null
     }
     const queue = reviewStatus?.queue ?? null
@@ -60,12 +60,12 @@ export function TraceHeaderHost({
         ) : null
     return (
         <TraceHeader
-            name={trace.name}
-            hasError={trace.hasError}
+            name={overview.name}
+            hasError={overview.hasError}
             backLink={backLink}
-            search={{ ...searchBox, onQueryChange: setQuery, onStep: stepMatch }}
-            copyAction={{ loading: traceCopying, onCopy: copyTrace }}
-            exportAction={{ loading: traceExportLoading, onExport: exportTrace }}
+            search={trace ? { ...searchBox, onQueryChange: setQuery, onStep: stepMatch } : null}
+            copyAction={trace ? { loading: traceCopying, onCopy: copyTrace } : undefined}
+            exportAction={trace ? { loading: traceExportLoading, onExport: exportTrace } : undefined}
             actions={reviewActions}
         />
     )

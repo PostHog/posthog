@@ -12,7 +12,16 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceListApi } from '../../generated/api.schemas'
-import { makeTraceListItem, makeTraceListPage, makeTracePreview, traceCellsMocks } from './testFixtures'
+import { traceDrawerLogic } from '../trace/traceDrawerLogic'
+import type { TraceListRow } from '../trace/traceListRows'
+import {
+    TRACE_CELL_URLS,
+    makeTraceListItem,
+    makeTraceListPage,
+    makeTracePersonItem,
+    makeTracePreview,
+    traceCellsMocks,
+} from './testFixtures'
 import { TracesListHost } from './TracesListHost'
 import { tracesListLogic } from './tracesListLogic'
 
@@ -75,6 +84,18 @@ describe('TracesListHost', () => {
         await expectLogic(tracesListLogic()).toFinishAllListeners()
     }
 
+    function drawerRows(): TraceListRow[] {
+        return traceDrawerLogic({ listId: 'traces' }).values.rows
+    }
+
+    function held(): { answered: Promise<void>; release: () => void } {
+        let release = (): void => {}
+        const answered = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        return { answered, release }
+    }
+
     it('shows the rows of the first page, the counts on the chips and the previews', async () => {
         const view = renderHost()
         await view.findByText('summarize-ticket')
@@ -108,6 +129,68 @@ describe('TracesListHost', () => {
             back_url: LIST_PATH,
         })
         expect(link.getAttribute('href')).toBe(href)
+    })
+
+    it("hands the drawer the server's default step, and none when the server sends null", async () => {
+        const items = [
+            makeTraceListItem({ id: 'trace-a', defaultNodeId: 'gen-a' }),
+            makeTraceListItem({ id: 'trace-b', defaultNodeId: null, totalsPartial: true }),
+        ]
+        answer = [200, makeTraceListPage([], { items })]
+        renderHost()
+
+        await waitFor(() =>
+            expect(
+                drawerRows().map(({ traceId, timestamp, stepId, overview, defaultStepId }) => ({
+                    traceId,
+                    timestamp,
+                    stepId,
+                    overview,
+                    defaultStepId,
+                }))
+            ).toEqual([
+                {
+                    traceId: 'trace-a',
+                    timestamp: items[0].createdAt,
+                    stepId: null,
+                    overview: items[0],
+                    defaultStepId: 'gen-a',
+                },
+                {
+                    traceId: 'trace-b',
+                    timestamp: items[1].createdAt,
+                    stepId: null,
+                    overview: items[1],
+                    defaultStepId: undefined,
+                },
+            ])
+        )
+    })
+
+    it('hands the drawer the person once the person cell has filled, and none while it loads', async () => {
+        const people = held()
+        useMocks({
+            post: {
+                [TRACE_CELL_URLS.people]: async () => {
+                    await people.answered
+                    return [
+                        200,
+                        {
+                            items: [makeTracePersonItem('trace-a'), makeTracePersonItem('trace-b', { person: null })],
+                        },
+                    ]
+                },
+            },
+        })
+        renderHost()
+        await waitFor(() => expect(drawerRows().map((row) => row.traceId)).toEqual(['trace-a', 'trace-b']))
+
+        expect(drawerRows().map((row) => row.person)).toEqual([undefined, undefined])
+
+        people.release()
+        await waitFor(() =>
+            expect(drawerRows().map((row) => row.person)).toEqual([makeTracePersonItem('trace-a').person, undefined])
+        )
     })
 
     it('reads the errors view from the errors chip', async () => {

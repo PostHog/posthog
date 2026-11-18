@@ -60,6 +60,7 @@ export interface traceViewModelLogicValues {
     nodeIdsByAlias: ReadonlyMap<string, string> // traceViewLogic
     nodes: ReadonlyMap<string, NodeLoad> // traceViewLogic
     rawNodes: ReadonlyMap<string, RawLoad> // traceViewLogic
+    seededDefaultStepId: string | null // traceViewLogic
     status: TraceViewStatus // traceViewLogic
     trace: TraceApi | null // traceViewLogic
     canViewInThread: boolean
@@ -190,7 +191,13 @@ export interface traceViewModelLogicMeta {
             nodeIdsByAlias: ReadonlyMap<string, string>,
             traceId: string
         ) => string
-        nodeIdToRead: (status: TraceViewStatus, requestedStepId: string | null, selectedNodeId: string) => string | null
+        nodeIdToRead: (
+            status: TraceViewStatus,
+            requestedStepId: string | null,
+            selectedNodeId: string,
+            openingMode: TraceOpeningMode,
+            seededDefaultStepId: string | null
+        ) => string | null
         selectedTreeNode: (trace: TraceApi | null, selectedNodeId: string) => TraceNodeApi | null
         selectedNodeLoad: (selectedNodeId: string, nodes: ReadonlyMap<string, NodeLoad>) => NodeLoad
         selectedRaw: (selectedNodeId: string, rawNodes: ReadonlyMap<string, RawLoad>) => RawLoad | undefined
@@ -240,7 +247,16 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
     connect((props: TraceViewModelLogicProps) => ({
         values: [
             traceViewLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
-            ['status', 'nodes', 'rawNodes', 'createdAt', 'nodeIdsByAlias', 'evalOutcomes', 'trace'],
+            [
+                'status',
+                'nodes',
+                'rawNodes',
+                'createdAt',
+                'nodeIdsByAlias',
+                'evalOutcomes',
+                'trace',
+                'seededDefaultStepId',
+            ],
             traceViewHostLogic({ hostId: props.hostId }),
             ['mode', 'detailTab', 'requestedStepId', 'requestedTraceId', 'openingMode', 'seedQuery'],
             traceFeedbackLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
@@ -315,11 +331,22 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                 return nodeIdsByAlias.get(requestedStepId) ?? traceId
             },
         ],
-        // Until the trace names its default step, only a step the URL asks for is worth reading.
+        // Until the trace names its default step, only a step the URL asks for or the list row names is worth reading.
+        // A summary opening shows the whole trace, so the row's default step would be a wasted read.
         nodeIdToRead: [
-            (s) => [s.status, s.requestedStepId, s.selectedNodeId],
-            (status: TraceViewStatus, requestedStepId: string | null, selectedNodeId: string): string | null =>
-                status === 'ready' || requestedStepId ? selectedNodeId : null,
+            (s) => [s.status, s.requestedStepId, s.selectedNodeId, s.openingMode, s.seededDefaultStepId],
+            (
+                status: TraceViewStatus,
+                requestedStepId: string | null,
+                selectedNodeId: string,
+                openingMode: TraceOpeningMode,
+                seededDefaultStepId: string | null
+            ): string | null =>
+                status === 'ready' || requestedStepId
+                    ? selectedNodeId
+                    : openingMode === 'summary'
+                      ? null
+                      : seededDefaultStepId,
         ],
         selectedTreeNode: [
             (s) => [s.trace, s.selectedNodeId],
