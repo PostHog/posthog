@@ -779,7 +779,11 @@ mod tests {
     use std::sync::atomic::{AtomicI64, Ordering};
 
     use common_redis::{MockRedisClient, MockRedisValue};
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+    use metrics::{
+        Counter, CounterFn, Gauge, GaugeFn, Histogram, Key, KeyName, Metadata, Recorder,
+        SharedString, Unit,
+    };
+    use std::sync::{Arc, Mutex};
 
     use super::*;
 
@@ -1384,28 +1388,89 @@ mod tests {
         assert!(calls.iter().all(|c| c.op == "heal"));
     }
 
-    fn recorded(snapshotter: &Snapshotter, name: &str, label: Option<(&str, &str)>) -> Option<f64> {
-        snapshotter
-            .snapshot()
-            .into_vec()
-            .into_iter()
-            .find(|(key, _, _, _)| {
-                key.key().name() == name
-                    && label.is_none_or(|(k, v)| {
-                        key.key().labels().any(|l| l.key() == k && l.value() == v)
-                    })
-            })
-            .map(|(_, _, _, value)| match value {
-                DebugValue::Gauge(value) => value.into_inner(),
-                DebugValue::Counter(value) => value as f64,
-                DebugValue::Histogram(_) => f64::NAN,
-            })
+    /// Captures the last value written per metric name and label set.
+    #[derive(Default)]
+    struct TestRecorder {
+        values: Arc<Mutex<Vec<(Key, f64)>>>,
     }
 
-    fn seed_with_metrics(client: &MockRedisClient, budget: Duration) -> Snapshotter {
+    struct TestHandle {
+        key: Key,
+        values: Arc<Mutex<Vec<(Key, f64)>>>,
+    }
+
+    impl TestHandle {
+        fn update(&self, f: impl FnOnce(f64) -> f64) {
+            let mut values = self.values.lock().unwrap();
+            match values.iter_mut().find(|(k, _)| *k == self.key) {
+                Some((_, v)) => *v = f(*v),
+                None => values.push((self.key.clone(), f(0.0))),
+            }
+        }
+    }
+
+    impl CounterFn for TestHandle {
+        fn increment(&self, value: u64) {
+            self.update(|v| v + value as f64);
+        }
+        fn absolute(&self, value: u64) {
+            self.update(|_| value as f64);
+        }
+    }
+
+    impl GaugeFn for TestHandle {
+        fn increment(&self, value: f64) {
+            self.update(|v| v + value);
+        }
+        fn decrement(&self, value: f64) {
+            self.update(|v| v - value);
+        }
+        fn set(&self, value: f64) {
+            self.update(|_| value);
+        }
+    }
+
+    impl Recorder for TestRecorder {
+        fn describe_counter(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_gauge(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+        fn describe_histogram(&self, _: KeyName, _: Option<Unit>, _: SharedString) {}
+
+        fn register_counter(&self, key: &Key, _: &Metadata<'_>) -> Counter {
+            Counter::from_arc(Arc::new(TestHandle {
+                key: key.clone(),
+                values: self.values.clone(),
+            }))
+        }
+        fn register_gauge(&self, key: &Key, _: &Metadata<'_>) -> Gauge {
+            Gauge::from_arc(Arc::new(TestHandle {
+                key: key.clone(),
+                values: self.values.clone(),
+            }))
+        }
+        fn register_histogram(&self, _: &Key, _: &Metadata<'_>) -> Histogram {
+            Histogram::noop()
+        }
+    }
+
+    type Recorded = Arc<Mutex<Vec<(Key, f64)>>>;
+
+    fn recorded(values: &Recorded, name: &str, label: Option<(&str, &str)>) -> Option<f64> {
+        values
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(key, _)| {
+                key.name() == name
+                    && label
+                        .is_none_or(|(k, v)| key.labels().any(|l| l.key() == k && l.value() == v))
+            })
+            .map(|(_, value)| *value)
+    }
+
+    fn seed_with_metrics(client: &MockRedisClient, budget: Duration) -> Recorded {
         let (gate, _, _) = gate(true, false);
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
+        let recorder = TestRecorder::default();
+        let snapshotter = recorder.values.clone();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -1427,8 +1492,8 @@ mod tests {
     #[test]
     fn cache_size_gauge_follows_each_request() {
         let (gate, _, _) = gate(true, false);
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
+        let recorder = TestRecorder::default();
+        let snapshotter = recorder.values.clone();
         let mut rows = vec![row(1), row(2), row(1)];
 
         metrics::with_local_recorder(&recorder, || gate.apply("token", &mut rows));

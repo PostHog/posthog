@@ -35,7 +35,6 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-metrics-util = { workspace = true }
 redis = { workspace = true }
 
 [lints]
