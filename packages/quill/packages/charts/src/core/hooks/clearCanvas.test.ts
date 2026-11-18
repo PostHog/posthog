@@ -30,18 +30,19 @@ describe('clearAndPrepare', () => {
     })
 
     it.each([
-        ['resizes a backing store sized at a stale dpr', 784, 2, 1568],
-        ['keeps a backing store sized at the current dpr', 1568, 2, 1568],
-        ['resizes a backing store sized for an old css width', 640, 1, 784],
-    ])('%s and scales the transform to match it', (_, backingWidth, dpr, expectedBackingWidth) => {
+        ['resizes a backing store sized at a stale dpr', 784, 2, undefined, 1568],
+        ['keeps a backing store sized at the current dpr', 1568, 2, undefined, 1568],
+        ['resizes a backing store sized for an old css width', 640, 1, undefined, 784],
+        ['sizes the backing store at the pixel ratio the dimensions carry', 1568, 2, 3, 2352],
+    ])('%s and scales the transform to match it', (_, backingWidth, dpr, pixelRatio, expectedBackingWidth) => {
         Object.defineProperty(window, 'devicePixelRatio', { value: dpr, configurable: true })
         const { ctx, transforms } = makeCtx(backingWidth)
 
-        clearAndPrepare(ctx, dims(784))
+        clearAndPrepare(ctx, { ...dims(784), pixelRatio })
 
         expect(ctx.canvas.width).toBe(expectedBackingWidth)
-        expect(transforms[0][0]).toBe(dpr)
-        expect(transforms[0][3]).toBe(dpr)
+        expect(transforms[0][0]).toBe(expectedBackingWidth / 784)
+        expect(transforms[0][3]).toBe(expectedBackingWidth / 784)
     })
 
     it('scales each axis by its own backing ratio on a capped tall canvas', () => {

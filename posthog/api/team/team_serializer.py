@@ -1,6 +1,7 @@
 """The main serializer for project settings."""
 
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import models
@@ -46,9 +47,13 @@ from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import get_instance_region, get_ip_address, get_week_start_for_country_code
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.cohorts.backend.realtime_limits import max_realtime_cohorts, realtime_cohorts_used
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import (
+    flag_calls_only_in_flag_evaluations,
+    get_flag_evaluations_read_mode,
+)
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
 
@@ -85,6 +90,14 @@ def hide_team_secrets_from_workload_tokens(representation: dict[str, Any], reque
     return representation
 
 
+def flag_evaluations_read_mode_for(context: dict[str, Any], organization_id: UUID) -> int:
+    # Two fields read the mode. A list serializes every object with one context, so one lookup serves the list.
+    modes: dict[UUID, int] = context.setdefault("flag_evaluations_read_modes", {})
+    if organization_id not in modes:
+        modes[organization_id] = get_flag_evaluations_read_mode(organization_id)
+    return modes[organization_id]
+
+
 class RealtimeCohortsAccess(models.TextChoices):
     OFF = "off", "Off"
     SERVING = "serving", "Serving"
@@ -96,11 +109,25 @@ class TeamRealtimeCohortsSerializer(serializers.Serializer):
         help_text="`serving` when the request's user sees realtime cohorts in this project: whether feature flags "
         "can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.",
     )
+    cohorts_used = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many cohorts in this project have realtime on. Null when `access` is `off`.",
+    )
+    max_cohorts = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, "
+        "or when the plan sets no limit.",
+    )
 
 
-def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[str, str]:
-    serving = is_realtime_cohort_flag_targeting_enabled(request, team=team, only_evaluate_locally=True)
-    return {"access": RealtimeCohortsAccess.SERVING if serving else RealtimeCohortsAccess.OFF}
+def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[str, str | int | None]:
+    if not is_realtime_cohort_flag_targeting_enabled(request, team=team, only_evaluate_locally=True):
+        return {"access": RealtimeCohortsAccess.OFF, "cohorts_used": None, "max_cohorts": None}
+    return {
+        "access": RealtimeCohortsAccess.SERVING,
+        "cohorts_used": realtime_cohorts_used(team.parent_team_id or team.id),
+        "max_cohorts": max_realtime_cohorts(team.organization),
+    }
 
 
 REALTIME_COHORTS_FIELD_SCHEMA = TeamRealtimeCohortsSerializer(
@@ -122,6 +149,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
             "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+        )
+    )
+    flag_calls_only_in_flag_evaluations = serializers.SerializerMethodField(
+        help_text=(
+            "Whether this project's events table holds none of its new $feature_flag_called events, so "
+            "they can only be read from the flag_evaluations table."
         )
     )
     realtime_cohorts = serializers.SerializerMethodField()
@@ -190,6 +223,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "flag_calls_only_in_flag_evaluations",
             "realtime_cohorts",
             "available_setup_task_ids",
             "api_host",
@@ -216,6 +250,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "flag_calls_only_in_flag_evaluations",
             "realtime_cohorts",
             "available_setup_task_ids",
             "api_host",
@@ -291,10 +326,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
-        return get_flag_evaluations_read_mode(obj.organization_id)
+        return flag_evaluations_read_mode_for(self.context, obj.organization_id)
+
+    def get_flag_calls_only_in_flag_evaluations(self, obj: Team) -> bool:
+        return flag_calls_only_in_flag_evaluations(
+            obj, flag_evaluations_read_mode_for(self.context, obj.organization_id)
+        )
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
-    def get_realtime_cohorts(self, obj: Team) -> dict[str, str]:
+    def get_realtime_cohorts(self, obj: Team) -> dict[str, str | int | None]:
         return realtime_cohorts_for_request(self.context.get("request"), obj)
 
     @extend_schema_field(

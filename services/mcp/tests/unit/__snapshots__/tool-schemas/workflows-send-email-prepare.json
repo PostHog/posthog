@@ -16,7 +16,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Distinct ID of the recipient's person. The send and its engagement events are recorded against that person. Defaults to the recipient's email address."
+            "description": "Distinct ID the email's engagement events (sent, delivered, opened, clicked, bounced) are captured under. Defaults to the recipient's email address. The events join the person who has this ID, or start a new person when nobody has it, so pass the ID your app uses for this recipient to see the email on their person. No events are captured when the project's engagement events setting is off or when tracking turns engagement off for this send. The email goes out either way."
         },
         "from": {
             "description": "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.",

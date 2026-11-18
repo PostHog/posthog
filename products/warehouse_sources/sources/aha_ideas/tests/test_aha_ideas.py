@@ -105,16 +105,35 @@ class TestAhaIdeasSourceNonFanout:
         assert [row["id"] for row in result.rows] == ["2"]
         assert result.params("page") == ["2"]
 
-    def test_incremental_cursor_added_to_request(self) -> None:
+    @parameterized.expand(
+        [
+            ("ideas", "ideas", "updated_since", "created_since"),
+            ("portal_users", "portal_users", "updated_since", "created_since"),
+            ("audits", "audits", "created_since", "updated_since"),
+        ]
+    )
+    def test_incremental_cursor_added_to_request(
+        self, endpoint: str, response_key: str, filter_param: str, absent_param: str
+    ) -> None:
         result = _driver().run(
-            "ideas",
-            [_response("ideas", [{"id": "1"}], total_pages=1)],
+            endpoint,
+            [_response(response_key, [{"id": "1"}], total_pages=1)],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
 
         assert result.raised is None
-        assert result.params("updated_since") == ["2026-03-04T02:58:14Z"]
+        assert result.paths == [f"/api/v1/{endpoint}"]
+        assert result.params(filter_param) == ["2026-03-04T02:58:14Z"]
+        assert result.params(absent_param) == [None]
+
+    @parameterized.expand([("portal_users",), ("audits",)])
+    def test_full_refresh_sends_no_timestamp_filter(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [_response(endpoint, [{"id": "1"}], total_pages=1)])
+
+        assert result.raised is None
+        assert result.params("updated_since") == [None]
+        assert result.params("created_since") == [None]
 
     def test_uses_response_key_for_idea_endorsements(self) -> None:
         # Votes live at /ideas/endorsements with an `idea_endorsements` root key.
@@ -135,18 +154,24 @@ class TestAhaIdeasSourceNonFanout:
 
 
 class TestAhaIdeasSourceFanout:
-    def test_idea_comments_fanout_row_format(self) -> None:
+    @parameterized.expand(
+        [
+            ("idea_comments", "idea_comments"),
+            ("idea_subscriptions", "subscriptions"),
+        ]
+    )
+    def test_idea_fanout_row_format(self, endpoint: str, child_path: str) -> None:
         result = _driver().run(
-            "idea_comments",
+            endpoint,
             [
                 _response("ideas", [{"id": "idea_1"}], total_pages=1),
-                _response("idea_comments", [{"id": "comment_1", "idea_id": "idea_1"}], total_pages=1),
+                _response(endpoint, [{"id": "child_1", "idea_id": "idea_1"}], total_pages=1),
             ],
         )
 
         assert result.raised is None
-        assert result.rows == [{"id": "comment_1", "idea_id": "idea_1"}]
-        assert result.paths == ["/api/v1/ideas", "/api/v1/ideas/idea_1/idea_comments"]
+        assert result.rows == [{"id": "child_1", "idea_id": "idea_1"}]
+        assert result.paths == ["/api/v1/ideas", f"/api/v1/ideas/idea_1/{child_path}"]
         assert result.response is not None
         assert result.response.primary_keys == ["id", "idea_id"]
         assert result.response.partition_mode == "datetime"
@@ -204,6 +229,31 @@ class TestAhaIdeasWorkflows:
         assert [(row["id"], row["product_id"]) for row in result.rows] == [(10, "p1"), (10, "p2")]
         assert result.paths == ["/api/v1/products", "/api/v1/products/p1/workflows", "/api/v1/products/p2/workflows"]
         assert result.params("page") == ["1", None, None]
+
+
+class TestAhaIdeasIdeaCategories:
+    def test_categories_page_per_product_and_carry_product_id(self) -> None:
+        result = _driver().run(
+            "idea_categories",
+            [
+                _response("products", [{"id": "p1"}, {"id": "p2"}], total_pages=1),
+                _response("idea_categories", [{"id": "c1", "parent_id": None}], current_page=1, total_pages=2),
+                _response("idea_categories", [{"id": "c2", "parent_id": "c1"}], current_page=2, total_pages=2),
+                _response("idea_categories", [{"id": "c1", "parent_id": None}], current_page=1, total_pages=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["id"], row["product_id"]) for row in result.rows] == [("c1", "p1"), ("c2", "p1"), ("c1", "p2")]
+        assert result.paths == [
+            "/api/v1/products",
+            "/api/v1/products/p1/idea_categories",
+            "/api/v1/products/p1/idea_categories",
+            "/api/v1/products/p2/idea_categories",
+        ]
+        assert result.params("page") == ["1", "1", "2", "1"]
+        assert result.response is not None
+        assert result.response.primary_keys == ["id", "product_id"]
 
 
 class TestValidateCredentials:

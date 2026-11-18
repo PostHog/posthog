@@ -300,13 +300,15 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def catalog_flags(self, request: ValidatedRequest, **kwargs) -> Response:
-        """List the project's feature flags the caller can see, newest first, with only the fields a list shows."""
+        """List the project's feature flags the caller can see, newest or oldest first, with only the fields a list shows."""
         query = request.validated_query_data
         flags, has_more = list_release_catalog_flags(
             team_id=self.team_id,
             project_id=self.team.project_id,
             access_control=self.user_access_control,
             search=query.get("search", "").strip(),
+            created_by_ids=query.get("created_by") or None,
+            oldest_first=query["order"] == "created_at",
             limit=query["limit"],
             offset=query["offset"],
         )
@@ -318,7 +320,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def catalog_releases(self, request: ValidatedRequest, **kwargs) -> Response:
-        """List the project's releases, newest first, with only the fields a list shows."""
+        """List the project's releases, newest or oldest first, with only the fields a list shows."""
         query = request.validated_query_data
         try:
             releases, next_cursor = api.list_catalog_page(
@@ -327,6 +329,8 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 search=query.get("search", "").strip(),
                 limit=query["limit"],
                 cursor=query["cursor"],
+                owner_ids=query.get("owner") or None,
+                oldest_first=query["order"] == "created_at",
             )
         except api.InvalidCatalogCursorError:
             raise ValidationError({"cursor": "This cursor is not valid."})

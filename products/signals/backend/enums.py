@@ -25,6 +25,7 @@ class ReportTaskActionKind(LabeledStrEnum):
     GET_IT_MERGED = "get_it_merged", "Get it merged"
     MAKE_IT_GREEN = "make_it_green", "Make it green"
     RESOLVE_CONFLICTS = "resolve_conflicts", "Resolve conflicts"
+    IMPLEMENT = "implement", "Implement"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
     ASK = "ask", "Ask"
 
@@ -151,6 +152,10 @@ class SignalSourceProduct(StrEnum):
     ENGINEERING_ANALYTICS = "engineering_analytics"
     # Search analytics (record kind: search_opportunity)
     GOOGLE_SEARCH_CONSOLE = "google_search_console"
+    # SEO site audits (record kind: search_opportunity)
+    BING_WEBMASTER_TOOLS = "bing_webmaster_tools"
+    AHREFS = "ahrefs"
+    SEMRUSH = "semrush"
     # Incident management / on-call (record kind: incident)
     PAGERDUTY = "pagerduty"
     OPSGENIE = "opsgenie"
@@ -199,6 +204,16 @@ class SignalSourceProduct(StrEnum):
     STATUSPAGE = "statuspage"
     CRONITOR = "cronitor"
     INSTATUS = "instatus"
+    # More incident tools (record kind: incident)
+    ROOTLY = "rootly"
+    ZENDUTY = "zenduty"
+    SPLUNK_OBSERVABILITY_CLOUD = "splunk_observability_cloud"
+    UPTIMEROBOT = "uptimerobot"
+    # On-call alert tables, toggled apart from the vendor's incident table (record kind: incident)
+    ROOTLY_ALERTS = "rootly_alerts"
+    INCIDENT_IO_ALERTS = "incident_io_alerts"
+    FIREHYDRANT_ALERTS = "firehydrant_alerts"
+    GRAFANA_IRM_ALERT_GROUPS = "grafana_irm_alert_groups"
     # Tier-2 trackers
     ASANA = "asana"
     MONDAY = "monday"
@@ -261,6 +276,10 @@ class SignalSourceProduct(StrEnum):
     SENTINELONE = "sentinelone"
     JFROG_XRAY = "jfrog_xray"
     DYNATRACE_SECURITY = "dynatrace_security"
+    # App reviews and error-report feedback
+    APP_STORE_CONNECT = "app_store_connect"
+    # Sentry user feedback has its own product so it can be toggled apart from Sentry issues.
+    SENTRY_FEEDBACK = "sentry_feedback"
 
 
 class SignalSourceType(StrEnum):
@@ -354,6 +373,9 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HUBSPOT: "HubSpot",
     SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
     SignalSourceProduct.GOOGLE_SEARCH_CONSOLE: "Google Search Console",
+    SignalSourceProduct.BING_WEBMASTER_TOOLS: "Bing Webmaster Tools",
+    SignalSourceProduct.AHREFS: "Ahrefs",
+    SignalSourceProduct.SEMRUSH: "Semrush",
     SignalSourceProduct.PAGERDUTY: "PagerDuty",
     SignalSourceProduct.OPSGENIE: "Opsgenie",
     SignalSourceProduct.INCIDENT_IO: "incident.io",
@@ -394,6 +416,14 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.STATUSPAGE: "Statuspage",
     SignalSourceProduct.CRONITOR: "Cronitor",
     SignalSourceProduct.INSTATUS: "Instatus",
+    SignalSourceProduct.ROOTLY: "Rootly",
+    SignalSourceProduct.ZENDUTY: "Zenduty",
+    SignalSourceProduct.SPLUNK_OBSERVABILITY_CLOUD: "Splunk Observability Cloud",
+    SignalSourceProduct.UPTIMEROBOT: "UptimeRobot",
+    SignalSourceProduct.ROOTLY_ALERTS: "Rootly alerts",
+    SignalSourceProduct.INCIDENT_IO_ALERTS: "incident.io alerts",
+    SignalSourceProduct.FIREHYDRANT_ALERTS: "FireHydrant alerts",
+    SignalSourceProduct.GRAFANA_IRM_ALERT_GROUPS: "Grafana IRM alert groups",
     SignalSourceProduct.ASANA: "Asana",
     SignalSourceProduct.MONDAY: "monday.com",
     SignalSourceProduct.PLANE: "Plane",
@@ -447,6 +477,8 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.SENTINELONE: "SentinelOne",
     SignalSourceProduct.JFROG_XRAY: "JFrog Xray",
     SignalSourceProduct.DYNATRACE_SECURITY: "Dynatrace Application Security",
+    SignalSourceProduct.APP_STORE_CONNECT: "App Store Connect",
+    SignalSourceProduct.SENTRY_FEEDBACK: "Sentry user feedback",
 }
 
 

@@ -33,6 +33,7 @@ from products.workflows.backend.facade.templates import (
 from products.workflows.backend.facade.workflows import SUPPORTED_ACTION_TYPES, WORKFLOW_SAFE_INTERNAL_EVENTS
 from products.workflows.backend.presentation.views.hog_flow_fields import (
     HogFlowActionTypeField,
+    HogFlowConditionFiltersSerializer,
     HogFlowMaskingSerializer,
     HogFlowVariableSerializer,
 )
@@ -159,7 +160,12 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
                     if "events" in filters:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
 
-                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    filters_serializer_class = (
+                        HogFlowConditionFiltersSerializer
+                        if data.get("type") == "conditional_branch"
+                        else HogFunctionFiltersSerializer
+                    )
+                    serializer = filters_serializer_class(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
                     condition["filters"] = serializer.validated_data
 

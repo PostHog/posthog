@@ -8,6 +8,7 @@ from django.test import Client, override_settings
 from django.urls import reverse
 
 import responses
+from bs4 import BeautifulSoup
 from parameterized import parameterized
 from requests import PreparedRequest, Response
 from rest_framework import status
@@ -155,6 +156,7 @@ class TestMessagePreferencesViews(BaseTest):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
+        self._set_tracking_consent_mode("opt_out")
         OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
         self.client.force_login(self.user)
         response = self.client.get(
@@ -165,17 +167,62 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertTemplateUsed(response, "message_preferences/preferences.html")
         self.assertContains(response, STYLESHEET_LINK)
 
-        # Check context
         self.assertEqual(response.context["recipient"].identifier, self.recipient.identifier)
-        self.assertEqual(len(response.context["categories"]), 3)
         self.assertEqual(response.context["token"], self.token)
+        self.assertEqual(
+            [toggle["id"] for toggle in BeautifulSoup(response.content, "html.parser").select("input[type=checkbox]")],
+            [
+                str(self.category.id),
+                str(self.category2.id),
+                "email-tracking-toggle",
+                ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+            ],
+        )
 
-        # Verify categories are ordered by name
-        categories = response.context["categories"]
-        self.assertEqual(categories[0]["name"], "Newsletter Updates")
-        self.assertEqual(categories[1]["name"], "Product Updates")
-        self.assertEqual(categories[2]["name"], "All marketing communications")
-        self.assertEqual(categories[2]["id"], ALL_MESSAGE_PREFERENCE_CATEGORY_ID)
+    @parameterized.expand(
+        [
+            ("all_off", PreferenceStatus.OPTED_OUT, False, False, True),
+            ("all_on", PreferenceStatus.OPTED_IN, True, False, False),
+            ("all_unanswered", None, True, False, False),
+        ]
+    )
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    def test_topic_toggles_follow_all_marketing_communications(
+        self,
+        _name,
+        all_status,
+        newsletter_checked,
+        product_updates_checked,
+        topics_disabled,
+        mock_validate_messaging_preferences_token,
+    ):
+        self._set_tracking_consent_mode("opt_out")
+        self.recipient.preferences = {
+            str(self.category.id): PreferenceStatus.OPTED_IN.value,
+            str(self.category2.id): PreferenceStatus.OPTED_OUT.value,
+            **({ALL_MESSAGE_PREFERENCE_CATEGORY_ID: all_status.value} if all_status else {}),
+        }
+        self.recipient.save()
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        page = BeautifulSoup(
+            self.client.get(reverse("message_preferences", kwargs={"token": self.token})).content, "html.parser"
+        )
+
+        def toggle_state(toggle_id: str) -> tuple[bool, bool, str | None]:
+            toggle = page.find(id=toggle_id)
+            return toggle.has_attr("checked"), toggle.has_attr("disabled"), toggle.get("aria-describedby")
+
+        off_note = "all-marketing-off-note" if topics_disabled else None
+        self.assertEqual(
+            [toggle_state(str(self.category.id)), toggle_state(str(self.category2.id))],
+            [(newsletter_checked, topics_disabled, off_note), (product_updates_checked, topics_disabled, off_note)],
+        )
+        self.assertFalse(page.find(id=ALL_MESSAGE_PREFERENCE_CATEGORY_ID).has_attr("disabled"))
+        self.assertFalse(page.find(id="email-tracking-toggle").has_attr("disabled"))
+        self.assertEqual(not page.find(id="all-marketing-off-note").has_attr("hidden"), topics_disabled)
 
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_preferences_page_one_click_unsubscribe_get(self, mock_validate_messaging_preferences_token):
@@ -434,9 +481,9 @@ class TestMessagePreferencesViews(BaseTest):
             self.recipient.get_all_preferences()[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT
         )
 
-    def _enable_engagement_events(self):
+    def _set_engagement_events(self, enabled: bool):
         config = self.team.workflows_config
-        config.capture_workflows_engagement_events = True
+        config.capture_workflows_engagement_events = enabled
         config.save()
 
     @parameterized.expand(
@@ -475,7 +522,7 @@ class TestMessagePreferencesViews(BaseTest):
     def test_one_click_unsubscribe_emits_unsubscribed_event(
         self, _name, token_claims, send_properties, mock_validate_messaging_preferences_token
     ):
-        self._enable_engagement_events()
+        self._set_engagement_events(True)
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **token_claims}
         )
@@ -490,7 +537,7 @@ class TestMessagePreferencesViews(BaseTest):
 
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_emits_only_for_newly_opted_out(self, mock_validate_messaging_preferences_token):
-        self._enable_engagement_events()
+        self._set_engagement_events(True)
         # category is already opted out, so only category2 and $all are genuine transitions;
         # the bogus id must be dropped because it isn't one of the team's categories
         self.recipient.preferences = {
@@ -531,6 +578,7 @@ class TestMessagePreferencesViews(BaseTest):
     @parameterized.expand(["one_click", "preferences_form"])
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_no_unsubscribed_event_when_flag_off(self, code_path, mock_validate_messaging_preferences_token):
+        self._set_engagement_events(False)
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
@@ -676,7 +724,7 @@ class TestMessagePreferencesViews(BaseTest):
 
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_tracking_consent_change_emits_event_only_on_transition(self, mock_validate_messaging_preferences_token):
-        self._enable_engagement_events()
+        self._set_engagement_events(True)
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )

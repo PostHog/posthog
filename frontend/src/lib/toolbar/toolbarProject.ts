@@ -20,6 +20,11 @@ export function asToolbarProject(teamId: unknown, projectId: unknown): ToolbarPr
     return team && project ? { teamId: team, projectId: project } : null
 }
 
+/** An app path inside the session's project. Without the prefix the app opens the user's current project instead. */
+export function toolbarAppPath(project: ToolbarProject | null, path: string): string {
+    return project ? `/project/${project.teamId}${path}` : path
+}
+
 export function toolbarScopedPath(project: ToolbarProject, scope: ToolbarRouteScope, path: string): string {
     return `/api/projects/${scope === 'project' ? project.projectId : project.teamId}/${path}`
 }

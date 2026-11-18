@@ -50,6 +50,8 @@ from products.data_catalog.evals.catalog_synthesizer import (
     LOCAL_AMOUNT_TABLE,
     MRR_METRIC,
     NOISE_METRICS,
+    OPERATIONS_NOISE_METRICS,
+    PAYING_CUSTOMERS_METRIC,
     USD_AMOUNT_DESCRIPTION,
     USD_AMOUNT_ROWS,
     USD_AMOUNT_TABLE,
@@ -61,6 +63,7 @@ from products.data_catalog.evals.seeders import (
     INTEGER_COLUMN,
     STRING_COLUMN,
     accept_seeded_relationship,
+    require_warehouse_tables,
     synced_table,
     team_and_user,
 )
@@ -84,6 +87,8 @@ _AMOUNT_COLUMN_TYPES = {"deal_id": INTEGER_COLUMN, "currency": STRING_COLUMN, "a
 _ACCOUNTS_COLUMN_TYPES = {"account_id": INTEGER_COLUMN, "industry": STRING_COLUMN}
 # The Hedgebox demo data ships this table; a node metric over it needs it to be queryable in the case team.
 _WAREHOUSE_SIGNUPS_CHECK = "SELECT count() FROM signups"
+# The paying customers metric reads this Hedgebox warehouse table.
+_PAYING_CUSTOMERS_TABLE = "paid_bills"
 
 assert tuple(_DEALS_COLUMN_TYPES) == DEALS_COLUMNS
 assert tuple(_AMOUNT_COLUMN_TYPES) == AMOUNT_COLUMNS
@@ -124,8 +129,25 @@ def seed_catalog_with_account_engagement(context: CustomPromptSandboxContext) ->
     return _catalog(context, ACCOUNT_ENGAGEMENT_METRIC)
 
 
+def _require_paid_bills(context: CustomPromptSandboxContext) -> None:
+    require_warehouse_tables(*team_and_user(context), names=(_PAYING_CUSTOMERS_TABLE,))
+
+
+def seed_catalog_for_board_update(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    _require_paid_bills(context)
+    # The case grades that the agent runs only the needles, so no noise metric may fit a growth update.
+    return _catalog(
+        context, MRR_METRIC, PAYING_CUSTOMERS_METRIC, ACCOUNT_ENGAGEMENT_METRIC, noise=OPERATIONS_NOISE_METRICS
+    )
+
+
 def seed_mrr_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
     return {"metrics": _install(context, [MRR_METRIC])}
+
+
+def seed_pricing_metrics(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    _require_paid_bills(context)
+    return {"metrics": _install(context, [MRR_METRIC, PAYING_CUSTOMERS_METRIC])}
 
 
 def seed_account_engagement_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:

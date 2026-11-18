@@ -923,9 +923,30 @@ SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN [
 # Demo data
 #
 
-COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
-    table_name=WRITABLE_EVENTS_DATA_TABLE(),
-    columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id, person_created_at,
+# The nodes the app queries in cloud have the Distributed read tables but not the writable ones, so both event
+# copies insert through the read table. This setting runs the INSERT SELECT on each shard against its local table,
+# so a row stays on the shard of its distinct_id and the shard computes its MATERIALIZED columns. Without it the
+# Distributed sink sends those columns and the shard rejects the insert.
+_SHARD_LOCAL_COPY_SETTINGS = "SETTINGS parallel_distributed_insert_select = 2"
+
+COPY_EVENTS_BETWEEN_TEAMS = (
+    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
+        table_name="events",
+        columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id, person_created_at,
     person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties,
      group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, person_mode""",
+    )
+    + _SHARD_LOCAL_COPY_SETTINGS
+)
+
+COPY_EVENTS_JSON_BETWEEN_TEAMS = (
+    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
+        table_name=DISTRIBUTED_EVENTS_JSON_TABLE,
+        columns_except_team_id="""uuid, event, properties, temporary_properties, properties_null_keys,
+    temporary_properties_null_keys, timestamp, distinct_id, elements_chain, created_at, captured_at, person_id,
+    person_created_at, person_properties, person_properties_null_keys, group0_properties, group1_properties,
+    group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at,
+    group3_created_at, group4_created_at, person_mode, total_event_size""",
+    )
+    + _SHARD_LOCAL_COPY_SETTINGS
 )

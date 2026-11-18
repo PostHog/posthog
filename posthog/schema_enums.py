@@ -2060,6 +2060,11 @@ class Method(StrEnum):
     MEDIAN = "median"
 
 
+class LLMDetectorModel(StrEnum):
+    CLAUDE_HAIKU_5_5 = "claude-haiku-5-5"
+    GPT_6_LUNA = "gpt-6-luna"
+
+
 class LifecycleToggle(StrEnum):
     NEW = "new"
     RESURRECTING = "resurrecting"
@@ -2384,6 +2389,8 @@ class MetricsAggregation(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
     HISTOGRAM_QUANTILE = "histogram_quantile"
+    COUNT_RATE = "count_rate"
+    COUNT_INCREASE = "count_increase"
 
 
 class MetricsAttributeScope(StrEnum):
@@ -3037,7 +3044,6 @@ class RecordingOrder(StrEnum):
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
     RECORDING_TTL = "recording_ttl"
-    SURFACING_SCORE = "surfacing_score"
 
 
 class RecordingOrderDirection(StrEnum):

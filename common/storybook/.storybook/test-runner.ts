@@ -1,5 +1,4 @@
 import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
-import { StoryContext } from '@storybook/csf'
 import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +9,8 @@ import type { SnapshotTheme, SupportedBrowserName, ViewportWidthName } from '~/@
 // Storybook 10 loads this config as a native ES module, where `__dirname` is
 // not defined — derive it from the module URL instead.
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+type StoryContext = Awaited<ReturnType<typeof getStoryContext>>
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
@@ -22,7 +23,7 @@ const VIEWPORT_WIDTHS = {
 
 const RETRY_TIMES = 2
 // A snapshot is kept when two captures in a row match. The cap ends the loop on a page that never stops
-// changing, which then keeps its last capture.
+// changing; readiness stories fail instead of keeping an unstable capture.
 const MAX_SNAPSHOT_CAPTURES = 4
 const RECAPTURE_SETTLE_MS = 100
 const FRAME_SELECTOR_SEPARATOR = ' >>> '
@@ -248,6 +249,11 @@ export default {
             return
         }
         const storyContext = await getStoryContext(page, context)
+        if (storyContext.parameters?.testOptions?.waitForSceneReady !== false) {
+            sceneReadyStories.set(page, storyContext.id)
+        } else {
+            sceneReadyStories.delete(page)
+        }
         const { viewport, viewportWidths, jestTimeout } = storyContext.parameters?.testOptions ?? {}
         const effectiveViewport = viewportWidths?.length
             ? VIEWPORT_WIDTHS[viewportWidths[0]]
@@ -395,22 +401,6 @@ async function expectStoryToMatchSnapshot(
         ;(window as Window & { __iframeObserver?: MutationObserver }).__iframeObserver = observer
     })
 
-    await page.evaluate(() => {
-        // Force all content-visibility:auto elements to render fully for deterministic snapshots.
-        // content-visibility:auto skips rendering offscreen content, which causes non-deterministic
-        // page heights depending on timing. We override it and trigger a synchronous reflow.
-        document.querySelectorAll('*').forEach((el) => {
-            if (el instanceof HTMLElement) {
-                const style = getComputedStyle(el)
-                if (style.contentVisibility === 'auto') {
-                    el.style.contentVisibility = 'visible'
-                }
-            }
-        })
-        // Force synchronous reflow so the browser recalculates layout
-        void document.body.offsetHeight
-    })
-
     // Trigger ResizeObserver callbacks to ensure layout-dependent state (e.g. CardMeta's
     // showControlsLabels) has settled before taking snapshots. ResizeObserver fires
     // asynchronously after render, so without this nudge the observer may not have reported
@@ -533,6 +523,35 @@ async function waitForChartCanvasesPainted(page: Page): Promise<void> {
         .catch(() => {})
 }
 
+const sceneReadyStories = new WeakMap<Page, string>()
+
+async function waitForSceneReady(page: Page): Promise<string | null> {
+    const storyId = sceneReadyStories.get(page)
+    if (!storyId) {
+        return null
+    }
+    try {
+        const handle = await page.waitForFunction((id) => {
+            const readiness = window.__STORYBOOK_SCENE_READINESS__
+            if (readiness?.storyId !== id) {
+                return false
+            }
+            const version = readiness.getReadyVersion()
+            return version === null ? false : { version: `${readiness.instanceId}:${version}` }
+        }, storyId)
+        const readiness = await handle.jsonValue()
+        await handle.dispose()
+        if (!readiness) {
+            throw new Error('Scene readiness resolved without a ready version')
+        }
+        return readiness.version
+    } catch (error) {
+        throw new Error(`Story "${storyId}" did not signal scene readiness. Check its pending content holds.`, {
+            cause: error,
+        })
+    }
+}
+
 async function takeSnapshotWithTheme(
     page: Page,
     context: TestContext,
@@ -546,6 +565,8 @@ async function takeSnapshotWithTheme(
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
     // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
+
+    await waitForSceneReady(page)
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
@@ -674,8 +695,11 @@ async function takeSnapshotWithTheme(
             // if content keeps changing, that's okay - we'll proceed anyway
         })
 
-    // final wait for any remaining renders
-    await page.waitForTimeout(1000)
+    if (sceneReadyStories.has(page)) {
+        await waitForSceneReady(page)
+    } else {
+        await page.waitForTimeout(1000)
+    }
 
     await waitForChartCanvasesPainted(page)
 
@@ -828,6 +852,7 @@ async function expectLocatorToMatchStorySnapshot(
 
     expect(image).toMatchImageSnapshot({
         customSnapshotsDir,
+        runInProcess: true,
         customSnapshotIdentifier,
         // Compare structural similarity instead of raw pixels - reducing false positives
         // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
@@ -858,6 +883,7 @@ async function takeSettledSnapshotImage(
     if (loaderWaitTimeout !== null) {
         await waitForEveryLoaderHidden(page, loaderWaitTimeout)
     }
+    let previousVersion = await waitForSceneReady(page)
     let previous = await takeSnapshotImage(locator, context, options)
     for (let capture = 2; capture <= MAX_SNAPSHOT_CAPTURES; capture++) {
         await page.waitForTimeout(RECAPTURE_SETTLE_MS)
@@ -866,12 +892,18 @@ async function takeSettledSnapshotImage(
         if (loaderWaitTimeout !== null) {
             await waitForEveryLoaderHidden(page, loaderWaitTimeout)
         }
+        const version = await waitForSceneReady(page)
         const image = await takeSnapshotImage(locator, context, options)
+        const versionAfterCapture = await waitForSceneReady(page)
         const loaderShowed = loaderWaitTimeout !== null && (await locateVisibleLoaders(page).count()) > 0
-        if (image.equals(previous) && !loaderShowed) {
+        if (image.equals(previous) && !loaderShowed && previousVersion === version && version === versionAfterCapture) {
             return image
         }
         previous = image
+        previousVersion = version
+    }
+    if (sceneReadyStories.has(page)) {
+        throw new Error(`Story "${context.id}" (${theme}) did not settle after ${MAX_SNAPSHOT_CAPTURES} captures.`)
     }
     // eslint-disable-next-line no-console
     console.warn(
@@ -930,6 +962,7 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
             Promise.all(
                 ['400', '500', '700', '800'].flatMap((weight) => [
                     document.fonts.load(`${weight} 16px RoundHog`),
+                    document.fonts.load(`italic ${weight} 16px RoundHog`),
                     document.fonts.load(`${weight} 16px Inter`),
                 ])
             ).then(() => document.fonts.ready)
