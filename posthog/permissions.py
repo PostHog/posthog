@@ -1649,10 +1649,8 @@ class UserCanInvitePermission(BasePermission):
         if not org_invite_settings_available:
             return True
 
-        membership = get_required_organization_membership(request, organization)
-
+        user_is_admin = can_in_required_organization(request, organization, Action.MANAGE_ACCESS)
         members_can_invite = bool(organization.members_can_invite)
-        user_is_admin = membership.effective_level >= OrganizationMembership.Level.ADMIN
 
         if user_is_admin:
             return True

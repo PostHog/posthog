@@ -44,6 +44,7 @@ from posthog.tasks.email import (
     send_hog_function_filters_uncompilable,
     send_hog_functions_daily_digest,
     send_hog_functions_digest_email,
+    send_integration_access_request,
     send_invite,
     send_matview_failure_digest,
     send_matview_failure_immediate_email,
@@ -2359,7 +2360,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "Test Customer" in mocked_email_messages[0].html_body
         assert "Hello, I need help with something" in mocked_email_messages[0].html_body
 
-    def test_send_posthog_ai_access_request(self, MockEmailMessage: MagicMock) -> None:
+    @parameterized.expand(["ai", "integration"])
+    def test_send_admin_access_request(self, MockEmailMessage: MagicMock, request_kind: str) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         org, _owner = create_org_team_and_user("2022-01-02 00:00:00", "ai-owner@posthog.com")
@@ -2372,20 +2374,31 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             level=OrganizationMembership.Level.MEMBER,
         )
 
-        send_posthog_ai_access_request(organization_id=str(org.id), requesting_user_id=member.id)
+        User.objects.create_and_join(org, "admin@example.com", None, level=OrganizationMembership.Level.ADMIN)
+        User.objects.create_and_join(org, "member@example.com", None, level=OrganizationMembership.Level.MEMBER)
+        other_org = Organization.objects.create(name="Other")
+        member.join(organization=other_org, level=OrganizationMembership.Level.OWNER)
+        User.objects.create_and_join(other_org, "outsider@example.com", None, level=OrganizationMembership.Level.OWNER)
+
+        if request_kind == "ai":
+            send_posthog_ai_access_request(organization_id=str(org.id), requesting_user_id=member.id)
+        else:
+            send_integration_access_request(team_id=team.id, requesting_user_id=member.id, kind="slack", reason="")
 
         assert len(mocked_email_messages) == 1
         message = mocked_email_messages[0]
         assert message.send.call_count == 1
-        assert message.template_name == "posthog_ai_access_requested"
-        # The owner who can enable PostHog AI is notified, not the requesting member.
-        recipient_emails = {dest["raw_email"] for dest in message.to}
-        assert recipient_emails == {"ai-owner@posthog.com"}
-        assert message.properties["organization_name"] == org.name
-        assert (
-            message.properties["posthog_ai_url"]
-            == f"{settings.SITE_URL}/project/{team.id}/settings/organization-details#setting=organization-ai-consent"
+        assert message.template_name == (
+            "posthog_ai_access_requested" if request_kind == "ai" else "integration_access_requested"
         )
+        recipient_emails = {dest["raw_email"] for dest in message.to}
+        assert recipient_emails == {"ai-owner@posthog.com", "admin@example.com"}
+        assert message.properties["organization_name"] == org.name
+        if request_kind == "ai":
+            assert (
+                message.properties["posthog_ai_url"]
+                == f"{settings.SITE_URL}/project/{team.id}/settings/organization-details#setting=organization-ai-consent"
+            )
         assert message.html_body
 
     def test_send_posthog_ai_access_request_no_admins_is_noop(self, MockEmailMessage: MagicMock) -> None:

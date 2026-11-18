@@ -23,7 +23,10 @@ from posthog.permissions import TimeSensitiveActionPermission
 from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.scopes.catalog import API_SCOPE_ACTIONS
 from posthog.scopes.exposure import GRANTABLE_API_SCOPE_OBJECTS
-from posthog.user_permissions import UserPermissions
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 SCOPED_TEAMS_ACCESS_ERROR = "You must be a member of all teams that you are scoping the key to."
 SCOPE_ACCESS_ERROR = "You must be a member of all teams and organizations that you are scoping the key to."
@@ -243,14 +246,16 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def validate_scoped_organizations(self, scoped_organizations):
         requesting_user: User = self.context["request"].user
-        user_permissions = UserPermissions(requesting_user)
-        org_memberships = user_permissions.organization_memberships
 
         try:
             organization_uuids = [uuid.UUID(organization_id) for organization_id in scoped_organizations]
 
             for organization_id in organization_uuids:
-                if organization_id not in org_memberships or not org_memberships[organization_id].effective_level:
+                if not authorization.check(
+                    resource=Resource(type=ResourceType.ORGANIZATION, id=str(organization_id)),
+                    action=Action.VIEW,
+                    subject=Subject(user_id=requesting_user.pk),
+                ):
                     raise serializers.ValidationError(
                         f"You must be a member of all organizations that you are scoping the key to."
                     )

@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest
 
 from django.apps import apps
 from django.db.models import Model
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -24,8 +25,8 @@ from products.access_control.backend.facade.user_access_control import (
     visible_teams_for_user,
 )
 from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import ObjectIds, Resource, Subject
-from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.facade.contracts import Context, ObjectIds, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType, SubjectType
 from products.authorization.backend.logic import session
 from products.authorization.backend.presentation.querysets import (
     can_filter_queryset,
@@ -216,7 +217,7 @@ class TestListsMatchCurrentRules(BaseTest):
             ("project_scoped", Dashboard, True),
             ("falls_back_to_a_parent", DataWarehouseTable, False),
             ("project", Team, False),
-            ("organization", Organization, False),
+            ("organization", Organization, True),
         ]
     )
     def test_can_filter_queryset(self, _name: str, model: type[Model], expected: bool) -> None:
@@ -302,7 +303,8 @@ class TestListsMatchCurrentRules(BaseTest):
             ("edit", Resource(type=ResourceType.DASHBOARD, project_id=1), Action.EDIT, NotImplementedError),
             ("one_object", Resource(type=ResourceType.DASHBOARD, id="1", project_id=1), Action.VIEW, ValueError),
             ("no_project", Resource(type=ResourceType.DASHBOARD), Action.VIEW, ValueError),
-            ("organizations", Resource(type=ResourceType.ORGANIZATION), Action.VIEW, ValueError),
+            ("organization_query", Resource(type=ResourceType.ORGANIZATION), Action.QUERY, ValueError),
+            ("one_organization", Resource(type=ResourceType.ORGANIZATION, id="1"), Action.VIEW, ValueError),
             ("project_without_organization", Resource(type=ResourceType.PROJECT), Action.VIEW, ValueError),
             ("project_query", Resource(type=ResourceType.PROJECT), Action.QUERY, NotImplementedError),
             (
@@ -318,3 +320,153 @@ class TestListsMatchCurrentRules(BaseTest):
     ) -> None:
         with pytest.raises(error):
             authorization.list_objects(resource=resource, action=action, subject=Subject(user_id=self.user.id))
+
+
+class TestOrganizationLists(BaseTest):
+    @parameterized.expand(
+        [
+            (f"{action.value}_{subject}", action, expected, subject)
+            for (action, expected), subject in itertools.product(
+                [
+                    (Action.VIEW, {"member", "admin", "owner"}),
+                    (Action.EDIT, {"admin", "owner"}),
+                    (Action.CREATE, {"admin", "owner"}),
+                    (Action.SHARE, {"admin", "owner"}),
+                    (Action.MANAGE_ACCESS, {"admin", "owner"}),
+                    (Action.DELETE, {"owner"}),
+                    (Action.MANAGE_OWNERS, {"owner"}),
+                ],
+                ["explicit", "request"],
+            )
+        ]
+    )
+    def test_organization_lists_match_checks_and_preserve_queryset_restrictions(
+        self, _name: str, action: Action, expected: set[str], subject_kind: str
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        organizations = {"member": self.organization}
+        for name, level in [
+            ("admin", OrganizationMembership.Level.ADMIN),
+            ("owner", OrganizationMembership.Level.OWNER),
+        ]:
+            organization = Organization.objects.create(name=name)
+            OrganizationMembership.objects.create(user=self.user, organization=organization, level=level)
+            organizations[name] = organization
+        organizations["outsider"] = Organization.objects.create(name="outsider")
+        User.objects.create_and_join(organizations["outsider"], "other@example.com", "testtest")
+        subject = Subject(user_id=self.user.pk) if subject_kind == "explicit" else None
+        resource = Resource(type=ResourceType.ORGANIZATION)
+
+        with session.scope(lambda: self.user if subject_kind == "request" else None):
+            with self.assertNumQueries(2 if subject_kind == "explicit" else 1):
+                result = authorization.list_objects(resource=resource, action=action, subject=subject)
+
+            assert result.complete
+            assert not result.excluded
+            assert result.ids == {str(organizations[name].pk) for name in expected}
+            for name, organization in organizations.items():
+                assert authorization.check(
+                    resource=Resource(type=ResourceType.ORGANIZATION, id=str(organization.pk)),
+                    action=action,
+                    subject=subject,
+                ) is (name in expected)
+
+            filtered = filter_queryset(
+                Organization.objects.exclude(pk=organizations["owner"].pk).order_by("name"),
+                resource=resource,
+                action=action,
+                subject=subject,
+            )
+            assert list(filtered.values_list("pk", flat=True)) == [
+                organization.pk
+                for organization in sorted(
+                    (organizations[name] for name in expected - {"owner"}), key=lambda organization: organization.name
+                )
+            ]
+
+    @parameterized.expand(["missing_user", "service_principal", "anonymous"])
+    def test_organization_list_denies_non_users(self, principal_kind: str) -> None:
+        principal = SyntheticUser(self.team, "service") if principal_kind == "service_principal" else None
+        subject = Subject(user_id=-1) if principal_kind == "missing_user" else None
+        with session.scope(lambda: principal):
+            result = authorization.list_objects(
+                resource=Resource(type=ResourceType.ORGANIZATION), action=Action.EDIT, subject=subject
+            )
+        assert result.complete
+        assert not result.allows(str(self.organization.pk))
+
+
+class TestOrganizationSubjectLists(BaseTest):
+    @parameterized.expand(
+        [
+            (Action.VIEW, {"member", "admin", "owner"}),
+            (Action.EDIT, {"admin", "owner"}),
+            (Action.CREATE, {"admin", "owner"}),
+            (Action.SHARE, {"admin", "owner"}),
+            (Action.MANAGE_ACCESS, {"admin", "owner"}),
+            (Action.DELETE, {"owner"}),
+            (Action.MANAGE_OWNERS, {"owner"}),
+        ]
+    )
+    def test_subjects_match_checks_and_follow_membership_changes(self, action: Action, expected: set[str]) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        users = {"member": self.user}
+        for name, level in [
+            ("admin", OrganizationMembership.Level.ADMIN),
+            ("owner", OrganizationMembership.Level.OWNER),
+        ]:
+            users[name] = User.objects.create_and_join(self.organization, f"{name}@example.com", None, level=level)
+        other_org = Organization.objects.create(name="Other")
+        self.user.join(organization=other_org, level=OrganizationMembership.Level.OWNER)
+        users["outsider"] = User.objects.create_and_join(
+            other_org, "outsider@example.com", None, level=OrganizationMembership.Level.OWNER
+        )
+        resource = Resource(type=ResourceType.ORGANIZATION, id=str(self.organization.pk))
+        with authorization.authorization_session():
+            with self.assertNumQueries(1):
+                subjects = authorization.list_subjects(resource=resource, action=action, subject_type=SubjectType.USER)
+            assert len(subjects) == len(expected)
+            assert {subject.user_id for subject in subjects} == {users[name].pk for name in expected}
+            for name, user in users.items():
+                assert authorization.check(resource=resource, action=action, subject=Subject(user_id=user.pk)) is (
+                    name in expected
+                )
+            OrganizationMembership.objects.filter(organization=self.organization, user=users["owner"]).delete()
+            subjects = authorization.list_subjects(resource=resource, action=action, subject_type=SubjectType.USER)
+            assert {subject.user_id for subject in subjects} == {users[name].pk for name in expected - {"owner"}}
+
+
+class TestUnsupportedSubjectLists(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (Resource(type=ResourceType.PROJECT, id="1"), Action.VIEW, SubjectType.USER, None, NotImplementedError),
+            (
+                Resource(type=ResourceType.ORGANIZATION, id="1"),
+                Action.EDIT,
+                SubjectType.ROLE,
+                None,
+                NotImplementedError,
+            ),
+            (Resource(type=ResourceType.ORGANIZATION), Action.EDIT, SubjectType.USER, None, ValueError),
+            (Resource(type=ResourceType.ORGANIZATION, id="1"), Action.QUERY, SubjectType.USER, None, ValueError),
+            (
+                Resource(type=ResourceType.ORGANIZATION, id="1"),
+                Action.EDIT,
+                SubjectType.USER,
+                Context(channel="api"),
+                NotImplementedError,
+            ),
+        ]
+    )
+    def test_unsupported_subject_lists_raise(
+        self,
+        resource: Resource,
+        action: Action,
+        subject_type: SubjectType,
+        context: Context | None,
+        error: type[Exception],
+    ) -> None:
+        with pytest.raises(error):
+            authorization.list_subjects(resource=resource, action=action, subject_type=subject_type, context=context)

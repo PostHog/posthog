@@ -130,6 +130,9 @@ from posthog.views import login_required
 from posthog.workload_identity import token_exchange as workload_token_exchange
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
@@ -473,8 +476,6 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
             return []
         access_level = self.initial_data.get("access_level")
         requesting_user: User = self.context["user"]
-        user_permissions = UserPermissions(requesting_user)
-        org_memberships = user_permissions.organization_memberships
 
         if access_level == OAuthApplicationAccessLevel.ORGANIZATION.value:
             if not scoped_organization_ids or len(scoped_organization_ids) == 0:
@@ -482,7 +483,11 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
             try:
                 organization_uuids = [uuid.UUID(org_id) for org_id in scoped_organization_ids]
                 for org_uuid in organization_uuids:
-                    if org_uuid not in org_memberships or not org_memberships[org_uuid].effective_level:
+                    if not authorization.check(
+                        resource=Resource(type=ResourceType.ORGANIZATION, id=str(org_uuid)),
+                        action=Action.VIEW,
+                        subject=Subject(user_id=requesting_user.pk),
+                    ):
                         raise serializers.ValidationError("Invalid organization specified or you do not have access.")
             except ValueError:
                 raise serializers.ValidationError("Invalid organization UUID provided in scoped_organizations.")

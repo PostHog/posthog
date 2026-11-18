@@ -1,8 +1,9 @@
 """Answers lists with the current access rules (`UserAccessControl`), so each list matches today's list filter."""
 
 from typing import Any, cast
+from uuid import UUID
 
-from posthog.models import Organization, User
+from posthog.models import Organization, OrganizationMembership, User
 
 from products.access_control.backend.facade.user_access_control import (
     RESOURCE_FALLBACK_MAP,
@@ -11,7 +12,7 @@ from products.access_control.backend.facade.user_access_control import (
 )
 
 from ..facade.contracts import Context, ObjectIds, Resource, Subject
-from ..facade.enums import Action, ResourceType
+from ..facade.enums import Action, ResourceType, SubjectType
 from .legacy import (
     MEMBERSHIP_LEVELS,
     _access,
@@ -42,7 +43,7 @@ def list_objects(
         raise NotImplementedError("The current access rules read no request context.")
     if limit is not None and limit < 1:
         raise ValueError("`limit` must be positive.")
-    if action not in READ_ACTIONS:
+    if resource.type != ResourceType.ORGANIZATION and action not in READ_ACTIONS:
         raise NotImplementedError("The current access rules list objects only for VIEW and QUERY.")
     # TODO: list types whose objects fall back to a parent, such as a warehouse table to its source.
     # A list reads only each object's own rules, so it would miss a denial on the parent.
@@ -51,7 +52,9 @@ def list_objects(
             f"The SDK cannot list {resource.type} yet, because its objects fall back to a parent."
         )
     session = current() or Session()
-    if resource.type == ResourceType.PROJECT:
+    if resource.type == ResourceType.ORGANIZATION:
+        result = _list_organizations(session, resource, action, subject)
+    elif resource.type == ResourceType.PROJECT:
         result = _list_projects(session, resource, action, subject)
     else:
         result = _list_project_objects(session, resource, action, subject, creator_exempt)
@@ -60,9 +63,44 @@ def list_objects(
     return result
 
 
+def list_subjects(
+    resource: Resource, action: Action, subject_type: SubjectType, context: Context | None
+) -> list[Subject]:
+    if context is not None and context != Context():
+        raise NotImplementedError("The current access rules read no request context.")
+    if resource.type != ResourceType.ORGANIZATION or subject_type != SubjectType.USER:
+        raise NotImplementedError("Subject lists support only users of an organization.")
+    if resource.id is None:
+        raise ValueError("An organization subject list needs `id`.")
+    level = MEMBERSHIP_LEVELS[ResourceType.ORGANIZATION].get(action)
+    if level is None:
+        raise ValueError(f"{action} does not apply to {resource.type} resources.")
+    memberships = OrganizationMembership.objects.with_effective_level().filter(
+        organization_id=UUID(resource.id), resolved_level__gte=level
+    )
+    return [Subject(user_id=user_id) for user_id in memberships.values_list("user_id", flat=True)]
+
+
 def principal_user_id(subject: Subject | None) -> int | None:
     principal = _principal(current() or Session(), subject)
     return principal.pk if isinstance(principal, User) else None
+
+
+def _list_organizations(session: Session, resource: Resource, action: Action, subject: Subject | None) -> ObjectIds:
+    if resource.id is not None:
+        raise ValueError("A list takes a resource type, so `resource` has no `id`.")
+    level = MEMBERSHIP_LEVELS[ResourceType.ORGANIZATION].get(action)
+    if level is None:
+        raise ValueError(f"{action} does not apply to {resource.type} resources.")
+    principal = _principal(session, subject)
+    if not isinstance(principal, User):
+        return _NOTHING
+    memberships = OrganizationMembership.objects.with_effective_level().filter(
+        user_id=principal.pk, resolved_level__gte=level
+    )
+    return ObjectIds(
+        ids=frozenset(str(org_id) for org_id in memberships.values_list("organization_id", flat=True)), complete=True
+    )
 
 
 def _list_project_objects(

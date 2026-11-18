@@ -40,6 +40,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
     UserCanInvitePermission,
+    can_in_organization,
 )
 from posthog.rate_limit import (
     OnboardingDelegationThrottle,
@@ -49,6 +50,7 @@ from posthog.rate_limit import (
 from posthog.tasks.email import send_invite
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, ordered_access_levels
+from products.authorization.backend.facade.enums import Action
 
 logger = structlog.get_logger(__name__)
 
@@ -274,17 +276,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             except Team.DoesNotExist:
                 raise exceptions.ValidationError(team_error)
 
-            try:
-                # Check if the user is an org admin/owner - org admins/owners can invite with any level
-                OrganizationMembership.objects.with_effective_level().get(
-                    organization_id=self.context["organization_id"],
-                    user=self.context["request"].user,
-                    resolved_level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
-                )
+            # Org admins can grant project access without a separate project-level grant.
+            if can_in_organization(self.context["request"], organization, Action.MANAGE_ACCESS):
                 continue
-            except OrganizationMembership.DoesNotExist:
-                # User is not an org admin/owner
-                pass
 
             access_level = self._inviter_project_access_level(team)
             if access_level == "none":
@@ -308,7 +302,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         # whose level and project access they could have granted themselves.
         if invite.level > inviter_membership.effective_level:
             return False
-        if inviter_membership.effective_level >= OrganizationMembership.Level.ADMIN:
+        if can_in_organization(self.context["request"], inviter_membership.organization, Action.MANAGE_ACCESS):
             return True
         for item in invite.private_project_access or []:
             team = Team.objects.filter(organization_id=self.context["organization_id"], id=item["id"]).first()
@@ -478,7 +472,7 @@ class OrganizationInviteViewSet(
             return queryset.none()
 
         if (
-            membership.effective_level < OrganizationMembership.Level.ADMIN
+            not can_in_organization(self.request, membership.organization, Action.MANAGE_ACCESS)
             and not membership.organization.members_can_invite
         ):
             return queryset.none()
@@ -586,11 +580,9 @@ class OrganizationInviteViewSet(
         # Delegation invites grant ADMIN-level access on accept, so the caller must themselves
         # hold ADMIN or higher. Without this check, regular members could escalate an unrelated
         # account to admin via a delegation invite on orgs that allow members to invite.
-        try:
-            membership = OrganizationMembership.objects.get(organization_id=self.organization_id, user=user)
-        except OrganizationMembership.DoesNotExist:
+        if not can_in_organization(request, self.organization, Action.VIEW):
             raise exceptions.PermissionDenied("You must be a member of the organization to delegate setup.")
-        if membership.effective_level < OrganizationMembership.Level.ADMIN:
+        if not can_in_organization(request, self.organization, Action.MANAGE_ACCESS):
             raise exceptions.PermissionDenied(
                 "Only organization admins can delegate setup, as delegation grants admin access."
             )
