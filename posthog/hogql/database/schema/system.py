@@ -41,6 +41,7 @@ from posthog.hogql.database.schema.integrations import integrations
 from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.database.scoped_lazy_table import ScopedLazyTable
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.constants import AvailableFeature
@@ -76,6 +77,7 @@ from products.customer_analytics.backend.facade.hogql import (
 )
 from products.dashboards.backend.facade.hogql import dashboard_tiles, dashboards
 from products.signals.backend.facade.constants import SIGNAL_USAGE_START
+from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 
 # Source types that map to a direct-SQL engine, so a source of this type can be live-queried through a
@@ -3900,9 +3902,10 @@ class _TaskPublicSlackTasksTable(PostgresTable):
     def to_printed_clickhouse(self, context):
         source = build_function_call(self.postgres_table_name, context)
         team_filter = f"WHERE team_id = {int(context.team_id)} " if context.team_id is not None else ""
+        public_types = escape_clickhouse_string(sorted(PUBLIC_CHANNEL_CONVERSATION_TYPES))
         return (
             f"(SELECT team_id, task_id AS id FROM {source} {team_filter}GROUP BY team_id, task_id "
-            "HAVING countIf(ifNull(conversation_type, '') != 'public_channel') = 0)"
+            f"HAVING countIf(NOT has({public_types}, ifNull(conversation_type, ''))) = 0)"
         )
 
 
