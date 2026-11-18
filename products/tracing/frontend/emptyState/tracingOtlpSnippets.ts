@@ -48,8 +48,10 @@ function collectorSnippet({ token, host, environment }: TracingSnippetParams): s
           ]
         : ['processors:', '  batch:']
     return [
-        '# Listens on all interfaces so apps on other hosts can reach it.',
-        '# For a sidecar or same-host Collector, use localhost; otherwise restrict access with your network rules.',
+        '# Listens on all interfaces so apps on other',
+        '# hosts can reach it. For a sidecar or same-host',
+        '# Collector, use localhost. Otherwise, restrict',
+        '# access with your network rules.',
         'receivers:',
         '  otlp:',
         '    protocols:',
