@@ -42,6 +42,8 @@ MAX_EXECUTION_SECONDS = 30
 EXACT_SPAN_LIMIT = 4_000_000
 SAMPLE_SLICE_SECONDS = 60
 MIN_SAMPLE_SLICE_SECONDS = 1.0
+# The planning count reads one row per bucket, so a long window gets wider buckets to stay under this.
+MAX_DENSITY_BUCKETS = 10_000
 MAX_SAMPLE_SLICES = 30
 # A child span starts after its parent, give or take clock skew between hosts, so the child side reads
 # a little past each slice to find the children of parents that start near its end.
@@ -105,7 +107,7 @@ class _Sample:
 
 @dataclass(frozen=True)
 class _SpanDensity:
-    """Spans per minute in a window, read as spread evenly within each minute."""
+    """Spans per bucket in a window, read as spread evenly within each bucket."""
 
     starts: list[float]
     ends: list[float]
@@ -113,12 +115,14 @@ class _SpanDensity:
     before: list[int]
 
     @classmethod
-    def from_minutes(cls, minute_counts: list[tuple[datetime, int]], date_from: datetime, date_to: datetime):
+    def from_buckets(
+        cls, bucket_counts: list[tuple[datetime, int]], bucket: timedelta, date_from: datetime, date_to: datetime
+    ):
         starts, ends, counts, before, total = [], [], [], [], 0
-        for minute, count in sorted(minute_counts):
+        for minute, count in sorted(bucket_counts):
             minute = minute if minute.tzinfo else minute.replace(tzinfo=UTC)
             start = (max(minute, date_from) - date_from).total_seconds()
-            end = (min(minute + timedelta(minutes=1), date_to) - date_from).total_seconds()
+            end = (min(minute + bucket, date_to) - date_from).total_seconds()
             if end <= start or count <= 0:
                 continue
             starts.append(start)
@@ -202,23 +206,38 @@ def _span_count_query(
     service: str | None,
     sample: _Sample | None = None,
 ) -> ast.SelectQuery:
-    # Without a sample it counts the window's spans per minute to plan one; with one, the spans the
+    # Without a sample it counts the window's spans per bucket to plan one; with one, the spans the
     # join reads as parents, which sets the scale.
     query = parse_select(
         (
             "SELECT count() FROM posthog.trace_spans WHERE {where} AND {env_where} AND {trace_where}"
             if sample
-            else "SELECT toStartOfMinute(timestamp) AS minute, count() FROM posthog.trace_spans"
-            " WHERE {where} AND {env_where} AND {trace_where} GROUP BY minute"
+            else "SELECT toStartOfInterval(timestamp, toIntervalMinute({bucket_minutes})) AS bucket, count()"
+            " FROM posthog.trace_spans WHERE {where} AND {env_where} AND {trace_where}"
+            " GROUP BY bucket LIMIT {limit}"
         ),
         placeholders={
             "where": _sample_where(date_from, date_to, sample),
             "env_where": environment_where(environment),
             "trace_where": _service_traces_where(date_from, date_to, environment, service),
+            **(
+                {}
+                if sample
+                else {
+                    "bucket_minutes": ast.Constant(value=_density_bucket_minutes(date_from, date_to)),
+                    # HogQL caps an unlimited query at 100 rows, which would drop the later buckets.
+                    "limit": ast.Constant(value=MAX_DENSITY_BUCKETS),
+                }
+            ),
         },
     )
     assert isinstance(query, ast.SelectQuery)
     return query
+
+
+def _density_bucket_minutes(date_from: datetime, date_to: datetime) -> int:
+    # Buckets align to the epoch, so a window can touch one more bucket than it spans.
+    return max(1, math.ceil((date_to - date_from).total_seconds() / 60 / (MAX_DENSITY_BUCKETS - 1)))
 
 
 def _dependencies_query(
@@ -392,8 +411,13 @@ def _scale(value: int, rate: float) -> int:
 def get_dependencies(
     *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None = None
 ) -> DependenciesResult:
-    minutes = _run(team, "ApmDependenciesSpanCount", _span_count_query(date_from, date_to, environment, service))
-    density = _SpanDensity.from_minutes([(minute, int(count)) for minute, count in minutes], date_from, date_to)
+    buckets = _run(team, "ApmDependenciesSpanCount", _span_count_query(date_from, date_to, environment, service))
+    density = _SpanDensity.from_buckets(
+        [(bucket, int(count)) for bucket, count in buckets],
+        timedelta(minutes=_density_bucket_minutes(date_from, date_to)),
+        date_from,
+        date_to,
+    )
     sample = _plan_sample(density, date_from, date_to)
     rate = 1.0
     if sample:

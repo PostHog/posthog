@@ -13,12 +13,13 @@ from products.apm.backend.logic.health.dependencies import (
 )
 
 FROM = datetime(2026, 6, 2, 8, 0, tzinfo=UTC)
+MINUTE = timedelta(minutes=1)
 
 
 def _even(window: timedelta, total: int) -> _SpanDensity:
     minutes = int(window / timedelta(minutes=1))
-    return _SpanDensity.from_minutes(
-        [(FROM + timedelta(minutes=i), total // minutes) for i in range(minutes)], FROM, FROM + window
+    return _SpanDensity.from_buckets(
+        [(FROM + timedelta(minutes=i), total // minutes) for i in range(minutes)], MINUTE, FROM, FROM + window
     )
 
 
@@ -52,7 +53,7 @@ class TestPlanSample(SimpleTestCase):
         # Twice the limit in the first minute of an hour and nothing after it: a third of that minute,
         # plus its child margin, holds the limit.
         to = FROM + timedelta(hours=1)
-        sample = _plan_sample(_SpanDensity.from_minutes([(FROM, EXACT_SPAN_LIMIT * 2)], FROM, to), FROM, to)
+        sample = _plan_sample(_SpanDensity.from_buckets([(FROM, EXACT_SPAN_LIMIT * 2)], MINUTE, FROM, to), FROM, to)
         assert sample is not None
         start, end = sample.slices[0]
         self.assertAlmostEqual((end - start).total_seconds(), 20, places=3)
