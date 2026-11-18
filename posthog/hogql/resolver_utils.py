@@ -512,8 +512,8 @@ def _recursively_resolve_column(
                 if subquery_column:
                     return _recursively_resolve_column(name, subquery_column, fields, context)
 
-        if not column.as_json and (metadata_type := column._metadata_constant_type(context)) is not None:
-            fields[name] = _constant_type_to_database_field(name, metadata_type)
+        if not column.as_json and context.property_swapper is not None and context.property_swapper.converts(column):
+            fields[name] = _constant_type_to_database_field(name, column.resolve_constant_type(context))
             return
         return _recursively_resolve_column(name, column.field_type, fields, context)
     elif isinstance(column, ast.CallType):

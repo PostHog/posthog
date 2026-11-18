@@ -284,6 +284,24 @@ class TestQueryAiEventsPersonJoin(ClickhouseTestMixin, BaseTest):
 
 
 class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
+    def test_duration_property_through_cte(self) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="example_duration", property_type="Duration")
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="example-user",
+            properties={"example_duration": 123},
+        )
+
+        result = execute_hogql_query(
+            "WITH durations AS (SELECT properties.example_duration AS d FROM events) "
+            "SELECT toFloatOrZero(d), isNull(toDateTime(d)) FROM durations",
+            team=self.team,
+            workload=Workload.ONLINE,
+        )
+
+        assert result.results == [(123.0, True)]
+
     @parameterized.expand(
         [
             ("boolean", "example_flag", "Boolean", False, True),
