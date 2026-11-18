@@ -2,6 +2,7 @@ import json
 import base64
 import binascii
 from collections.abc import Mapping
+from typing import TypeGuard
 
 from posthog.dataclasses import frozen
 
@@ -10,7 +11,6 @@ from ..settings import DEFAULT_DOCS_PATHS, WriterSettings
 WRITER_CHANGE_ARTIFACT_NAME = "writer-change.json"
 MAX_WRITER_CHANGE_BYTES = 30 * 1024 * 1024
 MAX_PATH_BYTES = 255
-COMPANION_PATHS = frozenset({"vercel.json", "src/navs/index.js"})
 
 
 def docs_folders_of(writer: WriterSettings, docs_content_root: object) -> tuple[str, ...]:
@@ -74,7 +74,7 @@ def parse_writer_change(raw: bytes) -> WriterChange:
     return WriterChange(written=written, deleted=frozenset(deleted_entries), patches=patch_entries)
 
 
-def is_patches_shape(patch_entries: object, written_entries: dict) -> bool:
+def is_patches_shape(patch_entries: object, written_entries: dict) -> TypeGuard[dict[str, str]]:
     if not isinstance(patch_entries, dict):
         return False
     return all(isinstance(patch, str) for patch in patch_entries.values()) and set(patch_entries) <= set(

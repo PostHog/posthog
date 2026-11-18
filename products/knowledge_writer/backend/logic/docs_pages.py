@@ -1,13 +1,18 @@
+import os
 import re
 import json
+import base64
 import string
+import subprocess
 from bisect import bisect_right
 from collections import Counter
-from collections.abc import Sequence
-
-from posthog.dataclasses import frozen
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 DOCS_SOURCE_EXTENSIONS = (".md", ".mdx")
+COMPANION_PATHS = frozenset({"vercel.json", "src/navs/index.js"})
+PAGE_CHANGING_STATUSES = frozenset({"added", "removed"})
+SITE_PATH_PATTERN = re.compile(r"/(?![/\\])[^\s\\\x00-\x1f\x7f]*")
 INDEX_FILE_STEMS = frozenset({"index", "readme"})
 ROUTE_GROUP_SEGMENT_PATTERN = re.compile(r"^\(.*\)$")
 NAV_LINE_TOKEN_PATTERN = re.compile(
@@ -78,7 +83,7 @@ def nav_line_links(line: str) -> tuple[str, ...] | None:
     return tuple(links)
 
 
-@frozen
+@dataclass(frozen=True, slots=True, kw_only=True)
 class NavEntryEdit:
     line_number: int
     line: str
@@ -102,7 +107,7 @@ def nav_entry_edits_outside_pages(
     return tuple(dict.fromkeys(edit for edit in edits if edit is not None))
 
 
-@frozen
+@dataclass(frozen=True, slots=True, kw_only=True)
 class NavText:
     text: str
     lines: list[str]
@@ -281,7 +286,7 @@ def slid_line_starts(lines: list[str], start: int, end: int, lowest_start: int, 
     return range(upper_start, lower_start + 1)
 
 
-@frozen(frozen=False)
+@dataclass(slots=True, kw_only=True)
 class EntryWindow:
     nav: NavText
     is_replacement: bool
@@ -536,3 +541,350 @@ def parsed_json_object(text: str | None) -> dict | None:
     except ValueError:
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CompanionCheck:
+    refusal: str | None
+    flags: tuple[str, ...]
+    refused_path: str | None = None
+
+
+def companion_refused(refused_path: str) -> CompanionCheck:
+    return CompanionCheck(refusal="changed_paths_outside_docs", flags=(), refused_path=refused_path)
+
+
+def companion_check(
+    changed_files: list[dict],
+    docs_folders: tuple[str, ...],
+    docs_url_path: str,
+    base_texts: Mapping[str, str | None],
+    head_texts: Mapping[str, str | None],
+) -> CompanionCheck:
+    companion_files = [
+        changed_file for changed_file in changed_files if not is_docs_path(changed_file["filename"], docs_folders)
+    ]
+    if not companion_files:
+        return CompanionCheck(refusal=None, flags=())
+    unlisted_companion = next(
+        (changed_file for changed_file in companion_files if not is_listed_companion(changed_file)), None
+    )
+    if unlisted_companion is not None:
+        return companion_refused(unlisted_companion["filename"])
+    page_paths = frozenset(f"{docs_url_path}{page_key}" for page_key in changed_page_keys(changed_files, docs_folders))
+    removed_page_paths = frozenset(
+        f"{docs_url_path}{page_key}"
+        for page_key in changed_page_keys(changed_files, docs_folders, statuses=frozenset({"removed"}))
+    )
+    flags = (
+        []
+        if page_paths
+        else [
+            f"{changed_file['filename']}: edited, but this change adds or removes no page"
+            for changed_file in companion_files
+        ]
+    )
+    for changed_file in companion_files:
+        filename = changed_file["filename"]
+        base_text, head_text = base_texts.get(filename), head_texts.get(filename)
+        file_flags = (
+            redirect_flags(filename, base_text, head_text, page_paths, removed_page_paths, docs_url_path)
+            if filename.endswith(".json")
+            else nav_flags(filename, base_text, head_text, changed_file["patch"], page_paths)
+        )
+        if file_flags is None:
+            return companion_refused(filename)
+        flags.extend(file_flags)
+    return CompanionCheck(refusal=None, flags=tuple(dict.fromkeys(flags)))
+
+
+def nav_flags(
+    filename: str, base_text: str | None, head_text: str | None, patch: str, page_paths: frozenset[str]
+) -> list[str] | None:
+    links_by_line = [nav_line_links(line) for line in changed_lines(patch)]
+    if any(links is None for links in links_by_line):
+        return None
+    if not all(is_site_path(link) for links in links_by_line for link in links or ()):
+        return None
+    edits = nav_entry_edits_outside_pages(base_text, head_text, patch, page_paths)
+    if edits is None:
+        return None
+    unchanged_page_links = dict.fromkeys(
+        link for links in links_by_line for link in links or () if not links_page(link, page_paths)
+    )
+    return [
+        *(
+            f"{filename}: changes a link to {link}, which is not a page this change adds or removes"
+            for link in unchanged_page_links
+        ),
+        *(nav_entry_flag(filename, edit) for edit in edits),
+    ]
+
+
+def is_site_path(link: str) -> bool:
+    return SITE_PATH_PATTERN.fullmatch(link) is not None
+
+
+def nav_entry_flag(filename: str, edit: NavEntryEdit) -> str:
+    when = " before this change" if edit.is_base_line else ""
+    return f"{filename} line {edit.line_number}{when}: edits a nav entry that links no page this change adds or removes: {edit.line}"
+
+
+def redirect_flags(
+    filename: str,
+    base_text: str | None,
+    head_text: str | None,
+    page_paths: frozenset[str],
+    removed_page_paths: frozenset[str],
+    docs_url_path: str,
+) -> list[str] | None:
+    removed_redirects = removed_redirects_naming_no_page(
+        base_text, head_text, page_paths, removed_page_paths, docs_url_path
+    )
+    if removed_redirects is None:
+        return None
+    return [
+        f"{filename}: removes the redirect from {redirect['source']} to {redirect['destination']}, which names no page this change adds or removes"
+        for redirect in removed_redirects
+    ]
+
+
+def is_docs_path(path: str, docs_paths: tuple[str, ...]) -> bool:
+    return any(path == docs_path or path.startswith(f"{docs_path}/") for docs_path in docs_paths)
+
+
+def changed_page_keys(
+    changed_files: list[dict], docs_paths: tuple[str, ...], *, statuses: frozenset[str] = PAGE_CHANGING_STATUSES
+) -> frozenset[str]:
+    return frozenset(
+        page_key
+        for changed_file in changed_files
+        if changed_file.get("status") in statuses
+        for docs_path in docs_paths
+        if (page_key := docs_page_key(changed_file["filename"], docs_path)) is not None
+    )
+
+
+def is_listed_companion(changed_file: dict) -> bool:
+    return (
+        changed_file["filename"] in COMPANION_PATHS
+        and changed_file.get("status") == "modified"
+        and isinstance(changed_file.get("patch"), str)
+    )
+
+
+def changed_lines(patch: str) -> list[str]:
+    return [line[1:] for line in patch.split("\n") if line[:1] in ("+", "-")]
+
+
+REGULAR_FILE_MODE = 0o100644
+SYMLINK_MODE = 0o120000
+SUBMODULE_MODE = 0o160000
+
+
+class PatchMismatch(ValueError):
+    pass
+
+
+def is_editable_base_mode(base_mode: int | None) -> bool:
+    return base_mode is None or base_mode == REGULAR_FILE_MODE
+
+
+def changed_file_status(*, is_in_base: bool, is_deleted: bool) -> str:
+    if is_deleted:
+        return "removed"
+    return "modified" if is_in_base else "added"
+
+
+def changed_file_entry(
+    filename: str, status: str, base_text: str | None, head_text: str | None, shipped_patch: str | None
+) -> dict:
+    return {"filename": filename, "status": status, "patch": file_patch(status, base_text, head_text, shipped_patch)}
+
+
+def file_patch(status: str, base_text: str | None, head_text: str | None, shipped_patch: str | None) -> str | None:
+    if base_text is None or head_text is None:
+        return None
+    if status == "added":
+        return whole_file_patch(head_text, marker="+")
+    if status == "removed":
+        return whole_file_patch(base_text, marker="-")
+    if shipped_patch is None or patch_hunks(shipped_patch, base_text.split("\n"), head_text.split("\n")) is None:
+        raise PatchMismatch(status)
+    return shipped_patch.removesuffix("\n")
+
+
+def whole_file_patch(text: str, *, marker: str) -> str:
+    if not text:
+        return ""
+    lines = text.removesuffix("\n").split("\n")
+    line_span = "1" if len(lines) == 1 else f"1,{len(lines)}"
+    header = f"@@ -0,0 +{line_span} @@" if marker == "+" else f"@@ -{line_span} +0,0 @@"
+    body = "\n".join(f"{marker}{line}" for line in lines)
+    if text.endswith("\n"):
+        return f"{header}\n{body}"
+    return f"{header}\n{body}\n{NO_FINAL_NEWLINE_MARKER}"
+
+
+def decoded_text(content: bytes) -> str | None:
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SandboxChangeSettings:
+    base_sha: str
+    docs_folders: tuple[str, ...]
+    docs_url_path: str
+    max_path_bytes: int
+    max_change_bytes: int
+    manifest_path: str
+
+
+@dataclass(slots=True, kw_only=True)
+class SandboxChange:
+    problems: list[str]
+    written: dict[str, str]
+    deleted: list[str]
+    patches: dict[str, str]
+    changed_files: list[dict]
+    base_texts: dict[str, str | None]
+    head_texts: dict[str, str | None]
+
+
+def sandbox_change_check(settings: SandboxChangeSettings) -> int:
+    if os.path.lexists(settings.manifest_path):
+        os.remove(settings.manifest_path)
+    subprocess.run(["git", "add", "-A"], check=True)
+    listed = git_output("diff", "--cached", "--raw", "-z", "--no-renames", settings.base_sha).split(b"\0")
+    change = SandboxChange(
+        problems=[], written={}, deleted=[], patches={}, changed_files=[], base_texts={}, head_texts={}
+    )
+    for raw_entry, path in zip(listed[0::2], listed[1::2]):
+        read_staged_path(change, settings, raw_entry, path)
+    companion = companion_check(
+        change.changed_files, settings.docs_folders, settings.docs_url_path, change.base_texts, change.head_texts
+    )
+    for warning in companion.flags:
+        show_agent(f"warning: {warning}")
+    if companion.refused_path is not None:
+        change.problems.append(companion_problem(companion.refused_path, change.changed_files, settings))
+    manifest = json.dumps({"written": change.written, "deleted": change.deleted, "patches": change.patches})
+    manifest_bytes = len(manifest.encode())
+    if manifest_bytes > settings.max_change_bytes:
+        change.problems.append(
+            f"the change is {manifest_bytes} bytes, over the {settings.max_change_bytes} byte limit, make it smaller"
+        )
+    if change.problems:
+        show_agent("\n".join(change.problems))
+        return 1
+    with open(settings.manifest_path, "w") as manifest_file:
+        manifest_file.write(manifest)
+    show_agent(f"Wrote {settings.manifest_path}")
+    return 0
+
+
+def show_agent(line: str) -> None:
+    print(line)  # noqa: T201 — the sandbox agent reads the check's stdout
+
+
+def git_output(*arguments: str) -> bytes:
+    return subprocess.run(["git", *arguments], check=True, capture_output=True).stdout
+
+
+def read_staged_path(change: SandboxChange, settings: SandboxChangeSettings, raw_entry: bytes, path: bytes) -> None:
+    name = path.decode("utf-8", "replace")
+    old_mode_field, new_mode_field, old_blob, new_blob = raw_entry.lstrip(b":").split()[:4]
+    base_mode, new_mode = int(old_mode_field, 8) or None, int(new_mode_field, 8)
+    is_companion = name in COMPANION_PATHS
+    if len(path) > settings.max_path_bytes:
+        change.problems.append(f"{name}: the path is longer than {settings.max_path_bytes} bytes, use a shorter name")
+    if name.encode() != path:
+        change.problems.append(f"{name}: the path is not UTF-8, rename it")
+    if not is_companion and not is_docs_path(name, settings.docs_folders):
+        docs_folders_named = ", ".join(f"{folder}/" for folder in settings.docs_folders)
+        change.problems.append(
+            f"{name}: only files under {docs_folders_named} and the files {', '.join(sorted(COMPANION_PATHS))} "
+            "can change, undo this change"
+        )
+        return
+    if not is_companion and not name.endswith(DOCS_SOURCE_EXTENSIONS):
+        change.problems.append(
+            f"{name}: only {' and '.join(DOCS_SOURCE_EXTENSIONS)} files can change under the docs folders"
+        )
+        return
+    if not is_editable_base_mode(base_mode):
+        change.problems.append(
+            f"{name}: at the base commit this path is a symlink, submodule or executable file, "
+            "which cannot be edited or deleted, undo this change"
+        )
+        return
+    if new_mode == SYMLINK_MODE:
+        change.problems.append(f"{name}: symlinks cannot be part of the change, write a regular file instead")
+        return
+    if new_mode == SUBMODULE_MODE:
+        change.problems.append(f"{name}: submodules cannot be part of the change, remove it")
+        return
+    is_deleted = new_mode == 0
+    head_text = "" if is_deleted else staged_head_text(change, name, new_blob.decode())
+    if head_text is None:
+        return
+    base_text = "" if base_mode is None else decoded_text(git_output("cat-file", "blob", old_blob.decode()))
+    if base_mode is not None:
+        change.base_texts[name] = base_text
+    status = changed_file_status(is_in_base=base_mode is not None, is_deleted=is_deleted)
+    shipped_patch = staged_patch(change, settings.base_sha, name) if status == "modified" else None
+    try:
+        change.changed_files.append(changed_file_entry(name, status, base_text, head_text, shipped_patch))
+    except PatchMismatch:
+        change.problems.append(f"{name}: the publish check cannot read git's diff of this file, undo this change")
+
+
+def staged_head_text(change: SandboxChange, name: str, blob: str) -> str | None:
+    content = git_output("cat-file", "blob", blob)
+    head_text = change.head_texts[name] = decoded_text(content)
+    if head_text is None:
+        change.problems.append(f"{name}: the file is not UTF-8 text, save it as UTF-8")
+        return None
+    change.written[name] = base64.b64encode(content).decode()
+    return head_text
+
+
+def staged_patch(change: SandboxChange, base_sha: str, name: str) -> str | None:
+    diff_lines = git_output(
+        "--literal-pathspecs",
+        "diff",
+        "--cached",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--text",
+        base_sha,
+        "--",
+        name,
+    ).splitlines(keepends=True)
+    first_hunk = next((index for index, line in enumerate(diff_lines) if line.startswith(b"@@")), len(diff_lines))
+    patch = decoded_text(b"".join(diff_lines[first_hunk:]))
+    if patch is not None:
+        change.patches[name] = patch
+    return patch
+
+
+def companion_problem(refused_path: str, changed_files: list[dict], settings: SandboxChangeSettings) -> str:
+    refused_status = next(entry["status"] for entry in changed_files if entry["filename"] == refused_path)
+    if refused_status != "modified":
+        return f"{refused_path}: this file can only be edited, not added or removed, undo this change"
+    if refused_path.endswith(".json"):
+        return (
+            f"{refused_path}: the publish check refuses this edit. Only add or remove whole redirects, "
+            f"each a literal source and destination starting with {settings.docs_url_path}, keep the other "
+            "redirects in their order and every other key unchanged, and start each added redirect from a page "
+            "this change removes or renames. Fix or undo it"
+        )
+    return (
+        f"{refused_path}: the publish check refuses this edit. Each changed line must be plain data "
+        "(keys, quoted strings, numbers, true, false, brackets and commas) and each link a site path "
+        "starting with /. Fix or undo it"
+    )

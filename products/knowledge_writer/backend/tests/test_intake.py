@@ -29,7 +29,7 @@ from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsR
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.grounding import GroundingReply, LineSupport
-from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
+from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS, change_manifest_script
 from products.knowledge_writer.backend.logic.pull_requests import (
     DRAFT_EVENT,
     LINK_BACK_START,
@@ -1322,3 +1322,85 @@ def test_a_transient_launch_lookup_failure_retries_on_the_same_report_and_record
         (True, None),
     ]
     assert len({event_uuid for event_uuid, _needs_docs, _failure_reason in verdicts}) == 2
+
+
+NAV_BASE_TEXT = """export const docsMenu = [
+    {
+        name: "Retention",
+        url: "/docs/session-replay/retention",
+    },
+]
+"""
+NAV_HEAD_TEXT = """export const docsMenu = [
+    {
+        name: "Data retention",
+        url: "/docs/session-replay/retention",
+    },
+    {
+        name: "Exports",
+        url: "/docs/session-replay/exports",
+    },
+]
+"""
+
+
+@pytest.mark.parametrize(
+    "is_adding_page_with_nav_edit, expected_warnings",
+    [
+        (False, []),
+        (
+            True,
+            [
+                "warning: src/navs/index.js line 3: edits a nav entry that links no page this change adds or removes: "
+                'name: "Data retention",'
+            ],
+        ),
+    ],
+)
+def test_the_sandbox_change_check_runs_without_posthog_on_the_path(
+    tmp_path: Path, is_adding_page_with_nav_edit: bool, expected_warnings: list[str]
+) -> None:
+    git_env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        **{
+            f"GIT_{role}_{field}": value
+            for role in ("AUTHOR", "COMMITTER")
+            for field, value in (("NAME", "t"), ("EMAIL", "t@example.com"))
+        },
+    }
+    page = tmp_path / DOCS_PAGE_PATH
+    page.parent.mkdir(parents=True)
+    page.write_text("Retention lasts 30 days.\n")
+    nav = tmp_path / "src" / "navs" / "index.js"
+    nav.parent.mkdir(parents=True)
+    nav.write_text(NAV_BASE_TEXT)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=git_env, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, env=git_env, check=True)
+    tree = subprocess.run(["git", "write-tree"], cwd=tmp_path, env=git_env, check=True, capture_output=True, text=True)
+    base = subprocess.run(
+        ["git", "commit-tree", tree.stdout.strip(), "-m", "base"],
+        cwd=tmp_path,
+        env=git_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    page.write_text("Retention lasts 90 days.\n")
+    if is_adding_page_with_nav_edit:
+        (page.parent / "exports.mdx").write_text("Export your recordings.\n")
+        nav.write_text(NAV_HEAD_TEXT)
+
+    check = subprocess.run(
+        ["bash", "-c", change_manifest_script(base, ("contents/docs",), "/docs/")],
+        cwd=tmp_path,
+        env=git_env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert (check.returncode, check.stderr) == (0, "")
+    assert [line for line in check.stdout.splitlines() if line.startswith("warning:")] == expected_warnings
+    assert json.loads((tmp_path / ".git" / WRITER_CHANGE_ARTIFACT_NAME).read_text())["patches"][DOCS_PAGE_PATH] == (
+        "@@ -1 +1 @@\n-Retention lasts 30 days.\n+Retention lasts 90 days.\n"
+    )

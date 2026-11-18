@@ -10,7 +10,6 @@ from uuid import UUID
 import requests
 import structlog
 
-from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
@@ -27,15 +26,16 @@ from ..facade.contracts import DocsRequest
 from ..feature_flags import open_pull_requests_flag_state
 from ..settings import WriterSettings, docs_source_for, writer_settings
 from .docs_pages import (
+    COMPANION_PATHS,
     DOCS_SOURCE_EXTENSIONS,
-    NO_FINAL_NEWLINE_MARKER,
-    NavEntryEdit,
+    CompanionCheck,
+    PatchMismatch,
+    changed_file_entry,
+    changed_file_status,
+    companion_check,
+    decoded_text,
     docs_page_key,
-    links_page,
-    nav_entry_edits_outside_pages,
-    nav_line_links,
-    patch_hunks,
-    removed_redirects_naming_no_page,
+    is_editable_base_mode,
     route_segments,
 )
 from .grounding import MAX_GROUNDED_LINES, GroundingResult, ground_draft
@@ -57,7 +57,6 @@ from .records import (
 from .routing import SOURCE_REPOSITORY, page_location
 from .server_commit import (
     DIRECTORY_MODE,
-    REGULAR_FILE_MODE,
     BaseEntry,
     BaseTree,
     CommitIdentity,
@@ -68,7 +67,6 @@ from .server_commit import (
     publish_ref,
 )
 from .writer_change import (
-    COMPANION_PATHS,
     WriterChange,
     WriterChangeRefused,
     docs_folders_of,
@@ -528,20 +526,17 @@ def changed_files_for(change: WriterChange, tree: BaseTree) -> list[dict] | None
     changed_files: list[dict] = []
     for path in sorted(change.paths):
         base_entry = tree.entries.get(path)
-        if base_entry is not None and base_entry.mode != REGULAR_FILE_MODE:
+        if not is_editable_base_mode(None if base_entry is None else base_entry.mode):
             return None
         if base_entry is None and path in change.deleted:
             return None
         base_text = tree.texts.get(path) if base_entry is not None else ""
         head_text = head_by_path.get(path) if path in change.written else ""
-        status = file_status(path, change, is_in_base=base_entry is not None)
-        changed_files.append(
-            {
-                "filename": path,
-                "status": status,
-                "patch": file_patch(status, base_text, head_text, change.patches.get(path)),
-            }
-        )
+        status = changed_file_status(is_in_base=base_entry is not None, is_deleted=path in change.deleted)
+        try:
+            changed_files.append(changed_file_entry(path, status, base_text, head_text, change.patches.get(path)))
+        except PatchMismatch as mismatch:
+            raise WriterChangeRefused("patch_mismatch") from mismatch
     return changed_files
 
 
@@ -549,45 +544,8 @@ def is_absent_or_directory(entry: BaseEntry | None) -> bool:
     return entry is None or entry.mode == DIRECTORY_MODE
 
 
-def file_status(path: str, change: WriterChange, *, is_in_base: bool) -> str:
-    if path in change.deleted:
-        return "removed"
-    return "modified" if is_in_base else "added"
-
-
 def head_texts(change: WriterChange) -> dict[str, str | None]:
     return {path: decoded_text(content) for path, content in change.written.items()}
-
-
-def decoded_text(content: bytes) -> str | None:
-    try:
-        return content.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
-
-
-def file_patch(status: str, base_text: str | None, head_text: str | None, shipped_patch: str | None) -> str | None:
-    if base_text is None or head_text is None:
-        return None
-    if status == "added":
-        return whole_file_patch(head_text, marker="+")
-    if status == "removed":
-        return whole_file_patch(base_text, marker="-")
-    if shipped_patch is None or patch_hunks(shipped_patch, base_text.split("\n"), head_text.split("\n")) is None:
-        raise WriterChangeRefused("patch_mismatch")
-    return shipped_patch.removesuffix("\n")
-
-
-def whole_file_patch(text: str, *, marker: str) -> str:
-    if not text:
-        return ""
-    lines = text.removesuffix("\n").split("\n")
-    line_span = "1" if len(lines) == 1 else f"1,{len(lines)}"
-    header = f"@@ -0,0 +{line_span} @@" if marker == "+" else f"@@ -{line_span} +0,0 @@"
-    body = "\n".join(f"{marker}{line}" for line in lines)
-    if text.endswith("\n"):
-        return f"{header}\n{body}"
-    return f"{header}\n{body}\n{NO_FINAL_NEWLINE_MARKER}"
 
 
 def refuse_draft(draft: DraftAttempt, refusal: str) -> None:
@@ -675,19 +633,6 @@ def drafted_files(changed_files: list[dict]) -> list[dict]:
     return drafted
 
 
-PAGE_CHANGING_STATUSES = frozenset({"added", "removed"})
-
-
-@frozen
-class CompanionCheck:
-    refusal: str | None
-    flags: tuple[str, ...]
-
-
-SITE_PATH_PATTERN = re.compile(r"/(?![/\\])[^\s\\\x00-\x1f\x7f]*")
-COMPANION_REFUSED = CompanionCheck(refusal="changed_paths_outside_docs", flags=())
-
-
 def docs_folders_for(writer: WriterSettings, task_id: UUID, team_id: int) -> tuple[str, ...]:
     return docs_folders_of(writer, tasks_facade.read_task_state_entry(task_id, team_id, DOCS_CONTENT_ROOT_STATE_KEY))
 
@@ -699,7 +644,8 @@ def publication_check(
     base_texts: Mapping[str, str | None],
     head_texts: Mapping[str, str | None],
 ) -> CompanionCheck:
-    companion = companion_check(changed_files, docs_folders, docs_repository, base_texts, head_texts)
+    docs_url_path = urlparse(docs_source_for(docs_repository).docs_url_prefix).path
+    companion = companion_check(changed_files, docs_folders, docs_url_path, base_texts, head_texts)
     if companion.refusal is not None:
         return companion
     if not all(is_page_source_or_companion(changed_file["filename"]) for changed_file in changed_files):
@@ -711,123 +657,6 @@ def publication_check(
 
 def is_page_source_or_companion(path: str) -> bool:
     return path.endswith(DOCS_SOURCE_EXTENSIONS) or path in COMPANION_PATHS
-
-
-def companion_check(
-    changed_files: list[dict],
-    docs_folders: tuple[str, ...],
-    docs_repository: str,
-    base_texts: Mapping[str, str | None],
-    head_texts: Mapping[str, str | None],
-) -> CompanionCheck:
-    companion_files = [
-        changed_file for changed_file in changed_files if not is_docs_path(changed_file["filename"], docs_folders)
-    ]
-    if not companion_files:
-        return CompanionCheck(refusal=None, flags=())
-    if not all(is_listed_companion(changed_file) for changed_file in companion_files):
-        return COMPANION_REFUSED
-    docs_url_path = urlparse(docs_source_for(docs_repository).docs_url_prefix).path
-    page_paths = frozenset(f"{docs_url_path}{page_key}" for page_key in changed_page_keys(changed_files, docs_folders))
-    removed_page_paths = frozenset(
-        f"{docs_url_path}{page_key}"
-        for page_key in changed_page_keys(changed_files, docs_folders, statuses=frozenset({"removed"}))
-    )
-    flags = (
-        []
-        if page_paths
-        else [
-            f"{changed_file['filename']}: edited, but this change adds or removes no page"
-            for changed_file in companion_files
-        ]
-    )
-    for changed_file in companion_files:
-        filename = changed_file["filename"]
-        base_text, head_text = base_texts.get(filename), head_texts.get(filename)
-        file_flags = (
-            redirect_flags(filename, base_text, head_text, page_paths, removed_page_paths, docs_url_path)
-            if filename.endswith(".json")
-            else nav_flags(filename, base_text, head_text, changed_file["patch"], page_paths)
-        )
-        if file_flags is None:
-            return COMPANION_REFUSED
-        flags.extend(file_flags)
-    return CompanionCheck(refusal=None, flags=tuple(dict.fromkeys(flags)))
-
-
-def nav_flags(
-    filename: str, base_text: str | None, head_text: str | None, patch: str, page_paths: frozenset[str]
-) -> list[str] | None:
-    links_by_line = [nav_line_links(line) for line in changed_lines(patch)]
-    if any(links is None for links in links_by_line):
-        return None
-    if not all(is_site_path(link) for links in links_by_line for link in links or ()):
-        return None
-    edits = nav_entry_edits_outside_pages(base_text, head_text, patch, page_paths)
-    if edits is None:
-        return None
-    unchanged_page_links = dict.fromkeys(
-        link for links in links_by_line for link in links or () if not links_page(link, page_paths)
-    )
-    return [
-        *(
-            f"{filename}: changes a link to {link}, which is not a page this change adds or removes"
-            for link in unchanged_page_links
-        ),
-        *(nav_entry_flag(filename, edit) for edit in edits),
-    ]
-
-
-def is_site_path(link: str) -> bool:
-    return SITE_PATH_PATTERN.fullmatch(link) is not None
-
-
-def nav_entry_flag(filename: str, edit: NavEntryEdit) -> str:
-    when = " before this change" if edit.is_base_line else ""
-    return f"{filename} line {edit.line_number}{when}: edits a nav entry that links no page this change adds or removes: {edit.line}"
-
-
-def redirect_flags(
-    filename: str,
-    base_text: str | None,
-    head_text: str | None,
-    page_paths: frozenset[str],
-    removed_page_paths: frozenset[str],
-    docs_url_path: str,
-) -> list[str] | None:
-    removed_redirects = removed_redirects_naming_no_page(
-        base_text, head_text, page_paths, removed_page_paths, docs_url_path
-    )
-    if removed_redirects is None:
-        return None
-    return [
-        f"{filename}: removes the redirect from {redirect['source']} to {redirect['destination']}, which names no page this change adds or removes"
-        for redirect in removed_redirects
-    ]
-
-
-def is_docs_path(path: str, docs_paths: tuple[str, ...]) -> bool:
-    return any(path == docs_path or path.startswith(f"{docs_path}/") for docs_path in docs_paths)
-
-
-def changed_page_keys(
-    changed_files: list[dict], docs_paths: tuple[str, ...], *, statuses: frozenset[str] = PAGE_CHANGING_STATUSES
-) -> frozenset[str]:
-    return frozenset(
-        page_key
-        for changed_file in changed_files
-        if changed_file.get("status") in statuses
-        for docs_path in docs_paths
-        if (page_key := docs_page_key(changed_file["filename"], docs_path)) is not None
-    )
-
-
-def is_listed_companion(changed_file: dict) -> bool:
-    return (
-        changed_file["filename"] in COMPANION_PATHS
-        and changed_file.get("status") == "modified"
-        and isinstance(changed_file.get("patch"), str)
-    )
 
 
 def routed_page_keys(docs_repository: str, request: DocsRequest, team_id: int) -> frozenset[str]:
@@ -867,10 +696,6 @@ def extra_pages(
 def docs_folder_page_key(path: str, docs_folders: tuple[str, ...]) -> str | None:
     page_keys = (docs_page_key(path, docs_folder) for docs_folder in docs_folders)
     return next((page_key for page_key in page_keys if page_key is not None), None)
-
-
-def changed_lines(patch: str) -> list[str]:
-    return [line[1:] for line in patch.split("\n") if line[:1] in ("+", "-")]
 
 
 def reported_step_failure(step_failed: GitHubStepFailed, team_id: int, task_run_id: UUID) -> WriterPullRequestFailed:
