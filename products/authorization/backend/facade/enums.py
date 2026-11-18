@@ -29,6 +29,8 @@ class Action(StrEnum):
     APPROVE = "approve"
     MANAGE_BILLING = "manage_billing"
     VIEW_USAGE = "view_usage"
+    CREATE_PROJECT = "create_project"
+    TRANSFER_PROJECT = "transfer_project"
 
 
 class Level(StrEnum):

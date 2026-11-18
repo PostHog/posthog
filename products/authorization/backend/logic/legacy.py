@@ -4,7 +4,8 @@ from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
-from posthog.models import OrganizationMembership, Team, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.user_permissions import UserPermissions
@@ -44,6 +45,8 @@ MEMBERSHIP_LEVELS: dict[ResourceType, dict[Action, OrganizationMembership.Level]
         **_ADMIN_ACTIONS,
         Action.VIEW: _Level.MEMBER,
         Action.CREATE: _Level.ADMIN,
+        Action.CREATE_PROJECT: _Level.ADMIN,
+        Action.TRANSFER_PROJECT: _Level.ADMIN,
         Action.DELETE: _Level.OWNER,
         Action.MANAGE_OWNERS: _Level.OWNER,
     },
@@ -51,10 +54,34 @@ MEMBERSHIP_LEVELS: dict[ResourceType, dict[Action, OrganizationMembership.Level]
     ResourceType.ROLE: {**_ADMIN_ACTIONS, Action.VIEW: _Level.MEMBER},
 }
 
+ORGANIZATION_SETTING_ACTIONS = frozenset({Action.CREATE_PROJECT})
+
+# A project transfer changes which organization owns the data, so its check reads the membership row and
+# not the shared cache, which can hold a level that the organization already took away.
+UNCACHED_ACTIONS = frozenset({Action.TRANSFER_PROJECT})
+
+APPROVAL_LEVELS: dict[ResourceType, OrganizationMembership.Level] = {
+    ResourceType.WORKLOAD_TRUST_POLICY_REQUEST: _Level.ADMIN,
+}
+
 # A project or organization check without an id asks about the type. The current rules answer it
 # from the type's default level, read with these levels.
 MEMBERSHIP_TYPE_LEVELS: dict[Action, AccessControlLevelMember] = {Action.VIEW: "member", Action.EDIT: "admin"}
 MEMBERSHIP_TYPES = frozenset({ResourceType.ORGANIZATION, ResourceType.PROJECT})
+
+
+def organization_level(action: Action, organization: Organization) -> OrganizationMembership.Level:
+    """Return the membership level that `action` needs in `organization`."""
+    level = MEMBERSHIP_LEVELS[ResourceType.ORGANIZATION].get(action)
+    if level is None:
+        raise ValueError(f"{action} does not apply to {ResourceType.ORGANIZATION} resources.")
+    if (
+        action == Action.CREATE_PROJECT
+        and organization.members_can_create_projects
+        and organization.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS)
+    ):
+        return _Level.MEMBER
+    return level
 
 
 def check(requests: Sequence[CheckRequest], context: Context | None) -> list[bool]:
@@ -80,7 +107,10 @@ def permissions(resource: Resource, subject: Subject | None, context: Context | 
         if context is not None and context != Context():
             raise NotImplementedError("The current access rules read no request context.")
         return _billing_permissions(current() or Session(), resource, subject)
-    actions = list(MEMBERSHIP_LEVELS.get(resource.type, RESOURCE_LEVELS))
+    if resource.type in APPROVAL_LEVELS and resource.organization_id is not None:
+        actions = [Action.APPROVE]
+    else:
+        actions = list(MEMBERSHIP_LEVELS.get(resource.type, RESOURCE_LEVELS))
     results = check([CheckRequest(resource=resource, action=action, subject=subject) for action in actions], context)
     return frozenset(action for action, allowed in zip(actions, results, strict=True) if allowed)
 
@@ -91,6 +121,8 @@ def _check(session: Session, request: CheckRequest) -> bool:
         if action not in BILLING_ACTIONS:
             raise ValueError(f"{action} does not apply to billing resources.")
         return action in _billing_permissions(session, resource, request.subject)
+    if action == Action.APPROVE:
+        return _check_approval(session, request)
     if resource.type in MEMBERSHIP_TYPES and resource.id is None:
         return _check_membership_type(session, request)
     if resource.type in MEMBERSHIP_LEVELS:
@@ -181,6 +213,37 @@ def _check_membership(session: Session, request: CheckRequest) -> bool:
             return False
     else:
         organization_id = UUID(resource.id)
+    membership = (
+        OrganizationMembership.objects.with_effective_level()
+        .filter(organization_id=organization_id, user_id=principal.pk)
+        .first()
+        if action in UNCACHED_ACTIONS
+        else get_cached_organization_membership(organization_id, principal)
+    )
+    if membership is None:
+        return False
+    if action in ORGANIZATION_SETTING_ACTIONS and resource.type == ResourceType.ORGANIZATION:
+        level = organization_level(action, membership.organization)
+    return membership.effective_level >= level
+
+
+def approval_scope(resource: Resource, action: Action) -> tuple[UUID, OrganizationMembership.Level]:
+    """Return the organization that decides an approval of `resource`, and the level the approval needs."""
+    level = APPROVAL_LEVELS.get(resource.type)
+    if level is None:
+        raise ValueError(f"{action} does not apply to {resource.type} resources.")
+    if resource.organization_id is None:
+        raise ValueError(f"A {resource.type} approval needs `organization_id`.")
+    if resource.id is not None or resource.project_id is not None:
+        raise ValueError(f"A {resource.type} approval takes `organization_id` only, without `id` or `project_id`.")
+    return resource.organization_id, level
+
+
+def _check_approval(session: Session, request: CheckRequest) -> bool:
+    organization_id, level = approval_scope(request.resource, request.action)
+    principal = _principal(session, request.subject)
+    if not isinstance(principal, User):
+        return False
     membership = get_cached_organization_membership(organization_id, principal)
     return membership is not None and membership.effective_level >= level
 

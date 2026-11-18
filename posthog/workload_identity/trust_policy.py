@@ -29,7 +29,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication, WorkloadAccessTokenAuthentication
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.oauth import OAuthApplication
 from posthog.models.workload_trust_policy import (
     CONDITION_VALUE_MAX_LENGTH,
@@ -40,12 +40,12 @@ from posthog.models.workload_trust_policy import (
     workload_trust_policy_request_url,
     workload_trust_policy_scopes_not_grantable,
 )
-from posthog.organization_caching import get_cached_organization_membership
 from posthog.permissions import (
     OrganizationAdminReadPermissions,
     TimeSensitiveActionPermission,
+    can_in_organization,
     get_organization_from_view,
-    get_required_organization_membership,
+    request_subject,
 )
 from posthog.rate_limit import (
     WorkloadSubjectLookupThrottle,
@@ -68,6 +68,9 @@ from posthog.workload_identity.providers import (
 from posthog.workload_identity.subjects import WorkloadSubjectLookupUnavailable, WorkloadSubjectNotFound
 
 from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType, SubjectType
 
 # A policy matches claim values exactly, so a character that reads as a pattern is refused rather than
 # taken literally: an admin who types `acme/*` expects every workload under `acme` to match, and none would.
@@ -703,6 +706,10 @@ class ResolvedWorkloadSubjectSerializer(serializers.Serializer):
     found_via = serializers.CharField(help_text="Where PostHog found the workload, to show the user.")
 
 
+def _trust_policy_approval_resource(organization: Organization) -> Resource:
+    return Resource(type=ResourceType.WORKLOAD_TRUST_POLICY_REQUEST, organization_id=organization.id)
+
+
 class WorkloadTrustPolicyRequestResolutionPermission(BasePermission):
     """Approving or rejecting a request needs an organization admin or owner in a browser session. Asking
     for a policy is open to every member, so the check applies to the resolving actions only."""
@@ -716,8 +723,15 @@ class WorkloadTrustPolicyRequestResolutionPermission(BasePermission):
             return True
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             return False
-        membership = get_required_organization_membership(request, get_organization_from_view(view))
-        return membership.effective_level >= OrganizationMembership.Level.ADMIN
+        organization = get_organization_from_view(view)
+        # A user outside the organization gets a 404, not the 403 that a member who cannot approve gets.
+        if not can_in_organization(request, organization, Action.VIEW):
+            raise NotFound("Organization not found.")
+        return authorization.check(
+            resource=_trust_policy_approval_resource(organization),
+            action=Action.APPROVE,
+            subject=request_subject(request),
+        )
 
 
 def resolve_workload_trust_policy_request(
@@ -791,20 +805,22 @@ class WorkloadTrustPolicyRequestViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         organization_id = self.organization.id
-        membership = get_cached_organization_membership(organization_id, cast(User, self.request.user))
-        context["can_approve"] = (
-            membership is not None and membership.effective_level >= OrganizationMembership.Level.ADMIN
+        approval_resource = _trust_policy_approval_resource(self.organization)
+        context["can_approve"] = authorization.check(
+            resource=approval_resource, action=Action.APPROVE, subject=request_subject(self.request)
         )
 
         @functools.cache
         def approvers() -> list[str]:
+            approver_ids = [
+                subject.user_id
+                for subject in authorization.list_subjects(
+                    resource=approval_resource, action=Action.APPROVE, subject_type=SubjectType.USER
+                )
+            ]
             memberships = (
                 OrganizationMembership.objects.with_effective_level()
-                .filter(
-                    organization_id=organization_id,
-                    resolved_level__gte=OrganizationMembership.Level.ADMIN,
-                    user__is_active=True,
-                )
+                .filter(organization_id=organization_id, user_id__in=approver_ids, user__is_active=True)
                 .select_related("user")
                 .order_by("-resolved_level", "joined_at")
             )

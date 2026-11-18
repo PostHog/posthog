@@ -9,15 +9,17 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.contrib.auth.models import AnonymousUser
+from django.core.cache import caches
 from django.db import transaction
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.user_permissions import UserPermissions
 
@@ -513,7 +515,15 @@ class TestCheckMatchesCurrentRules(BaseTest):
             (
                 "admin",
                 OrganizationMembership.Level.ADMIN,
-                {Action.VIEW, Action.EDIT, Action.CREATE, Action.SHARE, Action.MANAGE_ACCESS},
+                {
+                    Action.VIEW,
+                    Action.EDIT,
+                    Action.CREATE,
+                    Action.CREATE_PROJECT,
+                    Action.TRANSFER_PROJECT,
+                    Action.SHARE,
+                    Action.MANAGE_ACCESS,
+                },
             ),
             (
                 "owner",
@@ -522,6 +532,8 @@ class TestCheckMatchesCurrentRules(BaseTest):
                     Action.VIEW,
                     Action.EDIT,
                     Action.CREATE,
+                    Action.CREATE_PROJECT,
+                    Action.TRANSFER_PROJECT,
                     Action.SHARE,
                     Action.MANAGE_ACCESS,
                     Action.DELETE,
@@ -541,6 +553,42 @@ class TestCheckMatchesCurrentRules(BaseTest):
         )
 
         assert allowed == expected
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, set()),
+            ("admin", OrganizationMembership.Level.ADMIN, {Action.APPROVE}),
+        ]
+    )
+    def test_approval_permissions_follow_the_membership_level(
+        self, _name: str, org_level: OrganizationMembership.Level, expected: set[Action]
+    ) -> None:
+        self.organization_membership.level = org_level
+        self.organization_membership.save()
+        resource = Resource(type=ResourceType.WORKLOAD_TRUST_POLICY_REQUEST, organization_id=self.organization.id)
+
+        assert authorization.permissions(resource=resource, subject=Subject(user_id=self.user.id)) == expected
+
+    @parameterized.expand([("demoted",), ("removed",)])
+    def test_transfer_check_reads_the_membership_row_when_the_cache_is_stale(self, change: str) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        resource = resource_for_object(self.organization)
+        subject = Subject(user_id=self.user.id)
+        memberships = OrganizationMembership.objects.filter(pk=self.organization_membership.pk)
+        self.addCleanup(caches["organization_access"].clear)
+
+        with override_settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            assert authorization.check(resource=resource, action=Action.TRANSFER_PROJECT, subject=subject)
+            get_cached_organization_membership(self.organization.id, self.user)
+            if change == "demoted":
+                memberships.update(level=OrganizationMembership.Level.MEMBER)
+            else:
+                memberships.delete()
+            cached = get_cached_organization_membership(self.organization.id, self.user)
+            assert cached is not None and cached.level == OrganizationMembership.Level.ADMIN
+
+            assert not authorization.check(resource=resource, action=Action.TRANSFER_PROJECT, subject=subject)
 
     def test_user_outside_the_organization_has_no_permissions(self) -> None:
         outsider = User.objects.create(email="outsider@posthog.com")
@@ -648,6 +696,32 @@ class TestCheckMatchesCurrentRules(BaseTest):
                 ValueError,
             ),
             ("action_without_a_level", {"action": Action.JOIN}, ValueError),
+            ("approval_of_a_type_without_approvals", {"action": Action.APPROVE}, ValueError),
+            (
+                "approval_without_an_organization",
+                {"resource": Resource(type=ResourceType.WORKLOAD_TRUST_POLICY_REQUEST), "action": Action.APPROVE},
+                ValueError,
+            ),
+            (
+                "approval_with_a_project",
+                {
+                    "resource": Resource(
+                        type=ResourceType.WORKLOAD_TRUST_POLICY_REQUEST, organization_id=UUID(int=1), project_id=1
+                    ),
+                    "action": Action.APPROVE,
+                },
+                ValueError,
+            ),
+            (
+                "approval_with_an_object",
+                {
+                    "resource": Resource(
+                        type=ResourceType.WORKLOAD_TRUST_POLICY_REQUEST, organization_id=UUID(int=1), id="1"
+                    ),
+                    "action": Action.APPROVE,
+                },
+                ValueError,
+            ),
             ("no_project", {"resource": Resource(type=ResourceType.DASHBOARD, id="1")}, ValueError),
             (
                 "warehouse_table_without_parent_in_a_missing_team",

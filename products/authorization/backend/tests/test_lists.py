@@ -333,6 +333,7 @@ class TestOrganizationLists(BaseTest):
                     (Action.CREATE, {"admin", "owner"}),
                     (Action.SHARE, {"admin", "owner"}),
                     (Action.MANAGE_ACCESS, {"admin", "owner"}),
+                    (Action.TRANSFER_PROJECT, {"admin", "owner"}),
                     (Action.DELETE, {"owner"}),
                     (Action.MANAGE_OWNERS, {"owner"}),
                 ],
@@ -405,6 +406,8 @@ class TestOrganizationSubjectLists(BaseTest):
             (Action.CREATE, {"admin", "owner"}),
             (Action.SHARE, {"admin", "owner"}),
             (Action.MANAGE_ACCESS, {"admin", "owner"}),
+            (Action.TRANSFER_PROJECT, {"admin", "owner"}),
+            (Action.APPROVE, {"admin", "owner"}),
             (Action.DELETE, {"owner"}),
             (Action.MANAGE_OWNERS, {"owner"}),
         ]
@@ -423,7 +426,11 @@ class TestOrganizationSubjectLists(BaseTest):
         users["outsider"] = User.objects.create_and_join(
             other_org, "outsider@example.com", None, level=OrganizationMembership.Level.OWNER
         )
-        resource = Resource(type=ResourceType.ORGANIZATION, id=str(self.organization.pk))
+        resource = (
+            Resource(type=ResourceType.WORKLOAD_TRUST_POLICY_REQUEST, organization_id=self.organization.pk)
+            if action == Action.APPROVE
+            else Resource(type=ResourceType.ORGANIZATION, id=str(self.organization.pk))
+        )
         with authorization.authorization_session():
             with self.assertNumQueries(1):
                 subjects = authorization.list_subjects(resource=resource, action=action, subject_type=SubjectType.USER)
@@ -436,6 +443,39 @@ class TestOrganizationSubjectLists(BaseTest):
             OrganizationMembership.objects.filter(organization=self.organization, user=users["owner"]).delete()
             subjects = authorization.list_subjects(resource=resource, action=action, subject_type=SubjectType.USER)
             assert {subject.user_id for subject in subjects} == {users[name].pk for name in expected - {"owner"}}
+
+    @parameterized.expand(
+        [
+            ("setting_with_feature", True, True, True),
+            ("setting_without_feature", True, False, False),
+            ("feature_without_setting", False, True, False),
+        ]
+    )
+    def test_member_project_creation_follows_the_organization_setting(
+        self, _name: str, setting: bool, feature: bool, expected: bool
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        key = AvailableFeature.ORGANIZATION_INVITE_SETTINGS
+        self.organization.members_can_create_projects = setting
+        self.organization.available_product_features = [{"key": key, "name": key}] if feature else []
+        self.organization.save()
+        resource = Resource(type=ResourceType.ORGANIZATION, id=str(self.organization.pk))
+        subject = Subject(user_id=self.user.pk)
+
+        checked = authorization.check(resource=resource, action=Action.CREATE_PROJECT, subject=subject)
+        organizations = authorization.list_objects(
+            resource=Resource(type=ResourceType.ORGANIZATION), action=Action.CREATE_PROJECT, subject=subject
+        )
+        subjects = authorization.list_subjects(
+            resource=resource, action=Action.CREATE_PROJECT, subject_type=SubjectType.USER
+        )
+
+        assert (checked, organizations.allows(str(self.organization.pk)), subject in subjects) == (
+            expected,
+            expected,
+            expected,
+        )
 
 
 class TestUnsupportedSubjectLists(SimpleTestCase):
@@ -451,6 +491,13 @@ class TestUnsupportedSubjectLists(SimpleTestCase):
             ),
             (Resource(type=ResourceType.ORGANIZATION), Action.EDIT, SubjectType.USER, None, ValueError),
             (Resource(type=ResourceType.ORGANIZATION, id="1"), Action.QUERY, SubjectType.USER, None, ValueError),
+            (
+                Resource(type=ResourceType.WORKLOAD_TRUST_POLICY_REQUEST),
+                Action.APPROVE,
+                SubjectType.USER,
+                None,
+                ValueError,
+            ),
             (
                 Resource(type=ResourceType.ORGANIZATION, id="1"),
                 Action.EDIT,

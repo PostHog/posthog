@@ -151,7 +151,8 @@ def list_subjects(
 ) -> list[contracts.Subject]:
     """Return the subjects of `subject_type` that may take the action on the resource.
 
-    Supports USER subjects for one organization and the same actions as `check`.
+    Supports USER subjects for one organization and the same actions as `check`. It also lists the
+    approvers of a workload trust policy request, for a resource that names its `organization_id`.
     Callers apply delivery preferences and active-user restrictions separately.
     """
     return lists.list_subjects(resource, action, subject_type, context)
