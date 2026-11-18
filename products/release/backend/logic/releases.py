@@ -11,7 +11,7 @@ from django.db.models import Q, QuerySet
 
 from posthog.models.utils import strict_fetch
 
-from ..facade.contracts import MAX_LINKED, InvalidMergeError, ReleaseNotFoundError
+from ..facade.contracts import MAX_LINKED, MAX_METRICS, InvalidMergeError, ReleaseNotFoundError
 from ..models import Release
 
 
@@ -75,6 +75,7 @@ def create_release(
     broadcast_ids: list[UUID],
     survey_ids: list[UUID],
     insight_ids: list[int],
+    metric_insight_ids: list[int],
 ) -> Release:
     return Release.objects.create(
         team_id=team_id,
@@ -85,6 +86,7 @@ def create_release(
         broadcast_ids=broadcast_ids,
         survey_ids=survey_ids,
         insight_ids=insight_ids,
+        metric_insight_ids=metric_insight_ids,
     )
 
 
@@ -139,6 +141,11 @@ def merge_releases(
                     f"The merged release would link {len(merged)} {LINKED_NOUNS[field]}, more than the {MAX_LINKED} a release can hold."
                 )
             setattr(target, field, merged)
+        target.metric_insight_ids = list(
+            dict.fromkeys(
+                [*target.metric_insight_ids, *(item for source in sources for item in source.metric_insight_ids)]
+            )
+        )[:MAX_METRICS]
         target.owner_id = target.owner_id or next((source.owner_id for source in sources if source.owner_id), None)
         target.description = target.description or next(
             (source.description for source in sources if source.description), ""
@@ -150,6 +157,7 @@ def merge_releases(
         target.save(
             update_fields=[
                 *LINKED_FIELDS,
+                "metric_insight_ids",
                 "owner",
                 "description",
                 *(["name", "auto_named"] if renamed else []),

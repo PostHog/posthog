@@ -12,6 +12,7 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 MAX_LINKED = 100
+MAX_METRICS = 5
 
 
 class ReleaseNotFoundError(Exception):
@@ -144,6 +145,7 @@ class ReleaseDTO:
     surveys: list[LinkedSurveyDTO]
     insight_ids: list[int]
     insights: list[LinkedInsightDTO]
+    metric_insight_ids: list[int]
     created_at: datetime
 
 
@@ -174,6 +176,7 @@ class CreateReleaseInput:
     broadcast_ids: tuple[UUID, ...] = ()
     survey_ids: tuple[UUID, ...] = ()
     insight_ids: tuple[int, ...] = ()
+    metric_insight_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

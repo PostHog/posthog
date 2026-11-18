@@ -69,7 +69,7 @@ def _hidden(lookups: LinkLookups, releases: list[Release]) -> _Hidden:
     flag_ids = sorted({flag_id for obj in releases for flag_id in obj.feature_flag_ids})
     broadcast_ids = sorted({broadcast_id for obj in releases for broadcast_id in obj.broadcast_ids}, key=str)
     survey_ids = sorted({survey_id for obj in releases for survey_id in obj.survey_ids}, key=str)
-    insight_ids = sorted({insight_id for obj in releases for insight_id in obj.insight_ids})
+    insight_ids = sorted({insight_id for obj in releases for insight_id in [*obj.insight_ids, *obj.metric_insight_ids]})
     broadcasts = lookups.broadcasts(broadcast_ids)
     surveys = lookups.surveys(survey_ids)
     insights = lookups.insights(insight_ids)
@@ -111,6 +111,7 @@ def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
             for insight_id in obj.insight_ids
             if insight_id not in hidden.insights and insight_id in hidden.insight_summaries
         ],
+        metric_insight_ids=[insight_id for insight_id in obj.metric_insight_ids if insight_id not in hidden.insights],
         created_at=obj.created_at,
     )
 
@@ -137,6 +138,7 @@ _LINKED_FIELDS: tuple[tuple[str, str], ...] = (
     ("broadcast_ids", "broadcasts"),
     ("survey_ids", "surveys"),
     ("insight_ids", "insights"),
+    ("metric_insight_ids", "insights"),
 )
 
 

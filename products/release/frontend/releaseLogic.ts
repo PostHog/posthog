@@ -366,6 +366,7 @@ export const releaseLogic = kea<releaseLogicType>([
                                   broadcast_ids: changes.broadcast_ids ?? release.broadcast_ids,
                                   survey_ids: changes.survey_ids ?? release.survey_ids,
                                   insight_ids: changes.insight_ids ?? release.insight_ids,
+                                  metric_insight_ids: changes.metric_insight_ids ?? release.metric_insight_ids,
                                   surveys: linked?.surveys ?? release.surveys,
                                   insights: linked?.insights ?? release.insights,
                                   broadcasts:
@@ -901,6 +902,7 @@ export const releaseLogic = kea<releaseLogicType>([
                                 broadcast_ids: saved.broadcast_ids,
                                 survey_ids: saved.survey_ids,
                                 insight_ids: saved.insight_ids,
+                                metric_insight_ids: [...saved.metric_insight_ids],
                             },
                             broadcasts: [...saved.broadcasts],
                             linked: { surveys: saved.surveys, insights: saved.insights },

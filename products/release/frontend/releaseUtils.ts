@@ -94,6 +94,7 @@ export interface ReleaseRow {
     description: string
     createdAt: string
     owner: ReleaseDTOApi['owner']
+    metricInsightIds: number[]
     missingFlagIds: number[]
     headline: string
     detail: string
@@ -1180,6 +1181,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         description: release.description,
         createdAt: release.created_at,
         owner: release.owner,
+        metricInsightIds: [...(release.metric_insight_ids ?? [])],
         missingFlagIds: facts.missingFlagIds,
         ...releaseCopy(facts),
         lifecycle: releaseLifecycle(release, facts, stage),

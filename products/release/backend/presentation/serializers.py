@@ -9,6 +9,7 @@ from posthog.models import OrganizationMembership
 
 from ..facade.contracts import (
     MAX_LINKED,
+    MAX_METRICS,
     LinkedBroadcastDTO,
     LinkedInsightDTO,
     LinkedSendDTO,
@@ -176,6 +177,12 @@ class ReleaseSerializer(DataclassSerializer):
         help_text="ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out.",
     )
 
+    metric_insight_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        read_only=True,
+        help_text="IDs of the insights that are the release's metrics. The first is the primary metric.",
+    )
+
     has_hidden_flags = serializers.BooleanField(
         read_only=True,
         help_text="True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids.",
@@ -219,6 +226,20 @@ class WriteReleaseSerializer(serializers.Serializer):
         max_length=MAX_LINKED,
         help_text=f"IDs of the saved insights that measure the release, at most {MAX_LINKED}.",
     )
+    metric_insight_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=2**31 - 1),
+        required=False,
+        max_length=MAX_METRICS,
+        help_text=(
+            f"IDs of the saved trends insights that are the release's metrics, at most {MAX_METRICS}. "
+            "The first is the primary metric, the rest are secondary. Replaces the current list."
+        ),
+    )
+
+    def validate_metric_insight_ids(self, value: list[int]) -> list[int]:
+        if len(set(value)) != len(value):
+            raise serializers.ValidationError("Each metric can be listed once.")
+        return value
 
     def validate_owner_id(self, value: int | None) -> int | None:
         if value is None:

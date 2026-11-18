@@ -248,6 +248,52 @@ class TestReleaseAPI(APIBaseTest):
         assert field in guessed_unknown.json()["attr"]
         assert [str(item) for item in stored] == [str(hidden_id)]
 
+    def test_metrics_keep_their_order_and_a_hidden_metric_survives_an_update(self) -> None:
+        primary, _ = self._linked_object("insight", "Weekly checkouts")
+        secondary, _ = self._linked_object("insight", "Checkout errors")
+        hidden, hidden_path = self._linked_object("insight", "Revenue")
+        release_id = self.client.post(
+            self._url(), {"name": "Checkout", "metric_insight_ids": [primary, hidden, secondary]}, format="json"
+        ).json()["id"]
+        self._restrict_as_admin(hidden_path)
+        self.client.force_login(self._create_user("member@example.com"))
+
+        member_view = self.client.get(self._url()).json()["results"][0]
+        self.client.patch(self._url(f"{release_id}/"), {"metric_insight_ids": [secondary, primary]}, format="json")
+        stored = Release.objects.unscoped().get(id=release_id).metric_insight_ids
+
+        assert member_view["metric_insight_ids"] == [primary, secondary]
+        assert stored == [secondary, primary, hidden]
+
+    @parameterized.expand(
+        [
+            ("too_many", lambda ids: ids * 2),
+            ("duplicate", lambda ids: [ids[0], ids[0]]),
+            ("unknown", lambda ids: [999999]),
+        ]
+    )
+    def test_metrics_reject_bad_lists(self, _name: str, build) -> None:
+        ids = [self._linked_object("insight", f"Metric {index}")[0] for index in range(3)]
+
+        response = self.client.post(self._url(), {"name": "Checkout", "metric_insight_ids": build(ids)}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "metric_insight_ids" in response.json()["attr"]
+
+    def test_merge_keeps_the_kept_release_s_primary_metric_and_caps_the_list(self) -> None:
+        ids = [self._linked_object("insight", f"Metric {index}")[0] for index in range(6)]
+        kept = self.client.post(self._url(), {"name": "Checkout", "metric_insight_ids": ids[:3]}, format="json").json()[
+            "id"
+        ]
+        other = self.client.post(
+            self._url(), {"name": "Payments", "metric_insight_ids": [ids[2], *ids[3:]]}, format="json"
+        ).json()["id"]
+
+        merged = self.client.post(self._url(f"{kept}/merge/"), {"release_ids": [other]}, format="json")
+
+        assert merged.status_code == status.HTTP_200_OK, merged.json()
+        assert merged.json()["metric_insight_ids"] == ids[:5]
+
     @parameterized.expand(
         [
             (f"{kind}_{name}", kind, scopes, shown)

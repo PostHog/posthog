@@ -58,6 +58,8 @@ export interface ReleaseDTOApi {
     readonly insights: readonly LinkedInsightDTOApi[]
     /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
     readonly broadcasts: readonly LinkedBroadcastDTOApi[]
+    /** IDs of the insights that are the release's metrics. The first is the primary metric. */
+    readonly metric_insight_ids: readonly number[]
     /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
     readonly has_hidden_flags: boolean
     id: string
@@ -117,6 +119,13 @@ export interface WriteReleaseApi {
      * @items.maximum 2147483647
      */
     insight_ids?: number[]
+    /**
+     * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+     * @maxItems 5
+     * @items.minimum 1
+     * @items.maximum 2147483647
+     */
+    metric_insight_ids?: number[]
 }
 
 export interface PatchedUpdateReleaseApi {
@@ -156,6 +165,13 @@ export interface PatchedUpdateReleaseApi {
      * @items.maximum 2147483647
      */
     insight_ids?: number[]
+    /**
+     * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+     * @maxItems 5
+     * @items.minimum 1
+     * @items.maximum 2147483647
+     */
+    metric_insight_ids?: number[]
 }
 
 export interface MergeReleasesApi {
