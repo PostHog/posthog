@@ -52,17 +52,18 @@ import type {
     TracingOrderDirection,
     TracingViewMode,
 } from './tracingFiltersLogic'
+import { tracingServicesLogic } from './tracingServicesLogic'
 import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
 
-/** What each result row represents: a trace (its root span), an individual span, or an operation or endpoint aggregate. */
-export type TracingDisplayMode = TracingViewMode | 'operations' | 'endpoints'
+/** What each result row represents: a trace (its root span), an individual span, or a service, operation or endpoint aggregate. */
+export type TracingDisplayMode = TracingViewMode | 'services' | 'operations' | 'endpoints'
 
-export type TracingResultsTab = 'traces' | 'operations' | 'endpoints'
+export type TracingResultsTab = 'traces' | 'services' | 'operations' | 'endpoints'
 
 function resultsTabFromView(view: unknown, endpointsEnabled: boolean): TracingResultsTab {
-    if (view === 'operations') {
-        return 'operations'
+    if (view === 'services' || view === 'operations') {
+        return view
     }
     if (endpointsEnabled && view === 'endpoints') {
         return 'endpoints'
@@ -263,6 +264,7 @@ export interface tracingSceneLogicActions {
         current: OverlayWindow
         previous: OverlayWindow
     } // tracingFiltersLogic
+    loadServiceHealth: (_: any) => any // tracingServicesLogic
     closeCompareFlame: () => {
         value: true
     } // tracingViewerLogic
@@ -308,8 +310,14 @@ export interface tracingSceneLogicActions {
     keepSqlEditorMounted: (editorTabId: string) => {
         editorTabId: string
     }
+    refreshResultsTab: () => {
+        value: true
+    }
     selectSceneTab: (tab: TracingSceneTab) => {
         tab: 'alerts' | 'sql' | 'viewer'
+    }
+    selectService: (serviceName: string) => {
+        serviceName: string
     }
     setActiveTracingTab: (tab: TracingResultsTab) => {
         tab: TracingResultsTab
@@ -457,6 +465,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             ],
             featureFlagLogic,
             ['setFeatureFlags'],
+            tracingServicesLogic({ id: TRACING_SCENE_VIEWER_ID }),
+            ['loadServiceHealth'],
         ],
     })),
 
@@ -467,6 +477,10 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         setSceneTab: (tab: TracingSceneTab) => ({ tab }),
         selectSceneTab: (tab: TracingSceneTab) => ({ tab }),
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
+        /** Filter to one service and show its operations. */
+        selectService: (serviceName: string) => ({ serviceName }),
+        /** Reload the active aggregate tab's own query over the whole selected range. */
+        refreshResultsTab: true,
     }),
 
     reducers({
@@ -590,9 +604,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             // dispatched wins. The data logic mounts before this scene logic, so its listener runs
             // first and the full-range fetch here beats the windowed one deterministically —
             // otherwise the Operations table would divide by the narrow compare sub-window.
-            if (values.activeTracingTab !== 'traces') {
-                actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
-            }
+            actions.refreshResultsTab()
         },
         setFilters: () => {
             actions.syncUrl()
@@ -600,15 +612,14 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             // listener → runQuery, which fires a windowed fetchAggregation when a comparison is
             // active. Mirror handleFilterChange so the Operations tab keeps its full-range aggregate
             // instead of the narrow compare sub-window (same mount-order guarantee applies).
-            if (values.activeTracingTab !== 'traces') {
-                actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
-            }
+            actions.refreshResultsTab()
         },
         // Flags resolve asynchronously, so one that arrives after the Operations fetch would show
         // the Sessions and Users columns over rows fetched without them.
         setFeatureFlags: () => {
             if (
                 values.activeTracingTab !== 'traces' &&
+                values.activeTracingTab !== 'services' &&
                 values.featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP] &&
                 values.aggregation.current.length > 0 &&
                 values.aggregation.current[0].sessions == null &&
@@ -624,18 +635,28 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
         // The data logic refetches a windowed aggregate on these, so restore the tab's own query after it.
         updateComparisonWindows: () => {
-            if (values.activeTracingTab !== 'traces') {
-                actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
-            }
+            actions.refreshResultsTab()
         },
         refreshQuery: () => {
-            if (values.activeTracingTab !== 'traces') {
-                actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
+            actions.refreshResultsTab()
+        },
+        refreshResultsTab: () => {
+            const tab = values.activeTracingTab
+            if (tab === 'services') {
+                actions.loadServiceHealth(null)
+            } else if (tab !== 'traces') {
+                actions.fetchAggregation(aggregateFetchOptions(tab))
             }
+        },
+        selectService: ({ serviceName }) => {
+            // pinned: analytics event name — renaming breaks dashboards
+            posthog.capture('tracing service selected')
+            actions.setDisplayMode('operations')
+            actions.setServiceNames([serviceName])
         },
         setActiveTracingTab: ({ tab }) => {
             if (tab !== 'traces') {
-                actions.fetchAggregation(aggregateFetchOptions(tab))
+                actions.refreshResultsTab()
             } else if (values.compareActive) {
                 // Returning to the traces tab with a comparison active: the aggregation state
                 // holds the operations full-range data — refetch the windowed compare version.
@@ -648,7 +669,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         setDisplayMode: ({ mode }) => {
             // pinned: analytics event name and property — renaming breaks dashboards
             posthog.capture('tracing display mode changed', { mode })
-            if (mode === 'operations' || mode === 'endpoints') {
+            if (mode === 'services' || mode === 'operations' || mode === 'endpoints') {
                 if (values.activeTracingTab !== mode) {
                     actions.setActiveTracingTab(mode)
                 }

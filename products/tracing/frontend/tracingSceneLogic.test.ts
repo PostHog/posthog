@@ -8,10 +8,19 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
+import { tracingSpansServiceHealthCreate } from 'products/tracing/frontend/generated/api'
+
 import { makeSpan } from './__mocks__/span'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
+
+jest.mock('products/tracing/frontend/generated/api', () => ({
+    ...jest.requireActual('products/tracing/frontend/generated/api'),
+    tracingSpansServiceHealthCreate: jest.fn(),
+}))
+
+const mockServiceHealth = tracingSpansServiceHealthCreate as jest.MockedFunction<typeof tracingSpansServiceHealthCreate>
 
 describe('tracingSceneLogic', () => {
     let logic: ReturnType<typeof tracingSceneLogic.build>
@@ -175,6 +184,26 @@ describe('tracingSceneLogic', () => {
             expect.objectContaining({ groupByEndpoint, includeHealth: groupByEndpoint }),
             expect.anything()
         )
+    })
+
+    it('opens the services view from a deep link and loads service health', async () => {
+        mockServiceHealth.mockResolvedValue({ services: [] } as any)
+        mountAt({ view: 'services' })
+        expect(logic.values.displayMode).toBe('services')
+        expect(router.values.searchParams.view).toBe('services')
+        await expectLogic(logic).toDispatchActions(['loadServiceHealth'])
+    })
+
+    it('filters to the clicked service and switches to the operations view', () => {
+        mockServiceHealth.mockResolvedValue({ services: [] } as any)
+        const filtersLogic = mountAt({ view: 'services' })
+
+        logic.actions.selectService('checkout')
+
+        expect(filtersLogic.values.filters.serviceNames).toEqual(['checkout'])
+        expect(logic.values.displayMode).toBe('operations')
+        expect(router.values.searchParams.view).toBe('operations')
+        expect(JSON.parse(JSON.stringify(router.values.searchParams.serviceNames))).toEqual(['checkout'])
     })
 
     it('ignores ?view=endpoints when its flag is off', () => {

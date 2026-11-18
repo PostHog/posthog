@@ -11,7 +11,7 @@ import { formatDuration } from './TraceWaterfallView'
 import { VirtualizedTable, VirtualizedTableColumn } from './VirtualizedTable'
 
 // Span count over the aggregation window, rendered as a request rate. Empty window → no rate.
-function formatRate(count: number, windowMs: number): string {
+export function formatRate(count: number, windowMs: number): string {
     const seconds = windowMs / 1000
     if (!seconds) {
         return '—'
@@ -59,7 +59,7 @@ const impactCell =
     }
 
 // Listed worst first, so the Health column sorts unhealthy rows to the top.
-const HEALTH_META: Record<SpanHealthStatus, { label: string; tagType: LemonTagType }> = {
+export const HEALTH_META: Record<SpanHealthStatus, { label: string; tagType: LemonTagType }> = {
     silent: { label: 'Silent', tagType: 'danger' },
     regressed: { label: 'Regressed', tagType: 'danger' },
     degraded: { label: 'Degraded', tagType: 'warning' },

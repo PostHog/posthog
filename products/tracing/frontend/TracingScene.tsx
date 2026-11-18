@@ -34,6 +34,7 @@ import { TRACING_DISPLAY_TIMEZONE } from './dateFormats'
 import { tracingEmptyState } from './emptyState/tracingEmptyState'
 import type { ErrorScope } from './errorCorrelation'
 import { OperationsTable } from './OperationsTable'
+import { ServicesTable } from './ServicesTable'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
 import { TRACING_DOCS_URL } from './traceLinks'
@@ -44,6 +45,7 @@ import { TracingDisplayBar } from './TracingDisplayBar'
 import { TracingFilterBar } from './TracingFilterBar'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { type TracingSceneTab, tracingSceneLogic } from './tracingSceneLogic'
+import { tracingServicesLogic } from './tracingServicesLogic'
 import { TracingSparkline } from './TracingSparkline'
 import { traceViewId, tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
@@ -137,6 +139,9 @@ function TracingSceneContents(): JSX.Element {
         availableSceneTabs,
         activeSceneTab,
     } = useValues(tracingSceneLogic())
+    const { serviceHealth, serviceHealthLoading, serviceHealthError } = useValues(
+        tracingServicesLogic({ id: TRACING_SCENE_VIEWER_ID })
+    )
     const { traceLoadFiltersActive } = useValues(tracingDataLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -159,6 +164,7 @@ function TracingSceneContents(): JSX.Element {
         setChartType,
         applyHeatmapBrush,
         selectSceneTab,
+        selectService,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed, spanColumns } = useValues(tracingConfigLogic)
@@ -315,10 +321,19 @@ function TracingSceneContents(): JSX.Element {
                     {facetRailEnabled && !facetRailCollapsed && <TracingFacetRail />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                         <TracingDisplayBar />
-                        {compareActive && displayMode !== 'operations' && displayMode !== 'endpoints' && (
-                            <ComparisonBar />
-                        )}
-                        {displayMode === 'operations' || displayMode === 'endpoints' ? (
+                        {compareActive &&
+                            displayMode !== 'services' &&
+                            displayMode !== 'operations' &&
+                            displayMode !== 'endpoints' && <ComparisonBar />}
+                        {displayMode === 'services' ? (
+                            <ServicesTable
+                                rows={serviceHealth?.services ?? []}
+                                loading={serviceHealthLoading}
+                                error={serviceHealthError}
+                                windowMs={operationsWindowMs}
+                                onRowClick={(row) => selectService(row.service)}
+                            />
+                        ) : displayMode === 'operations' || displayMode === 'endpoints' ? (
                             <OperationsTable
                                 rows={aggregation.current}
                                 loading={aggregationLoading}

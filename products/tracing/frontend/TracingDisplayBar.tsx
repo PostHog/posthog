@@ -1,6 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronLeft, IconChevronRight, IconEndpoints, IconList, IconListTree, IconStack } from '@posthog/icons'
+import {
+    IconApps,
+    IconChevronLeft,
+    IconChevronRight,
+    IconEndpoints,
+    IconList,
+    IconListTree,
+    IconStack,
+} from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, type LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -17,7 +25,7 @@ import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
 /**
  * The bar above the results, mirroring logs' LogsDisplayBar:
  *
- *  - left: the facet rail toggle, the row-mode selector (Traces ⇄ Spans ⇄ Operations ⇄ Endpoints —
+ *  - left: the facet rail toggle, the row-mode selector (Traces ⇄ Spans ⇄ Services ⇄ Operations ⇄ Endpoints —
  *    what each result row represents), and the matching-count indicator.
  *  - right: column configuration (span list only) and Compare, both hidden on the aggregate views.
  */
@@ -29,7 +37,7 @@ export function TracingDisplayBar(): JSX.Element {
     const { setFacetRailCollapsed } = useActions(tracingConfigLogic)
 
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
-    const inTracesView = displayMode !== 'operations' && displayMode !== 'endpoints'
+    const inTracesView = displayMode !== 'services' && displayMode !== 'operations' && displayMode !== 'endpoints'
     // The aggregate views carry their own counts in table columns, and a comparison covers two
     // windows while both indicators describe one.
     const showsSingleWindowCounts = inTracesView && !compareActive
@@ -52,6 +60,13 @@ export function TracingDisplayBar(): JSX.Element {
             icon: <IconListTree />,
             tooltip: 'Group matching spans by trace, one row per trace (its root span)',
             'data-attr': 'tracing-view-mode-traces',
+        },
+        {
+            value: 'services' as const,
+            label: 'Services',
+            icon: <IconApps />,
+            tooltip: 'One row per service: request rate, error rate and latency, compared with the previous period',
+            'data-attr': 'tracing-display-tab-services',
         },
         {
             value: 'operations' as const,
