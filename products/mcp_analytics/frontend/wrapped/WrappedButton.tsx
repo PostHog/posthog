@@ -25,7 +25,7 @@ function WrappedButtonContent({ quill }: { quill: boolean }): JSX.Element | null
     const content = (
         <>
             <Hoggie className="h-5 w-5" loading="eager" />
-            Your {wrapped.year} wrapped
+            Your {wrapped.year} Wrapped
         </>
     )
     return quill ? (
