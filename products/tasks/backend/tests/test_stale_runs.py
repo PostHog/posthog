@@ -198,6 +198,22 @@ class TestCollectStaleLiveRuns(TestCase):
         assert (run.status == TaskRun.Status.FAILED) is (swept_profile is not None)
         assert rows == ([SweptRunRow(profile=swept_profile, count=1)] if swept_profile else [])
 
+    def test_sweep_leaves_runs_for_the_next_pass_once_its_flag_budget_is_spent(self) -> None:
+        run = self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600)
+
+        with (
+            patch("products.tasks.backend.stale_runs.SWEEP_MODE_LOOKUP_BUDGET_SECONDS", -1),
+            patch(
+                "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+                return_value={USER.key: "enforce"},
+            ),
+        ):
+            rows = tasks_facade.sweep_stale_live_task_runs()
+
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.IN_PROGRESS
+        assert rows == []
+
     def test_sweep_leaves_runs_alone_when_the_flag_lookup_fails(self) -> None:
         run = self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600)
 
