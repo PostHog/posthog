@@ -145,7 +145,7 @@ class DeletionRequestOverviewPanel(Panel):
             Fact(label="Attempts", value=str(obj.attempt_count)),
         ]
         if obj.last_dagster_run_id:
-            # Facts link within PostHog only. The Django admin page links to the run in Dagster.
+            # Facts link within PostHog only, so the link to the run in Dagster is in the page header.
             facts.append(Fact(label="Last Dagster run", value=obj.last_dagster_run_id, mono=True))
         return facts
 
@@ -816,8 +816,8 @@ class NewDeletionRequestTool(ConsoleTool):
             blocks=(
                 Notice(
                     text="A new request starts as a draft. Nothing is deleted until it is submitted and approved.",
-                    link_text="All requests in Django admin",
-                    href="/admin/posthog/datadeletionrequest/",
+                    link_text="All requests",
+                    href="/admin/console/tools/deletion-requests/",
                 ),
             )
         )

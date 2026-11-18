@@ -83,8 +83,16 @@ jobs:
               # against, so the filter would narrow the hourly run to its last commit. Every
               # output it feeds defaults below, which makes the hourly run test every crate.
               if: github.event_name != 'push' && github.event_name != 'schedule'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  reuse-checks: |
+                      Rust Tests Pass
+                      PersonHog e2e gate
+                  reuse-proof-checks: Compute affected Rust crates
+                  reuse-blocking-labels: ci-no-reuse
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       rust:
                         # Avoid running rust tests for irrelevant changes
@@ -955,12 +963,6 @@ jobs:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
                   OPENSSL_NO_VENDOR: '1'
               run: cargo clippy --all-targets --all-features -- -D warnings
-
-            - name: Run cargo check
-              env:
-                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
-                  OPENSSL_NO_VENDOR: '1'
-              run: cargo check --all-features
 
             - name: Restore cargo-binstall archive
               id: binstall-cache

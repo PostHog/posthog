@@ -164,8 +164,14 @@ jobs:
             - uses: ./.github/actions/paths-filter
               id: changes
               if: github.event_name == 'pull_request'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  reuse-checks: Playwright tests pass
+                  reuse-proof-checks: Playwright E2E tests
+                  reuse-blocking-labels: ci-no-reuse
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
@@ -224,6 +230,16 @@ jobs:
                         - '!posthog/dags/**'
                       hogqlParser:
                         - 'common/hogql_parser/**'
+                      # No job reads this output. It exists so reuse also compares the files that
+                      # tools/playwright_spec_selection.py maps to specs and shouldRun does not match.
+                      specSelection:
+                        - 'products/*/backend/**'
+                        - tsconfig.json
+                        - 'tsconfig.*.json'
+                      reuseOnlyInputs:
+                        - manage.py
+                        - .nvmrc
+                        - 'products/*/manifest.tsx'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the full E2E stack for that bot push is pure waste;
