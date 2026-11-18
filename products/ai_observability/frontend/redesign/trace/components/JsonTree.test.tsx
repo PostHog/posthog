@@ -14,11 +14,17 @@ describe('JsonTree', () => {
         await waitFor(() => expect(container.querySelector('.react-json-view')?.textContent).toContain('needle'))
     })
 
-    test('shows a value too wide for the tree as text', () => {
-        const src = Object.fromEntries(Array.from({ length: 3000 }, (_, index) => [`field_${index}`, index]))
+    test.each([
+        [
+            'a value too wide for the tree',
+            Object.fromEntries(Array.from({ length: 3000 }, (_, index) => [`field_${index}`, index])),
+            'field_2999',
+        ],
+        ['a closed array with too many groups', { level: { items: Array(250000).fill(0) } }, '"items"'],
+    ])('shows %s as text', (_name, src, text) => {
         const { container } = render(<JsonTree src={src} />)
 
         expect(container.querySelector('.react-json-view')).toBeNull()
-        expect(container.querySelector('pre')?.textContent).toContain('field_2999')
+        expect(container.querySelector('pre')?.textContent).toContain(text)
     })
 })

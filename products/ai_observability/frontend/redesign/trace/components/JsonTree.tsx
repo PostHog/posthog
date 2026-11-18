@@ -14,11 +14,12 @@ const MAX_OPEN_ROWS = 2000
 const ARRAY_GROUP_SIZE = 100
 
 function openRows(value: unknown, depth: number, budget: number, groupsArrays: boolean): number {
-    if (depth === 0 || value === null || typeof value !== 'object') {
-        return 0
-    }
+    // A grouped array lists its groups even when it is closed.
     if (groupsArrays && Array.isArray(value) && value.length > ARRAY_GROUP_SIZE) {
         return Math.ceil(value.length / ARRAY_GROUP_SIZE)
+    }
+    if (depth === 0 || value === null || typeof value !== 'object') {
+        return 0
     }
     let rows = 0
     for (const child of Object.values(value)) {
