@@ -9,16 +9,19 @@ Every edge is measured on the caller's side when the caller has a client or prod
 that is the latency and the errors the caller saw. Without one, the callee span is used.
 
 A window with up to EXACT_SPAN_LIMIT spans is read whole, so the counts add up to the spans in it.
-A busier window is sampled by time: the join reads evenly spaced slices of the window that add up to
-about EXACT_SPAN_LIMIT spans, and the counts are scaled back up by the share of the window read.
+A busier window is sampled by time: the join reads evenly spaced slices of the window that hold about
+EXACT_SPAN_LIMIT spans, child margins included, judged from a count of spans per minute. The counts are
+scaled back up by the share of the window's spans that start in the slices, counted exactly, so a burst
+in one part of the window doesn't skew them.
 Slices of time, not of trace ids, because the timestamp index skips the granules outside a slice,
 while a hash of the trace id matches a row in nearly every granule and saves no reads.
 Fail-fast settings still cap the bytes read and the run time.
 """
 
 import math
+from bisect import bisect_right
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -38,6 +41,7 @@ MAX_EXECUTION_SECONDS = 30
 # reads the attributes map in two of those scans, so this keeps a sampled run well under the byte cap.
 EXACT_SPAN_LIMIT = 4_000_000
 SAMPLE_SLICE_SECONDS = 60
+MIN_SAMPLE_SLICE_SECONDS = 1.0
 MAX_SAMPLE_SLICES = 30
 # A child span starts after its parent, give or take clock skew between hosts, so the child side reads
 # a little past each slice to find the children of parents that start near its end.
@@ -97,19 +101,80 @@ class DependenciesResult:
 @dataclass(frozen=True)
 class _Sample:
     slices: list[tuple[datetime, datetime]]
-    rate: float
 
 
-def _plan_sample(span_count: int, date_from: datetime, date_to: datetime) -> _Sample | None:
-    if span_count <= EXACT_SPAN_LIMIT:
+@dataclass(frozen=True)
+class _SpanDensity:
+    """Spans per minute in a window, read as spread evenly within each minute."""
+
+    starts: list[float]
+    ends: list[float]
+    counts: list[int]
+    before: list[int]
+
+    @classmethod
+    def from_minutes(cls, minute_counts: list[tuple[datetime, int]], date_from: datetime, date_to: datetime):
+        starts, ends, counts, before, total = [], [], [], [], 0
+        for minute, count in sorted(minute_counts):
+            minute = minute if minute.tzinfo else minute.replace(tzinfo=UTC)
+            start = (max(minute, date_from) - date_from).total_seconds()
+            end = (min(minute + timedelta(minutes=1), date_to) - date_from).total_seconds()
+            if end <= start or count <= 0:
+                continue
+            starts.append(start)
+            ends.append(end)
+            counts.append(count)
+            before.append(total)
+            total += count
+        return cls(starts=starts, ends=ends, counts=counts, before=before)
+
+    @property
+    def total(self) -> int:
+        return self.before[-1] + self.counts[-1] if self.counts else 0
+
+    def spans_before(self, seconds: float) -> float:
+        i = bisect_right(self.starts, seconds) - 1
+        if i < 0:
+            return 0
+        share = min(seconds - self.starts[i], self.ends[i] - self.starts[i]) / (self.ends[i] - self.starts[i])
+        return self.before[i] + self.counts[i] * share
+
+
+def _plan_sample(density: _SpanDensity, date_from: datetime, date_to: datetime) -> _Sample | None:
+    total = density.total
+    if total <= EXACT_SPAN_LIMIT:
         return None
     window_seconds = (date_to - date_from).total_seconds()
-    sampled_seconds = window_seconds * EXACT_SPAN_LIMIT / span_count
-    count = min(MAX_SAMPLE_SLICES, max(1, round(sampled_seconds / SAMPLE_SLICE_SECONDS)))
-    stride = timedelta(seconds=window_seconds / count)
-    width = timedelta(seconds=sampled_seconds / count)
-    slices = [(date_from + stride * i, date_from + stride * i + width) for i in range(count)]
-    return _Sample(slices=slices, rate=sampled_seconds / window_seconds)
+    count = min(
+        MAX_SAMPLE_SLICES,
+        max(1, round(window_seconds * EXACT_SPAN_LIMIT / total / SAMPLE_SLICE_SECONDS)),
+    )
+    stride = window_seconds / count
+    margin = CHILD_MARGIN.total_seconds()
+
+    def reads(width: float) -> float:
+        # The child scans read each slice widened by the margin, so the margin counts against the limit.
+        return sum(
+            density.spans_before(min(window_seconds, i * stride + width + margin))
+            - density.spans_before(max(0.0, i * stride - margin))
+            for i in range(count)
+        )
+
+    # The widest slices that read at most the limit. A burst denser than the limit in a single second
+    # still gets a one-second slice, and the fail-fast settings cap that read.
+    low, high = MIN_SAMPLE_SLICE_SECONDS, stride
+    for _ in range(30):
+        middle = (low + high) / 2
+        if reads(middle) <= EXACT_SPAN_LIMIT:
+            low = middle
+        else:
+            high = middle
+    width = timedelta(seconds=low)
+    slices = [
+        (date_from + timedelta(seconds=i * stride), date_from + timedelta(seconds=i * stride) + width)
+        for i in range(count)
+    ]
+    return _Sample(slices=slices)
 
 
 def _sample_where(
@@ -131,12 +196,20 @@ def _sample_where(
 
 
 def _span_count_query(
-    date_from: datetime, date_to: datetime, environment: str | None, service: str | None
+    date_from: datetime,
+    date_to: datetime,
+    environment: str | None,
+    service: str | None,
+    sample: _Sample | None = None,
 ) -> ast.SelectQuery:
+    # Without a sample it counts the window's spans per minute to plan one; with one, the spans the
+    # join reads as parents, which sets the scale.
+    select = "count()" if sample else "toStartOfMinute(timestamp) AS minute, count()"
+    group_by = "" if sample else " GROUP BY minute"
     query = parse_select(
-        "SELECT count() FROM posthog.trace_spans WHERE {where} AND {env_where} AND {trace_where}",
+        f"SELECT {select} FROM posthog.trace_spans WHERE {{where}} AND {{env_where}} AND {{trace_where}}{group_by}",
         placeholders={
-            "where": window_where(date_from, date_to),
+            "where": _sample_where(date_from, date_to, sample),
             "env_where": environment_where(environment),
             "trace_where": _service_traces_where(date_from, date_to, environment, service),
         },
@@ -316,9 +389,15 @@ def _scale(value: int, rate: float) -> int:
 def get_dependencies(
     *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str | None = None
 ) -> DependenciesResult:
-    span_count = _run(team, "ApmDependenciesSpanCount", _span_count_query(date_from, date_to, environment, service))
-    sample = _plan_sample(int(span_count[0][0]), date_from, date_to)
-    rate = sample.rate if sample else 1.0
+    minutes = _run(team, "ApmDependenciesSpanCount", _span_count_query(date_from, date_to, environment, service))
+    density = _SpanDensity.from_minutes([(minute, int(count)) for minute, count in minutes], date_from, date_to)
+    sample = _plan_sample(density, date_from, date_to)
+    rate = 1.0
+    if sample:
+        sampled = _run(
+            team, "ApmDependenciesSampleCount", _span_count_query(date_from, date_to, environment, service, sample)
+        )
+        rate = min(1.0, max(1, int(sampled[0][0])) / density.total)
     rows = _run(team, "ApmDependenciesQuery", _dependencies_query(date_from, date_to, environment, service, sample))
     edges = [
         DependencyEdge(

@@ -4,14 +4,27 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.apm.backend.logic.health.dependencies import EXACT_SPAN_LIMIT, MAX_SAMPLE_SLICES, _plan_sample
+from products.apm.backend.logic.health.dependencies import (
+    CHILD_MARGIN,
+    EXACT_SPAN_LIMIT,
+    MAX_SAMPLE_SLICES,
+    _plan_sample,
+    _SpanDensity,
+)
 
 FROM = datetime(2026, 6, 2, 8, 0, tzinfo=UTC)
 
 
+def _even(window: timedelta, total: int) -> _SpanDensity:
+    minutes = int(window / timedelta(minutes=1))
+    return _SpanDensity.from_minutes(
+        [(FROM + timedelta(minutes=i), total // minutes) for i in range(minutes)], FROM, FROM + window
+    )
+
+
 class TestPlanSample(SimpleTestCase):
     def test_window_under_the_limit_is_read_whole(self) -> None:
-        self.assertIsNone(_plan_sample(EXACT_SPAN_LIMIT, FROM, FROM + timedelta(hours=1)))
+        self.assertIsNone(_plan_sample(_even(timedelta(hours=1), EXACT_SPAN_LIMIT), FROM, FROM + timedelta(hours=1)))
 
     @parameterized.expand(
         [
@@ -20,15 +33,26 @@ class TestPlanSample(SimpleTestCase):
             ("day_just_over_the_limit", timedelta(days=1), 1.25, MAX_SAMPLE_SLICES),
         ]
     )
-    def test_slices_read_the_limit_share_of_the_window(
+    def test_slices_with_their_margins_read_the_limit(
         self, _name: str, window: timedelta, overload: float, slices: int
     ) -> None:
         to = FROM + window
-        sample = _plan_sample(int(EXACT_SPAN_LIMIT * overload), FROM, to)
+        sample = _plan_sample(_even(window, int(EXACT_SPAN_LIMIT * overload)), FROM, to)
         assert sample is not None
         self.assertEqual(len(sample.slices), slices)
-        self.assertAlmostEqual(sample.rate, 1 / overload, places=6)
-        read = sum(((end - start) for start, end in sample.slices), timedelta(0))
-        self.assertAlmostEqual(read / window, sample.rate, places=6)
+        read = sum(
+            (min(to, end + CHILD_MARGIN) - max(FROM, start - CHILD_MARGIN) for start, end in sample.slices),
+            timedelta(0),
+        )
+        self.assertAlmostEqual(read / window, 1 / overload, places=3)
         self.assertTrue(all(FROM <= start < end <= to for start, end in sample.slices))
         self.assertTrue(all(a[1] <= b[0] for a, b in zip(sample.slices, sample.slices[1:])))
+
+    def test_burst_in_one_minute_gets_a_narrow_slice(self) -> None:
+        # Twice the limit in the first minute of an hour and nothing after it: a third of that minute,
+        # plus its child margin, holds the limit.
+        to = FROM + timedelta(hours=1)
+        sample = _plan_sample(_SpanDensity.from_minutes([(FROM, EXACT_SPAN_LIMIT * 2)], FROM, to), FROM, to)
+        assert sample is not None
+        start, end = sample.slices[0]
+        self.assertAlmostEqual((end - start).total_seconds(), 20, places=3)
