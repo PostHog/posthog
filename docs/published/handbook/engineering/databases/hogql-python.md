@@ -311,7 +311,8 @@ A `FieldTraverser` can use `..` to reach its parent table, followed by the targe
 The resolver raises a `QueryError` if there is no parent or if the chain ends at `..`.
 
 Custom properties on `posthog.ai_events` use their event property definitions for Boolean, numeric, and DateTime conversions, as `events` does.
-Properties backed by native AI columns keep their schema types even when property detection reports another type.
+Properties mapped to native String AI columns stay strings even when property detection reports another type.
+Typed properties keep their converted types through subqueries and CTEs.
 
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.

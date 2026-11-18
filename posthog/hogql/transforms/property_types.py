@@ -5,7 +5,12 @@ from typing import Literal, Optional
 from posthog.hogql import ast
 from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, is_virtual_feature_flag_key
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DateTimeDatabaseField,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+)
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
@@ -55,6 +60,8 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         group_property_names=property_finder.group_properties,
     )
     context.property_metadata = metadata
+    # CTE definitions stay on the AST; rebuild their inferred fields with the loaded property types.
+    context.cte_database_table_cache = {}
 
     if context.type_observability is not None:
         context.type_observability.record_property_definition_lookup(
@@ -818,8 +825,10 @@ class PropertySwapper(CloningVisitor):
                     if property_name in self.person_properties:
                         return ("person", property_name)
                 elif isinstance(resolved_table, _EVENT_PROPERTY_TABLES):
-                    # Detection can misclassify IDs, so native AI columns keep their schema types.
-                    if isinstance(resolved_table, AiEventsTable) and property_name in AI_PROPERTY_TO_COLUMN:
+                    # Detection can misclassify IDs, so native String AI columns keep their schema types.
+                    if isinstance(resolved_table, AiEventsTable) and isinstance(
+                        resolved_table.fields.get(AI_PROPERTY_TO_COLUMN.get(property_name, "")), StringDatabaseField
+                    ):
                         return None
                     if property_name in self.event_properties:
                         return ("event", property_name)

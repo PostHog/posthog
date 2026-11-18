@@ -1,5 +1,5 @@
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, materialized
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, materialized
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
@@ -319,7 +319,103 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
 
         assert result.results == [(match,)]
 
-    def test_native_id_ignores_detected_numeric_type(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "boolean",
+                "$ai_is_error",
+                "Boolean",
+                True,
+                False,
+                "SELECT properties.$ai_is_error FROM posthog.ai_events WHERE properties.$ai_is_error = true",
+            ),
+            (
+                "numeric",
+                "$ai_total_tokens",
+                "Numeric",
+                123,
+                100,
+                "SELECT properties.$ai_total_tokens FROM posthog.ai_events WHERE properties.$ai_total_tokens > 100",
+            ),
+        ]
+    )
+    def test_direct_filters_typed_native_property(
+        self, _name: str, key: str, property_type: str, match: bool | int, other: bool | int, query: str
+    ) -> None:
+        PropertyDefinition.objects.create(team=self.team, name=key, property_type=property_type)
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "example-user",
+                    "properties": {key: value},
+                }
+                for value in (match, other)
+            ]
+        )
+
+        result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
+
+        assert result.results == [(match,)]
+
+    @parameterized.expand(
+        [
+            (
+                "subquery",
+                False,
+                "SELECT toYear(toDateTime(d)) FROM (SELECT properties.example_date AS d FROM posthog.ai_events)",
+            ),
+            (
+                "cte",
+                False,
+                "WITH dated_events AS (SELECT properties.example_date AS d FROM posthog.ai_events) "
+                "SELECT toYear(toDateTime(d)) FROM dated_events",
+            ),
+            (
+                "events_cte",
+                True,
+                "WITH dated_events AS (SELECT properties.example_date AS d FROM events) "
+                "SELECT toYear(toDateTime(d)) FROM dated_events",
+            ),
+        ]
+    )
+    def test_datetime_property_through_projection(self, _name: str, use_events: bool, query: str) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="example_date", property_type="DateTime")
+        event = {
+            "event": "$ai_generation",
+            "team": self.team,
+            "distinct_id": "example-user",
+            "properties": {"example_date": "2024-04-05T06:07:08Z"},
+        }
+        if use_events:
+            _create_event(**event)
+        else:
+            bulk_create_ai_events([event])
+
+        result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
+
+        assert result.results == [(2024,)]
+
+    @parameterized.expand(
+        [
+            (
+                "direct",
+                "SELECT properties.$ai_trace_id FROM posthog.ai_events WHERE properties.$ai_trace_id = '00123'",
+            ),
+            (
+                "subquery",
+                "SELECT trace FROM (SELECT properties.$ai_trace_id AS trace FROM posthog.ai_events) "
+                "WHERE toDateTime(trace) IS NULL",
+            ),
+            (
+                "cte",
+                "WITH traces AS (SELECT properties.$ai_trace_id AS trace FROM posthog.ai_events) "
+                "SELECT trace FROM traces WHERE toDateTime(trace) IS NULL",
+            ),
+        ]
+    )
+    def test_native_id_ignores_detected_numeric_type(self, _name: str, query: str) -> None:
         PropertyDefinition.objects.create(team=self.team, name="$ai_trace_id", property_type="Numeric")
         bulk_create_ai_events(
             [
@@ -333,7 +429,7 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
         )
 
         result = execute_hogql_query(
-            "SELECT properties.$ai_trace_id FROM posthog.ai_events WHERE properties.$ai_trace_id = '00123'",
+            query,
             team=self.team,
             workload=Workload.ONLINE,
         )
