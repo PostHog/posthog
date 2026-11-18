@@ -162,6 +162,9 @@ class TestModelSuggestionsHighlight(BaseTest):
         teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
         self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("orders").id, assignee=self.user)
         self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("sessions").id, assignee=teammate)
+        not_editable_by_teammate = self._view("revenue")
+        self._suggest(WarehouseSuggestionKind.MATERIALIZE, not_editable_by_teammate.id, assignee=teammate)
+        self._restrict_view(not_editable_by_teammate.id, "viewer", member=teammate)
         former_member = User.objects.create(email="former@example.com")
         self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("legacy").id, assignee=former_member)
         self._suggest(WarehouseSuggestionKind.UNMATERIALIZE, self._view("events_daily").id)
@@ -178,7 +181,7 @@ class TestModelSuggestionsHighlight(BaseTest):
 
         assert [(item.title, item.detail, item.url) for item in found.items] == [
             ("1 model suggestion assigned to you waits for review", "Review it in Models.", "/models?tab=models"),
-            ("3 model suggestions wait for review", "Review them in Models.", "/models?tab=models"),
+            ("4 model suggestions wait for review", "Review them in Models.", "/models?tab=models"),
         ]
 
     def test_a_view_deprecation_counts_only_in_models(self) -> None:
@@ -249,7 +252,7 @@ class TestModelSuggestionsHighlight(BaseTest):
             WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id).update(assignee=assignee)
         return suggestion
 
-    def _restrict_view(self, view_id: UUID, access_level: str) -> None:
+    def _restrict_view(self, view_id: UUID, access_level: str, member: User | None = None) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -258,6 +261,10 @@ class TestModelSuggestionsHighlight(BaseTest):
             team=self.team,
             resource="warehouse_view",
             resource_id=str(view_id),
-            organization_member=self.organization_membership,
+            organization_member=(
+                member.organization_memberships.get(organization=self.organization)
+                if member
+                else self.organization_membership
+            ),
             access_level=access_level,
         )

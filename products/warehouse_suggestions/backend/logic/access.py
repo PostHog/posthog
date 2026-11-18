@@ -6,6 +6,7 @@ from uuid import UUID
 from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 
 from posthog.dataclasses import frozen
+from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.api import allowed_saved_query_ids, backing_table_ids_by_saved_query
@@ -23,7 +24,7 @@ from .flags import is_warehouse_suggestions_enabled
 from .rules import RULES
 
 if TYPE_CHECKING:
-    from posthog.models import Team, User
+    from posthog.models import Team
 
     from products.access_control.backend.facade.user_access_control import AccessControlLevel
 
@@ -79,14 +80,28 @@ def can_take(team: "Team", user: "User", suggestion: WarehouseSuggestion) -> boo
     """Whether `user` has access to the project and every edit access accepting `suggestion` needs."""
     if not team.all_users_with_access().filter(id=user.id).exists():
         return False
+    return suggestion.id in _editable_suggestion_ids(team, user, [suggestion])
+
+
+def _editable_suggestion_ids(team: "Team", user: "User", suggestions: Sequence[WarehouseSuggestion]) -> frozenset[UUID]:
     user_access_control = UserAccessControl(user, team)
-    if suggestion.kind in CATALOG_KINDS and not user_access_control.check_access_level_for_resource(
-        "data_catalog", required_level=EDITOR_LEVEL
-    ):
-        return False
-    allowed_ids = ALLOWED_SUBJECT_IDS[WarehouseSuggestionSubjectKind(suggestion.subject_kind)]
-    return suggestion.subject_id in allowed_ids(
-        team.pk, user_access_control, required_level=EDITOR_LEVEL, ids=[suggestion.subject_id]
+    catalog_editor = any(
+        suggestion.kind in CATALOG_KINDS for suggestion in suggestions
+    ) and user_access_control.check_access_level_for_resource("data_catalog", required_level=EDITOR_LEVEL)
+    subject_ids: defaultdict[WarehouseSuggestionSubjectKind, set[UUID]] = defaultdict(set)
+    for suggestion in suggestions:
+        subject_ids[WarehouseSuggestionSubjectKind(suggestion.subject_kind)].add(suggestion.subject_id)
+    editable = {
+        subject_kind: ALLOWED_SUBJECT_IDS[subject_kind](
+            team.pk, user_access_control, required_level=EDITOR_LEVEL, ids=ids
+        )
+        for subject_kind, ids in subject_ids.items()
+    }
+    return frozenset(
+        suggestion.id
+        for suggestion in suggestions
+        if suggestion.subject_id in editable[WarehouseSuggestionSubjectKind(suggestion.subject_kind)]
+        and (catalog_editor or suggestion.kind not in CATALOG_KINDS)
     )
 
 
@@ -184,7 +199,7 @@ def actionable_open_counts(
     *,
     excluded_surface: WarehouseSuggestionSurface | None = None,
 ) -> OpenCounts:
-    """Counts the open suggestions `user` can act on: assigned to `user`, and with no assignee in the project."""
+    """Counts the open suggestions `user` can act on: assigned to `user`, and with no assignee who can take them."""
     if not is_warehouse_suggestions_enabled(team):
         return NO_OPEN_SUGGESTIONS
     visible, access = visible_suggestions(
@@ -196,21 +211,33 @@ def actionable_open_counts(
     actionable = visible.filter(access.editable_q(), kind__in=kinds)
     if excluded_surface is not None:
         actionable = actionable.exclude(surface_q(excluded_surface))
-    assignee_ids = list(actionable.order_by().values_list("assignee_id", flat=True))
-    other_assignee_ids = {
-        assignee_id for assignee_id in assignee_ids if assignee_id is not None and assignee_id != user.pk
-    }
-    owner_ids = {user.pk, *_project_member_ids(team, other_assignee_ids)}
+    suggestions = list(
+        actionable.select_related(None).order_by().only("id", "kind", "subject_kind", "subject_id", "assignee")
+    )
+    taken_ids = _taken_by_other_assignees(
+        team, [suggestion for suggestion in suggestions if suggestion.assignee_id not in (None, user.pk)]
+    )
     return OpenCounts(
-        assigned_to_viewer=assignee_ids.count(user.pk),
-        unassigned=sum(1 for assignee_id in assignee_ids if assignee_id not in owner_ids),
+        assigned_to_viewer=sum(1 for suggestion in suggestions if suggestion.assignee_id == user.pk),
+        unassigned=sum(
+            1 for suggestion in suggestions if suggestion.assignee_id != user.pk and suggestion.id not in taken_ids
+        ),
     )
 
 
-def _project_member_ids(team: "Team", user_ids: set[int]) -> frozenset[int]:
-    if not user_ids:
+def _taken_by_other_assignees(team: "Team", suggestions: Sequence[WarehouseSuggestion]) -> frozenset[UUID]:
+    by_assignee: defaultdict[int, list[WarehouseSuggestion]] = defaultdict(list)
+    for suggestion in suggestions:
+        if suggestion.assignee_id is not None:
+            by_assignee[suggestion.assignee_id].append(suggestion)
+    if not by_assignee:
         return frozenset()
-    return frozenset(team.all_users_with_access().filter(id__in=user_ids).values_list("id", flat=True))
+    assignee_uuids = [str(uuid) for uuid in User.objects.filter(id__in=by_assignee).values_list("uuid", flat=True)]
+    return frozenset(
+        suggestion_id
+        for assignee in team.all_users_with_access(user_uuids=assignee_uuids)
+        for suggestion_id in _editable_suggestion_ids(team, assignee, by_assignee[assignee.pk])
+    )
 
 
 def subject_access(
