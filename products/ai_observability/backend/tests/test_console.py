@@ -375,13 +375,29 @@ class TestTaggersPanel(BaseTest):
         self.bounded.refresh_from_db()
         assert (self.bounded.enabled, self.bounded.migrated_to_evaluation_id) == (False, evaluation.id)
 
+    @parameterized.expand([("no_active_key", None), ("active_key_for_another_provider", "anthropic")])
     @patch("products.ai_observability.backend.logic.tagger_migration.migration.reload_taggers_on_workers")
     @patch("products.ai_observability.backend.logic.tagger_migration.migration.load_recent_tag_counts")
-    def test_a_tagger_whose_team_key_was_deleted_moves_to_a_switched_off_evaluation(
-        self, load_counts: MagicMock, _reload_taggers: MagicMock
+    def test_a_tagger_whose_key_was_deleted_moves_to_a_switched_off_evaluation(
+        self, _name: str, active_provider: str | None, load_counts: MagicMock, _reload_taggers: MagicMock
     ) -> None:
         load_counts.return_value = {str(self.active.id): 120}
-        EvaluationConfig.objects.filter(team=self.team).update(active_provider_key=None)
+        active_key = None
+        if active_provider is not None:
+            active_key = LLMProviderKey.objects.create(
+                team=self.team,
+                provider=active_provider,
+                name="Other provider",
+                state=LLMProviderKey.State.OK,
+                encrypted_config={"api_key": "sk-other"},
+            )
+            # The tagger's own OpenAI key is gone, so the model it kept has no key to run on.
+            Tagger.objects.filter(pk=self.active.pk).update(
+                model_configuration=LLMModelConfiguration.objects.create(
+                    team=self.team, provider="openai", model="gpt-5-mini", provider_key=None
+                )
+            )
+        EvaluationConfig.objects.filter(team=self.team).update(active_provider_key=active_key)
 
         with self.captureOnCommitCallbacks(execute=True):
             migrate_taggers(self.team)

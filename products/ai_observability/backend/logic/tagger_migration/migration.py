@@ -100,13 +100,16 @@ def _model_configuration(tagger: Tagger, team: Team) -> dict[str, Any] | None:
 
 
 def _key_problem(team: Team, model_configuration: dict[str, Any] | None) -> EvaluationStatusReason:
-    """Why an evaluation can't run on the key it would use: its pinned key, or else the team's active key."""
+    """Why an evaluation can't run on the key it would use: its pinned key, or else the team's active key when that
+    key is for the evaluation's provider, as the runtime resolves it."""
     key_id = (model_configuration or {}).get("provider_key_id")
     if key_id:
         key = LLMProviderKey.objects.filter(team=team, id=key_id).first()
     else:
         config = EvaluationConfig.objects.filter(team=team).select_related("active_provider_key").first()
         key = config.active_provider_key if config else None
+        if key is not None and model_configuration is not None and key.provider != model_configuration["provider"]:
+            key = None
     if key is None:
         return EvaluationStatusReason.PROVIDER_KEY_REQUIRED
     if key.state != LLMProviderKey.State.OK:
