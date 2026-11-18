@@ -295,7 +295,6 @@ export interface ExecToolOptions {
      */
     builtInSkillHint?: BuiltInSkillHint
     oauthClientId?: string | undefined
-    /** The OAuth client asks the user for a missing scope when a tool call needs one (step-up). */
     supportsStepUp?: boolean | undefined
     /**
      * The tools a scout run with a picked tool list holds. A catalog or connected tool outside this
@@ -719,7 +718,6 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     // Self-managed tables (reading a bucket in place) can no longer be created.
     'warehouse-tables-create': () =>
         'Tool "warehouse-tables-create" was removed. PostHog no longer links tables that read your bucket directly. To import bucket files, add an Amazon S3, Google Cloud Storage, Azure Blob, or Cloudflare R2 source with "data-warehouse-source-setup". Run "external-data-sources-wizard" for the required fields. To import a local file, upload it in the PostHog app at /data-warehouse/new-source?kind=FileUpload. The upload creates a FileUpload source.',
-    // Renamed into the code-review namespace. Older agent instructions still name these tools.
     ...Object.fromEntries(
         [
             ['review-hog-reviews-get', 'code-review-reviews-get'],
