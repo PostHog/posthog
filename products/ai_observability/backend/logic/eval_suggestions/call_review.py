@@ -109,6 +109,14 @@ Each card is an LLM judge that will grade single calls of its call types. Custom
 - Call things what people see in the app, such as "order summaries" or "meeting notes", never a field name, a module name, or a term such as "payload", "metadata" or "span".
 - Cut every word that adds nothing. No dashes or colons, and no words like "just", "simply" or "actually".
 
+Titles rewritten this way:
+- "Itinerary segments with null arrival_ts" becomes "Trip plans with missing arrival times".
+- "Escalation intent misclassification" becomes "Angry customers sent to the FAQ bot".
+- "Line item total mismatch" becomes "Invoice totals that don't add up".
+- "SMS reply length violations" becomes "Text replies over 160 characters".
+- "Hallucinated API parameter references" becomes "Code answers that invent API options".
+A why rewritten this way: "Downstream consumers receive malformed payloads." becomes "The booking page shows trips with no arrival time."
+
 The fields:
 - title: what goes wrong, in at most 8 words and in sentence case, such as "Support replies that promise a refund" or "Recipes with steps missing quantities". Keep a number only when it is the rule itself, such as "Post drafts over 280 characters". No counts or rates, so it stays true when the sample changes.
 - summary: one short sentence that starts with "Flags" and says what gets flagged and where the check applies. Keep every qualifier that changes the meaning, such as "visible objection cards" or "the child's latest answer". Leave field names and exact syntax to the rule.
