@@ -41,6 +41,7 @@ import re
 import ast
 import sys
 import json
+import difflib
 import argparse
 import warnings
 import subprocess
@@ -67,8 +68,6 @@ API_SURFACE_PARTS = {"api", "presentation", "serializers", "views", "urls"}
 # Files/patterns that force a full test run when changed.
 FULL_RUN_PATTERNS = (
     # Python infrastructure
-    "conftest.py",
-    "posthog/settings/",
     "posthog/test/",
     "manage.py",
     "pyproject.toml",
@@ -110,8 +109,32 @@ FULL_RUN_PATTERNS = (
     # The personhog gRPC stubs are an installed package, so the import graph has no edge from
     # `personhog.*` to these files. Every personhog_client consumer depends on them.
     "packages/personhog-proto/",
-    # Generates frontend/src/products.json, which is a full-run pattern in its own right.
-    "manifest.tsx",
+)
+
+SETTINGS_DIR = "posthog/settings/"
+REPO_INVARIANTS_DIR = "posthog/test/repo_invariants/"
+# A settings statement may only call these, so evaluating it cannot change any other state.
+INERT_SETTINGS_CALLS = frozenset(
+    {
+        "bool",
+        "dict",
+        "float",
+        "frozenset",
+        "get_from_env",
+        "get_list",
+        "get_set",
+        "int",
+        "len",
+        "list",
+        "max",
+        "min",
+        "os.environ.get",
+        "os.getenv",
+        "set",
+        "str",
+        "timedelta",
+        "tuple",
+    }
 )
 
 # Patterns that indicate "broad API tests needed" but not full suite.
@@ -466,7 +489,153 @@ def _add_group(groups: dict[str, set[str]], name: str, tests: list[str] | set[st
     groups.setdefault(name, set()).update(tests)
 
 
-def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestFeatures]) -> AstSelection:
+def _git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True)
+
+
+def _git_grep_patterns(names: list[str] | set[str]) -> list[str]:
+    return ["-w", "-F", *(arg for name in sorted(names) for arg in ("-e", name))]
+
+
+def _is_repo_invariants_baseline(path: str) -> bool:
+    pure = PurePosixPath(path)
+    return f"{pure.parent}/" == REPO_INVARIANTS_DIR and pure.suffix == ".txt"
+
+
+def _conftest_reaches_django_matrix(path: str) -> bool:
+    """A product conftest loads only for the tests below it, which run in the product matrix,
+    unless the Temporal leg's product suites sit below it too."""
+    pure = PurePosixPath(path)
+    if pure.name != "conftest.py":
+        return False
+    if not path.startswith("products/"):
+        return True
+    directory = f"{pure.parent}/"
+    return any(root.startswith(directory) or directory.startswith(root) for root in _TEMPORAL_PREFIXES)
+
+
+def _inert_assignment_name(statement: ast.stmt) -> str | None:
+    if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+        target = statement.targets[0]
+    elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+        target = statement.target
+    else:
+        return None
+    if not isinstance(target, ast.Name):
+        return None
+    for node in ast.walk(statement):
+        if isinstance(node, (ast.NamedExpr, ast.Await, ast.Yield, ast.YieldFrom)):
+            return None
+        if isinstance(node, ast.Call) and ast.unparse(node.func) not in INERT_SETTINGS_CALLS:
+            return None
+    return target.id
+
+
+def _added_settings_names(path: str, base_ref: str) -> list[str] | None:
+    """The names a settings module newly assigns, or None when the diff changes anything else."""
+    base = _git("show", f"{base_ref}:{path}")
+    if base.returncode != 0:
+        return None
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            base_body = ast.parse(base.stdout).body
+            head_body = ast.parse((REPO_ROOT / path).read_text()).body
+    except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
+        return None
+    matcher = difflib.SequenceMatcher(
+        a=[ast.dump(statement) for statement in base_body],
+        b=[ast.dump(statement) for statement in head_body],
+        autojunk=False,
+    )
+    names: list[str] = []
+    for tag, _base_start, _base_end, head_start, head_end in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if tag != "insert":
+            return None
+        for statement in head_body[head_start:head_end]:
+            name = _inert_assignment_name(statement)
+            if name is None:
+                return None
+            names.append(name)
+    return names
+
+
+def _settings_namespace(name: str) -> str:
+    return name.lstrip("_").split("_", 1)[0]
+
+
+def _framework_namespaces(new_names: set[str]) -> set[str] | None:
+    """Namespaces of existing settings that no code outside posthog/settings/ reads. Django or a
+    library reads those by name (CSRF_*, CELERY_*, SOCIAL_AUTH_*), so a new name there can change
+    behavior that no import edge shows."""
+    namespaces = {_settings_namespace(name) for name in new_names}
+    existing: set[str] = set()
+    for module in sorted((REPO_ROOT / SETTINGS_DIR).rglob("*.py")):
+        tree = _read_tree(str(module.relative_to(REPO_ROOT)))
+        if not isinstance(tree, ast.Module):
+            return None
+        for statement in tree.body:
+            targets = statement.targets if isinstance(statement, ast.Assign) else []
+            if isinstance(statement, (ast.AnnAssign, ast.AugAssign)):
+                targets = [statement.target]
+            for target in targets:
+                if isinstance(target, ast.Name) and _settings_namespace(target.id) in namespaces:
+                    existing.add(target.id)
+    existing -= new_names
+    if not existing:
+        return set()
+    read = _git("grep", "-h", "-o", *_git_grep_patterns(existing), "--", ".", f":(exclude){SETTINGS_DIR}")
+    if read.returncode not in (0, 1):
+        return None
+    return {_settings_namespace(name) for name in existing - set(read.stdout.split())}
+
+
+def _settings_change_is_inert(path: str, base_ref: str, changed_files: list[str]) -> bool:
+    """True when the diff only adds settings that nothing read before it: each new top-level name
+    did not exist at the merge base, and only files this diff changes read it, so the selection
+    of those files covers it. Anything the check cannot prove returns False."""
+    names = _added_settings_names(path, base_ref)
+    if names is None:
+        return False
+    if not names:
+        return True
+    existed = _git("grep", "-q", *_git_grep_patterns(names), base_ref, "--", SETTINGS_DIR)
+    if existed.returncode != 1:
+        return False
+    changed = set(changed_files)
+    for name in names:
+        readers = _git("grep", "-l", *_git_grep_patterns([name]), "--", ".", f":(exclude){SETTINGS_DIR}")
+        if readers.returncode != 0:
+            return False
+        reader_paths = set(readers.stdout.split())
+        if not reader_paths <= changed:
+            return False
+    framework = _framework_namespaces(set(names))
+    if framework is None:
+        return False
+    return not framework & {_settings_namespace(name) for name in names}
+
+
+def _full_run_reason(path: str, base_ref: str | None, changed_files: list[str]) -> str | None:
+    if _is_repo_invariants_baseline(path):
+        return None
+    if path.startswith(SETTINGS_DIR) and PurePosixPath(path).name != "owners.yaml":
+        if path.endswith(".py") and base_ref is not None and _settings_change_is_inert(path, base_ref, changed_files):
+            return None
+        return f"{path} changes Django settings beyond adding new, unread names"
+    if _conftest_reaches_django_matrix(path):
+        return f"{path} is a conftest that the Django matrix loads"
+    for pattern in FULL_RUN_PATTERNS:
+        if pattern in path:
+            return f"{path} matches full-run pattern {pattern}"
+    return None
+
+
+def ast_select_tests(
+    changed_files: list[str], features_by_path: dict[str, TestFeatures], base_ref: str | None = None
+) -> AstSelection:
     groups: dict[str, set[str]] = {}
     full_run_reasons: list[str] = []
     all_test_files = set(features_by_path.keys())
@@ -474,6 +643,14 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     # ── 1. Changed test files themselves ─────────────────────────────
     changed_tests = _runnable_test_files([path for path in changed_files if _is_test_file(path)])
     _add_group(groups, "changed_tests", changed_tests)
+
+    # Only the guards in posthog/test/repo_invariants/ read their baseline files.
+    if any(_is_repo_invariants_baseline(path) for path in changed_files):
+        _add_group(
+            groups,
+            "repo_invariants_baselines",
+            _runnable_test_files([path for path in all_test_files if path.startswith(REPO_INVARIANTS_DIR)]),
+        )
 
     # ── 2. Conventional test neighbors (test_<name>.py next to <name>.py) ─
     conventional: set[str] = set()
@@ -490,10 +667,9 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
 
     for path in changed_files:
         if not _is_test_file(path):
-            for pattern in FULL_RUN_PATTERNS:
-                if pattern in path:
-                    full_run_reasons.append(f"{path} matches full-run pattern {pattern}")
-                    break
+            reason = _full_run_reason(path, base_ref, changed_files)
+            if reason:
+                full_run_reasons.append(reason)
             if path in high_fanout:
                 full_run_reasons.append(f"{path} is a high-fanout file (testmon: >50% of tests)")
 
@@ -725,7 +901,7 @@ def build_result(base_ref: str) -> dict[str, Any]:
     os.chdir(REPO_ROOT)
     changed_files = changed_files_from_git(base_ref)
     features_by_path = classify_tests()
-    ast_selection = ast_select_tests(changed_files, features_by_path)
+    ast_selection = ast_select_tests(changed_files, features_by_path, base_ref)
     snob_selection = snob_select_tests(changed_files)
 
     snob_tests = [str(test) for test in snob_selection.get("tests", [])]

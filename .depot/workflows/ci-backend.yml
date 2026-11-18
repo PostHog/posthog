@@ -434,8 +434,9 @@ jobs:
                         - pytest.ini
                         - conftest.py
                         - .test_quarantine.json
+                        # Python reads only the generated products.json, and ci-frontend fails a
+                        # manifest.tsx edit that leaves it stale, so manifest.tsx is not listed here.
                         - frontend/src/products.json
-                        - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
                         - .depot/workflows/ci-backend.yml
                         - .github/new-events-schema-targets.txt
@@ -453,6 +454,11 @@ jobs:
                         # so they shouldn't trigger the Django/turbo-discover path either.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                        # Ownership data, which no Django test reads from the checkout.
+                        - '!**/owners.yaml'
+                        # Only the guards in posthog/test/repo_invariants/ read these baselines, and
+                        # repo-checks runs those guards on every backend diff.
+                        - '!posthog/test/repo_invariants/*.txt'
                         # Generated from frontend/src/queries/schema.json (see the `schema`
                         # filter below). Excluding them here routes schema-only PRs into
                         # turbo-discover's schema-impact narrowing instead of the
