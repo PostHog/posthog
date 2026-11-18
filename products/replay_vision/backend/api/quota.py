@@ -99,6 +99,13 @@ class VisionQuotaSerializer(serializers.Serializer):
             "only credits beyond this number are billed."
         ),
     )
+    awaiting_billing_sync = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True while billing has not yet synced this organization's limit and free credits. Nothing can run "
+            "until it does, which usually takes seconds; poll this endpoint until it turns false."
+        ),
+    )
 
 
 class VisionSpendDaySerializer(serializers.Serializer):

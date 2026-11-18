@@ -45,6 +45,29 @@ describe('visionQuotaLogic', () => {
         expect(logic.values.quota?.projected_monthly_credits).toBe(0)
     })
 
+    it('treats an org billing has not synced as still loading, and polls until billing lands', async () => {
+        await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
+        logic.unmount()
+        let synced = false
+        const unsynced = makeQuota({ credit_limit: 0, free_monthly_credits: 0, awaiting_billing_sync: true })
+        useMocks({ get: { '/api/projects/:team/vision/quota/': () => [200, synced ? quota : unsynced] } })
+        jest.useFakeTimers()
+        try {
+            logic = visionQuotaLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(100)
+            await expectLogic(logic).toDispatchActions(['billingSyncPending', 'loadQuotaSuccess'])
+            expect(logic.values.quota).toBeNull()
+
+            synced = true
+            await jest.advanceTimersByTimeAsync(3100)
+            await expectLogic(logic).toDispatchActions(['loadQuota', 'loadQuotaSuccess'])
+            expect(logic.values.quota?.credit_limit).toBe(1000)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('adjustProjectedMonthly is a no-op before the quota has loaded', () => {
         logic.actions.adjustProjectedMonthly(250)
         expect(logic.values.quota).toBeNull()

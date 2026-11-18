@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
@@ -40,6 +40,9 @@ export interface visionQuotaLogicActions {
     loadBilling: () => any // billingLogic
     adjustProjectedMonthly: (delta: number) => {
         delta: number
+    }
+    billingSyncPending: () => {
+        value: true
     }
     loadQuota: () => {
         value: true
@@ -87,6 +90,9 @@ export type visionQuotaLogicType = MakeLogicType<
     visionQuotaLogicMeta
 >
 
+// The server asks billing to sync an unsynced org on its first read, which usually lands within seconds.
+const BILLING_SYNC_POLL_MS = 3000
+
 export const visionQuotaLogic = kea<visionQuotaLogicType>([
     path(['products', 'replay_vision', 'frontend', 'logics', 'visionQuotaLogic']),
 
@@ -98,11 +104,12 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
     actions({
         // Declared here so the action stays zero-arg despite the loader's `breakpoint` parameter.
         loadQuota: true,
+        billingSyncPending: true,
         // Optimistic shift of the fleet projection (e.g. ±scanner estimate on toggle); loadQuota reconciles.
         adjustProjectedMonthly: (delta: number) => ({ delta }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         quota: [
             null as VisionQuotaApi | null,
             {
@@ -114,7 +121,13 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
                         return values.quota
                     }
                     try {
-                        return await environmentVisionQuotaRetrieve(String(teamId))
+                        const quota = await environmentVisionQuotaRetrieve(String(teamId))
+                        if (quota.awaiting_billing_sync) {
+                            // Its zero credits are a placeholder, so show it as still loading rather than used up.
+                            actions.billingSyncPending()
+                            return values.quota
+                        }
+                        return quota
                     } catch {
                         // Keep the last-known snapshot — nulling it would silently drop the exhausted-quota guards.
                         return values.quota
@@ -179,6 +192,14 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
         ],
     }),
 
+    listeners(({ actions, cache }) => ({
+        billingSyncPending: () => {
+            cache.disposables.add(() => {
+                const timer = setTimeout(() => actions.loadQuota(), BILLING_SYNC_POLL_MS)
+                return () => clearTimeout(timer)
+            }, 'billingSyncPoll')
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadQuota()
         // billingLogic doesn't self-load; the ingestion banner needs billing on cold navigation.

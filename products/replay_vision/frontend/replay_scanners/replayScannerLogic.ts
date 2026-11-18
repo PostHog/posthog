@@ -441,12 +441,9 @@ export type CreditLimitUnit = 'credits' | 'observations'
 
 export type GoalSpendMode = 'free' | 'budget'
 
-// Used before the quota loads or when it has no free credits; matches FREE_TIER_MONTHLY_CREDITS in backend/billing.py.
-const FALLBACK_GOAL_BUDGET = 2500
-
-/** Prefills the typed budget at the org's free monthly credits. */
-export function defaultGoalBudget(quota: VisionQuotaApi | null): number {
-    return quota?.free_monthly_credits || FALLBACK_GOAL_BUDGET
+/** Prefills the typed budget at the org's free monthly credits; empty until the quota loads, or with none to offer. */
+export function defaultGoalBudget(quota: VisionQuotaApi | null): number | null {
+    return quota?.free_monthly_credits || null
 }
 
 /** The spend a goal draft is sized to. The server sizes a free-only draft to the free credits it can spend. */
@@ -982,7 +979,12 @@ export interface replayScannerLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isNew: (id: string) => boolean
-        goalBudgetInput: (goalBudgetEdit: any, quota: any) => number | null
+        goalBudgetInput: (
+            goalBudgetEdit: {
+                budget: number | null
+            } | null,
+            quota: VisionQuotaApi | null
+        ) => number | null
         durationValidationError: (scanner: ScannerFormValues) => string | null
         stepErrors: (
             showScannerErrors: boolean,

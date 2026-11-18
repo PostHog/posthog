@@ -91,9 +91,6 @@ AVG_OUTPUT_TOKENS_PER_OBSERVATION = 200
 # (rasterizing, video cache storage, retries) plus margin.
 TARGET_MARGIN = 3.75
 
-# The free plan's allocation, used only for orgs whose billing sync carries no per-org `free_allocation`.
-FREE_TIER_MONTHLY_CREDITS = 2500
-
 
 def suggested_observation_credits(info: GeminiModelPricing, margin: float = TARGET_MARGIN) -> int:
     """Suggested credits per observation for a model, derived from its token prices and a target margin."""
