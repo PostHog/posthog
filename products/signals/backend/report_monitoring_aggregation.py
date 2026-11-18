@@ -21,7 +21,6 @@ class MonitoringAggregation(models.TextChoices):
 
 
 def aggregate_monitoring_members(members: Collection[MonitoringMemberState]) -> MonitoringAggregation:
-    # A cancelled check leaves the snapshot. With none left, the report resolves as if it never had checks.
     states = frozenset(members) - {MonitoringMemberState.CANCELLED}
     if MonitoringMemberState.FAILED in states:
         return MonitoringAggregation.FAILED
