@@ -4656,12 +4656,19 @@ def validate_task_run_sandbox_token(
         claims = validate_sandbox_event_ingest_token(token)
     except (InvalidTokenError, ValueError):
         return False
-    return (
-        claims.run_id == str(run_id)
-        and claims.task_id == str(task_id)
-        and claims.team_id == team_id
-        and claims.sandbox_id == sandbox_id
-    )
+    if (
+        claims.run_id != str(run_id)
+        or claims.task_id != str(task_id)
+        or claims.team_id != team_id
+        or claims.sandbox_id != sandbox_id
+    ):
+        return False
+    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "status").first()
+    if run is not None and run.is_terminal:
+        from products.tasks.backend.metrics import observe_ended_run_credential_used
+
+        observe_ended_run_credential_used(surface="task_run_sandbox_token")
+    return True
 
 
 def issue_codex_subscription_access_grant(

@@ -16386,16 +16386,28 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("live_run", TaskRun.Status.IN_PROGRESS, 0),
+            ("ended_run", TaskRun.Status.COMPLETED, 1),
+        ]
+    )
     @patch("products.tasks.backend.models.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
-    def test_task_session_sync_atomically_replaces_opaque_content(self, mock_write, mock_tag):
+    def test_task_session_sync_atomically_replaces_opaque_content(
+        self, _name, run_status, ended_run_credential_uses, mock_write, mock_tag
+    ):
         task = self.create_task(runtime=Task.Runtime.PI)
         run = self._create_run_with_sandbox(task)
         task_session = TaskSession.create_for_task(task)
         run.active_task_session = task_session
         run.save(update_fields=["active_task_session"])
         self._open_sandbox_session(run)
+        TaskRun.objects.filter(id=run.id).update(status=run_status)
         content = b"opaque native session content"
+        metric = "posthog_tasks_ended_run_credential_used_total"
+        labels = {"surface": "task_run_sandbox_token"}
+        counted_before = REGISTRY.get_sample_value(metric, labels) or 0
 
         response = self.client.generic(
             "POST",
@@ -16416,6 +16428,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertIsNotNone(task_session.object_storage_key)
         mock_write.assert_called_once_with(task_session.object_storage_key, content)
         mock_tag.assert_called_once()
+        self.assertEqual((REGISTRY.get_sample_value(metric, labels) or 0) - counted_before, ended_run_credential_uses)
 
     @patch("posthog.storage.object_storage.delete")
     @patch("posthog.storage.object_storage.write")
