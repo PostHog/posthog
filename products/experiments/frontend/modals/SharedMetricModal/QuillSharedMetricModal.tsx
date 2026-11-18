@@ -141,128 +141,132 @@ export function QuillSharedMetricModal({ model }: { model: SharedMetricModalMode
                 <DialogHeader>
                     <DialogTitle>Select one or more shared metrics</DialogTitle>
                 </DialogHeader>
-                <DialogBody className="flex flex-col gap-3">
-                    {hasAnyCompatibleSharedMetrics ? (
-                        <>
-                            {alreadyAddedNote && <InfoItem>{alreadyAddedNote}</InfoItem>}
-                            <AnalyticsSearchInput
-                                value={searchTerm}
-                                onChange={setSearchTerm}
-                                label="Search shared metrics"
-                                placeholder="Search shared metrics..."
-                                dataAttr="shared-metric-modal-search"
-                            />
-                            <div className="flex flex-wrap items-center gap-1">
-                                <Text size="xs" variant="muted" render={<span className="mr-1" />}>
-                                    Quick select:
-                                </Text>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    loading={loading}
-                                    disabledReason={
-                                        displayedSelectableIds.length === 0 ? 'No metrics to select' : undefined
-                                    }
-                                    onClick={selectAllDisplayed}
-                                >
-                                    All
-                                </Button>
-                                {selectedMetricIds.length > 0 && (
-                                    <Button variant="outline" size="sm" onClick={clearSelectedMetricIds}>
-                                        Clear
-                                    </Button>
-                                )}
-                            </div>
-                            {availableTags.length > 0 && (
+                <DialogBody>
+                    <div className="flex flex-col gap-3">
+                        {hasAnyCompatibleSharedMetrics ? (
+                            <>
+                                {alreadyAddedNote && <InfoItem>{alreadyAddedNote}</InfoItem>}
+                                <AnalyticsSearchInput
+                                    value={searchTerm}
+                                    onChange={setSearchTerm}
+                                    label="Search shared metrics"
+                                    placeholder="Search shared metrics..."
+                                    dataAttr="shared-metric-modal-search"
+                                />
                                 <div className="flex flex-wrap items-center gap-1">
                                     <Text size="xs" variant="muted" render={<span className="mr-1" />}>
-                                        Select by tag:
+                                        Quick select:
                                     </Text>
-                                    {availableTags.map((tag) => (
-                                        <Toggle
-                                            key={tag}
-                                            variant="outline"
-                                            size="sm"
-                                            pressed={filterTags.includes(tag)}
-                                            // Wait for every page so clicking a tag selects all of its metrics.
-                                            disabled={loading}
-                                            onPressedChange={() => selectByTag(tag)}
-                                        >
-                                            {tag}
-                                        </Toggle>
-                                    ))}
-                                    {filterTags.length > 0 && (
-                                        <Button size="sm" onClick={clearFilterTags}>
-                                            Show all
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        loading={loading}
+                                        disabledReason={
+                                            displayedSelectableIds.length === 0 ? 'No metrics to select' : undefined
+                                        }
+                                        onClick={selectAllDisplayed}
+                                    >
+                                        All
+                                    </Button>
+                                    {selectedMetricIds.length > 0 && (
+                                        <Button variant="outline" size="sm" onClick={clearSelectedMetricIds}>
+                                            Clear
                                         </Button>
                                     )}
                                 </div>
-                            )}
-                            {loading && displayedMetrics.length === 0 ? (
-                                <Skeleton className="h-32 w-full" />
-                            ) : (
-                                <DataTable
-                                    columns={columns}
-                                    data={displayedMetrics}
-                                    fullWidth
-                                    size="sm"
-                                    selectable
-                                    getRowId={(metric) => String(metric.id)}
-                                    rowSelection={Object.fromEntries(selectedMetricIds.map((id) => [String(id), true]))}
-                                    onRowSelectionChange={(selection) =>
-                                        setSelectedMetricIds(
-                                            Object.keys(selection)
-                                                .filter((id) => selection[id])
-                                                .map(Number)
-                                        )
-                                    }
-                                    rowSelectionLabel={(metric) => metric.name}
-                                    rowSelectionDisabledReason={(metric) =>
-                                        alreadyAddedIds.has(metric.id) ? 'Already in the experiment' : null
-                                    }
-                                    empty={
-                                        <Text size="xs" variant="muted">
-                                            {filterTags.length > 0
-                                                ? 'No shared metrics match the selected tags.'
-                                                : 'No shared metrics match your search.'}
+                                {availableTags.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1">
+                                        <Text size="xs" variant="muted" render={<span className="mr-1" />}>
+                                            Select by tag:
                                         </Text>
-                                    }
-                                />
-                            )}
-                            <div className="flex flex-col items-center gap-1">
-                                {loading && displayedMetrics.length > 0 && (
-                                    <Text size="xs" variant="muted">
-                                        Loading all metrics…
-                                    </Text>
+                                        {availableTags.map((tag) => (
+                                            <Toggle
+                                                key={tag}
+                                                variant="outline"
+                                                size="sm"
+                                                pressed={filterTags.includes(tag)}
+                                                // Wait for every page so clicking a tag selects all of its metrics.
+                                                disabled={loading}
+                                                onPressedChange={() => selectByTag(tag)}
+                                            >
+                                                {tag}
+                                            </Toggle>
+                                        ))}
+                                        {filterTags.length > 0 && (
+                                            <Button size="sm" onClick={clearFilterTags}>
+                                                Show all
+                                            </Button>
+                                        )}
+                                    </div>
                                 )}
+                                {loading && displayedMetrics.length === 0 ? (
+                                    <Skeleton className="h-32 w-full" />
+                                ) : (
+                                    <DataTable
+                                        columns={columns}
+                                        data={displayedMetrics}
+                                        fullWidth
+                                        size="sm"
+                                        selectable
+                                        getRowId={(metric) => String(metric.id)}
+                                        rowSelection={Object.fromEntries(
+                                            selectedMetricIds.map((id) => [String(id), true])
+                                        )}
+                                        onRowSelectionChange={(selection) =>
+                                            setSelectedMetricIds(
+                                                Object.keys(selection)
+                                                    .filter((id) => selection[id])
+                                                    .map(Number)
+                                            )
+                                        }
+                                        rowSelectionLabel={(metric) => metric.name}
+                                        rowSelectionDisabledReason={(metric) =>
+                                            alreadyAddedIds.has(metric.id) ? 'Already in the experiment' : null
+                                        }
+                                        empty={
+                                            <Text size="xs" variant="muted">
+                                                {filterTags.length > 0
+                                                    ? 'No shared metrics match the selected tags.'
+                                                    : 'No shared metrics match your search.'}
+                                            </Text>
+                                        }
+                                    />
+                                )}
+                                <div className="flex flex-col items-center gap-1">
+                                    {loading && displayedMetrics.length > 0 && (
+                                        <Text size="xs" variant="muted">
+                                            Loading all metrics…
+                                        </Text>
+                                    )}
+                                    <Button
+                                        variant="link"
+                                        size="sm"
+                                        nativeButton={false}
+                                        render={
+                                            <LinkPrimitive
+                                                to={`${urls.experiments()}?tab=shared-metrics`}
+                                                target="_blank"
+                                            />
+                                        }
+                                    >
+                                        See all shared metrics
+                                    </Button>
+                                </div>
+                            </>
+                        ) : (
+                            <InfoItem>
+                                {NO_COMPATIBLE_SHARED_METRICS}{' '}
                                 <Button
                                     variant="link"
-                                    size="sm"
+                                    size="inline"
                                     nativeButton={false}
-                                    render={
-                                        <LinkPrimitive
-                                            to={`${urls.experiments()}?tab=shared-metrics`}
-                                            target="_blank"
-                                        />
-                                    }
+                                    render={<LinkPrimitive to={urls.experimentsSharedMetric('new')} target="_blank" />}
                                 >
-                                    See all shared metrics
+                                    New shared metric
                                 </Button>
-                            </div>
-                        </>
-                    ) : (
-                        <InfoItem>
-                            {NO_COMPATIBLE_SHARED_METRICS}{' '}
-                            <Button
-                                variant="link"
-                                size="inline"
-                                nativeButton={false}
-                                render={<LinkPrimitive to={urls.experimentsSharedMetric('new')} target="_blank" />}
-                            >
-                                New shared metric
-                            </Button>
-                        </InfoItem>
-                    )}
+                            </InfoItem>
+                        )}
+                    </div>
                 </DialogBody>
                 <DialogFooter>
                     <Button variant="outline" onClick={close}>

@@ -68,39 +68,41 @@ export function QuillMetricSourceModal({
                 <DialogHeader>
                     <DialogTitle>Choose metric source</DialogTitle>
                 </DialogHeader>
-                <DialogBody className="flex flex-col gap-3">
-                    <CardGroup size="sm" className="grid grid-cols-2 gap-3">
-                        <SourceCard
-                            {...METRIC_SOURCE_OPTIONS.singleUse}
-                            onClick={pickSingleUse}
-                            dataAttr="experiment-metric-source-single-use"
-                        />
-                        <SourceCard
-                            {...METRIC_SOURCE_OPTIONS.shared}
-                            onClick={pickShared}
-                            dataAttr="experiment-metric-source-shared"
-                        />
-                    </CardGroup>
-                    {warning && (
-                        <Item variant="outline" size="sm" tone="warning">
-                            <ItemMedia variant="icon" aria-hidden>
-                                <IconWarning />
-                            </ItemMedia>
-                            <ItemContent className="min-w-0">
-                                <ItemDescription className="line-clamp-none">
-                                    {warning}
-                                    <Button
-                                        variant="link"
-                                        size="inline"
-                                        nativeButton={false}
-                                        render={<LinkPrimitive to={METRIC_SOURCE_DOCS_URL} target="_blank" />}
-                                    >
-                                        Learn more
-                                    </Button>
-                                </ItemDescription>
-                            </ItemContent>
-                        </Item>
-                    )}
+                <DialogBody>
+                    <div className="flex flex-col gap-3">
+                        <CardGroup size="sm" className="grid grid-cols-2 gap-3">
+                            <SourceCard
+                                {...METRIC_SOURCE_OPTIONS.singleUse}
+                                onClick={pickSingleUse}
+                                dataAttr="experiment-metric-source-single-use"
+                            />
+                            <SourceCard
+                                {...METRIC_SOURCE_OPTIONS.shared}
+                                onClick={pickShared}
+                                dataAttr="experiment-metric-source-shared"
+                            />
+                        </CardGroup>
+                        {warning && (
+                            <Item variant="outline" size="sm" tone="warning">
+                                <ItemMedia variant="icon" aria-hidden>
+                                    <IconWarning />
+                                </ItemMedia>
+                                <ItemContent className="min-w-0">
+                                    <ItemDescription className="line-clamp-none">
+                                        {warning}
+                                        <Button
+                                            variant="link"
+                                            size="inline"
+                                            nativeButton={false}
+                                            render={<LinkPrimitive to={METRIC_SOURCE_DOCS_URL} target="_blank" />}
+                                        >
+                                            Learn more
+                                        </Button>
+                                    </ItemDescription>
+                                </ItemContent>
+                            </Item>
+                        )}
+                    </div>
                 </DialogBody>
             </DialogContent>
         </Dialog>
