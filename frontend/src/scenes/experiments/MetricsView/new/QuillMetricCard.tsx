@@ -23,7 +23,7 @@ import { type ExperimentVariantResult } from '~/scenes/experiments/MetricsView/s
 import { Experiment, ExperimentStatsMethod } from '~/types'
 
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
-import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
+import { QuillDetailsModal } from 'products/experiments/frontend/modals/DetailsModal/QuillDetailsModal'
 import { TimeseriesModal } from 'products/experiments/frontend/modals/TimeseriesModal/TimeseriesModal'
 
 import { QuillMetricErrorState } from './QuillMetricErrorState'
@@ -243,7 +243,7 @@ export function QuillMetricCard({
                 {footer && <div className="border-t border-border">{footer}</div>}
             </CardContent>
             {result && showDetailsModal && (
-                <DetailsModal
+                <QuillDetailsModal
                     isOpen={detailsOpen}
                     onClose={() => setDetailsOpen(false)}
                     metric={metric}

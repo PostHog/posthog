@@ -2,6 +2,7 @@ import { useMountedLogic, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
+import { Heading, Item, ItemContent, ItemDescription } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
@@ -18,11 +19,17 @@ import { SummarizeExperimentButton } from 'products/experiments/frontend/compone
 import { experimentExposuresWindowLogic } from 'products/experiments/frontend/exposures/experimentExposuresWindowLogic'
 import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
+import { QuillHelpTooltip } from '../../ExperimentView/QuillCardParts'
 import { HowToReadTooltip } from './HowToReadTooltip'
 import { MetricsTable } from './MetricsTable'
+import { QuillHowToReadTooltip } from './QuillHowToReadTooltip'
 import { QuillMetricsEmptyState } from './QuillMetricsEmptyState'
 import { QuillMetricsTable } from './QuillMetricsTable'
+import { QuillResultDetails } from './QuillResultDetails'
 import { ResultDetails } from './ResultDetails'
+
+const SECONDARY_METRICS_HELP =
+    'Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.'
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element | null {
     const { experiment } = useValues(experimentLogic)
@@ -68,6 +75,54 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
         results?.some((result) => result?.variant_results && result.variant_results.length > 0) &&
         hasMinimumExposureForResults
 
+    const metricContext = isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary
+
+    if (quill) {
+        return (
+            <div className="mb-4 flex flex-col gap-2" data-attr="experiment-creation-goal-metric">
+                <div className="flex min-h-7 items-center justify-between gap-2">
+                    <div className="flex items-center gap-1">
+                        <Heading size="base" render={<h2 className="m-0" />}>
+                            {isSecondary ? 'Secondary metrics' : 'Primary metrics'}
+                        </Heading>
+                        {isSecondary && metrics.length > 0 && (
+                            <QuillHelpTooltip label="Secondary metrics" help={SECONDARY_METRICS_HELP} />
+                        )}
+                        {hasSomeResults && !isSecondary && <QuillHowToReadTooltip />}
+                    </div>
+                    {metrics.length > 0 && <QuillAddMetricButton metricContext={metricContext} />}
+                </div>
+                {!isSecondary && recalculationRejectionMessage && (
+                    <Item variant="outline" size="sm" tone="warning">
+                        <ItemContent>
+                            <ItemDescription>{recalculationRejectionMessage}</ItemDescription>
+                        </ItemContent>
+                    </Item>
+                )}
+                {metrics.length > 0 ? (
+                    <QuillMetricsTable
+                        metrics={metrics}
+                        results={results}
+                        errors={errors}
+                        isSecondary={!!isSecondary}
+                        showDetailsModal={!detailResult}
+                        footer={
+                            detailResult ? (
+                                <QuillResultDetails
+                                    metric={metrics[0] as ExperimentMetric}
+                                    result={detailResult}
+                                    experiment={experiment}
+                                />
+                            ) : undefined
+                        }
+                    />
+                ) : (
+                    <QuillMetricsEmptyState isSecondary={!!isSecondary} />
+                )}
+            </div>
+        )
+    }
+
     return (
         <div className="mb-4 -mt-2" data-attr="experiment-creation-goal-metric">
             <div className="flex">
@@ -77,7 +132,7 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                             {isSecondary ? 'Secondary metrics' : 'Primary metrics'}
                         </h2>
                         {isSecondary && metrics.length > 0 && (
-                            <Tooltip title="Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.">
+                            <Tooltip title={SECONDARY_METRICS_HELP}>
                                 <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
@@ -92,19 +147,7 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                     <div className="ml-auto">
                         {metrics.length > 0 && (
                             <div className="mb-2 mt-4 justify-end flex items-center gap-2">
-                                {quill ? (
-                                    <QuillAddMetricButton
-                                        metricContext={
-                                            isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary
-                                        }
-                                    />
-                                ) : (
-                                    <AddMetricButton
-                                        metricContext={
-                                            isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary
-                                        }
-                                    />
-                                )}
+                                <AddMetricButton metricContext={metricContext} />
                             </div>
                         )}
                     </div>
@@ -115,25 +158,7 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                     {recalculationRejectionMessage}
                 </LemonBanner>
             )}
-            {metrics.length > 0 && quill ? (
-                <QuillMetricsTable
-                    metrics={metrics}
-                    results={results}
-                    errors={errors}
-                    isSecondary={!!isSecondary}
-                    showDetailsModal={!detailResult}
-                    footer={
-                        detailResult ? (
-                            <ResultDetails
-                                metric={metrics[0] as ExperimentMetric}
-                                result={detailResult}
-                                experiment={experiment}
-                                embedded
-                            />
-                        ) : undefined
-                    }
-                />
-            ) : metrics.length > 0 ? (
+            {metrics.length > 0 ? (
                 detailResult ? (
                     <div className="rounded-md border bg-surface-primary overflow-hidden divide-y divide-border">
                         <MetricsTable
@@ -154,10 +179,6 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                 ) : (
                     <MetricsTable metrics={metrics} results={results} errors={errors} isSecondary={!!isSecondary} />
                 )
-            ) : quill ? (
-                <div className="mt-2">
-                    <QuillMetricsEmptyState isSecondary={!!isSecondary} />
-                </div>
             ) : (
                 <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">

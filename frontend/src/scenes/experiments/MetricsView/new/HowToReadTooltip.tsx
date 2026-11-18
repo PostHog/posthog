@@ -25,11 +25,65 @@ const INTERVAL_IMAGES = {
     [ExperimentStatsMethod.Frequentist]: { light: intervalsFrequentistLight, dark: intervalsFrequentistDark },
 }
 
-export function HowToReadTooltip({ visible }: { visible?: boolean } = {}): JSX.Element {
+export const HOW_TO_READ_URL = 'https://posthog.com/docs/experiments/analyzing-results'
+
+export function HowToReadContent({
+    wonClassName = 'text-success',
+    lostClassName = 'text-danger',
+}: { wonClassName?: string; lostClassName?: string } = {}): JSX.Element {
     const { statsMethod } = useValues(experimentLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = isDarkModeOn ? 'dark' : 'light'
 
+    return (
+        <>
+            <p className="mb-3 font-semibold">Is my variant significant?</p>
+            <p className="mb-3">
+                Look at the <strong>Delta column</strong> for each variant:
+            </p>
+            <div className="mb-3 space-y-2">
+                <div className="flex items-center gap-3">
+                    <span className={`inline-flex items-center gap-1 w-20 font-semibold ${wonClassName}`}>
+                        <IconTrending className="w-3 h-3" />
+                        Green
+                    </span>
+                    <span>Variant won</span>
+                </div>
+                <div className="flex items-center gap-3">
+                    <span className={`inline-flex items-center gap-1 w-20 font-semibold ${lostClassName}`}>
+                        <IconTrendingDown className="w-3 h-3" />
+                        Red
+                    </span>
+                    <span>Variant lost</span>
+                </div>
+                <div className="flex items-center gap-3">
+                    <span className="inline-flex items-center gap-1 w-20 font-semibold">No color</span>
+                    <span>Not statistically significant</span>
+                </div>
+            </div>
+            <img
+                src={SIGNIFICANCE_IMAGES[theme]}
+                width={340}
+                className="rounded border object-contain mb-3"
+                alt="Significance indicators example"
+            />
+            <p className="mb-3">
+                The bars show{' '}
+                {statsMethod === ExperimentStatsMethod.Bayesian ? '95% credible intervals' : '95% confidence intervals'}
+                . When an interval doesn't cross the 0% line, the result is significant.
+            </p>
+            <img
+                src={INTERVAL_IMAGES[statsMethod][theme]}
+                width={340}
+                className="rounded border object-contain mb-2"
+                alt="How to read metrics"
+            />
+            <p className="mb-0">PostHog uses its own statistical methods. Results may differ from other tools.</p>
+        </>
+    )
+}
+
+export function HowToReadTooltip({ visible }: { visible?: boolean } = {}): JSX.Element {
     return (
         <>
             <LemonDivider vertical className="mx-2" />
@@ -41,7 +95,7 @@ export function HowToReadTooltip({ visible }: { visible?: boolean } = {}): JSX.E
                     closeDelay={100}
                     render={
                         <Link
-                            to="https://posthog.com/docs/experiments/analyzing-results"
+                            to={HOW_TO_READ_URL}
                             target="_blank"
                             className="text-xs text-secondary cursor-help"
                             onClick={(e) => e.stopPropagation()}
@@ -58,52 +112,7 @@ export function HowToReadTooltip({ visible }: { visible?: boolean } = {}): JSX.E
                         className="z-[var(--z-tooltip)] max-w-sm"
                     >
                         <BaseTooltip.Popup className="bg-surface-popover text-primary rounded border shadow-md p-4 text-sm">
-                            <p className="mb-3 font-semibold">Is my variant significant?</p>
-                            <p className="mb-3">
-                                Look at the <strong>Delta column</strong> for each variant:
-                            </p>
-                            <div className="mb-3 space-y-2">
-                                <div className="flex items-center gap-3">
-                                    <span className="inline-flex items-center gap-1 w-20 font-semibold text-success">
-                                        <IconTrending className="w-3 h-3" />
-                                        Green
-                                    </span>
-                                    <span>Variant won</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <span className="inline-flex items-center gap-1 w-20 font-semibold text-danger">
-                                        <IconTrendingDown className="w-3 h-3" />
-                                        Red
-                                    </span>
-                                    <span>Variant lost</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <span className="inline-flex items-center gap-1 w-20 font-semibold">No color</span>
-                                    <span>Not statistically significant</span>
-                                </div>
-                            </div>
-                            <img
-                                src={SIGNIFICANCE_IMAGES[theme]}
-                                width={340}
-                                className="rounded border object-contain mb-3"
-                                alt="Significance indicators example"
-                            />
-                            <p className="mb-3">
-                                The bars show{' '}
-                                {statsMethod === ExperimentStatsMethod.Bayesian
-                                    ? '95% credible intervals'
-                                    : '95% confidence intervals'}
-                                . When an interval doesn't cross the 0% line, the result is significant.
-                            </p>
-                            <img
-                                src={INTERVAL_IMAGES[statsMethod][theme]}
-                                width={340}
-                                className="rounded border object-contain mb-2"
-                                alt="How to read metrics"
-                            />
-                            <p className="mb-0">
-                                PostHog uses its own statistical methods. Results may differ from other tools.
-                            </p>
+                            <HowToReadContent />
                         </BaseTooltip.Popup>
                     </BaseTooltip.Positioner>
                 </BaseTooltip.Portal>
