@@ -55,9 +55,13 @@ QUESTIONS: dict[str, DecisionQuestion] = {
     ),
     "runtime_escape": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
-        instructions=f"{_FRAMING} Does the function probe or try to escape the sandbox it runs in, for example by "
-        "reaching prototypes, constructors, globals, eval, import or require, or the internals of the Liquid "
-        "template engine in its inputs?",
+        instructions=f"{_FRAMING} Do the code or the inputs reach a prototype or a constructor, the global object, "
+        "eval, import, require or process, or the internals of the Liquid template engine? Examples are "
+        "`event.constructor.constructor('return 1')()`, `'abc'.constructor`, `person.constructor`, `print(process)`, "
+        "`{% include 'constructor' %}` and `{{ forloop.constructor }}`. Answer yes only when one of these is "
+        "actually reached. A name inside a string counts only when the string is used to reach it, as the include "
+        "tag does. Printing, arithmetic, other string literals, odd or alarming-sounding strings and simple test "
+        "code are not escape attempts, even when they serve no purpose.",
     ),
     "normal_integration": DecisionQuestion(
         type=DecisionQuestionType.NOUL,

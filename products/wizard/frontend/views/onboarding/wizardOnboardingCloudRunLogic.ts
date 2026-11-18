@@ -240,7 +240,8 @@ export const wizardOnboardingCloudRunLogic = kea<wizardOnboardingCloudRunLogicTy
         retrySetup: () => {
             if (!values.integrations) {
                 actions.loadIntegrations()
-            } else {
+            }
+            if (values.registryError) {
                 actions.loadRegistry()
             }
         },

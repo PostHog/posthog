@@ -69,6 +69,62 @@ export interface DependenciesResponseApi {
 }
 
 /**
+ * * `service` - Service
+ * * `inferred` - Inferred
+ * * `other` - Other
+ */
+export type TimeSpentComponentKindEnumApi =
+    (typeof TimeSpentComponentKindEnumApi)[keyof typeof TimeSpentComponentKindEnumApi]
+
+export const TimeSpentComponentKindEnumApi = {
+    Service: 'service',
+    Inferred: 'inferred',
+    Other: 'other',
+} as const
+
+export interface TimeSpentComponentApi {
+    /** The service name, the inferred dependency (for example a database system or host), or 'Other'. */
+    name: string
+    /** service: an instrumented service. inferred: a dependency seen only through client spans. other: the remaining components combined.
+     *
+     * * `service` - Service
+     * * `inferred` - Inferred
+     * * `other` - Other */
+    kind: TimeSpentComponentKindEnumApi
+    /** Self-time summed across the sampled requests, in milliseconds. */
+    total_ms: number
+    /** Self-time per sampled request, in milliseconds. */
+    avg_ms_per_request: number
+    /** Share of the attributed request time, 0 to 1. */
+    share: number
+}
+
+export interface EndpointTimeSpentResponseApi {
+    /** Where the request time goes, largest share first. */
+    components: TimeSpentComponentApi[]
+    /** Requests sampled to compute the breakdown. */
+    request_count: number
+    /**
+     * Mean duration of the sampled requests, in milliseconds.
+     * @nullable
+     */
+    avg_duration_ms: number | null
+    /** The service the endpoint belongs to. */
+    service: string
+    /** The endpoint's entry span name. */
+    endpoint: string
+    /**
+     * The environment filter the breakdown was computed for: null for every environment, empty for spans with no environment.
+     * @nullable
+     */
+    environment: string | null
+    /** Start of the window used. */
+    date_from: string
+    /** End of the window used. */
+    date_to: string
+}
+
+/**
  * * `good` - Good
  * * `warning` - Warning
  * * `serious` - Serious
@@ -288,6 +344,34 @@ export type ApmDependenciesListParams = {
      * @maxLength 400
      */
     service?: string
+}
+
+export type ApmEndpointTimeSpentListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * The endpoint's entry span name, as listed by apm/endpoints.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    endpoint: string
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string
+    /**
+     * The service that handles the endpoint.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service: string
 }
 
 export type ApmEndpointsListParams = {
