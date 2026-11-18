@@ -29,8 +29,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 
-# The casts the property type pass wraps a typed property in. Each one prints as a conversion that returns NULL for
-# a value it cannot convert.
+# The casts the property type pass adds. Each prints as a conversion that returns NULL when it cannot convert.
 _PROPERTY_TYPE_CASTS = frozenset({"toString", "toFloat", "toBool", "toDateTime", "transform"})
 
 _COMPARISONS_WITH_CONSTANTS = frozenset(
@@ -69,8 +68,7 @@ def _events_json_column(expr: ast.Expr, context: HogQLContext) -> _JsonColumn | 
     scan: str | None = None
     table_type: ast.Type | None = expr.type.table_type
     while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
-        # Two scans of the events table in one select differ only by alias, and a filter on one scan says nothing
-        # about the rows of the other.
+        # Two scans of events differ only by alias, and a filter on one says nothing about the rows of the other.
         if scan is None and isinstance(table_type, ast.TableAliasType):
             scan = table_type.alias
         table_type = table_type.table_type
