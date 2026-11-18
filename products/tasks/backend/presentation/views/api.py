@@ -4600,7 +4600,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # the generator, after SSE admission, off the event loop.
         thin_tail = run_stream_thin_tail(stream_info.state) and not start_latest
         backlog_serve_after: int | None = None
-        backlog_logs: list[tasks_contracts.TaskRunLog] = []
+        backlog_logs: list[tasks_facade.TaskRunLog] = []
         if thin_tail:
             if not last_event_id:
                 backlog_serve_after = -1

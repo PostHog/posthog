@@ -25,9 +25,8 @@ from pydantic.dataclasses import dataclass
 
 from posthog.enums import LabeledStrEnum
 
-# Re-exported: these are defined in import-light modules so ``storage.py`` and ``models.py`` can use them
+# Re-exported: the exception is defined in an import-light module so ``storage.py`` can raise it
 # without dragging this module onto the ``django.setup()`` path.
-from products.tasks.backend.run_log import TaskRunLog as TaskRunLog
 from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized as TaskRunLogAppendUnserialized
 
 

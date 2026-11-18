@@ -1,6 +1,7 @@
 import json
 import contextlib
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 
 import redis
@@ -10,7 +11,6 @@ from posthog.redis import get_client
 from posthog.storage import object_storage
 
 from products.tasks.backend.metrics import LOG_APPEND_UNSERIALIZED_TOTAL
-from products.tasks.backend.run_log import TaskRunLog
 from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized
 
 logger = structlog.get_logger(__name__)
@@ -82,6 +82,11 @@ def append_jsonl_object(
         object_storage.write(object_storage_key, content)
 
         return not existing_content
+
+
+@dataclass(frozen=True, slots=True)
+class TaskRunLog:
+    key: str
 
 
 def read_run_log(log: TaskRunLog) -> str:

@@ -32,8 +32,7 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     tag_task_artifact,
 )
 from products.tasks.backend.models import SandboxCustomImage, Task, TaskRun
-from products.tasks.backend.run_log import TaskRunLog
-from products.tasks.backend.storage import copy_run_log, read_run_log_bytes, read_run_log_size
+from products.tasks.backend.storage import TaskRunLog, copy_run_log, read_run_log_bytes, read_run_log_size
 from products.tasks.backend.task_profiles import TASK_ANALYSIS
 from products.tasks.backend.task_sources import idempotency_key_startswith_q
 

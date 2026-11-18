@@ -8,7 +8,7 @@ shape that _check_logs recognizes.
 import json
 from dataclasses import dataclass
 
-from products.tasks.backend.run_log import TaskRunLog
+from products.tasks.backend.storage import TaskRunLog
 
 
 def _agent_message_line(text: str) -> str:

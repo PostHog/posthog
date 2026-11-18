@@ -245,7 +245,11 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
-from products.tasks.backend.storage import read_run_log, read_run_log_size
+from products.tasks.backend.storage import (
+    TaskRunLog as TaskRunLog,
+    read_run_log,
+    read_run_log_size,
+)
 from products.tasks.backend.task_done import (
     TaskDoneError as TaskDoneError,
     check_wake as check_wake,
@@ -5833,7 +5837,7 @@ def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, tea
 _LOG_PART_SUMMARY_CACHE_SECONDS = 24 * 60 * 60
 
 
-def _conversation_log_part_summary(log: contracts.TaskRunLog, entries: Callable[[], list[str]]) -> LogPartSummary:
+def _conversation_log_part_summary(log: TaskRunLog, entries: Callable[[], list[str]]) -> LogPartSummary:
     """A run log's summary, cached under one key per log with the object size it was made from. A log only grows,
     so its size identifies its content, and a new size replaces the old summary. The cache is an optimization: a
     cache error counts as a miss, and the summary comes from the log itself."""
@@ -5861,11 +5865,11 @@ def _conversation_log_part_summary(log: contracts.TaskRunLog, entries: Callable[
     return summary
 
 
-def _conversation_log_parts(logs: list[contracts.TaskRunLog]) -> list[LogPart]:
+def _conversation_log_parts(logs: list[TaskRunLog]) -> list[LogPart]:
     """The run logs of a resume chain as slice parts. The summaries load in parallel, and a part's entries load
     only when the slice needs them."""
 
-    def loader(log: contracts.TaskRunLog) -> Callable[[], list[str]]:
+    def loader(log: TaskRunLog) -> Callable[[], list[str]]:
         read: list[list[str]] = []
 
         def entries() -> list[str]:
@@ -5923,7 +5927,7 @@ def read_task_run_conversation_log_slice(
     )
 
 
-def get_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[contracts.TaskRunLog] | None:
+def get_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[TaskRunLog] | None:
     """Logs across the run's resume chain (oldest ancestor first). ``None`` if the run isn't found."""
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -5931,14 +5935,14 @@ def get_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> 
     return [ancestor.log for ancestor in run.get_resume_chain()]
 
 
-def get_task_run_log_size(logs: list[contracts.TaskRunLog], *, strict: bool = False) -> int:
+def get_task_run_log_size(logs: list[TaskRunLog], *, strict: bool = False) -> int:
     """Total byte size of the given logs, without downloading them. Storage-only: safe off the request thread."""
     if len(logs) == 1:
         return read_run_log_size(logs[0], strict=strict)
     return sum(_TASK_LOG_READ_EXECUTOR.map(lambda log: read_run_log_size(log, strict=strict), logs))
 
 
-def read_task_run_log_content(logs: list[contracts.TaskRunLog]) -> str:
+def read_task_run_log_content(logs: list[TaskRunLog]) -> str:
     """Concatenated JSONL content for the given logs. Storage-only: safe off the request thread."""
     chunks: Iterable[str]
     if len(logs) == 1:

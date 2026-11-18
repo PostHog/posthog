@@ -93,7 +93,7 @@ from products.signals.backend.test.test_scout_harness_api import _make_run
 from products.signals.backend.test.test_scout_trial_judge import _reference_context, _snapshot
 from products.signals.backend.trial_judging import TrialJudgeInput, build_trial_judge_prompt
 from products.skills.backend.models.skills import LLMSkill
-from products.tasks.backend.facade.contracts import TaskRunLog
+from products.tasks.backend.facade.api import TaskRunLog
 
 if TYPE_CHECKING:
     pass

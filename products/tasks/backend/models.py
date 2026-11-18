@@ -87,9 +87,8 @@ from products.tasks.backend.metrics import (
 )
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
-from products.tasks.backend.run_log import TaskRunLog
 from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record, validate_run_options
-from products.tasks.backend.storage import append_jsonl_object, read_run_log
+from products.tasks.backend.storage import TaskRunLog, append_jsonl_object, read_run_log
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_startswith_q
 
 logger = structlog.get_logger(__name__)
