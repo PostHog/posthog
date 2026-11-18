@@ -183,6 +183,14 @@ redis.call('del', claimKey)
 return 1
 `
 
+const INCREMENT_COUNTER_LUA = `
+local count = redis.call('incr', KEYS[1])
+if count == 1 then
+    redis.call('expire', KEYS[1], ARGV[1])
+end
+return count
+`
+
 const CLAIM_ALL_OR_NOTHING_ACROSS_LUA = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
@@ -346,6 +354,27 @@ export class RateLimiterService {
                 error: String(err),
             })
             return false
+        }
+    }
+
+    /** Adds one to a counter that expires `ttlSeconds` after its first count. Null when Valkey failed. */
+    public async incrementCounter(key: string, ttlSeconds: number): Promise<number | null> {
+        try {
+            const result = await this.valkey.useClient(
+                {
+                    name: `rate-limiter:${this.config.name}:incrementCounter`,
+                    timeout: 1000,
+                    deadlineMs: CLAIM_DEADLINE_MS,
+                },
+                (client) => client.eval(INCREMENT_COUNTER_LUA, 1, key, String(ttlSeconds))
+            )
+            return typeof result === 'number' ? result : null
+        } catch (err) {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) incrementCounter threw`, {
+                key,
+                error: String(err),
+            })
+            return null
         }
     }
 

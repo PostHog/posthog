@@ -241,40 +241,47 @@ describe('sandbox email test sends', () => {
         expect(world.ses.attempts).toBe(2)
     })
 
-    it.each<[string, (bucket: SandboxSesBucket) => Promise<unknown>, SandboxEmailStepResult, SandboxEmailStepResult]>([
+    it.each<
+        [string, (bucket: SandboxSesBucket) => Promise<unknown>, SandboxEmailStepResult, SandboxEmailStepResult, number]
+    >([
         [
             'SES accepted it',
             () => Promise.resolve(),
             { status: 'accepted', message_id: 'ses-1' },
             { status: 'accepted', message_id: 'ses-2' },
+            1,
         ],
         [
             'the SES send rate refused it',
             (bucket) => world.takeSlotsLeft(bucket),
             { status: 'failed', reason: 'send_rate_limited' },
             { status: 'accepted', message_id: 'ses-1' },
+            0,
         ],
         [
             'SES throttled it',
             () => Promise.resolve(world.ses.replyNext(SES_THROTTLE)),
             { status: 'pending', reason: 'ses_throttled' },
             { status: 'accepted', message_id: 'ses-1' },
+            0,
         ],
         [
             'SES rejected it',
             () => Promise.resolve(world.ses.replyNext(SES_REJECTED)),
             { status: 'failed', reason: 'ses_rejected' },
             { status: 'accepted', message_id: 'ses-1' },
+            0,
         ],
         [
             'SES failed in a way that may have sent it',
             () => Promise.resolve(world.ses.replyNext(SES_SERVER_ERROR)),
             { status: 'pending', reason: 'ses_transient' },
             { status: 'accepted', message_id: 'ses-1' },
+            0,
         ],
     ])(
-        'sends the next test at a daily cap of one after %s, and counts it past the warning',
-        async (_case, arrange, first, next) => {
+        'sends the next test at a daily cap of one after %s, and warns only past one accepted send',
+        async (_case, arrange, first, next, warned) => {
             // Both sends must fall on one UTC day for the warning to count. Only Date is faked, and the
             // tenant is stamped on that clock so its freshness check passes.
             jest.useFakeTimers({
@@ -303,7 +310,7 @@ describe('sandbox email test sends', () => {
             await deleteKeysWithPrefix(world.valkey, bucket.key)
 
             await expect(tester().send(testRun())).resolves.toEqual(next)
-            expect(await warnings()).toBe(warningsBefore + 1)
+            expect(await warnings()).toBe(warningsBefore + warned)
         }
     )
 

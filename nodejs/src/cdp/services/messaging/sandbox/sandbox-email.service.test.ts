@@ -203,14 +203,17 @@ describe('SandboxEmailService', () => {
         expect(recipients()).toEqual(Array(6).fill(member()))
     })
 
-    it('delivers every test send past the daily cap, and leaves the whole allowance for workflow sends', async () => {
+    it('delivers every test send past the daily cap, before and after workflow sends use the whole allowance', async () => {
         const service = world.service({ caps: { team: 2, warning: 10 } })
-
-        for (let run = 1; run <= 3; run++) {
-            await expect(service.send(request({ invocationId: `test-${run}`, isTest: true }))).resolves.toMatchObject({
-                status: 'accepted',
-            })
+        const testSends = async (runs: string[]) => {
+            for (const run of runs) {
+                await expect(service.send(request({ invocationId: run, isTest: true }))).resolves.toMatchObject({
+                    status: 'accepted',
+                })
+            }
         }
+
+        await testSends(['test-1', 'test-2', 'test-3'])
         for (const run of ['run-1', 'run-2']) {
             await expect(service.send(request({ invocationId: run }))).resolves.toMatchObject({ status: 'accepted' })
         }
@@ -218,7 +221,8 @@ describe('SandboxEmailService', () => {
             status: 'skipped',
             reason: 'daily_cap_reached',
         })
-        expect(recipients()).toEqual(Array(5).fill(member()))
+        await testSends(['test-4', 'test-5'])
+        expect(recipients()).toEqual(Array(7).fill(member()))
     })
 
     const capped = (): Promise<FrequencyCapCheck> =>

@@ -48,7 +48,7 @@ describe('createSandboxEmailRuntime', () => {
         expect(() => createSandboxEmailRuntime({ ...configured, ...override }, deps)).toThrow(setting)
     })
 
-    it('accepts an environment that sets no warning threshold', () => {
+    it('accepts an environment that sets no warning threshold, and warns past 100 there', () => {
         const { WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING: _unset, ...chartEnv } = configured
         const config = overrideWithEnv(
             getDefaultConfig(),
@@ -56,5 +56,6 @@ describe('createSandboxEmailRuntime', () => {
         )
 
         expect(missingSandboxSenderSettings(config)).toEqual([])
+        expect(config.WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING).toBe(100)
     })
 })

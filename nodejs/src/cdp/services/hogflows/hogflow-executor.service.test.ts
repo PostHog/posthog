@@ -3355,6 +3355,7 @@ describe('Hogflow Executor', () => {
                                         markSending: () => Promise.resolve(true),
                                         releaseUnsent: () => Promise.resolve(true),
                                         refundUnsent: () => Promise.resolve(true),
+                                        countAccepted: () => Promise.resolve(),
                                     }),
                                 teamWorkflowsConfig: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
                                 ses: sandboxSes,

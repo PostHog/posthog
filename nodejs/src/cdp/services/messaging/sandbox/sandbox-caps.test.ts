@@ -88,36 +88,53 @@ describe('claimSandboxCaps', () => {
         expect(await claim({ team: 1, warning: 5 }, teamId + 1)).toMatchObject({ ok: true })
     })
 
-    it('counts sends past the warning threshold without refusing them, and a retried send only once', async () => {
+    const accept = async (claimed: Promise<SandboxCapClaim>): Promise<void> => {
+        const send = granted(await claimed)
+        await send.markSending()
+        await send.countAccepted()
+    }
+
+    it('counts accepted sends past the warning threshold without refusing them, also a replay that SES accepts again', async () => {
         const caps = { team: 5, warning: 1 }
         const before = await warnings()
-        const firstSend = sameSend()
-        await claimSandboxCaps(limiter, caps, firstSend)
+        const replayedSend = sameSend()
+        await accept(claimSandboxCaps(limiter, caps, replayedSend))
 
-        expect(await claimSandboxCaps(limiter, caps, firstSend)).toMatchObject({ ok: true })
+        expect(await claimSandboxCaps(limiter, caps, replayedSend)).toMatchObject({ ok: true })
         expect(await warnings()).toBe(before)
-        expect(await claim(caps)).toMatchObject({ ok: true })
+        await accept(claimSandboxCaps(limiter, caps, replayedSend))
+        expect(await warnings()).toBe(before + 1)
+    })
+
+    it('warns at a lowered threshold on the first accepted send past it, also mid-day', async () => {
+        const before = await warnings()
+        await accept(claim({ team: 5, warning: 3 }))
+        await accept(claim({ team: 5, warning: 3 }))
+        expect(await warnings()).toBe(before)
+
+        await accept(claim({ team: 5, warning: 2 }))
         expect(await warnings()).toBe(before + 1)
     })
 
     it('starts a fresh warning count each UTC day, also for a send retried after midnight', async () => {
         const caps = { team: 5, warning: 1 }
         const before = await warnings()
-        const sendAt = (iso: string, send = sameSend()) => claimSandboxCaps(limiter, caps, send, new Date(iso))
-        const grantedBeforeMidnight = sameSend()
+        const sendAt = (iso: string, send = sameSend()) => accept(claimSandboxCaps(limiter, caps, send, new Date(iso)))
+        const retriedAfterMidnight = sameSend()
 
-        await sendAt('2026-03-02T23:50:00Z', grantedBeforeMidnight)
+        await claimSandboxCaps(limiter, caps, retriedAfterMidnight, new Date('2026-03-02T23:50:00Z'))
         await sendAt('2026-03-02T23:55:00Z')
+        await sendAt('2026-03-02T23:56:00Z')
         expect(await warnings()).toBe(before + 1)
 
         await sendAt('2026-03-03T00:05:00Z')
         expect(await warnings()).toBe(before + 1)
 
-        await sendAt('2026-03-03T00:10:00Z', grantedBeforeMidnight)
+        await sendAt('2026-03-03T00:10:00Z', retriedAfterMidnight)
         expect(await warnings()).toBe(before + 2)
     })
 
-    it('honors a claim that a worker on the previous release made for the same send', async () => {
+    it('refunds every bucket that a worker on the previous release charged for the same send', async () => {
         const caps = { team: 1, warning: 5 }
         const send = sameSend()
         const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
@@ -126,15 +143,19 @@ describe('claimSandboxCaps', () => {
         const previousRelease = [`${keyPrefix}/recipient/${recipientDigest}`, `${keyPrefix}/project/${teamId}`].map(
             (key) => ({ key, requested: 1, capacity: 1, refillPerSecond: 1 / 86_400, ttlSeconds: 172_800 })
         )
-        const previousClaim = {
-            key: `${keyPrefix}/claim/${sha256(`${teamId}\n${recipientDigest}\n${send.claimId}`)}`,
+        const previousClaim = (claimId: string) => ({
+            key: `${keyPrefix}/claim/${sha256(`${teamId}\n${recipientDigest}\n${claimId}`)}`,
             attempt: randomUUID(),
             ttlSeconds: 172_800,
-        }
-        expect(await limiter.claimAllOrNothingAcross(previousRelease, previousClaim)).toBe('granted')
+        })
+        expect(await limiter.claimAllOrNothingAcross(previousRelease, previousClaim(send.claimId))).toBe('granted')
 
-        expect(await claimSandboxCaps(limiter, caps, send)).toMatchObject({ ok: true })
+        const resumed = granted(await claimSandboxCaps(limiter, caps, send))
         expect(await claim(caps)).toEqual({ ok: false, reason: 'daily_cap_reached' })
+        await resumed.markSending()
+        await resumed.refundUnsent()
+
+        expect(await limiter.claimAllOrNothingAcross(previousRelease, previousClaim(randomUUID()))).toBe('granted')
     })
 
     it('admits test sends past the project cap without charging it, and counts them toward the warning', async () => {
@@ -142,8 +163,8 @@ describe('claimSandboxCaps', () => {
         const before = await warnings()
         const testSend = () => claimSandboxCaps(limiter, caps, { ...sameSend(), isTest: true })
 
-        expect(await testSend()).toMatchObject({ ok: true })
-        expect(await testSend()).toMatchObject({ ok: true })
+        await accept(testSend())
+        await accept(testSend())
         expect(await warnings()).toBe(before + 1)
         expect(await claim(caps)).toMatchObject({ ok: true })
     })

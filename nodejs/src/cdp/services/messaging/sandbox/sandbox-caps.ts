@@ -16,6 +16,7 @@ export type SandboxCapClaim =
           markSending: () => Promise<boolean>
           releaseUnsent: () => Promise<boolean>
           refundUnsent: () => Promise<boolean>
+          countAccepted: () => Promise<void>
       }
     | { ok: false; reason: 'daily_cap_reached' | 'cap_storage_unavailable' }
 
@@ -27,16 +28,13 @@ export type SandboxCapClaimRequest = {
     isTest?: boolean
 }
 
-const UNCAPPED_TEST_SEND: SandboxCapClaim = {
-    ok: true,
-    markSending: () => Promise.resolve(true),
-    releaseUnsent: () => Promise.resolve(true),
-    refundUnsent: () => Promise.resolve(true),
-}
+// Workers of the previous release cap each recipient. This release charges and refunds that bucket as well, so a
+// claim that moves between releases during the deploy refunds what it charged. The capacity never denies a send.
+const PREVIOUS_RELEASE_RECIPIENT_CAPACITY = 1_000_000_000
 
 const sandboxTeamWarningTotal = new Counter({
     name: 'cdp_sandbox_email_team_warning_total',
-    help: 'Sandbox email sends from a project past its daily warning threshold',
+    help: 'Sandbox emails that SES accepted from a project past its daily warning threshold',
 })
 
 export async function claimSandboxCaps(
@@ -50,16 +48,28 @@ export async function claimSandboxCaps(
     }
     const { organizationId, teamId, storedAddress, claimId } = request
     const keyPrefix = `@posthog/sandbox-email/{${organizationId}}`
+    const countAccepted = () => countAcceptedSend(limiter, caps.warning, request, keyPrefix, now)
+    if (request.isTest) {
+        return {
+            ok: true,
+            markSending: () => Promise.resolve(true),
+            releaseUnsent: () => Promise.resolve(true),
+            refundUnsent: () => Promise.resolve(true),
+            countAccepted,
+        }
+    }
     // The recipient stays in the claim identity, so a retry finds the claim that another worker version made.
     const recipientDigest = createHash('sha256').update(storedAddress.toLowerCase()).digest('hex')
     const claimDigest = createHash('sha256').update(`${teamId}\n${recipientDigest}\n${claimId}`).digest('hex')
-    if (request.isTest) {
-        await warnPastThreshold(limiter, caps.warning, request, keyPrefix, claimDigest, now)
-        return UNCAPPED_TEST_SEND
-    }
     const claimKey = `${keyPrefix}/claim/${claimDigest}`
     const attempt = randomUUID()
-    const buckets = [dailyBucket(`${keyPrefix}/project/${teamId}`, caps.team)]
+    const buckets = [
+        {
+            ...dailyBucket(`${keyPrefix}/recipient/${recipientDigest}`, caps.team),
+            capacity: PREVIOUS_RELEASE_RECIPIENT_CAPACITY,
+        },
+        dailyBucket(`${keyPrefix}/project/${teamId}`, caps.team),
+    ]
     const claim = await limiter.claimAllOrNothingAcross(buckets, {
         key: claimKey,
         attempt,
@@ -68,34 +78,28 @@ export async function claimSandboxCaps(
     if (claim !== 'granted') {
         return { ok: false, reason: claim === 'denied' ? 'daily_cap_reached' : 'cap_storage_unavailable' }
     }
-    await warnPastThreshold(limiter, caps.warning, request, keyPrefix, claimDigest, now)
     return {
         ok: true,
         markSending: () => limiter.markClaimSpent({ key: claimKey, attempt }),
         releaseUnsent: () => limiter.releaseClaimSpend({ key: claimKey, attempt }),
         refundUnsent: () => limiter.refundClaimSpend({ key: claimKey, attempt }, buckets),
+        countAccepted,
     }
 }
 
-// A denied claim stores no key, so a retry past the threshold counts again.
-async function warnPastThreshold(
+async function countAcceptedSend(
     limiter: RateLimiterService,
     threshold: number,
     { organizationId, teamId }: SandboxCapClaimRequest,
     keyPrefix: string,
-    claimDigest: string,
     now: Date
 ): Promise<void> {
     const utcDay = now.toISOString().slice(0, 10)
-    const warning = await limiter.claimAllOrNothingAcross(
-        [{ ...dailyBucket(`${keyPrefix}/project-warning/${teamId}/${utcDay}`, threshold), refillPerSecond: 0 }],
-        {
-            key: `${keyPrefix}/warning-claim/${utcDay}/${claimDigest}`,
-            attempt: randomUUID(),
-            ttlSeconds: BUCKET_TTL_SECONDS,
-        }
+    const accepted = await limiter.incrementCounter(
+        `${keyPrefix}/project-accepted/${teamId}/${utcDay}`,
+        BUCKET_TTL_SECONDS
     )
-    if (warning === 'denied') {
+    if (accepted !== null && accepted > threshold) {
         sandboxTeamWarningTotal.inc()
         logger.warn('Sandbox email project is past its daily warning threshold', {
             team_id: teamId,
