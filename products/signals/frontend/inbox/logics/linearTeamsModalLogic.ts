@@ -9,14 +9,16 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { ExternalDataSource, IntegrationType } from '~/types'
 
-import { captureSignalSourceFiltersChanged } from '../inboxAnalytics'
+import { captureSignalSourceFiltersChanged, captureSignalSourceLinearMirrorChanged } from '../inboxAnalytics'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import {
+    SOURCE_LINEAR_MIRROR_REPORTS_KEY,
     SOURCE_LINEAR_TEAM_IDS_KEY,
     SignalSourceConfig,
     SignalSourceProduct,
     SignalSourceType,
     ToggleSignalSourceParams,
+    linearMirrorFromConfig,
     linearTeamIdsFromConfig,
 } from '../types'
 
@@ -25,6 +27,9 @@ export type LinearTeamsScope = 'all' | 'selected'
 export interface LinearTeamsFormValues {
     scope: LinearTeamsScope
     teamIds: string[]
+    /** Open a Linear issue in `mirrorTeamId` for each report that reaches the inbox. */
+    mirrorReports: boolean
+    mirrorTeamId: string | null
 }
 
 export interface LinearTeamsModalLogicProps {
@@ -38,7 +43,12 @@ export interface LinearTeamsModalLogicProps {
 
 function formDefaults(config: SignalSourceConfig | null): LinearTeamsFormValues {
     const teamIds = linearTeamIdsFromConfig(config?.config)
-    return teamIds.length > 0 ? { scope: 'selected', teamIds } : { scope: 'all', teamIds: [] }
+    const mirror = linearMirrorFromConfig(config?.config)
+    return {
+        ...(teamIds.length > 0 ? { scope: 'selected', teamIds } : { scope: 'all', teamIds: [] }),
+        mirrorReports: mirror !== null,
+        mirrorTeamId: mirror?.team_id ?? null,
+    }
 }
 
 function isLinearIssueToggle(params: ToggleSignalSourceParams): boolean {
@@ -174,23 +184,35 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
         ],
         actions: [signalSourcesLogic, ['toggleSignalSource', 'toggleSignalSourceSuccess', 'toggleSignalSourceFailure']],
     })),
-    forms(({ props: logicProps, actions }) => ({
+    forms(({ props: logicProps, actions, values }) => ({
         linearTeams: {
             defaults: formDefaults(logicProps.config),
             // The message hangs off `scope` (a string field) because kea-forms types an array
             // field's error as an array, one entry per item, and this is about the list as a whole.
-            errors: ({ scope, teamIds }: LinearTeamsFormValues) => ({
+            errors: ({ scope, teamIds, mirrorReports, mirrorTeamId }: LinearTeamsFormValues) => ({
                 scope:
                     scope === 'selected' && teamIds.length === 0
                         ? 'Pick at least one team, or read all teams.'
                         : undefined,
+                mirrorTeamId:
+                    mirrorReports && !mirrorTeamId ? 'Pick the Linear team that gets the new issues.' : undefined,
             }),
-            submit: ({ scope, teamIds }: LinearTeamsFormValues) => {
+            submit: ({ scope, teamIds, mirrorReports, mirrorTeamId }: LinearTeamsFormValues) => {
+                // The team list comes from this integration, so the issues are opened through it too.
+                const mirror =
+                    mirrorReports && mirrorTeamId && values.linearIntegration
+                        ? { integration_id: values.linearIntegration.id, team_id: mirrorTeamId }
+                        : null
+                // Null turns a stored mirror off. A source that never mirrored gets no key at all.
+                const writesMirror = mirror !== null || linearMirrorFromConfig(logicProps.config?.config) !== null
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.Linear,
                     sourceType: SignalSourceType.Issue,
                     enabled: logicProps.enableOnSave ? true : (logicProps.config?.enabled ?? true),
-                    configSet: { [SOURCE_LINEAR_TEAM_IDS_KEY]: scope === 'all' ? [] : teamIds },
+                    configSet: {
+                        [SOURCE_LINEAR_TEAM_IDS_KEY]: scope === 'all' ? [] : teamIds,
+                        ...(writesMirror ? { [SOURCE_LINEAR_MIRROR_REPORTS_KEY]: mirror } : {}),
+                    },
                     viaSetupWizard: logicProps.viaSetupWizard,
                 })
             },
@@ -229,6 +251,7 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
             }
             actions.saveSettled()
             const teamCount = linearTeamIdsFromConfig(params.configSet).length
+            const mirrors = linearMirrorFromConfig(params.configSet) !== null
             captureSignalSourceFiltersChanged({
                 sourceProduct: params.sourceProduct,
                 sourceType: params.sourceType,
@@ -236,11 +259,14 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
                 selectedCount: teamCount,
                 success: true,
             })
-            lemonToast.success(
+            if (mirrors !== (linearMirrorFromConfig(logicProps.config?.config) !== null)) {
+                captureSignalSourceLinearMirrorChanged({ mirrorReports: mirrors })
+            }
+            const reads =
                 teamCount === 0
                     ? 'Linear reads all teams from the next sync.'
                     : `Linear reads ${teamCount} ${teamCount === 1 ? 'team' : 'teams'} from the next sync.`
-            )
+            lemonToast.success(mirrors ? `${reads} New reports open a Linear issue.` : reads)
             logicProps.onClose()
         },
         // signalSourcesLogic already shows the error toast; the modal stays open for a retry.

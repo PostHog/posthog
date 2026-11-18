@@ -215,7 +215,12 @@ describe('linearTeamsModalLogic', () => {
         const logic = linearTeamsModalLogic({ config: null, enableOnSave: true, viaSetupWizard: true, onClose })
         logic.mount()
         signalSourcesLogic.actions.loadSourceConfigsSuccess([])
-        expect(logic.values.linearTeams).toEqual({ scope: 'all', teamIds: [] })
+        expect(logic.values.linearTeams).toEqual({
+            scope: 'all',
+            teamIds: [],
+            mirrorReports: false,
+            mirrorTeamId: null,
+        })
 
         await expectLogic(logic, () => logic.actions.submitLinearTeams()).toDispatchActions([
             'toggleSignalSourceSuccess',
@@ -234,7 +239,74 @@ describe('linearTeamsModalLogic', () => {
         ])
     })
 
-    it('refuses to save a pick with no teams', async () => {
+    it.each([
+        {
+            name: 'turning mirroring on saves the team with the listed connection',
+            config: existingConfig,
+            form: { mirrorReports: true, mirrorTeamId: 'team-2' },
+            mirror: { mirror_reports: { integration_id: 1, team_id: 'team-2' } },
+            message: 'Linear reads 1 team from the next sync. New reports open a Linear issue.',
+            mirrorEvent: true,
+        },
+        {
+            name: 'turning mirroring off writes null',
+            config: {
+                ...existingConfig,
+                config: { ...existingConfig.config, mirror_reports: { integration_id: 1, team_id: 'team-2' } },
+            },
+            form: { mirrorReports: false },
+            mirror: { mirror_reports: null },
+            message: 'Linear reads 1 team from the next sync.',
+            mirrorEvent: false,
+        },
+    ])('$name', async ({ config, form, mirror, message, mirrorEvent }) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': () => [
+                    200,
+                    { results: [{ id: 1, kind: 'linear', display_name: 'Workspace A', config: {}, errors: '' }] },
+                ],
+            },
+        })
+        const sourcesLogic = signalSourcesLogic()
+        sourcesLogic.mount()
+        await expectLogic(sourcesLogic, () => sourcesLogic.actions.loadSourceConfigs()).toDispatchActions([
+            'loadSourceConfigsSuccess',
+        ])
+        const logic = linearTeamsModalLogic({ config, enableOnSave: false, viaSetupWizard: false, onClose })
+        logic.mount()
+        await expectLogic(integrationsLogic).toFinishAllListeners()
+
+        logic.actions.setLinearTeamsValues(form)
+        await expectLogic(logic, () => logic.actions.submitLinearTeams()).toDispatchActions([
+            'toggleSignalSourceSuccess',
+        ])
+
+        expect(requests).toEqual([
+            { method: 'PATCH', body: { enabled: false, config_set: { linear_team_ids: ['team-1'], ...mirror } } },
+        ])
+        expect(toastSpy).toHaveBeenCalledWith(message)
+        expect(captureSpy).toHaveBeenCalledWith(
+            INBOX_EVENTS.SOURCE_LINEAR_MIRROR_CHANGED,
+            expect.objectContaining({ mirror_reports: mirrorEvent }),
+            undefined
+        )
+    })
+
+    it.each([
+        {
+            name: 'a pick with no teams',
+            form: { scope: 'selected' as const, teamIds: [] },
+            field: 'scope' as const,
+            error: 'Pick at least one team, or read all teams.',
+        },
+        {
+            name: 'mirroring without a team',
+            form: { mirrorReports: true, mirrorTeamId: null },
+            field: 'mirrorTeamId' as const,
+            error: 'Pick the Linear team that gets the new issues.',
+        },
+    ])('refuses to save $name', async ({ form, field, error }) => {
         const logic = linearTeamsModalLogic({
             config: existingConfig,
             enableOnSave: false,
@@ -243,12 +315,12 @@ describe('linearTeamsModalLogic', () => {
         })
         logic.mount()
 
-        logic.actions.setLinearTeamsValues({ scope: 'selected', teamIds: [] })
+        logic.actions.setLinearTeamsValues(form)
         await expectLogic(logic, () => logic.actions.submitLinearTeams()).toDispatchActions([
             'submitLinearTeamsFailure',
         ])
 
-        expect(logic.values.linearTeamsValidationErrors.scope).toBe('Pick at least one team, or read all teams.')
+        expect(logic.values.linearTeamsValidationErrors[field]).toBe(error)
         expect(requests).toEqual([])
         expect(onClose).not.toHaveBeenCalled()
     })

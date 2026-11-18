@@ -7,10 +7,15 @@ from products.signals.backend.contracts import SCOPE_CONFIG_KEYS
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.report_urls import ReportLinkSource
 
 logger = get_logger(__name__)
 
 LINEAR_IGNORED_STATE_TYPES = ("completed", "canceled")
+
+# Every tracker issue PostHog opens, a mirrored report included, links back to its report with this
+# link source. Reading one back would turn the report into a signal for itself.
+POSTHOG_TRACKER_LINK_MARKER = f"link_source={ReportLinkSource.TRACKER.value}"
 
 LINEAR_SUMMARIZATION_PROMPT = """Summarize this Linear issue for semantic search.
 Output exactly two parts separated by a newline:
@@ -78,7 +83,7 @@ def linear_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         msg = f"Linear issue record has empty required field: id={issue_id!r}, title={title!r}"
         logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg)
-    if not description:
+    if not description or POSTHOG_TRACKER_LINK_MARKER in description:
         return None
     return SignalEmitterOutput(
         source_product="linear",

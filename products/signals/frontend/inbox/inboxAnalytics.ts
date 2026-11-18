@@ -72,6 +72,7 @@ export const INBOX_EVENTS = {
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
     SOURCE_ALERT_SCOPE_CHANGED: 'Signal source alert scope changed',
+    SOURCE_LINEAR_MIRROR_CHANGED: 'Signal source Linear mirror changed',
     SOURCE_ALERT_PATTERNS_CHANGED: 'Signal source alert patterns changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
@@ -993,6 +994,15 @@ export function captureSignalSourceFiltersChanged(params: {
         selected_count: params.selectedCount,
         reads_everything: params.selectedCount === 0,
         success: params.success,
+    })
+}
+
+/** The Linear source started or stopped opening a Linear issue for each new report. Fired only on a saved change. */
+export function captureSignalSourceLinearMirrorChanged(params: { mirrorReports: boolean }): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_LINEAR_MIRROR_CHANGED, {
+        source_product: SignalSourceProduct.Linear,
+        source_type: SignalSourceType.Issue,
+        mirror_reports: params.mirrorReports,
     })
 }
 
