@@ -335,12 +335,13 @@ export const traceViewLogic = kea<traceViewLogicType>([
 
         return {
             loadTraceSuccess: ({ trace }) => {
-                actions.releasePrefetched(props.traceId)
                 // The timeline lists every step but the root.
                 traceViewTracking.viewLoaded(elapsedMs(cache.traceRequestedAt), trace.timeline.length + 1)
                 for (const nodeId of trace.threadNodeIds) {
                     actions.loadNode(nodeId, 'thread')
                 }
+                // Released only after the thread reads started, because one of them can take the prefetched step.
+                actions.releasePrefetched(props.traceId)
             },
             loadTraceFailure: () => actions.releasePrefetched(props.traceId),
             loadNode: ({ nodeId, trigger }) => {

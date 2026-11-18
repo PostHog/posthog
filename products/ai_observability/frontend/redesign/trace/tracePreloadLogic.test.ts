@@ -28,18 +28,22 @@ describe('tracePreloadLogic', () => {
     let requests: string[]
     let answerGate: Promise<void>
     let answerStatus: number
+    let threadNodeIds: string[] | undefined
 
     beforeEach(() => {
         requests = []
         answerGate = Promise.resolve()
         answerStatus = 200
+        threadNodeIds = undefined
         useMocks({
             get: {
                 [TRACE_URL]: async ({ request, params }) => {
                     const traceId = decodeIdSegment(String(params.id))
                     requests.push(`trace ${traceId} ${new URL(request.url).searchParams.get('timestamp_hint')}`)
                     await answerGate
-                    return answerStatus === 200 ? [200, makeTraceResource({ id: traceId })] : [answerStatus, {}]
+                    return answerStatus === 200
+                        ? [200, makeTraceResource({ id: traceId, ...(threadNodeIds && { threadNodeIds }) })]
+                        : [answerStatus, {}]
                 },
                 [NODE_URL]: async ({ request, params }) => {
                     const traceId = decodeIdSegment(String(params.id))
@@ -216,6 +220,23 @@ describe('tracePreloadLogic', () => {
 
         expect(count('trace a ')).toBe(reads)
         expect(count('node a gen-1 ')).toBe(reads)
+    })
+
+    it('reads the prefetched default step once when the trace opens at another step and threads the default one', async () => {
+        threadNodeIds = ['gen-1']
+        jest.useFakeTimers()
+        rest('a')
+        jest.useRealTimers()
+        await settled()
+
+        const view = traceViewLogic({ traceId: 'a', timestampHint: CREATED_AT_A })
+        view.mount()
+        view.actions.loadNode('gen-2', 'navigation')
+        await waitFor(() => expect(view.values.nodes.get('gen-1')?.status).toBe('ready'))
+        await expectLogic(view).toFinishAllListeners()
+
+        expect(count('trace a ')).toBe(1)
+        expect(count('node a gen-1 ')).toBe(1)
     })
 
     it.each([200, 500])(
