@@ -14,13 +14,6 @@ export const EMPTY_SERVICE_SCOPE: ServiceScope = { environment: null, version: n
 export const ENVIRONMENT_KEYS = ['deployment.environment.name', 'deployment.environment', 'env'] as const
 export const VERSION_KEY = 'service.version'
 
-// What the health API calls spans that carry no environment attribute.
-export const DEFAULT_ENVIRONMENT = 'default'
-
-export function environmentLabel(environment: string): string {
-    return environment === DEFAULT_ENVIRONMENT ? '(no environment)' : environment
-}
-
 /**
  * How a scope value goes into the URL. The router reads `1.0` back as the number 1 and `true` as a
  * boolean, so a value that looks like either goes in as a one-item list, which it keeps as written.
@@ -41,6 +34,11 @@ export function readScopeParam(value: unknown): string | null {
     return typeof value === 'string' && value !== '' ? value : null
 }
 
+/** Like `readScopeParam`, but keeps `environment=` as the empty string, the unset environment. */
+export function readEnvironmentParam(value: unknown): string | null {
+    return value === '' ? '' : readScopeParam(value)
+}
+
 /** A flat span filter, the shape the span endpoints accept for `filterGroup`. */
 export interface ServiceSpanFilter {
     key: string
@@ -51,7 +49,7 @@ export interface ServiceSpanFilter {
 
 /**
  * The flat filters for a scope. `envKey` is the resource attribute the picked environment lives
- * under, or null when no span carries it as written (the health API's `default` environment). Pass `includeOperation: false` for views that list every operation, so the table
+ * under, or null when no span carries it as written (such as the unset environment). Pass `includeOperation: false` for views that list every operation, so the table
  * of endpoints doesn't collapse to the one picked in the operation selector.
  */
 export function serviceScopeFilters(
