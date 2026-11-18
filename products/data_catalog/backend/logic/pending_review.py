@@ -120,7 +120,7 @@ def build_team_pending_review(team: Team, sample_size: int = DEFAULT_SAMPLE_SIZE
 
 
 def pending_review_counts(team: Team, user: User, user_access_control: UserAccessControl) -> PendingReviewCounts:
-    """How many items wait in each review queue, counted as the caller's list of that queue shows them."""
+    """How many items wait in each review queue, as the caller's lists show them, up to a minute behind an access change."""
     proposed_metrics = metrics_visible_to_user(
         team,
         user,
