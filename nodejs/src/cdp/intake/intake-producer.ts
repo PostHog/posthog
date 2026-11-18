@@ -47,8 +47,19 @@ export const intakeModeOf = (
     return (teamId) => (isAsync(teamId) ? 'async' : isShadow(teamId) ? 'shadow' : 'off')
 }
 
-// A produce outlives its ack deadline, so a caller that bounds its work in flight waits out the publish itself.
-export type Settlement = { track: (publish: Promise<unknown>) => void }
+// A produce outlives its ack deadline. A caller that bounds its work in flight passes one of these to its produces and
+// waits on `settled()` before it frees that work's share.
+export class PublishSettlement {
+    private readonly publishes: Promise<unknown>[] = []
+
+    track(publish: Promise<unknown>): void {
+        this.publishes.push(publish)
+    }
+
+    settled(): Promise<void> {
+        return Promise.allSettled(this.publishes).then(() => undefined)
+    }
+}
 
 export type IntakeRun = {
     kind: RunKind
@@ -68,7 +79,7 @@ export class IntakeProducer {
     async produce(
         { kind, invocation, fingerprint, reply }: IntakeRun,
         mode: IntakeMode,
-        settlement?: Settlement
+        settlement?: PublishSettlement
     ): Promise<IntakeProduceOutcome> {
         const encoded = encodeIntakeMessage({
             kind,
@@ -101,17 +112,12 @@ export class IntakeProducer {
 
     // The produce keeps running after the deadline, so a late ack can still land the message: an unacked run is
     // unconfirmed, not lost.
-    private withinDeadline(produce: Promise<void>, settlement?: Settlement): Promise<void> {
+    private withinDeadline(produce: Promise<void>, settlement?: PublishSettlement): Promise<void> {
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<never>((_, reject) => {
             timer = setTimeout(() => reject(new Error('no ack before the deadline')), this.ackDeadlineMs)
         })
-        try {
-            settlement?.track(produce.catch(() => undefined))
-        } catch (error) {
-            clearTimeout(timer)
-            throw error
-        }
+        settlement?.track(produce)
         return Promise.race([produce, deadline]).finally(() => clearTimeout(timer))
     }
 }

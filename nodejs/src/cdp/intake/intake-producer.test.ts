@@ -8,7 +8,13 @@ import { UUIDT } from '~/common/utils/utils'
 
 import { CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT } from '../outputs/outputs'
 import { CyclotronJobInvocationHogFlow } from '../types'
-import { INTAKE_ACK_DEADLINE_MS, IntakeOutput, IntakeProducer, intakeModeOf } from './intake-producer'
+import {
+    INTAKE_ACK_DEADLINE_MS,
+    IntakeOutput,
+    IntakeProducer,
+    PublishSettlement,
+    intakeModeOf,
+} from './intake-producer'
 
 describe('IntakeProducer', () => {
     let produced: { output: string; message: IngestionOutputMessage }[]
@@ -105,17 +111,17 @@ describe('IntakeProducer', () => {
         jest.useFakeTimers()
         let ack: () => void = () => {}
         produce = () => new Promise<void>((resolve) => (ack = resolve))
-        const publishes: Promise<unknown>[] = []
+        const settlement = new PublishSettlement()
         let publishSettled = false
 
         const outcome = new IntakeProducer(outputs()).produce(
             { kind: 'transactional-email', invocation: invocation() },
             'async',
-            { track: (publish) => publishes.push(publish) }
+            settlement
         )
         await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
         await expect(outcome).resolves.toBe('unacked')
-        void Promise.allSettled(publishes).then(() => (publishSettled = true))
+        void settlement.settled().then(() => (publishSettled = true))
         await jest.advanceTimersByTimeAsync(0)
         expect(publishSettled).toBe(false)
 
@@ -123,37 +129,6 @@ describe('IntakeProducer', () => {
         await jest.advanceTimersByTimeAsync(0)
 
         expect(publishSettled).toBe(true)
-    })
-
-    it('leaves no deadline timer behind when the caller refuses to track the publish', async () => {
-        jest.useFakeTimers()
-
-        const outcome = await new IntakeProducer(outputs()).produce(
-            { kind: 'transactional-email', invocation: invocation() },
-            'async',
-            {
-                track: () => {
-                    throw new Error('tracker closed')
-                },
-            }
-        )
-
-        expect(outcome).toBe('unacked')
-        expect(jest.getTimerCount()).toBe(0)
-    })
-
-    it('counts the ack deadline from the publish, not from when the caller finishes tracking it', async () => {
-        jest.useFakeTimers()
-        produce = () => new Promise<void>((resolve) => setTimeout(resolve, INTAKE_ACK_DEADLINE_MS + 100))
-
-        const outcome = new IntakeProducer(outputs()).produce(
-            { kind: 'transactional-email', invocation: invocation() },
-            'async',
-            { track: () => jest.advanceTimersByTime(200) }
-        )
-        await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
-
-        await expect(outcome).resolves.toBe('unacked')
     })
 
     it('records the wait for the ack in milliseconds', async () => {

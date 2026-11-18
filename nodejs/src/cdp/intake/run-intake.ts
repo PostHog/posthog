@@ -7,7 +7,7 @@ import { HogInvocationResultsService } from '~/cdp/services/monitoring/hog-invoc
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { logger } from '~/common/utils/logger'
 
-import { IntakeMode, IntakeProducer, Settlement } from './intake-producer'
+import { IntakeMode, IntakeProducer, PublishSettlement } from './intake-producer'
 import { RunKind, claimFingerprint } from './message'
 
 export type Run = {
@@ -102,7 +102,7 @@ export class RunIntake {
         return { status: 'absent' }
     }
 
-    async produce(run: Run, settlement?: Settlement): Promise<Produced> {
+    async produce(run: Run, settlement?: PublishSettlement): Promise<Produced> {
         const outcome = await this.deps.intake!.producer.produce(
             {
                 kind: run.kind,
@@ -116,7 +116,7 @@ export class RunIntake {
         return outcome === 'acked' ? 'accepted' : outcome === 'unacked' ? 'unavailable' : outcome
     }
 
-    async launch(runs: Run[], options: { wait: 'committed'; settlement?: Settlement }): Promise<Committed[]> {
+    async launch(runs: Run[], options: { wait: 'committed'; settlement?: PublishSettlement }): Promise<Committed[]> {
         const invocations = runs.map((run) => run.invocation)
         const rows = this.deps.invocationResultsRowsService
         // Prepared before the insert: only a stamp set before serialization reaches cyclotron, and a worker can finish
@@ -141,7 +141,7 @@ export class RunIntake {
     }
 
     // Shadow measures the Kafka path beside the insert: the answer is already decided, so a failed produce changes nothing.
-    private async produceShadowCopies(created: Run[], settlement?: Settlement): Promise<void> {
+    private async produceShadowCopies(created: Run[], settlement?: PublishSettlement): Promise<void> {
         const intake = this.deps.intake
         const shadow = intake ? created.filter((run) => intake.modeOf(run.invocation.teamId) === 'shadow') : []
         await Promise.all(
