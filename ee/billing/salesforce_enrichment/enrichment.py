@@ -9,6 +9,7 @@ from django.utils import timezone
 import posthoganalytics
 from dateutil import parser
 from simple_salesforce.format import format_soql
+from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
@@ -687,7 +688,7 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
     except Exception as e:
         logger.exception("Salesforce query failed", error=str(e))
         capture_exception(e)
-        return []
+        raise
 
     if cache_missing:
         try:
@@ -1070,23 +1071,25 @@ async def enrich_accounts_chunked_async(
     if estimated_total_chunks:
         log_context["estimated_total_chunks"] = estimated_total_chunks
 
-    # Initialize Salesforce client
+    # The workflow ends the run at the first chunk that reports fewer accounts than chunk_size.
+    # A failed read must raise, so that Temporal retries the chunk and then fails the run.
+    # A result with zero accounts would end the run early and report it as complete.
     try:
         sf = get_salesforce_client()
     except Exception as e:
         logger.exception("Failed to connect to Salesforce", error=str(e))
         capture_exception(e)
-        return _build_result(chunk_number, start_time, error=str(e))
+        raise
 
-    # Query accounts from Redis cache
     try:
         accounts = await query_salesforce_accounts_chunk_async(sf, offset, chunk_size)
-        if not accounts:
-            return _build_result(chunk_number, start_time)
     except Exception as e:
         logger.exception("Failed to query accounts", error=str(e))
         capture_exception(e)
-        return _build_result(chunk_number, start_time, error=str(e))
+        raise
+
+    if not accounts:
+        return _build_result(chunk_number, start_time)
 
     # Extract domains and prepare account info
     account_data = []
@@ -1187,6 +1190,7 @@ async def enrich_accounts_chunked_async(
                     **log_context,
                     **result,
                     "errors_count": len(result.get("errors", [])),
+                    "workflow_run_id": activity.info().workflow_run_id if activity.in_activity() else None,
                 },
             )
         except Exception:
