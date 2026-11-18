@@ -124,6 +124,6 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
             }
         }
 
-        posthog.captureException(exception, undefined, additionalProperties)
+        posthog.captureException(exception, { properties: additionalProperties })
     }
 }

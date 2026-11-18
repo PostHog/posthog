@@ -37,7 +37,7 @@ SKIPPED_DIRS = {"node_modules", ".git", "dist", ".venv", "target", ".flox", "bui
 EXPECTED_MAJORS = {
     "posthoganalytics": 7,
     "posthog": 7,
-    "posthog-node": 5,
+    "posthog-node": 6,
     "posthog-js": 1,
     "@posthog/react": 1,
     "posthog-js-lite": 4,
