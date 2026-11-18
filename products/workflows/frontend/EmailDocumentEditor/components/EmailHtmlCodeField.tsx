@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
-const APPLY_DELAY_MS = 300
-
 export function EmailHtmlCodeField({
     html,
     onChange,
@@ -12,28 +10,16 @@ export function EmailHtmlCodeField({
     onChange: (html: string) => void
 }): JSX.Element {
     const [draft, setDraft] = useState(html)
-    const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
-    const latest = useRef({ draft: html, onChange })
-    latest.current.onChange = onChange
+    const typed = useRef(html)
 
-    // A change from elsewhere, such as undo or the larger editor, replaces the draft unless one is still being applied.
+    // Each edit applies at once, so nothing waits on a block position that a move or another selection can change.
+    // Only a change from elsewhere, such as undo or the larger editor, replaces what is typed here.
     useEffect(() => {
-        if (!pending.current) {
+        if (html !== typed.current) {
+            typed.current = html
             setDraft(html)
         }
     }, [html])
-
-    // Picking another block or closing the panel unmounts the field, so an edit still waiting is applied then.
-    useEffect(
-        () => () => {
-            if (pending.current) {
-                clearTimeout(pending.current)
-                pending.current = null
-                latest.current.onChange(latest.current.draft)
-            }
-        },
-        []
-    )
 
     return (
         <div className="flex flex-col gap-1" data-attr="email-editor-html-code">
@@ -45,15 +31,9 @@ export function EmailHtmlCodeField({
                     value={draft}
                     onChange={(value) => {
                         const next = value ?? ''
+                        typed.current = next
                         setDraft(next)
-                        latest.current.draft = next
-                        if (pending.current) {
-                            clearTimeout(pending.current)
-                        }
-                        pending.current = setTimeout(() => {
-                            pending.current = null
-                            onChange(next)
-                        }, APPLY_DELAY_MS)
+                        onChange(next)
                     }}
                     options={{ minimap: { enabled: false }, wordWrap: 'on', lineNumbers: 'off', folding: false }}
                 />
