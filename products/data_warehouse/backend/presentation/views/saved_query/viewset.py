@@ -25,6 +25,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
+from posthog.rbac.query_access import assert_user_can_read_sql
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -394,6 +395,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                         hidden_types=hidden_types,
                     )
             else:
+                # A run publishes the view's rows, so it needs the same read access to the sources as the
+                # paths above. `sql` binds the incremental window start, which the raw text leaves unbound.
+                assert_user_can_read_sql(saved_query.sql, self.team_id, cast(User, request.user))
                 # Checked before the watermark is dropped below, so a refused full refresh changes nothing.
                 raise_if_manual_run_is_refused(self.team_id, saved_query.id, from_browser_session=from_browser_session)
                 if body.validated_data["full_refresh"]:
