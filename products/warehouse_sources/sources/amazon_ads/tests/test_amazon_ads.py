@@ -37,6 +37,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
 
@@ -258,6 +259,21 @@ class TestGetRows:
         assert isinstance(result.raised, AmazonAdsRetryableError)
         assert len(result.requests) > 2
         assert set(result.paths) == {"/auth/o2/token", "/v2/profiles"}
+
+    @pytest.mark.parametrize("region", ["na", "eu", "fe"])
+    def test_targets_query_bad_request_is_non_retryable(self, region: str) -> None:
+        # The unified Ads API rejects `sb_targets`/`sd_targets` (which share this path) with a 400
+        # rather than an empty page when the profile has no campaigns of that ad product.
+        driver = SourceDriver(
+            AmazonAdsSource(),
+            AmazonAdsSourceConfig(region=region, client_id="cid", client_secret="sec", refresh_token="rt"),
+        )
+        result = driver.run(
+            "sb_targets",
+            [_token(), _profiles([{"profileId": 1}]), ScriptedResponse(status=400)],
+        )
+        assert isinstance(result.raised, requests.HTTPError)
+        assert error_message_matches(str(result.raised), AmazonAdsSource().get_non_retryable_errors())
 
 
 class TestReportRows:
