@@ -274,6 +274,11 @@ class TestInstanceSettings(APIBaseTest):
             ("comma_separated", "4, 5, 6", [4, 5, 6]),
             ("json_string", "[7, 8, 9]", [7, 8, 9]),
             ("empty_string", "", []),
+            (
+                "indented_json_string_that_fits_once_stored",
+                json.dumps(list(range(100000, 100100)), indent=2),
+                list(range(100000, 100100)),
+            ),
         ]
         for name, input_value, expected in valid_cases:
             with self.subTest(name):
@@ -288,6 +293,7 @@ class TestInstanceSettings(APIBaseTest):
         invalid_cases = [
             ("non_int_items", "1, two, 3"),
             ("invalid_json", "[1, 2"),
+            ("comma_string_too_long_once_stored", ",".join(["1"] * 511)),
         ]
         for name, input_value in invalid_cases:
             with self.subTest(name):
