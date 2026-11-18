@@ -128,7 +128,10 @@ describe('tagRuleModalLogic', () => {
         ['saves an edit to a filter value at once', { ...browserFilter, value: ['Chrome'] }, 0],
         ['asks before an edit to a filter property removes the existing tags', { ...browserFilter, key: '$os' }, 1],
     ])('%s', async (_, filter, dialogs) => {
-        const confirm = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        let pressSave = (): void => {}
+        const dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(({ primaryButton }) => {
+            pressSave = () => primaryButton?.onClick?.({} as MouseEvent<HTMLButtonElement>)
+        })
         const logic = tagRuleModalLogic()
         logic.mount()
         const filters = { type: FilterLogicalOperator.And, values: [filter] }
@@ -138,7 +141,7 @@ describe('tagRuleModalLogic', () => {
         await expectLogic(logic, () => logic.actions.saveRule()).toFinishAllListeners()
 
         expect(requests).toHaveLength(1 - dialogs)
-        confirm.mock.calls.forEach(([dialog]) => dialog.primaryButton?.onClick?.({} as MouseEvent<HTMLButtonElement>))
+        pressSave()
         await expectLogic(logic).toFinishAllListeners()
         expect(requests).toEqual([
             {
@@ -147,7 +150,7 @@ describe('tagRuleModalLogic', () => {
                 body: { label: persistedRule.label, description: persistedRule.description, filters },
             },
         ])
-        confirm.mockRestore()
+        dialog.mockRestore()
     })
 
     // A rule reads only the first exception of a new issue. A preview that counts every matching exception counts
