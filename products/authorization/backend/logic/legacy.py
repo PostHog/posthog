@@ -6,7 +6,7 @@ from uuid import UUID
 
 from posthog.models import OrganizationMembership, Team, User
 from posthog.organization_caching import get_cached_organization_membership
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade import api as access_control_api

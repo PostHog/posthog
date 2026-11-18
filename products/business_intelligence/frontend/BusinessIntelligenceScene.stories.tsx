@@ -2,8 +2,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator } from '~/mocks/browser'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
@@ -104,7 +102,6 @@ const meta: Meta = {
     },
     parameters: {
         layout: 'centered',
-        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         testOptions: { waitForSelector: '[data-attr="bi-result-summary"]' },
     },
     decorators: [

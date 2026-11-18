@@ -3,7 +3,7 @@ import datetime as dt
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -16,7 +16,7 @@ from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.metrics.backend.derived import DerivedMetricQueryRunner
+from products.metrics.backend.derived import DerivedMetricQueryRunner, derived_metrics_enabled
 from products.metrics.backend.facade.api import list_metric_names, list_metric_picker_names, run_metric_query
 from products.metrics.backend.facade.contracts import (
     METRICS_DERIVED_SERIES_FEATURE_FLAG,
@@ -33,6 +33,7 @@ REQUESTS = "posthog.derived.spans.requests"
 ERRORS = "posthog.derived.spans.errors"
 DURATION = "posthog.derived.spans.duration"
 LOG_RECORDS = "posthog.derived.logs.records"
+APDEX = "posthog.derived.spans.apdex"
 
 DATE_FROM = dt.datetime(2026, 6, 2, 8, 0, tzinfo=dt.UTC)
 DATE_TO = dt.datetime(2026, 6, 2, 9, 0, tzinfo=dt.UTC)
@@ -63,8 +64,12 @@ SPANS = [
 LOGS = [("web", "info"), ("web", "info"), ("web", "error"), ("worker", "warn")]
 
 
-def _flags(*enabled: str):
-    return patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *_, **__: flag in enabled)
+def _flags(*enabled: str, derived_variant: str | bool | None = "test"):
+    return patch.multiple(
+        "posthoganalytics",
+        feature_enabled=MagicMock(side_effect=lambda flag, *_, **__: flag in enabled),
+        get_feature_flag=MagicMock(side_effect=lambda flag, *_, **__: derived_variant if flag in enabled else None),
+    )
 
 
 def _insert_spans(team_id: int) -> None:
@@ -123,6 +128,7 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
         group_by: tuple[str, ...] = ("service.name",),
         filters: tuple[MetricFilter, ...] = (),
         range_function: MetricRangeFunction | None = None,
+        apdex_threshold_ms: float | None = None,
     ) -> list[MetricSeries]:
         clause = MetricQueryClause(
             name="a",
@@ -132,6 +138,7 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
             group_by=tuple(MetricGroupBy(key=key) for key in group_by),
             filters=filters,
             range_function=range_function,
+            apdex_threshold_ms=apdex_threshold_ms,
         )
         request = MetricQueryRequest(clauses=(clause,), date_from=DATE_FROM, date_to=DATE_TO, interval="hour")
         return run_metric_query(team=self.team, request=request)
@@ -189,6 +196,20 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert _by_label(series, "service.name") == expected
 
+    @parameterized.expand(
+        [
+            # Every request is under the default 500ms, so only errors (frustrated) lower the score.
+            ("default_threshold", None, {"web": 0.75, "worker": 0.5, "api": 1.0, "jobs": 1.0}),
+            # At 15ms, web's 20ms and 30ms requests tolerate (half credit) and worker's 100ms one is frustrated.
+            ("custom_threshold", 15.0, {"web": 0.5, "worker": 0.0, "api": 1.0, "jobs": 1.0}),
+        ]
+    )
+    def test_apdex_per_service(self, _name: str, threshold_ms: float | None, expected: dict[str, float]) -> None:
+        with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
+            series = self._run(APDEX, MetricAggregation.AVG, apdex_threshold_ms=threshold_ms)
+
+        assert _by_label(series, "service.name") == expected
+
     def test_a_new_counter_selection_without_aggregation_counts_requests(self) -> None:
         # The picker sends `none` for a counter that the user has not aggregated yet.
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
@@ -213,16 +234,29 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert _by_label(series, "service.name") == {"jobs": 1}
 
-    def test_span_attribute_group_by_and_filter(self) -> None:
+    @parameterized.expand(
+        [
+            ("span_attribute", "http.route", ("service.name", FilterOp.NEQ, "worker"), {"/a": 4, "/b": 1, "": 1}),
+            # A service without server spans counts its root spans, so its requests group as "internal".
+            ("span_kind", "span.kind", None, {"server": 6, "internal": 2}),
+            ("span_status", "service.name", ("span.status_code", FilterOp.EQ, "error"), {"web": 1, "worker": 1}),
+            ("span_kind_neq", "span.kind", ("span.kind", FilterOp.NEQ, "server"), {"internal": 2}),
+        ]
+    )
+    def test_span_group_by_and_filter(
+        self,
+        _name: str,
+        group_key: str,
+        span_filter: tuple[str, FilterOp, str] | None,
+        expected: dict[str, float],
+    ) -> None:
+        filters = (
+            () if span_filter is None else (MetricFilter(key=span_filter[0], op=span_filter[1], value=span_filter[2]),)
+        )
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
-            series = self._run(
-                REQUESTS,
-                MetricAggregation.SUM,
-                group_by=("http.route",),
-                filters=(MetricFilter(key="service.name", op=FilterOp.NEQ, value="worker"),),
-            )
+            series = self._run(REQUESTS, MetricAggregation.SUM, group_by=(group_key,), filters=filters)
 
-        assert _by_label(series, "http.route") == {"/a": 4, "/b": 1, "": 1}
+        assert _by_label(series, group_key) == expected
 
     def test_log_records_per_severity(self) -> None:
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
@@ -371,6 +405,45 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
 
+    @parameterized.expand([("test_variant", "test", True), ("control_variant", "control", False)])
+    @time_machine.travel(DATE_TO, tick=False)
+    def test_has_metrics_reports_derived_sources_and_series(self, _name: str, variant: str, derived_on: bool) -> None:
+        with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG, derived_variant=variant):
+            response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"hasMetrics": False, "hasDerivedSources": True, "hasDerivedMetrics": derived_on}
+
+    @parameterized.expand(
+        [
+            ("token_without_source_scopes", ["metrics:read"], True, False),
+            ("token_with_tracing_scope", ["metrics:read", "tracing:read"], True, True),
+            ("user_without_source_access", None, False, False),
+        ]
+    )
+    @time_machine.travel(DATE_TO, tick=False)
+    def test_has_metrics_hides_sources_the_caller_cannot_read(
+        self, _name: str, scopes: list[str] | None, has_source_access: bool, expected: bool
+    ) -> None:
+        if scopes is not None:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {value}")
+
+        with (
+            _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+                side_effect=lambda resource, *_, **__: resource not in ("logs", "tracing") or has_source_access,
+            ),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"hasMetrics": False, "hasDerivedSources": expected, "hasDerivedMetrics": expected}
+
     def test_query_event_marks_derived_queries(self) -> None:
         with (
             _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
@@ -430,3 +503,17 @@ class TestDerivedMetricQueryCaps(SimpleTestCase):
                 date_to=DATE_TO,
                 interval=None,
             )
+
+
+class TestDerivedSeriesVariant(SimpleTestCase):
+    # The experiment flag is multivariate, so the control variant is a truthy string that must not turn series on.
+    @parameterized.expand(
+        [("control", "control", False), ("test", "test", True), ("boolean", True, True), ("off", None, False)]
+    )
+    def test_only_the_test_variant_turns_derived_series_on(
+        self, _name: str, variant: str | bool | None, expected: bool
+    ) -> None:
+        team = Team(id=1, organization_id="01a1a8b0-0000-0000-0000-000000000000")
+
+        with patch("posthoganalytics.get_feature_flag", return_value=variant):
+            assert derived_metrics_enabled(team) is expected

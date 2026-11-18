@@ -5,7 +5,7 @@ A sub-product of Session Replay. Users configure named **scanners** that PostHog
 ## Concepts
 
 **Scanner** — a configured probe scoped to a team.
-Carries a prompt, a scanner type (`monitor` / `classifier` / `scorer` / `summarizer`), a `RecordingsQuery` that selects matching sessions, a Gemini model (which sets the per-observation credit price), and two volume levers: `sampling_mode` (a quality pre-filter over the matched sessions) and `sampling_rate` (a random downsample applied after it).
+Carries a prompt, a scanner type (`monitor` / `classifier` / `scorer` / `summarizer`), a `RecordingsQuery` that selects matching sessions, a Gemini model (which sets the per-observation credit price), and a volume lever: `sampling_rate` (a random downsample of the matched sessions).
 Each enabled scanner has a Temporal schedule that fires every 5 minutes and sweeps for newly settled recordings past the scanner's watermark (`last_swept_at`); disabling a scanner removes its schedule, and re-enabling restarts the sweep from now rather than backfilling the gap (see **Backfill** for the explicit way to cover history).
 Every succeeded observation is embedded (the summary, or the reasoning) for downstream free-text search.
 The Search tab ranks observations by embedding distance, then a decision model rereads the query and each of the top 20 together and reorders them by how well they match. The reorder has a two-second budget, and search falls back to the embedding order when the model is slow, failing, or not configured.

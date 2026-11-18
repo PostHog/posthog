@@ -24,6 +24,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 
+import { TracesAlertsTab } from './alerting/TracesAlertsTab'
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { TracingFacetRail } from './components/FacetRail/TracingFacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
@@ -48,6 +49,12 @@ import { traceViewId, tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
+
+const SCENE_TAB_LABELS: Record<TracingSceneTab, string> = {
+    viewer: 'Viewer',
+    sql: 'SQL',
+    alerts: 'Alerts',
+}
 
 export const scene: SceneExport = {
     component: TracingScene,
@@ -127,6 +134,7 @@ function TracingSceneContents(): JSX.Element {
         displayMode,
         compareActive,
         sceneTabsEnabled,
+        availableSceneTabs,
         activeSceneTab,
     } = useValues(tracingSceneLogic())
     const { traceLoadFiltersActive } = useValues(tracingDataLogic)
@@ -155,7 +163,6 @@ function TracingSceneContents(): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed, spanColumns } = useValues(tracingConfigLogic)
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
-    const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
     const impactStripEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
@@ -274,10 +281,7 @@ function TracingSceneContents(): JSX.Element {
                 <LemonTabs<TracingSceneTab>
                     activeKey={activeSceneTab}
                     onChange={selectSceneTab}
-                    tabs={[
-                        { key: 'viewer', label: 'Viewer' },
-                        { key: 'sql', label: 'SQL' },
-                    ]}
+                    tabs={availableSceneTabs.map((key) => ({ key, label: SCENE_TAB_LABELS[key] }))}
                     sceneInset
                 />
             )}
@@ -299,7 +303,7 @@ function TracingSceneContents(): JSX.Element {
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
                     visibleRowDurationRange={visibleRowDurationRange}
                     chartType={filters.chartType}
-                    onChartTypeChange={heatmapEnabled ? setChartType : undefined}
+                    onChartTypeChange={setChartType}
                     latencyHeatmap={showHeatmap ? latencyHeatmapData : null}
                     latencyHeatmapLoading={latencyHeatmapLoading}
                     onHeatmapBrush={applyHeatmapBrush}
@@ -385,6 +389,7 @@ function TracingSceneContents(): JSX.Element {
                 </div>
             </div>
             {activeSceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
+            {activeSceneTab === 'alerts' && <TracesAlertsTab />}
             <TraceDrawer
                 viewId={traceViewId(TRACING_SCENE_VIEWER_ID)}
                 isOpen={isTraceOpen}

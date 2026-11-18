@@ -67,4 +67,10 @@ describe('TraceSummaryBar', () => {
             urls.personByDistinctId('user-1')
         )
     })
+
+    it('names the thumbs on the feedback chip', () => {
+        renderBar({ feedback: { summary: { total: 1, thumbsUp: 1, thumbsDown: 0 }, onClick: () => {} } })
+
+        expect(screen.getByLabelText('1 thumbs up, 0 thumbs down, 1 feedback in total')).toBeTruthy()
+    })
 })

@@ -125,6 +125,14 @@ export function getPluginServerCapabilities(
             return {
                 cdpSesWebhooks: true,
             }
+        case PluginServerMode.cdp_intake_transactional_email:
+            return {
+                cdpIntakeTransactionalEmail: true,
+            }
+        case PluginServerMode.cdp_intake_workflow_webhook:
+            return {
+                cdpIntakeWorkflowWebhook: true,
+            }
         case PluginServerMode.cdp_cyclotron_worker:
             return {
                 cdpCyclotronWorker: true,
@@ -136,6 +144,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_cyclotron_worker_email:
             return {
                 cdpCyclotronWorkerEmail: true,
+            }
+        case PluginServerMode.cdp_cyclotron_worker_email_sandbox:
+            return {
+                cdpCyclotronWorkerEmailSandbox: true,
             }
         case PluginServerMode.cdp_precalculated_filters:
             // The consumer is gone. Boot with no capabilities so a pod that charts still
@@ -218,7 +230,6 @@ export function getPluginServerCapabilities(
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
         case PluginServerMode.ai_research_v4_image_fetch:
         case PluginServerMode.ai_research_v4_image_fetch_retry:
-        case PluginServerMode.ai_research_v4_parquet_sink:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }

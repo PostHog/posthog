@@ -3,6 +3,7 @@ import math
 import datetime as dt
 from pathlib import Path
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import pytest
 import time_machine
@@ -34,6 +35,7 @@ from posthog.shared_link_user import SharedLinkUser
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.metrics.backend.facade.contracts import MetricPoint
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
+from products.metrics.backend.promql import fill_range_variables
 from products.metrics.backend.query_counts import list_metric_query_counts
 from products.metrics.backend.series import rank_and_fill_series
 from products.metrics.backend.sql_mode import run_metrics_sql_values
@@ -452,6 +454,31 @@ class TestMetricsPromQLMode(APIBaseTest):
 
     @parameterized.expand(
         [
+            # (name, promql as written, promql sent to Snuffle). DATE_RANGE spans one hour.
+            ("range", "increase(x[$__range])", "increase(x[3600s])"),
+            ("braced_range", "increase(x[${__range}])", "increase(x[3600s])"),
+            ("range_seconds", "increase(x[${__range_s}s]) / $__range_s", "increase(x[3600s]) / 3600"),
+            ("range_milliseconds", "increase(x[${__range_ms}ms])", "increase(x[3600000ms])"),
+            (
+                "quantile_over_the_range",
+                "histogram_quantile(0.99, sum by (le) (increase(x_bucket[$__range])))",
+                "histogram_quantile(0.99, sum by (le) (increase(x_bucket[3600s])))",
+            ),
+            ("step_variables_stay", "rate(x[$__rate_interval]) + rate(y[$__interval])", None),
+            ("escaped_literal_in_regex_stays", "up{path=~`\\$__range`}", None),
+        ]
+    )
+    def test_fills_the_dashboard_range_variables(self, _name: str, promql: str, sent_promql: str | None) -> None:
+        payload = {"status": "success", "data": {"resultType": "matrix", "result": []}}
+        with patch(
+            "posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)
+        ) as request:
+            self._runner(promql).calculate()
+
+        assert request.call_args.kwargs["data"]["query"] == (sent_promql or promql)
+
+    @parameterized.expand(
+        [
             # (name, promql, the series' clause, its labels)
             (
                 "builder_series_marker",
@@ -689,3 +716,12 @@ def test_output_is_bounded(_name: str, series_count: int, time_count: int) -> No
         pytest.raises(ValueError, match="too many series"),
     ):
         rank_and_fill_series(rows, fill=None)
+
+
+def test_range_variable_counts_elapsed_time_across_a_dst_change() -> None:
+    # New York springs forward on March 8, 2026, so this local day lasts 23 hours.
+    new_york = ZoneInfo("America/New_York")
+    date_from = dt.datetime(2026, 3, 8, tzinfo=new_york)
+    date_to = dt.datetime(2026, 3, 9, tzinfo=new_york)
+
+    assert fill_range_variables("increase(x[$__range])", date_from, date_to) == "increase(x[82800s])"

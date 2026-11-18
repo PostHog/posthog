@@ -1,7 +1,6 @@
 import json
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -81,6 +80,7 @@ class TestAccountViewContentValidation(SimpleTestCase):
                 "Recent recordings",
             ),
             ('<Automations nodeId="automations-one" span={6} />', "Automations"),
+            ('<DotMatrix nodeId="matrix-one" span={6} />', "Dot matrix"),
         ]
     )
     def test_accepts_account_widget(self, component: str, expected_text: str) -> None:
@@ -88,6 +88,64 @@ class TestAccountViewContentValidation(SimpleTestCase):
         validated, text_content = validate_account_view_content(content)
         self.assertEqual(validated, content)
         self.assertEqual(text_content, expected_text)
+
+    @parameterized.expand(
+        [
+            ("unsupported_field", {"query": "SELECT 1"}),
+            ("unknown_dataset", {"dataset": "production"}),
+            ("wrong_dataset_type", {"dataset": {}}),
+            ("unknown_mode", {"mode": "users"}),
+            ("wrong_mode_type", {"mode": []}),
+            ("wrong_selection_shape", {"selectedSeries": "product"}),
+            ("wrong_selection_key_type", {"selectedSeries": [1]}),
+            ("empty_selection_key", {"selectedSeries": [""]}),
+            ("long_selection_key", {"selectedSeries": ["x" * 129]}),
+            ("duplicate_selection_key", {"selectedSeries": ["replay", "replay"]}),
+            ("too_many_selection_keys", {"selectedSeries": [str(index) for index in range(65)]}),
+            ("identity", {"accountId": "example-account"}),
+            ("weeks_out_of_range", {"weeks": 3}),
+            ("duplicate_metric_id", {"metricIds": ["m", "m"]}),
+            ("unknown_source_kind", {"source": {"kind": "warehouse"}}),
+            ("preset_source_with_query", {"source": {"kind": "product_usage", "query": "SELECT 1"}}),
+            ("hogql_source_without_mapping", {"source": {"kind": "hogql", "query": "SELECT 1"}}),
+            (
+                "hogql_source_blank_query",
+                {"source": {"kind": "hogql", "query": " ", "mapping": {"row": "a", "column": "b"}}},
+            ),
+            (
+                "hogql_source_mapping_without_column",
+                {"source": {"kind": "hogql", "query": "SELECT 1", "mapping": {"row": "a", "size": "b"}}},
+            ),
+        ]
+    )
+    def test_rejects_invalid_dot_matrix_config(self, _name: str, config: dict) -> None:
+        with self.assertRaises(InvalidAccountViewContent):
+            validate_account_view_content(
+                account_view_content(f'<DotMatrix nodeId="matrix-one" config={{{json.dumps(config)}}} />')
+            )
+
+    @parameterized.expand(
+        [
+            ({},),
+            ({"dataset": "ci", "mode": "count", "selectedSeries": ["build", "test"]},),
+            ({"weeks": 12, "metricIds": ["metric-one"], "selectedSeries": ["metric-one"]},),
+            ({"source": None},),
+            ({"source": {"kind": "product_usage"}},),
+            ({"source": {"kind": "hogql", "query": "SELECT 1", "mapping": {"row": "person", "column": "week"}}},),
+            (
+                {
+                    "source": {
+                        "kind": "hogql",
+                        "query": "SELECT 1",
+                        "mapping": {"row": "person", "column": "week", "user": "person_id", "rowLabel": "email"},
+                    }
+                },
+            ),
+        ]
+    )
+    def test_accepts_dot_matrix_config(self, config: dict) -> None:
+        content = account_view_content(f'<DotMatrix nodeId="matrix-one" config={{{json.dumps(config)}}} />')
+        self.assertEqual(validate_account_view_content(content), (content, "Dot matrix"))
 
     def test_rejects_span_outside_twelve_columns(self) -> None:
         with self.assertRaises(InvalidAccountViewContent) as context:
@@ -99,7 +157,6 @@ class TestAccountViewContentValidation(SimpleTestCase):
 class TestAccountViews(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -154,6 +211,27 @@ class TestAccountViews(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         return response.json()
+
+    @parameterized.expand(
+        [
+            ({"dataset": "ci", "mode": "count", "selectedSeries": ["build"]},),
+            ({"source": None},),
+            ({"source": {"kind": "product_usage"}},),
+            ({"source": {"kind": "hogql", "query": "SELECT 1 AS r, 2 AS c", "mapping": {"row": "r", "column": "c"}}},),
+        ]
+    )
+    def test_dot_matrix_config_roundtrips_and_rejects_invalid_updates(self, config: dict) -> None:
+        content = account_view_content(f'<DotMatrix nodeId="matrix-one" config={{{json.dumps(config)}}} />')
+        response = self.client.post(self.endpoint, {"name": "Dot matrix", "content": content}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        view = response.json()
+        self.assertEqual(self.client.get(f"{self.endpoint}{view['id']}/").json()["content"], content)
+        invalid = account_view_content('<DotMatrix nodeId="matrix-one" config={{"dataset":"production"}} />')
+        update = self.client.patch(
+            f"{self.endpoint}{view['id']}/", {"version": view["version"], "content": invalid}, format="json"
+        )
+        self.assertEqual(update.status_code, status.HTTP_400_BAD_REQUEST, update.json())
+        self.assertEqual(self.client.get(f"{self.endpoint}{view['id']}/").json()["content"], content)
 
     def test_properties_widgets_roundtrip_independent_ordered_selections_with_stale_references(self) -> None:
         first = {

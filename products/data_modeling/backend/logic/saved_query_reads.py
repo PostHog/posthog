@@ -2,6 +2,7 @@
 
 from collections.abc import Collection, Iterable
 from datetime import datetime
+from graphlib import TopologicalSorter
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -287,11 +288,14 @@ def get_materialized_table_uri(team_id: int, saved_query_id: UUID | str) -> str 
     writes to (``_build_model_table_uri``), so a reader lands on the table that run produced.
     """
     saved_query = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id).exclude(deleted=True).first()
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        .exclude(deleted=True)
+        .select_related("table")
+        .first()
     )
     if saved_query is None or not saved_query.is_materialized:
         return None
-    return f"{settings.BUCKET_URL}/{saved_query.folder_path}/{saved_query.normalized_name}"
+    return f"{settings.BUCKET_URL}/{saved_query.folder_path}/{saved_query.storage_name}"
 
 
 def get_node_ids_for_saved_queries(team_id: int, saved_query_ids: Iterable[UUID | str]) -> dict[str, str]:
@@ -360,6 +364,16 @@ def dependent_saved_query_ids(team_id: int, saved_query_ids: Collection[UUID]) -
     for source_id, target_id in edges:
         dependents[source_id].add(target_id)
     return {saved_query_id: frozenset(ids) for saved_query_id, ids in dependents.items()}
+
+
+def saved_query_ids_upstream_first(team_id: int, saved_query_ids: Collection[UUID]) -> list[UUID]:
+    """Order saved query ids so every upstream view precedes its downstream views."""
+    view_ids = set(saved_query_ids)
+    sorter: TopologicalSorter[UUID] = TopologicalSorter({view_id: set() for view_id in sorted(view_ids)})
+    for source_id, target_ids in dependent_saved_query_ids(team_id, view_ids).items():
+        for target_id in target_ids & view_ids:
+            sorter.add(target_id, source_id)
+    return list(sorter.static_order())
 
 
 def saved_query_node_ids(team_id: int, saved_query_id: UUID | str) -> set[str]:
@@ -432,6 +446,17 @@ def upstream_saved_query_ids(team_id: int, saved_query_id: UUID | str) -> frozen
     """The saved queries this saved query reads from, directly or through other views in any DAG."""
     start_node_ids = _node_ids_standing_for(team_id, {str(saved_query_id)})
     reached = reachable_node_ids(team_id, start_node_ids, upstream=True, max_depth=None)
+    return frozenset(
+        Node.objects.filter(team_id=team_id, id__in=reached, saved_query_id__isnull=False)
+        .exclude(saved_query_id=saved_query_id)
+        .values_list("saved_query_id", flat=True)
+    )
+
+
+def downstream_saved_query_ids(team_id: int, saved_query_id: UUID | str) -> frozenset[UUID]:
+    """The saved queries that read from this one, directly or through other views in any DAG."""
+    start_node_ids = _node_ids_standing_for(team_id, {str(saved_query_id)})
+    reached = reachable_node_ids(team_id, start_node_ids, upstream=False, max_depth=None)
     return frozenset(
         Node.objects.filter(team_id=team_id, id__in=reached, saved_query_id__isnull=False)
         .exclude(saved_query_id=saved_query_id)

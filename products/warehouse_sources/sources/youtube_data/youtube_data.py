@@ -34,6 +34,9 @@ RESPONSE_ACTIONS: list[ResponseAction] = [
     {"status_code": 403, "content": "quotaExceeded", "action": "raise", "message": QUOTA_ERROR},
     {"status_code": 403, "content": "dailyLimitExceeded", "action": "raise", "message": QUOTA_ERROR},
     {"status_code": 403, "content": "commentsDisabled", "action": "raise", "message": COMMENTS_ERROR},
+    # Google answers a bad or expired API key with a 400, not a 401.
+    {"status_code": 400, "content": "API_KEY_INVALID", "action": "raise", "message": AUTH_ERROR},
+    {"status_code": 400, "content": "API_KEY_EXPIRED", "action": "raise", "message": AUTH_ERROR},
     {"status_code": 400, "action": "raise", "message": REQUEST_ERROR},
     {"status_code": 401, "action": "raise", "message": AUTH_ERROR},
     {"status_code": 403, "action": "raise", "message": ACCESS_ERROR},
@@ -87,6 +90,8 @@ def fetch_channel(api_key: str, channel_id: str, team_id: int, api_version: str)
     endpoint = cast(Endpoint, resource["endpoint"])
     endpoint["params"] = {"part": "contentDetails", "id": channel_id}
     endpoint["paginator"] = "single_page"
+    # channels.list omits "items" entirely when no channel matches the id.
+    endpoint["data_selector_required"] = False
     config: RESTAPIConfig = {"client": client_config(api_key, api_version), "resources": [resource]}
     for page in rest_api_resource(config, team_id, "youtube_data_channel_probe", None):
         if page:

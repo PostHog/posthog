@@ -8,6 +8,7 @@ from openai import APIConnectionError, APIError, APIStatusError, InternalServerE
 # a new model joins only after someone checks that page.
 FLEX_CAPABLE_MODELS: frozenset[str] = frozenset(
     {
+        "gpt-6.1-terra",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",

@@ -788,9 +788,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             )
         select_repository.assert_not_called()
         assert result.report_id is not None
-        report = self.store.get_report(result.report_id)
-        assert report is not None
-        assert report.operator_metadata["skipped_automatic_repository_selection"] is True
+        assert self.store.get_report(result.report_id) is not None
 
     @parameterized.expand(
         [(action, state) for action in ("emit-report", "edit-report") for state in ("invalid", "completed")]

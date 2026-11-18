@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -7,6 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { funnelDataLogic } from '../funnelDataLogic'
 import { buildTimeToConvertCompareRows, TimeToConvertCompareRow } from './funnelTimeToConvertTableUtils'
+import { QuillFunnelTimeToConvertTable } from './QuillFunnelTimeToConvertTable'
 
 type TimeToConvertColumn = LemonTableColumn<TimeToConvertCompareRow, keyof TimeToConvertCompareRow | undefined>
 
@@ -49,6 +51,7 @@ export function FunnelTimeToConvertTable(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
     const { histogramGraphData, histogramGraphDataPrevious, timeConversionResultsPrevious, conversionMetrics } =
         useValues(funnelDataLogic(insightProps))
+    const quillSurface = useQuillSurface()
 
     if (!histogramGraphData || histogramGraphData.length === 0) {
         return null
@@ -56,6 +59,19 @@ export function FunnelTimeToConvertTable(): JSX.Element | null {
 
     const isComparing = !!histogramGraphDataPrevious && histogramGraphDataPrevious.length > 0
     const rows = buildTimeToConvertCompareRows(histogramGraphData, histogramGraphDataPrevious)
+    const previousMedianTime = timeConversionResultsPrevious?.median_conversion_time
+
+    if (quillSurface) {
+        return (
+            <QuillFunnelTimeToConvertTable
+                rows={rows}
+                isComparing={isComparing}
+                loading={insightLoading}
+                medianTime={conversionMetrics.medianTime}
+                previousMedianTime={previousMedianTime}
+            />
+        )
+    }
 
     const columns: LemonTableColumns<TimeToConvertCompareRow> = isComparing
         ? [
@@ -64,8 +80,6 @@ export function FunnelTimeToConvertTable(): JSX.Element | null {
               { title: 'Previous', children: [previousConversionsColumn, previousPercentColumn] },
           ]
         : [timeRangeColumn, conversionsColumn, percentColumn]
-
-    const previousMedianTime = timeConversionResultsPrevious?.median_conversion_time
 
     return (
         <LemonTable

@@ -73,6 +73,23 @@ describe('logsAlertNotificationDetailSceneLogic', () => {
         expect(mockSends.mock.calls.map(([, , params]) => params.hog_function_ids)).toEqual(expected)
     })
 
+    it('keeps to the functions the alert lists as this destination', async () => {
+        ;(logsAlertsRetrieve as jest.Mock).mockResolvedValue({
+            destinations: [
+                { id: null, hog_function_ids: ['fn-firing'] },
+                { id: null, hog_function_ids: ['fn-resolved'] },
+            ],
+        })
+        const logic = logsAlertNotificationDetailSceneLogic({ alertId: 'alert-1', hogFunctionId: 'fn-resolved' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.destinationGroup?.hogFunctions.map((hogFunction) => hogFunction.id)).toEqual([
+            'fn-resolved',
+        ])
+    })
+
     it('loads the sends when the flag turns on after the functions loaded', async () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {})

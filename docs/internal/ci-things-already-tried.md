@@ -453,6 +453,27 @@ Run the trial for several days. A short window cannot separate the jobs whose ti
 
 _Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot runners slow
 
+### Run the python static checks in a `parallel:` block
+
+**Verdict: rejected** · Nov 2026 · [#131571](https://github.com/PostHog/posthog/pull/131571)
+
+The `code-quality` job in `ci-python.yml` runs mypy, ty, the projections check and a lint/pytest group. They read the same tree and share no state, so running them concurrently looks free, and the job wall should fall from their sum to the longest of them.
+
+It is a large regression. The job went from 382s to 528s, which is 38% slower.
+mypy went from 106-187s to 415s, and ty from 46-53s to 137s.
+The block itself took 415s, held open until mypy finished at 06:53:29Z, so overlapping the checks bought nothing on top.
+
+`code-quality` runs on `depot-ubuntu-24.04`, which has 2 vCPUs. mypy already saturates both cores with its own worker, and ty parallelizes internally too. Overlapping them does not divide the work, it time-shares one saturated CPU between three jobs, and each one pays the contention.
+On a 2-vCPU runner, the serial order is the fast order.
+
+This also explains why the existing `parallel:` group in that job is cheap to keep: ruff, the template linters and the gated pytest suites are short and mostly I/O-bound, so they do not compete with a CPU-saturating neighbour. Adding a CPU-bound step to that group is what breaks it.
+
+Do not retry this on the same runner. It would need `depot-ubuntu-24.04-4` or larger first, and then the extra runner cost has to be weighed against the wall time, the same trade rejected for WebKit in "Run the Storybook WebKit shards on 4-CPU runners".
+
+Both sides of the comparison ran with every gated pytest suite switched on. A diff that touches `ci-python.yml` matches every path filter in the `changes` job, so its job is not comparable to a typical pull request's.
+
+_Also asked as:_ parallelize mypy and ty, run the static checks at the same time, speed up the python code-quality job, why is mypy slow in CI
+
 ### Put the setup actions in a `parallel:` block
 
 **Verdict: reverted** · Sep 2026 · added by [#76651](https://github.com/PostHog/posthog/pull/76651)
@@ -496,7 +517,8 @@ The description covers the backend, frontend, and Rust workflows. The diff chang
 The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
-The backend timing collector keeps the full `products/` tree because its optimizer uses product directory presence to retain timings for skipped products.
+The backend timing collector uses a full checkout because its optimizer uses product directory presence to retain timings for skipped products.
+Sparse checkout enables a blobless fetch by default, which adds on-demand fetching when the collector still needs the broad `products/` tree.
 The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
 `ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
 The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
@@ -519,6 +541,8 @@ It keeps the frozen filtered install and live upstream test.
 
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
+Ownership lint omits new-path metadata when it checks tracked-file coverage, so files excluded by sparse checkout do not cause another ownership lookup.
+
 Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout, which also carries `common/storybook/storybook-timings.json`. Source files do not need to exist in the PR worktree for this job. The manifest is there because it sizes the shard count, and a file count cannot size that: the stories a frontend diff affects carry about twice the render time per story that the average story does. It is read from the base checkout so the nightly refresh applies to branches behind master and a fork cannot steer the shard count.
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
@@ -532,7 +556,8 @@ With `fetch-depth: 1000` and `filter: blob:none`, the checkout took 42 to 46 s, 
 Without the filter it took 39 s, because the server then packs the file contents of all 1000 commits.
 A depth-1 checkout followed by `git fetch --filter=blob:none --depth=1000` takes about 7 s, and the job uses that now.
 `--deepen=999` in its place fetched nothing when GitHub had already replaced the PR's merge ref, which failed the run.
-The `test-selection-verdict` and `backend-coverage-report` jobs still use deep blobless checkouts. They run after the required gate, so no PR waits on them.
+The `test-selection-verdict` job uses the same split checkout and history fetch.
+The `backend-coverage-report` job still uses a deep blobless checkout. It runs after the required gate, so no PR waits on it.
 The Agent Skills build uses a plain depth-1 checkout on master pushes because its schema cache keys read only `HEAD`.
 Its PR checkout keeps bounded blobless history for the merge-base schema key.
 

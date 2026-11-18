@@ -15,7 +15,7 @@ This module imports torch through `multihead/network.py`. Import it only inside 
 
 import tempfile
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +28,7 @@ from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, 
 from products.signals.dags.inbox_ranking.multihead.network import MultiHeadNetwork, export_onnx
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.model import (
+    GROUP_SHUFFLE_SEED,
     HeadFitAucs,
     NetworkHead,
     PairFitRecord,
@@ -290,3 +291,30 @@ def seed_scores(
         network.predict(inputs, all_rows)
         for network in seed_networks(table, inputs, heads, config, seeds, train_rows, pair)
     ]
+
+
+def shuffled_group_scores(
+    networks: Sequence[MultiHeadNetwork],
+    inputs: NetworkInputs,
+    rows: np.ndarray,
+    groups: Mapping[str, Sequence[int]],
+) -> dict[str, list[np.ndarray]]:
+    """Per group, each network's scores of `rows` with the group's report columns shuffled together
+    across `rows`. A group's permutation comes from `GROUP_SHUFFLE_SEED` and is shared by every
+    network, so the seeds differ only in their fit. Only the rows' report matrix is copied."""
+    reports = inputs.reports[rows]
+    context = inputs.context
+    if context is not None:
+        context = dataclasses.replace(context, index=context.index[rows])
+    shuffled = reports.copy()
+    local = NetworkInputs(reports=shuffled, context=context)
+    positions = np.arange(len(rows))
+    generator = np.random.default_rng(GROUP_SHUFFLE_SEED)
+    scores: dict[str, list[np.ndarray]] = {}
+    for group, group_columns in groups.items():
+        columns = np.asarray(group_columns, dtype=np.int64)
+        permutation = generator.permutation(len(rows))
+        shuffled[:, columns] = reports[np.ix_(permutation, columns)]
+        scores[group] = [network.predict(local, positions) for network in networks]
+        shuffled[:, columns] = reports[:, columns]
+    return scores

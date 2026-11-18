@@ -19,9 +19,16 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
-from posthog.models import User
+from posthog.models import Team, User
+from posthog.oauth_provenance import (
+    INTERNAL_RUN_SCOPE,
+    get_oauth_access_token,
+    get_oauth_client_id,
+    is_sandbox_origin_request,
+)
 from posthog.rate_limit import (
     PostHogSupportTicketCreateBurstThrottle,
     PostHogSupportTicketCreateSustainedThrottle,
@@ -223,7 +230,7 @@ def build_ticket_message(data: dict[str, Any]) -> str:
             data["deletion_query"],
             "",
             f"Expected event count: {data['expected_event_count']}",
-            "Consent to permanent deletion: yes",
+            "Consent to permanent deletion: yes (as stated by the sender, not confirmed by PostHog)",
         ]
     return "\n".join(sections)
 
@@ -243,7 +250,8 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "create":
-            return [PostHogSupportTicketCreateBurstThrottle(), PostHogSupportTicketCreateSustainedThrottle()]
+            # Checked in `create` after validation, so a rejected request does not use up the ticket budget.
+            return []
         # Reads share the support project's widget budget with every browser, so one agent must not use it up.
         return [PostHogSupportTicketReadThrottle()]
 
@@ -251,7 +259,10 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         user = self.request.user
         if not isinstance(user, User):
             raise PermissionDenied("PostHog support tickets need a signed-in user, not a project key.")
-        if not _agent_tickets_enabled(user):
+        # A server-minted run token acts with nobody watching, and the ticket would arrive verified as the user.
+        if _is_unattended_run(self.request):
+            raise PermissionDenied("PostHog support tickets cannot be opened or followed from an agent run.")
+        if not _agent_tickets_enabled(user, self.team):
             raise PermissionDenied("PostHog support tickets through the API are not available yet.")
         try:
             client = PostHogSupportClient.from_settings()
@@ -262,6 +273,12 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             verified_email=user.email if user.is_email_verified is True else None,
         )
         return _SupportCaller(client=client, identity=identity, user=user)
+
+    def _throttle(self, throttles: list[BaseThrottle]) -> None:
+        for throttle in throttles:
+            if not throttle.allow_request(self.request, self):
+                # DRF accepts no wait time at runtime, though its stub asks for a float.
+                self.throttled(self.request, cast(float, throttle.wait()))
 
     @validated_request(
         request_serializer=CreatePostHogSupportTicketSerializer,
@@ -280,6 +297,7 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         caller = self._support()
+        self._throttle([PostHogSupportTicketCreateBurstThrottle(), PostHogSupportTicketCreateSustainedThrottle()])
         user = caller.user
         data = cast(dict[str, Any], request.validated_data)
         team = self.team
@@ -294,6 +312,7 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     "project_id": str(team.id),
                     "organization_id": str(team.organization_id),
                     "instance_url": settings.SITE_URL,
+                    **_credential_context(request),
                 },
             )
         except PostHogSupportRequestFailed:
@@ -364,12 +383,34 @@ class PostHogSupportTicketViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return Response(PostHogSupportTicketDetailSerializer(result).data)
 
 
-def _agent_tickets_enabled(user: User) -> bool:
+def _is_unattended_run(request: Request) -> bool:
+    if is_sandbox_origin_request(request):
+        return True
+    token = get_oauth_access_token(request)
+    if token is None:
+        return False
+    scopes = (getattr(token, "scope", "") or "").split()
+    return INTERNAL_RUN_SCOPE in scopes or getattr(token, "sandbox_task_id", None) is not None
+
+
+def _credential_context(request: Request) -> dict[str, str]:
+    # Lets support tell a ticket from the browser, a personal API key or an OAuth app apart.
+    access_method = get_query_tag_value("access_method")
+    context = {"credential": str(getattr(access_method, "value", access_method) or "session")}
+    client_id = get_oauth_client_id(request)
+    if client_id:
+        context["oauth_client_id"] = client_id
+    return context
+
+
+def _agent_tickets_enabled(user: User, team: Team) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 POSTHOG_SUPPORT_AGENT_TICKETS_FLAG,
                 str(user.distinct_id),
+                # The MCP server evaluates the flag with these groups, so an organization rollout must match here.
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )

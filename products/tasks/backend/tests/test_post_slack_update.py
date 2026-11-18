@@ -423,7 +423,7 @@ class TestPostSlackUpdate(TestCase):
         # conversation ended, and a fresh card hours later reads as a
         # duplicate of the original. The dedupe-skip path must still clear
         # any lingering progress marker so the thread doesn't keep a stale
-        # "Working on task..." card next to the already-posted PR card.
+        # "Hedgehog on the job" progress card next to the already-posted PR card.
         mock_run = self._make_mock_run(
             mock_task_run_class.Status.COMPLETED,
             output={"pr_url": "https://github.com/org/repo/pull/1"},

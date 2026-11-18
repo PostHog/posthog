@@ -27,6 +27,7 @@ import { OIDCConfigFields } from './OIDCConfigFields'
 import { SAMLConfigFields } from './SAMLConfigFields'
 import { SCIMConfigFields } from './SCIMConfigFields'
 import { XAAConfigFields } from './XAAConfigFields'
+import { XAAManagedConfig } from './XAAManagedConfig'
 
 export const scene: SceneExport<IdentityProviderConfigLogicProps> = {
     component: IdentityProviderConfigScene,
@@ -126,81 +127,95 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
                             <Spinner size="large" captureTime />
                         </div>
                     ) : (
-                        <Form
-                            logic={identityProviderConfigLogic}
-                            formKey="identityProviderConfigForm"
-                            enableFormOnSubmit
-                            className="max-w-200 space-y-6"
-                        >
-                            <LemonField name="name" label="Configuration name">
-                                <LemonInput placeholder="For example, Okta production" />
-                            </LemonField>
-                            {configScope === ConfigScopeEnumApi.Saml ? (
-                                <SAMLConfigFields
-                                    siteUrl={siteUrl}
-                                    relayState={identityProviderConfig?.saml_relay_state ?? null}
-                                    isReady={Boolean(
-                                        identityProviderConfigForm.saml_acs_url &&
-                                        identityProviderConfigForm.saml_entity_id &&
-                                        identityProviderConfigForm.saml_x509_cert
-                                    )}
-                                />
-                            ) : configScope === ConfigScopeEnumApi.Scim ? (
-                                <SCIMConfigFields
-                                    scimEnabled={identityProviderConfigForm.scim_enabled}
-                                    scimBaseUrl={identityProviderConfig?.scim_base_url ?? null}
-                                    revealedToken={revealedScimToken}
-                                    canRegenerateToken={Boolean(identityProviderConfig?.scim_enabled)}
-                                    tokenLoading={regeneratedScimTokenLoading}
-                                    disabled={isIdentityProviderConfigFormSubmitting}
-                                    onRegenerateToken={regenerateScimToken}
-                                />
-                            ) : configScope === ConfigScopeEnumApi.Oidc ? (
-                                <OIDCConfigFields
-                                    siteUrl={siteUrl}
-                                    hasClientSecret={Boolean(identityProviderConfig?.has_oidc_client_secret)}
-                                    clientSecretCleared={identityProviderConfigForm.oidc_client_secret_cleared}
-                                    onClearClientSecret={() => {
-                                        setIdentityProviderConfigFormValues({
-                                            oidc_client_secret: '',
-                                            oidc_client_secret_cleared: true,
-                                        })
-                                    }}
+                        <div className="max-w-200 space-y-6">
+                            {identityProviderConfig?.id_jag_registered_by_application_name ? (
+                                <XAAManagedConfig
+                                    applicationName={identityProviderConfig.id_jag_registered_by_application_name}
+                                    issuerUrl={identityProviderConfig.id_jag_issuer_url ?? ''}
+                                    verifiedDomains={(organizationDomains ?? [])
+                                        .filter((domain) => domain.is_verified)
+                                        .map((domain) => domain.domain)}
                                 />
                             ) : (
-                                <XAAConfigFields isReady={Boolean(identityProviderConfigForm.id_jag_issuer_url)} />
-                            )}
+                                <Form
+                                    logic={identityProviderConfigLogic}
+                                    formKey="identityProviderConfigForm"
+                                    enableFormOnSubmit
+                                    className="space-y-6"
+                                >
+                                    <LemonField name="name" label="Configuration name">
+                                        <LemonInput placeholder="For example, Okta production" />
+                                    </LemonField>
+                                    {configScope === ConfigScopeEnumApi.Saml ? (
+                                        <SAMLConfigFields
+                                            siteUrl={siteUrl}
+                                            relayState={identityProviderConfig?.saml_relay_state ?? null}
+                                            isReady={Boolean(
+                                                identityProviderConfigForm.saml_acs_url &&
+                                                identityProviderConfigForm.saml_entity_id &&
+                                                identityProviderConfigForm.saml_x509_cert
+                                            )}
+                                        />
+                                    ) : configScope === ConfigScopeEnumApi.Scim ? (
+                                        <SCIMConfigFields
+                                            scimEnabled={identityProviderConfigForm.scim_enabled}
+                                            scimBaseUrl={identityProviderConfig?.scim_base_url ?? null}
+                                            revealedToken={revealedScimToken}
+                                            canRegenerateToken={Boolean(identityProviderConfig?.scim_enabled)}
+                                            tokenLoading={regeneratedScimTokenLoading}
+                                            disabled={isIdentityProviderConfigFormSubmitting}
+                                            onRegenerateToken={regenerateScimToken}
+                                        />
+                                    ) : configScope === ConfigScopeEnumApi.Oidc ? (
+                                        <OIDCConfigFields
+                                            siteUrl={siteUrl}
+                                            hasClientSecret={Boolean(identityProviderConfig?.has_oidc_client_secret)}
+                                            clientSecretCleared={identityProviderConfigForm.oidc_client_secret_cleared}
+                                            onClearClientSecret={() => {
+                                                setIdentityProviderConfigFormValues({
+                                                    oidc_client_secret: '',
+                                                    oidc_client_secret_cleared: true,
+                                                })
+                                            }}
+                                        />
+                                    ) : (
+                                        <XAAConfigFields
+                                            isReady={Boolean(identityProviderConfigForm.id_jag_issuer_url)}
+                                        />
+                                    )}
 
-                            <LemonDivider />
-                            <IdentityProviderDomainScope
-                                configScope={configScope}
-                                domainScope={identityProviderConfigForm.domain_scope}
-                                domains={organizationDomains ?? []}
-                                disabled={isIdentityProviderConfigFormSubmitting}
-                                hasSamlDomainScopeConflict={hasSamlDomainScopeConflict}
-                                showScopeWarning={identityProviderConfig?.config_scope === null}
-                            />
-                            <div className="flex flex-wrap gap-2">
-                                <LemonButton
-                                    type="primary"
-                                    htmlType="submit"
-                                    loading={isIdentityProviderConfigFormSubmitting}
-                                    disabledReason={
-                                        restrictionReason ||
-                                        (!identityProviderConfigFormChanged ? 'No changes to save' : undefined)
-                                    }
-                                    data-attr={`save-${configScope}-identity-provider`}
-                                >
-                                    Save configuration
-                                </LemonButton>
-                                <LemonButton
-                                    type="secondary"
-                                    to={urls.settings('organization-authentication')}
-                                    disabled={isIdentityProviderConfigFormSubmitting}
-                                >
-                                    Cancel
-                                </LemonButton>
-                            </div>
+                                    <LemonDivider />
+                                    <IdentityProviderDomainScope
+                                        configScope={configScope}
+                                        domainScope={identityProviderConfigForm.domain_scope}
+                                        domains={organizationDomains ?? []}
+                                        disabled={isIdentityProviderConfigFormSubmitting}
+                                        hasSamlDomainScopeConflict={hasSamlDomainScopeConflict}
+                                        showScopeWarning={identityProviderConfig?.config_scope === null}
+                                    />
+                                    <div className="flex flex-wrap gap-2">
+                                        <LemonButton
+                                            type="primary"
+                                            htmlType="submit"
+                                            loading={isIdentityProviderConfigFormSubmitting}
+                                            disabledReason={
+                                                restrictionReason ||
+                                                (!identityProviderConfigFormChanged ? 'No changes to save' : undefined)
+                                            }
+                                            data-attr={`save-${configScope}-identity-provider`}
+                                        >
+                                            Save configuration
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="secondary"
+                                            to={urls.settings('organization-authentication')}
+                                            disabled={isIdentityProviderConfigFormSubmitting}
+                                        >
+                                            Cancel
+                                        </LemonButton>
+                                    </div>
+                                </Form>
+                            )}
                             {identityProviderConfig?.config_scope != null && (
                                 <div className="mt-6">
                                     <div className="font-semibold">Danger zone</div>
@@ -221,7 +236,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
                                     </LemonButton>
                                 </div>
                             )}
-                        </Form>
+                        </div>
                     )}
                 </PayGateMini>
             </TimeSensitiveAuthenticationArea>

@@ -140,7 +140,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
             },
             { timeout: 5000 }
         )
-        expect(personsModal.title()).toMatch(/12 Jun/)
+        expect(personsModal.title()).toMatch(/Wed\s*12 Jun 2024/)
     })
 
     describe('shared mode', () => {

@@ -30,6 +30,7 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET,
     REPORT_GRAIN,
     SCORING_MOMENT_GRAIN,
     Extras,
@@ -70,6 +71,7 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     PROJECT_VECTORS_SCHEMA_VERSION,
     USER_VECTORS_SCHEMA_VERSION,
 )
+from products.signals.dags.inbox_ranking.multihead.local import report_vector_presence, report_vectors
 from products.signals.dags.inbox_ranking.training.calibration import (
     BUCKETS,
     calibration_buckets,
@@ -1804,6 +1806,16 @@ def _model_metadata(**overrides) -> dict[str, Any]:
     return base
 
 
+def _scored_facts_metadata(**overrides) -> dict[str, Any]:
+    feature_set = REPORT_EMBEDDINGS_PRIORITY_SCORED_FACTS_FEATURE_SET
+    return _model_metadata(
+        feature_set=feature_set.name,
+        feature_schema_version=feature_set.schema_version,
+        feature_names=list(feature_set.feature_names),
+        **overrides,
+    )
+
+
 @pytest.mark.parametrize(
     "metadata,expected",
     [
@@ -1814,6 +1826,10 @@ def _model_metadata(**overrides) -> dict[str, Any]:
         (_model_metadata(feature_set="mmoe_trunk"), "this build can produce"),
         (_model_metadata(feature_schema_version=99), "feature_schema_version 99"),
         (_model_metadata(feature_names=["age_hours"]), "feature_names differ"),
+        # A set with late groups records the groups its fit zeroed, so serving zeroes the same ones.
+        (_scored_facts_metadata(zeroed_feature_groups=["content"]), None),
+        (_scored_facts_metadata(), "zeroed_feature_groups"),
+        (_scored_facts_metadata(zeroed_feature_groups=["sources"]), "zeroed_feature_groups"),
     ],
 )
 def test_model_mismatch_checks_a_model_against_its_own_feature_set(metadata, expected):
@@ -2028,6 +2044,44 @@ def test_reading_a_moment_needs_the_vectors_landing_time(feature_set):
     vectors = {feature_set.extras_keys[0]: pd.DataFrame({EMBEDDING_COLUMN: [_embedding()]}, index=["a"])}
     with pytest.raises(ValueError, match=EMBEDDING_INSERTED_AT_COLUMN):
         feature_set.buildable(_state(["a"]), vectors, as_of=SNAPSHOT_END)
+
+
+@pytest.mark.parametrize("as_of", [None, SNAPSHOT_END], ids=["serving", "as_of_a_moment"])
+def test_the_light_vector_side_input_keeps_the_rows_the_vectors_keep(as_of):
+    # The nn examples step selects its rows from the vector lengths alone, so any drift from the
+    # vector frame would change the examples while no vector is ever read.
+    report_ids = ["landed", "landed_later", "no_landing_time", "tombstoned", "another_width", "twice", "twice"]
+    embeddings = pa.table(
+        {
+            "report_id": report_ids,
+            EMBEDDING_COLUMN: [_embedding(), _embedding(), _embedding(), None, [0.5] * 8, [0.5] * 8, _embedding()],
+            EMBEDDING_INSERTED_AT_COLUMN: [
+                LANDED_EARLY,
+                SNAPSHOT_END + datetime.timedelta(days=1),
+                None,
+                LANDED_EARLY,
+                LANDED_EARLY,
+                LANDED_EARLY,
+                LANDED_EARLY,
+            ],
+        },
+        schema=pa.schema(
+            [
+                ("report_id", pa.string()),
+                (EMBEDDING_COLUMN, pa.list_(pa.float32())),
+                (EMBEDDING_INSERTED_AT_COLUMN, pa.timestamp("us", tz="UTC")),
+            ]
+        ),
+    )
+    sink = io.BytesIO()
+    pq.write_table(embeddings, sink)
+    rows = _state([*report_ids[:-1], "absent"])
+    expected = [True, as_of is None, as_of is None, False, False, False, False]
+    # Two rows per batch, so a report's rows and the batches do not line up.
+    presence = report_vector_presence(pq.ParquetFile(pa.BufferReader(sink.getvalue())), batch_rows=2)
+
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, report_vectors(embeddings), as_of=as_of).tolist() == expected
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, presence, as_of=as_of).tolist() == expected
 
 
 @pytest.mark.parametrize(

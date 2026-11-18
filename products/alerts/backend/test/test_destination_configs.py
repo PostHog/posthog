@@ -276,6 +276,16 @@ class TestWebhookDestination:
         assert "webhook_headers" not in redacted
         assert "not-a-real-token" not in str(redacted)
 
+    @pytest.mark.parametrize(
+        "webhook_url", ["https://hooks.example.com\\s3cr3t", "https://hooks.example.com\\\\s3cr3t"]
+    )
+    def test_a_path_behind_a_backslash_is_redacted(self, webhook_url: str) -> None:
+        redacted = DESTINATION_SPECS[DestinationType.WEBHOOK].redact(
+            cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": webhook_url})
+        )
+
+        assert redacted["webhook_url"] == "https://hooks.example.com"
+
 
 class TestPagerDutyDestination:
     def test_firing_and_resolved_address_the_same_incident(self) -> None:

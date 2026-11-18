@@ -35,6 +35,7 @@ from posthog.models.data_deletion_request import (
     count_remaining_for_request,
     fetch_deletion_stats,
     refresh_deletion_stats,
+    unfinished_property_removals,
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -115,6 +116,7 @@ class DeletionRequestOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = CLICKHOUSE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -192,6 +194,7 @@ class DeletionRequestStatsPanel(Panel):
     key = "stats"
     title = "ClickHouse stats"
     owner = CLICKHOUSE
+    order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -441,11 +444,43 @@ def retry(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResp
     return None
 
 
+def _property_removal_run_unfinished(obj: DataDeletionRequest) -> bool:
+    return unfinished_property_removals().filter(pk=obj.pk).exists()
+
+
+def _refuse_while_a_property_removal_is_unfinished(
+    request: HttpRequest, obj: DataDeletionRequest
+) -> HttpResponse | None:
+    # The count reads only the table. An unfinished run may hold the team's rows only in its staged files.
+    unfinished = [
+        str(pk)
+        for pk in unfinished_property_removals()
+        .filter(team_id=obj.team_id)
+        .order_by("created_at")
+        .values_list("pk", flat=True)
+    ]
+    if not unfinished:
+        return None
+    if str(obj.pk) in unfinished:
+        messages.error(
+            request, "This property removal's run started and did not complete. Retry it until it completes."
+        )
+    else:
+        messages.error(
+            request,
+            f"Property removal {', '.join(unfinished)} on this team started and did not complete. Its run may hold "
+            "this request's rows in its staged files. Verify again after it completes.",
+        )
+    return HttpResponse(status=409)
+
+
 def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
     assert isinstance(obj, DataDeletionRequest)
     # Read before counting, so a criteria edit during the count cannot mark the new criteria completed.
     revision = obj.criteria_updated_at
     prior_status = obj.status
+    if refused := _refuse_while_a_property_removal_is_unfinished(request, obj):
+        return refused
     try:
         remaining = count_remaining_for_request(obj)
     except Exception as error:
@@ -458,9 +493,15 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
             f"{obj.get_status_display().lower()}. Verify again after the next scheduled deletion.",
         )
         return None
+    # A run that started during the count may have moved rows into its staged files before the count read them.
+    if refused := _refuse_while_a_property_removal_is_unfinished(request, obj):
+        return refused
+    # A property removal's run can start during the count. The update checks for one again on the row itself,
+    # because Postgres rechecks only the updated row's own columns after it waits for the run's row lock.
     promoted = (
         DataDeletionRequest.objects.filter(pk=obj.pk, **_criteria_lookup(revision))
         .exclude(status=RequestStatus.COMPLETED)
+        .exclude(request_type=RequestType.PROPERTY_REMOVAL, property_removal_marker__isnull=False)
         .update(status=RequestStatus.COMPLETED, updated_at=timezone.now())
     )
     if promoted:
@@ -472,6 +513,9 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
     if obj.status == RequestStatus.COMPLETED:
         messages.info(request, "Verified: no matching rows remain. It was already completed.")
         return None
+    if _property_removal_run_unfinished(obj):
+        messages.error(request, "This property removal's run started while it was verified, so it was not completed.")
+        return HttpResponse(status=409)
     messages.error(request, "The criteria changed while verifying, so the request was not completed. Verify again.")
     return HttpResponse(status=409)
 
@@ -485,6 +529,8 @@ class DeletionRequestWorkflowPanel(Panel):
     key = "workflow"
     title = "Workflow"
     owner = CLICKHOUSE
+    operation_keys = frozenset({"submit", "approve", "revert-to-draft", "retry", "verify"})
+    order = 30
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -659,7 +705,11 @@ def edit_criteria(request: HttpRequest, obj: Model, form: forms.Form | None) -> 
         if current[0] not in EDITABLE_STATUSES:
             messages.error(request, "The request was approved or started since you opened this form. Reload it.")
             return HttpResponse(status=409)
-        notices = obj.apply_staff_edit(cast(User, request.user), form.changed_data, is_new=False)
+        try:
+            notices = obj.apply_staff_edit(cast(User, request.user), form.changed_data, is_new=False)
+        except forms.ValidationError as error:
+            messages.error(request, " ".join(error.messages))
+            return HttpResponse(status=409)
         obj.save()
     _log_change(request, obj, change_message)
     _show_notices(request, notices)
@@ -684,6 +734,7 @@ class DeletionRequestCriteriaPanel(Panel):
     key = "criteria"
     title = "Criteria"
     owner = CLICKHOUSE
+    order = 40
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, DataDeletionRequest)
@@ -758,3 +809,22 @@ class NewDeletionRequestTool(ConsoleTool):
                 description="Creates a draft and opens it. Nothing is deleted yet.",
             )
         ]
+
+
+for old, target in {
+    "submit": "workflow/submit/",
+    "approve": "workflow/approve/",
+    "retry": "workflow/retry/",
+    "revert-to-draft": "#panel-workflow",
+    "verify": "#panel-workflow",
+    "fetch-stats": "#panel-stats",
+    "preview-stats": "#panel-stats",
+}.items():
+    console.register_moved_action(
+        old_path=f"admin/posthog/datadeletionrequest/<uuid:pk>/{old}/", record="deletion-request", target=target
+    )
+console.register_moved_page(
+    old_path="admin/posthog/datadeletionrequest/add/",
+    title="Creating a deletion request",
+    url="/admin/console/tools/new-deletion-request/create/",
+)

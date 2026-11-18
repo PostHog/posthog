@@ -1270,16 +1270,29 @@ class TestGetGithubLoginPrecedence(APIBaseTest):
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="99", extra_data={"login": "ghuser"})
         self.assertEqual(self.user.get_github_login(), "ghuser")
 
-    def test_uses_team_integration_when_only_source(self):
+    @parameterized.expand(
+        [
+            ("own_row_in_current_team", "current", "self", "teamuser"),
+            ("own_row_in_another_organization", "other_org", "self", "teamuser"),
+            ("row_of_another_user", "current", "other", None),
+        ]
+    )
+    def test_uses_team_integration_when_only_source(self, _name, team_kind, creator, expected):
+        team = self.team
+        if team_kind == "other_org":
+            team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
+        created_by = self.user
+        if creator == "other":
+            created_by = User.objects.create_and_join(self.organization, "other@example.com", None)
         Integration.objects.create(
-            team=self.team,
+            team=team,
             kind="github",
             integration_id="inst-1",
             config={"connecting_user_github_login": "teamuser"},
             sensitive_config={},
-            created_by=self.user,
+            created_by=created_by,
         )
-        self.assertEqual(self.user.get_github_login(), "teamuser")
+        self.assertEqual(self.user.get_github_login(), expected)
 
     def test_user_integration_takes_precedence_over_social_auth(self):
         from social_django.models import UserSocialAuth
@@ -1719,7 +1732,7 @@ def _create_slack_user_integration(
             "slack_email_at_link": slack_email_at_link,
             "linked_at": int(time.time()),
         },
-        sensitive_config={},
+        sensitive_config={"user_access_token": "xoxp-test-token"},
     )
 
 
@@ -1780,10 +1793,15 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
         response = self.client.get("/api/users/@me/integrations/?kind=slack")
         self.assertEqual(response.json()["results"], [])
 
-    def test_slack_destroy_removes_row(self):
+    @parameterized.expand([("slack_revokes", None), ("slack_is_down", ConnectionError("slack is down"))])
+    def test_slack_destroy_revokes_the_token_and_removes_row(self, _name: str, revoke_error: Exception | None):
         _create_slack_user_integration(self.user, slack_user_id="U999")
-        response = self.client.delete("/api/users/@me/integrations/slack/U999/")
+        with patch("posthog.models.user_integration.SlackWebClient") as slack_client:
+            slack_client.return_value.auth_revoke.side_effect = revoke_error
+            response = self.client.delete("/api/users/@me/integrations/slack/U999/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(slack_client.call_args.args, ("xoxp-test-token",))
+        slack_client.return_value.auth_revoke.assert_called_once()
         self.assertFalse(
             UserIntegration.objects.filter(
                 user=self.user, kind=UserIntegration.IntegrationKind.SLACK, integration_id="U999"

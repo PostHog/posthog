@@ -37,7 +37,7 @@ from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderCon
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.runner import run_investigation
-from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
+from posthog.temporal.ai.anomaly_investigation.tools import AlertedSeries, _run_detector_simulation
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
@@ -184,11 +184,11 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     insight = await sync_to_async(_evaluated_insight, thread_sensitive=False)(alert, evaluated)
     metric_description = insight.name or f"Insight {insight.short_id}"
     detector_type = _evaluated_detector_type(alert, evaluated)
-    series_index = _evaluated_series_index(alert, evaluated)
+    alerted = _evaluated_series(alert, evaluated)
 
     # Measured up front rather than left to a tool call: without it the agent has only the
     # event's name to go on, and an opaque name invites it to invent the machinery behind it.
-    event = alerted_series_event(insight.query, series_index=series_index)
+    event = alerted_series_event(insight.query, series_index=alerted.series_index)
     event_provenance = ""
     if event:
         event_provenance = await sync_to_async(describe_event_provenance, thread_sensitive=False)(
@@ -205,7 +205,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         interval=evaluated.interval,
         # The alerted series, not series 0 — matching how the check and the chart pick it.
         metric_definition=describe_metric_definition(
-            insight.query, series_index=series_index, alert_config=alert.config
+            insight.query, series_index=alerted.series_index, alert_config=alert.config
         ),
         event_provenance=event_provenance,
     )
@@ -218,7 +218,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         context_text=anomaly_context_text,
         triggered_dates=evaluated.triggered_dates,
         triggered_points=evaluated.triggered_points,
-        series_index=series_index,
+        alerted=alerted,
         detector_type=detector_type,
     )
 
@@ -229,6 +229,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
                 user=user,
                 anomaly_context=anomaly_context,
                 alert=alert,
+                alerted=alerted,
                 heartbeat=activity.heartbeat,
             )
     except Exception as err:
@@ -851,12 +852,22 @@ async def _mark_failed(subject: AlertCheck | InsightAlertInvestigation, reason: 
     )
 
 
-def _evaluated_series_index(alert, evaluated) -> int:
-    """The series the check judged, which the alert can have been repointed away from since."""
-    saved = (evaluated.triggered_metadata or {}).get("series_index")
-    if isinstance(saved, int) and not isinstance(saved, bool):
-        return saved
-    return (alert.config or {}).get("series_index", 0)
+def _evaluated_series(alert, evaluated) -> AlertedSeries:
+    """The series the check judged, which the alert can have been repointed away from since.
+
+    A breakdown check saves the fired value's position as ``series_index``, so its query series
+    is the alert's own.
+    """
+    metadata = evaluated.triggered_metadata or {}
+    configured = (alert.config or {}).get("series_index", 0)
+    saved = metadata.get("series_index")
+    saved_index = saved if isinstance(saved, int) and not isinstance(saved, bool) else None
+    label = metadata.get("breakdown_label")
+    if isinstance(label, str):
+        return AlertedSeries(series_index=configured, breakdown_label=label, breakdown_index=saved_index)
+    return AlertedSeries(
+        series_index=saved_index if saved_index is not None else configured, breakdown_index=saved_index
+    )
 
 
 def _evaluated_detector_type(alert, evaluated) -> str:
@@ -887,7 +898,7 @@ def _build_multimodal_context(
     context_text: str,
     triggered_dates: list[str],
     triggered_points: list[int] | None = None,
-    series_index: int | None = None,
+    alerted: AlertedSeries | None = None,
     detector_type: str | None = None,
 ):
     """Return a LangChain HumanMessage content value — either a plain string or a
@@ -908,7 +919,7 @@ def _build_multimodal_context(
         return context_text
 
     sim = _run_detector_simulation(
-        alert=alert, team=alert.team, date_from=None, series_index=series_index, score=not judged_by_model
+        alert=alert, team=alert.team, date_from=None, alerted=alerted, score=not judged_by_model
     )
     if isinstance(sim, str) or not sim:
         logger.info("anomaly_investigation.chart_skipped", alert_id=str(alert.id), reason=str(sim)[:120])
@@ -926,7 +937,7 @@ def _build_multimodal_context(
         values=values,
         triggered_indices=triggered_indices,
         scores=None if judged_by_model else sim.get("scores") or None,
-        title=(alert.insight.name or alert.name or "Metric")[:80],
+        title=_chart_title(alert, alerted),
     )
     if not png:
         return context_text
@@ -942,6 +953,13 @@ def _build_multimodal_context(
             },
         },
     ]
+
+
+def _chart_title(alert, alerted: AlertedSeries | None) -> str:
+    title = alert.insight.name or alert.name or "Metric"
+    if alerted is not None and alerted.breakdown_label is not None:
+        title = f"{title} ({alerted.breakdown_label})"
+    return title[:80]
 
 
 def _restore_triggered_indices(dates: list[str], saved_points: list[int], saved_dates: list[str]) -> list[int]:
