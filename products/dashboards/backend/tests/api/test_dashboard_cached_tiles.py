@@ -50,10 +50,10 @@ class TestDashboardCachedTiles(APIBaseTest):
         tile = DashboardTile.objects.get(dashboard_id=self.dashboard_id, insight_id=insight_id)
         return insight_id, tile.id
 
-    def _per_tile(self, insight_id: int, refresh: str) -> dict:
+    def _per_tile(self, insight_id: int, refresh: str, params: dict[str, str] | None = None) -> dict:
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight_id}/",
-            {"from_dashboard": str(self.dashboard_id), "refresh": refresh},
+            {"from_dashboard": str(self.dashboard_id), "refresh": refresh, **(params or {})},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()
@@ -90,10 +90,18 @@ class TestDashboardCachedTiles(APIBaseTest):
         insight_id, tile_id = self._add_insight_tile("$pageview")
         self._per_tile(insight_id, "blocking")
 
-        response = self._cached_tiles([tile_id], {"filters_override": '{"date_from": "-30d"}'})
+        override = {"filters_override": '{"date_from": "-30d"}'}
+        response = self._cached_tiles([tile_id], override)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(response.json()["results"], [{"id": tile_id, "status": "miss"}])
+
+        # A hit carries the query its result was computed with, so charts and drilldowns use the override too.
+        per_tile = self._per_tile(insight_id, "blocking", override)
+        (hit,) = self._cached_tiles([tile_id], override).json()["results"]
+        self.assertEqual(hit["status"], "hit")
+        self.assertEqual(hit["insight"]["query"], per_tile["query"])
+        self.assertEqual(hit["insight"]["query"]["source"]["after"], "-30d")
 
     def test_a_user_who_cannot_view_the_insight_gets_no_result(self) -> None:
         insight_id, tile_id = self._add_insight_tile("$pageview")

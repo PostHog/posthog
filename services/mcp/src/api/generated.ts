@@ -24730,6 +24730,7 @@ export namespace Schemas {
       readonly action_names: CachedTileInsightResultActionNames;
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
       readonly warnings: _InsightResultWarnings | null;
+      query?: _InsightQuerySchema | null;
     }
 
     /**

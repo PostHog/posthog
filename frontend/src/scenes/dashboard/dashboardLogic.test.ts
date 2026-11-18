@@ -44,6 +44,7 @@ import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/
 import { HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    AccessControlLevel,
     DashboardPlacement,
     DashboardTile,
     DashboardType,
@@ -3921,6 +3922,165 @@ describe('dashboardLogic', () => {
             jest.useRealTimers()
             capture.mockRestore()
         }
+    })
+
+    describe('reading cached tiles in one request with dashboard-v2', () => {
+        const DASHBOARD_ID = 30
+        const TILE_COUNT = 20
+        const tileId = (index: number): number => 3000 + index
+        const insightId = (index: number): number => 5000 + index
+
+        const cachedInsight = (index: number): InsightModel => ({
+            ...insightOnDashboard(insightId(index), [DASHBOARD_ID]),
+            id: insightId(index),
+            short_id: `cached-${index}` as InsightShortId,
+            result: ['saved filters'],
+            last_refresh: now().toISOString(),
+            cache_target_age: now().add(1, 'hour').toISOString(),
+        })
+        type TileOutcome = 'hit' | 'stale' | 'miss' | 'forbidden' | 'not_found'
+
+        // What the dashboard response carries for a tile, given what its cache holds.
+        const loadedInsight = (index: number, outcome: TileOutcome): InsightModel => {
+            switch (outcome) {
+                case 'miss':
+                    return { ...uncached(cachedInsight(index)), cache_target_age: undefined }
+                case 'stale':
+                    return { ...cachedInsight(index), cache_target_age: now().subtract(1, 'hour').toISOString() }
+                case 'forbidden':
+                    return { ...cachedInsight(index), result: null, user_access_level: AccessControlLevel.None }
+                default:
+                    return cachedInsight(index)
+            }
+        }
+
+        it.each<[string, boolean, Record<number, TileOutcome>]>([
+            ['with dashboard-v2 off', false, {}],
+            ['when every tile is cached', true, {}],
+            ['when some tiles are not cached', true, { 1: 'miss', 2: 'stale', 3: 'not_found', 4: 'forbidden' }],
+        ])('after a filter change, loads the tiles %s', async (_name, enabled, outcomes) => {
+            const flags = enabled ? [FEATURE_FLAGS.DASHBOARD_V2, FEATURE_FLAGS.DASHBOARD_V2_USERS] : []
+            featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+            const outcomeOf = (index: number): TileOutcome => outcomes[index] ?? 'hit'
+            const insightsByTile = new Map(
+                Array.from({ length: TILE_COUNT }, (_, index) => [
+                    tileId(index),
+                    loadedInsight(index, outcomeOf(index)),
+                ])
+            )
+            // The query with the new filters applied, which the cached result was computed with.
+            const effectiveQuery = (id: number): InsightModel['query'] =>
+                ({ ...insightsByTile.get(id)!.query, effectiveForTile: id }) as InsightModel['query']
+            const cachedTilesRequests: number[][] = []
+            const insightRequests: number[] = []
+            useMocks({
+                get: {
+                    [`/api/environments/:team_id/dashboards/${DASHBOARD_ID}/cached_tiles/`]: ({ request }) => {
+                        const ids = new URL(request.url).searchParams.get('tile_ids')!.split(',').map(Number)
+                        cachedTilesRequests.push(ids)
+                        return [
+                            200,
+                            {
+                                results: ids.map((id) => {
+                                    const outcome = outcomeOf(id - tileId(0))
+                                    if (outcome !== 'hit' && outcome !== 'stale') {
+                                        return { id, status: outcome }
+                                    }
+                                    return {
+                                        id,
+                                        status: 'hit',
+                                        insight: {
+                                            id: insightsByTile.get(id)!.id,
+                                            query: effectiveQuery(id),
+                                            result: ['cached'],
+                                            is_cached: true,
+                                            last_refresh: now().subtract(2, 'hour').toISOString(),
+                                            cache_target_age: now()
+                                                .add(outcome === 'stale' ? -1 : 1, 'hour')
+                                                .toISOString(),
+                                        },
+                                    }
+                                }),
+                            },
+                        ]
+                    },
+                    '/api/environments/:team_id/insights/:id/': ({ params }) => {
+                        const id = boxToId(params.id as string | readonly string[])
+                        insightRequests.push(id)
+                        const insight = [...insightsByTile.values()].find((candidate) => candidate.id === id)
+                        return [
+                            200,
+                            {
+                                ...insight,
+                                result: ['computed'],
+                                is_cached: false,
+                                last_refresh: now().toISOString(),
+                                cache_target_age: now().add(1, 'hour').toISOString(),
+                            },
+                        ]
+                    },
+                },
+            })
+            const dashboard = dashboardResult(
+                DASHBOARD_ID,
+                [...insightsByTile].map(([id, insight]) => tileFromInsight(insight, id))
+            )
+            logic = dashboardLogic({ id: DASHBOARD_ID, dashboard })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // The dashboard response already carried every cached result, so a first load doesn't read them again.
+            expect(cachedTilesRequests).toEqual([])
+            insightRequests.length = 0
+
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+            }).toFinishAllListeners()
+
+            const loadedThroughInsightEndpoint = enabled
+                ? Object.entries(outcomes)
+                      .filter(([, outcome]) => outcome !== 'forbidden')
+                      .map(([index]) => insightId(Number(index)))
+                : [...insightsByTile.values()]
+                      .filter((insight) => insight.user_access_level !== 'none')
+                      .map((insight) => insight.id)
+            expect(cachedTilesRequests).toEqual(enabled ? [[...insightsByTile.keys()]] : [])
+            expect(insightRequests.sort()).toEqual(loadedThroughInsightEndpoint.sort())
+
+            const shownResults = Object.fromEntries(
+                logic.values.insightTiles.map((tile) => [tile.id, tile.insight?.result ?? null])
+            )
+            const expectedResults = Object.fromEntries(
+                [...insightsByTile.keys()].map((id, index) => {
+                    const outcome = outcomeOf(index)
+                    if (outcome === 'forbidden') {
+                        return [id, null]
+                    }
+                    return [id, enabled && outcome === 'hit' ? ['cached'] : ['computed']]
+                })
+            )
+            expect(shownResults).toEqual(expectedResults)
+            const cachedTiles = logic.values.insightTiles.filter((tile) => tile.insight?.result?.[0] === 'cached')
+            expect(cachedTiles.map((tile) => tile.insight?.query)).toEqual(
+                cachedTiles.map((tile) => effectiveQuery(tile.id))
+            )
+            expect(Object.values(logic.values.refreshStatus).every((status) => !status.loading && !status.queued)).toBe(
+                true
+            )
+
+            const hitCount = enabled ? Object.values(expectedResults).filter((r) => r?.[0] === 'cached').length : 0
+            const cachedRefreshEvents = capture.mock.calls.filter(
+                ([event, properties]) => event === 'dashboard insight refreshed' && properties?.was_cached === true
+            )
+            expect(cachedRefreshEvents).toHaveLength(hitCount)
+            expect(capture).toHaveBeenCalledWith(
+                'dashboard refreshed',
+                enabled
+                    ? expect.objectContaining({ tiles_read_from_cache_count: hitCount })
+                    : expect.not.objectContaining({ tiles_read_from_cache_count: expect.anything() })
+            )
+        })
     })
 
     describe('moving between dashboards', () => {
