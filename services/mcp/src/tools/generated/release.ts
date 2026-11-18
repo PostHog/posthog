@@ -6,62 +6,6 @@ import * as orvalSchemas from '@/generated/release/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ReleasesListSchema = () => {
-    const ReleasesCatalogReleasesRetrieveQueryParams = orvalSchemas.ReleasesCatalogReleasesRetrieveQueryParams()
-    return ReleasesCatalogReleasesRetrieveQueryParams
-}
-
-const releasesList = (): ToolBase<
-    ReturnType<typeof ReleasesListSchema>,
-    WithPostHogUrl<Schemas.CatalogReleasesResponse>
-> => ({
-    name: 'releases-list',
-    schema: ReleasesListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ReleasesListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CatalogReleasesResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/catalog_releases/`,
-            query: {
-                cursor: params.cursor,
-                feature_flag_id: params.feature_flag_id,
-                limit: params.limit,
-                order: params.order,
-                owner: params.owner,
-                search: params.search,
-            },
-        })
-        return await withPostHogUrl(
-            context,
-            {
-                ...result,
-                results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/releases/${item.id}`))
-                ),
-            },
-            '/releases'
-        )
-    },
-})
-
-const ReleaseGetSchema = () => {
-    const ReleasesRetrieveParams = orvalSchemas.ReleasesRetrieveParams()
-    return ReleasesRetrieveParams.omit({ project_id: true })
-}
-
-const releaseGet = (): ToolBase<ReturnType<typeof ReleaseGetSchema>, WithPostHogUrl<Schemas.ReleaseDTO>> => ({
-    name: 'release-get',
-    schema: ReleaseGetSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ReleaseGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReleaseDTO>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/releases/${result.id}`)
-    },
-})
-
 const ReleaseCreateSchema = () => {
     const ReleasesCreateBody = orvalSchemas.ReleasesCreateBody()
     return ReleasesCreateBody
@@ -97,6 +41,69 @@ const releaseCreate = (): ToolBase<ReturnType<typeof ReleaseCreateSchema>, WithP
         const result = await context.api.request<Schemas.ReleaseDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/releases/${result.id}`)
+    },
+})
+
+const ReleaseDeleteSchema = () => {
+    const ReleasesDestroyParams = orvalSchemas.ReleasesDestroyParams()
+    return ReleasesDestroyParams.omit({ project_id: true })
+}
+
+const releaseDelete = (): ToolBase<ReturnType<typeof ReleaseDeleteSchema>, unknown> => ({
+    name: 'release-delete',
+    schema: ReleaseDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReleaseDeleteSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ReleaseGetSchema = () => {
+    const ReleasesRetrieveParams = orvalSchemas.ReleasesRetrieveParams()
+    return ReleasesRetrieveParams.omit({ project_id: true })
+}
+
+const releaseGet = (): ToolBase<ReturnType<typeof ReleaseGetSchema>, WithPostHogUrl<Schemas.ReleaseDTO>> => ({
+    name: 'release-get',
+    schema: ReleaseGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReleaseGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReleaseDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/releases/${result.id}`)
+    },
+})
+
+const ReleaseMergeSchema = () => {
+    const ReleasesMergeCreateBody = orvalSchemas.ReleasesMergeCreateBody()
+    const ReleasesMergeCreateParams = orvalSchemas.ReleasesMergeCreateParams()
+    return ReleasesMergeCreateParams.omit({ project_id: true }).extend(ReleasesMergeCreateBody.shape)
+}
+
+const releaseMerge = (): ToolBase<ReturnType<typeof ReleaseMergeSchema>, WithPostHogUrl<Schemas.ReleaseDTO>> => ({
+    name: 'release-merge',
+    schema: ReleaseMergeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReleaseMergeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.release_ids !== undefined) {
+            body['release_ids'] = params.release_ids
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.ReleaseDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/${encodeURIComponent(String(params.id))}/merge/`,
             body,
         })
         return await withPostHogUrl(context, result, `/releases/${result.id}`)
@@ -151,48 +158,41 @@ const releaseUpdate = (): ToolBase<ReturnType<typeof ReleaseUpdateSchema>, WithP
     },
 })
 
-const ReleaseMergeSchema = () => {
-    const ReleasesMergeCreateBody = orvalSchemas.ReleasesMergeCreateBody()
-    const ReleasesMergeCreateParams = orvalSchemas.ReleasesMergeCreateParams()
-    return ReleasesMergeCreateParams.omit({ project_id: true }).extend(ReleasesMergeCreateBody.shape)
+const ReleasesListSchema = () => {
+    const ReleasesCatalogReleasesRetrieveQueryParams = orvalSchemas.ReleasesCatalogReleasesRetrieveQueryParams()
+    return ReleasesCatalogReleasesRetrieveQueryParams
 }
 
-const releaseMerge = (): ToolBase<ReturnType<typeof ReleaseMergeSchema>, WithPostHogUrl<Schemas.ReleaseDTO>> => ({
-    name: 'release-merge',
-    schema: ReleaseMergeSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ReleaseMergeSchema>>) => {
+const releasesList = (): ToolBase<
+    ReturnType<typeof ReleasesListSchema>,
+    WithPostHogUrl<Schemas.CatalogReleasesResponse>
+> => ({
+    name: 'releases-list',
+    schema: ReleasesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReleasesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.release_ids !== undefined) {
-            body['release_ids'] = params.release_ids
-        }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        const result = await context.api.request<Schemas.ReleaseDTO>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/${encodeURIComponent(String(params.id))}/merge/`,
-            body,
+        const result = await context.api.request<Schemas.CatalogReleasesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/catalog_releases/`,
+            query: {
+                cursor: params.cursor,
+                feature_flag_id: params.feature_flag_id,
+                limit: params.limit,
+                order: params.order,
+                owner: params.owner,
+                search: params.search,
+            },
         })
-        return await withPostHogUrl(context, result, `/releases/${result.id}`)
-    },
-})
-
-const ReleaseDeleteSchema = () => {
-    const ReleasesDestroyParams = orvalSchemas.ReleasesDestroyParams()
-    return ReleasesDestroyParams.omit({ project_id: true })
-}
-
-const releaseDelete = (): ToolBase<ReturnType<typeof ReleaseDeleteSchema>, unknown> => ({
-    name: 'release-delete',
-    schema: ReleaseDeleteSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ReleaseDeleteSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/releases/${item.id}`))
+                ),
+            },
+            '/releases'
+        )
     },
 })
 
@@ -218,11 +218,11 @@ const releasesSuggestForFlag = (): ToolBase<ReturnType<typeof ReleasesSuggestFor
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'releases-list': releasesList,
-    'release-get': releaseGet,
     'release-create': releaseCreate,
-    'release-update': releaseUpdate,
-    'release-merge': releaseMerge,
     'release-delete': releaseDelete,
+    'release-get': releaseGet,
+    'release-merge': releaseMerge,
+    'release-update': releaseUpdate,
+    'releases-list': releasesList,
     'releases-suggest-for-flag': releasesSuggestForFlag,
 }
