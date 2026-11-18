@@ -118,7 +118,37 @@ class AccountPersonsReader:
             },
         )
 
-    def get_source_query(self, membership: ast.SelectQuery | ast.Field) -> ast.SelectQuery:
+    def get_source_query(self) -> ast.SelectQuery:
+        query = self.parse_membership_query(
+            """
+            SELECT pdi.person_id AS person_id,
+                groupUniqArray(101)(membership.distinct_id) AS distinct_ids,
+                min(membership.first_seen) AS account_first_seen,
+                max(membership.last_seen) AS account_last_seen
+            FROM posthog.person_group_membership AS membership
+            INNER JOIN (
+                SELECT argMax(person_id, version) AS person_id, distinct_id
+                FROM raw_person_distinct_ids
+                WHERE distinct_id IN (
+                    SELECT distinct_id FROM posthog.person_group_membership
+                    WHERE group_type_index = {group_type_index} AND group_key = {group_key}
+                )
+                GROUP BY distinct_id
+                HAVING argMax(is_deleted, version) = 0
+            ) AS pdi ON membership.distinct_id = pdi.distinct_id
+            WHERE membership.group_type_index = {group_type_index} AND membership.group_key = {group_key}
+            GROUP BY pdi.person_id
+            """,
+            placeholders={
+                "group_type_index": ast.Constant(value=self.group_type_index),
+                "group_key": ast.Constant(value=self.group_key),
+            },
+        )
+        assert query.select_from is not None and query.select_from.next_join is not None
+        query.select_from.next_join.join_type = "GLOBAL INNER JOIN"
+        return query
+
+    def get_optimized_source_query(self, membership: ast.SelectQuery | ast.Field) -> ast.SelectQuery:
         # GLOBAL IN sends the membership distinct IDs with the person_distinct_id2 query. A plain IN makes the
         # remote replica read the membership table again on the aux cluster for each person_distinct_id2 read.
         account_distinct_id = ast.CompareOperation(
