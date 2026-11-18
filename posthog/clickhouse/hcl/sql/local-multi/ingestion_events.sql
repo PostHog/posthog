@@ -425,7 +425,6 @@ FROM
               ) AS consumer_breadcrumbs,
               JSONCleanPostHogEvent(properties, person_properties) AS cleaned
             FROM posthog.kafka_events_json_recent
-            WHERE event != '$feature_flag_called'
           ) AS source
       )
   )

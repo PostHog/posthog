@@ -38,7 +38,7 @@ def test_is_temporary_event_property(key: str, expected: bool) -> None:
 
 
 class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
-    def test_stores_the_text_batch_exports_read_from_events_json_without_flag_calls(self) -> None:
+    def test_stores_the_text_batch_exports_read_from_events_json_and_keeps_flag_calls(self) -> None:
         # Both MVs read Kafka tables. A Null table with the Kafka columns, virtual ones included with Kafka's types,
         # lets one insert feed both of them.
         source = "test_events_json_recent_source"
@@ -95,6 +95,7 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
             SELECT uuid, properties, person_properties, temporary_properties
             FROM events_json_recent
             WHERE team_id = %(team_id)s AND uuid IN %(uuids)s
+            ORDER BY event
             """,
             uuids,
         )
@@ -106,15 +107,16 @@ class TestEventsJsonRecent(ClickhouseTestMixin, BaseTest):
                 {person_document_sql("person_properties")},
                 {json_document_sql("temporary_properties")}
             FROM events_json
-            WHERE team_id = %(team_id)s AND uuid IN %(uuids)s AND event != '$feature_flag_called'
+            WHERE team_id = %(team_id)s AND uuid IN %(uuids)s
+            ORDER BY event
             SETTINGS json_type_escape_dots_in_keys = 1, output_format_json_escape_forward_slashes = 0
             """,
             uuids,
         )
 
-        assert [row[0] for row in from_events_json] == [pageview_uuid]
+        assert [row[0] for row in recent] == [flag_call_uuid, pageview_uuid]
         assert recent == from_events_json
-        [(_, stored_properties, stored_person_properties, stored_temporary_properties)] = recent
+        _, stored_properties, stored_person_properties, stored_temporary_properties = recent[1]
         assert {
             "properties": json.loads(stored_properties),
             "person_properties": json.loads(stored_person_properties),
