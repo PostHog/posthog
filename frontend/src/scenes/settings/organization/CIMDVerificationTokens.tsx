@@ -61,7 +61,13 @@ export function CIMDVerificationTokens(): JSX.Element {
         })
 
     if (todayRailNav) {
-        return <QuillCIMDVerificationTokens onRevoke={confirmRevokeToken} />
+        return (
+            <QuillCIMDVerificationTokens
+                hasUnboundToken={hasUnboundToken}
+                tokensLiveElsewhere={tokensLiveElsewhere}
+                onRevoke={confirmRevokeToken}
+            />
+        )
     }
 
     return (

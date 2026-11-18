@@ -1,17 +1,22 @@
-import type { ColumnDef } from '@tanstack/react-table'
 import { decode } from 'he'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { IconCopy } from '@posthog/icons'
 import {
     Badge,
     Button,
-    DataTable,
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleHeader,
+    CollapsibleTrigger,
     Empty,
     EmptyDescription,
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
+    Item,
+    ItemActions,
+    ItemContent,
+    ItemDescription,
     Skeleton,
     Text,
 } from '@posthog/quill'
@@ -20,88 +25,33 @@ import { IconKey } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
-
 import { oauthAppsLogic } from './oauthAppsLogic'
-
-function CopyableCode({ value, label, onCopy }: { value: string; label: string; onCopy: () => void }): JSX.Element {
-    return (
-        <div className="flex min-w-0 items-center gap-1">
-            <code className="max-w-50 truncate rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs">{value}</code>
-            <Button size="icon-xs" aria-label={label} tooltip={label} onClick={onCopy}>
-                <IconCopy />
-            </Button>
-        </div>
-    )
-}
-
-const columns: ColumnDef<OrganizationOAuthApplicationApi>[] = [
-    {
-        id: 'name',
-        header: 'Application',
-        cell: ({ row }) => (
-            <div className="flex items-center gap-2">
-                <Text size="xs" weight="semibold" render={<span />}>
-                    {decode(row.original.name ?? '')}
-                </Text>
-                {row.original.is_verified && <Badge variant="success">Verified</Badge>}
-            </div>
-        ),
-    },
-    {
-        id: 'client_id',
-        header: 'Client ID',
-        cell: ({ row }) => (
-            <CopyableCode
-                value={row.original.client_id ?? ''}
-                label="Copy client ID"
-                onCopy={() => void copyToClipboard(row.original.client_id ?? '', 'client ID')}
-            />
-        ),
-    },
-    {
-        id: 'redirect_uris',
-        header: 'Redirect URIs',
-        cell: ({ row }) => {
-            const uris = row.original.redirect_uris_list || []
-
-            if (uris.length === 0) {
-                return (
-                    <Text size="xs" variant="muted" render={<span />}>
-                        None
-                    </Text>
-                )
-            }
-
-            return (
-                <div className="flex flex-col gap-0.5">
-                    {uris.map((uri, i) => (
-                        <CopyableCode
-                            key={i}
-                            value={uri}
-                            label="Copy URI"
-                            onCopy={() => void copyToClipboard(uri, 'redirect URI')}
-                        />
-                    ))}
-                </div>
-            )
-        },
-    },
-    {
-        id: 'created',
-        header: 'Connected',
-        cell: ({ row }) => (
-            <Text size="xs" variant="muted" render={<span />}>
-                {humanFriendlyDetailedTime(row.original.created)}
-            </Text>
-        ),
-    },
-]
+import { QuillCopyableCode } from './QuillCopyableCode'
+import { QuillOAuthAppDetails } from './QuillOAuthAppDetails'
+import { QuillProvisioningStatusBadge } from './QuillProvisioningStatusBadge'
 
 export function QuillOAuthApps(): JSX.Element {
-    const { oauthApps, oauthAppsLoading } = useValues(oauthAppsLogic)
+    const { oauthApps, oauthAppsLoading, oauthAppsLoadFailed } = useValues(oauthAppsLogic)
+    const { loadOAuthApps } = useActions(oauthAppsLogic)
 
-    if (oauthAppsLoading && oauthApps.length === 0) {
+    if (oauthAppsLoadFailed && !oauthAppsLoading) {
+        return (
+            <Item tone="destructive" size="sm">
+                <ItemContent>
+                    <ItemDescription>
+                        Couldn't load your OAuth applications. Try again, and if it keeps happening contact support.
+                    </ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                    <Button variant="outline" onClick={loadOAuthApps} data-attr="oauth-apps-retry">
+                        Try again
+                    </Button>
+                </ItemActions>
+            </Item>
+        )
+    }
+
+    if (oauthApps === null || (oauthAppsLoading && oauthApps.length === 0)) {
         return (
             <div className="flex flex-col gap-2">
                 <Skeleton className="h-12" />
@@ -126,5 +76,39 @@ export function QuillOAuthApps(): JSX.Element {
         )
     }
 
-    return <DataTable columns={columns} data={oauthApps} fullWidth />
+    return (
+        <div className="flex flex-col gap-2">
+            {oauthApps.map((app) => {
+                const name = decode(app.name ?? '')
+
+                return (
+                    <Collapsible key={app.id} className="rounded-md border border-border p-2">
+                        <CollapsibleHeader className="flex-wrap">
+                            <CollapsibleTrigger iconOnly>{`Show details for ${name}`}</CollapsibleTrigger>
+                            <Text size="xs" weight="semibold" render={<span className="min-w-0 truncate" />}>
+                                {name}
+                            </Text>
+                            {app.is_verified && <Badge variant="success">Verified</Badge>}
+                            {app.provisioning_status !== 'not_a_partner' && (
+                                <QuillProvisioningStatusBadge status={app.provisioning_status} />
+                            )}
+                            <span className="ms-auto flex flex-wrap items-center gap-3">
+                                <QuillCopyableCode
+                                    value={app.client_id ?? ''}
+                                    label="Copy client ID"
+                                    onCopy={() => void copyToClipboard(app.client_id ?? '', 'client ID')}
+                                />
+                                <Text size="xs" variant="muted" render={<span />}>
+                                    {`Connected ${humanFriendlyDetailedTime(app.created)}`}
+                                </Text>
+                            </span>
+                        </CollapsibleHeader>
+                        <CollapsibleContent className="pt-2">
+                            <QuillOAuthAppDetails app={app} />
+                        </CollapsibleContent>
+                    </Collapsible>
+                )
+            })}
+        </div>
+    )
 }
