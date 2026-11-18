@@ -78,6 +78,8 @@ export async function startStack(hogli: Hogli, stateDir: string, env: NodeJS.Pro
             'frontend',
             '--without',
             'ingestion',
+            '--without',
+            'ngrok',
         ],
         logFile,
         hogliEnv

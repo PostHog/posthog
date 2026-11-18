@@ -1100,7 +1100,7 @@ describe('scenario environment', () => {
                 }
                 fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: true }))
             } else if (verb === 'dev:generate') {
-                const units = ['backend', 'frontend', 'nodejs', 'ingestion', ...flags.with].filter((unit) => !flags.without.includes(unit))
+                const units = ['backend', 'frontend', 'nodejs', 'ingestion', 'ngrok', ...flags.with].filter((unit) => !flags.without.includes(unit))
                 fs.writeFileSync(
                     process.env.HOGLI_MPROCS_PATH,
                     'procs:\\n' + units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')
@@ -1112,7 +1112,7 @@ describe('scenario environment', () => {
                 if (!fs.existsSync(flags.custom)) {
                     fail('No mprocs config at ' + flags.custom)
                 }
-                const started = /^  (nodejs|frontend|ingestion):/m.exec(fs.readFileSync(flags.custom, 'utf8'))
+                const started = /^  (nodejs|frontend|ingestion|ngrok):/m.exec(fs.readFileSync(flags.custom, 'utf8'))
                 if (started) {
                     fail('The config at ' + flags.custom + ' starts ' + started[1])
                 }
