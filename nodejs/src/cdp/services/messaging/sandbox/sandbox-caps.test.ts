@@ -98,18 +98,21 @@ describe('claimSandboxCaps', () => {
         expect(await warnings()).toBe(before + 1)
     })
 
-    it('starts a fresh warning count each UTC day', async () => {
-        const caps = { team: 5, warning: 2 }
+    it('starts a fresh warning count each UTC day, also for a send retried after midnight', async () => {
+        const caps = { team: 5, warning: 1 }
         const before = await warnings()
-        const sendAt = (iso: string) => claimSandboxCaps(limiter, caps, sameSend(), new Date(iso))
+        const sendAt = (iso: string, send = sameSend()) => claimSandboxCaps(limiter, caps, send, new Date(iso))
+        const throttledBeforeMidnight = sameSend()
 
-        await sendAt('2026-03-02T00:05:00Z')
-        await sendAt('2026-03-02T12:00:00Z')
+        await sendAt('2026-03-02T23:50:00Z', throttledBeforeMidnight)
         await sendAt('2026-03-02T23:55:00Z')
         expect(await warnings()).toBe(before + 1)
 
         await sendAt('2026-03-03T00:05:00Z')
         expect(await warnings()).toBe(before + 1)
+
+        await sendAt('2026-03-03T00:10:00Z', throttledBeforeMidnight)
+        expect(await warnings()).toBe(before + 2)
     })
 
     it('admits test sends past the project cap without charging it, and counts them toward the warning', async () => {

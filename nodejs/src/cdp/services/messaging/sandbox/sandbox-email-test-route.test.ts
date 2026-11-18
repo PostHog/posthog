@@ -1,4 +1,5 @@
 import { Server } from 'http'
+import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -43,6 +44,9 @@ describe('sandbox email test sends', () => {
     let server: Server
 
     const member = () => `member-${world.team.id}@example.com`
+
+    const warnings = async (): Promise<number> =>
+        (await register.getSingleMetric('cdp_sandbox_email_team_warning_total')!.get()).values[0]?.value ?? 0
 
     const serveWorker = ({
         sendingOn = true,
@@ -267,16 +271,21 @@ describe('sandbox email test sends', () => {
             { status: 'pending', reason: 'ses_transient' },
             { status: 'accepted', message_id: 'ses-1' },
         ],
-    ])('sends the next test at a daily cap of one after %s', async (_case, arrange, first, next) => {
-        const bucket = world.sesBucket(1)
-        serveWorker({ bucket, caps: { team: 1, warning: 5 } })
-        await arrange(bucket)
+    ])(
+        'sends the next test at a daily cap of one after %s, and counts it past the warning',
+        async (_case, arrange, first, next) => {
+            const bucket = world.sesBucket(1)
+            serveWorker({ bucket, caps: { team: 1, warning: 1 } })
+            const warningsBefore = await warnings()
+            await arrange(bucket)
 
-        await expect(tester().send(testRun())).resolves.toEqual(first)
-        await deleteKeysWithPrefix(world.valkey, bucket.key)
+            await expect(tester().send(testRun())).resolves.toEqual(first)
+            await deleteKeysWithPrefix(world.valkey, bucket.key)
 
-        await expect(tester().send(testRun())).resolves.toEqual(next)
-    })
+            await expect(tester().send(testRun())).resolves.toEqual(next)
+            expect(await warnings()).toBe(warningsBefore + 1)
+        }
+    )
 
     it.each<[string, () => Promise<string>]>([
         [

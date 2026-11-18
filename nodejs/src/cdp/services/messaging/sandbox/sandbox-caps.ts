@@ -75,7 +75,8 @@ export async function claimSandboxCaps(
 }
 
 // Test sends skip the project cap but count here, so a test loop still trips the warning.
-// The bucket never refills, so it counts one UTC day. A denied claim stores no key, so a retry past the threshold counts again.
+// The claim key carries the day, so a retry after midnight counts toward the new day.
+// A denied claim stores no key, so a retry past the threshold counts again.
 async function warnPastThreshold(
     limiter: RateLimiterService,
     threshold: number,
@@ -87,7 +88,11 @@ async function warnPastThreshold(
     const utcDay = now.toISOString().slice(0, 10)
     const warning = await limiter.claimAllOrNothingAcross(
         [{ ...dailyBucket(`${keyPrefix}/project-warning/${teamId}/${utcDay}`, threshold), refillPerSecond: 0 }],
-        { key: `${keyPrefix}/warning-claim/${claimDigest}`, attempt: randomUUID(), ttlSeconds: BUCKET_TTL_SECONDS }
+        {
+            key: `${keyPrefix}/warning-claim/${utcDay}/${claimDigest}`,
+            attempt: randomUUID(),
+            ttlSeconds: BUCKET_TTL_SECONDS,
+        }
     )
     if (warning === 'denied') {
         sandboxTeamWarningTotal.inc()
