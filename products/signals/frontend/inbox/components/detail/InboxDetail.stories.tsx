@@ -257,12 +257,33 @@ export const StatusBlockWithEditableDecisions: Story = {
         featureFlags: { [FEATURE_FLAGS.INBOX_REPORT_EDITABLE_DECISIONS]: true },
         testOptions: { snapshotBrowsers: [] },
     },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/integrations/': {
+                    results: [
+                        { id: 1, kind: 'github', display_name: 'example-org', created_at: '2026-01-01T00:00:00Z' },
+                    ],
+                    next: null,
+                },
+                '/api/projects/:id/integrations/1/github_repos/': {
+                    repositories: [
+                        { id: 1, name: 'web-app', full_name: 'example-org/web-app' },
+                        { id: 2, name: 'api', full_name: 'example-org/api' },
+                        { id: 3, name: 'legacy', full_name: 'example-org/legacy', archived: true },
+                    ],
+                    has_more: false,
+                },
+            },
+        }),
+    ],
     render: function RenderStatusBlockWithEditableDecisions() {
         const [priority, setPriority] = useState<NonNullable<SignalReport['priority']>>('P1')
+        const [repository, setRepository] = useState('example-org/web-app')
         const report = makeReport({
             status: SignalReportStatus.READY,
             priority,
-            repo_slug: 'example-org/web-app',
+            repo_slug: repository,
             pull_requests: [],
         })
         return (
@@ -271,15 +292,18 @@ export const StatusBlockWithEditableDecisions: Story = {
                     <ReportStatusSection
                         report={report}
                         onPriorityChange={setPriority}
+                        onRepositoryChange={setRepository}
                         decisionAttributions={{
                             repository: {
                                 person: null,
+                                agent: null,
                                 setAt: '2026-06-09T09:00:00Z',
                                 reason: 'The stack trace points at files under src/checkout/ in this repository.',
                                 previousValue: null,
                             },
                             priority: {
-                                person: MOCK_SECOND_BASIC_USER,
+                                person: { ...MOCK_SECOND_BASIC_USER, last_name: 'Dawson' },
+                                agent: null,
                                 setAt: '2026-06-10T08:00:00Z',
                                 reason: null,
                                 previousValue: 'P3',
