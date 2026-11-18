@@ -819,6 +819,12 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Survey site snapshot polls must read the render claim and asset pointer they wrote, or they start duplicate renders.
+CACHES["survey_site_snapshot"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Destination replay claims must read what they wrote: a replica that still serves an
 # expired or released claim would let a second sender queue the same replay.
 CACHES["cdp_invocation_replay"] = {
@@ -947,6 +953,7 @@ if TEST:
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["cdp_invocation_replay"] = CACHES["default"]
+    CACHES["survey_site_snapshot"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
     CACHES["warehouse_destination_connect"] = CACHES["default"]
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
