@@ -353,7 +353,7 @@ class TwoFactorEnforcementPermission(BasePermission):
 
         organization = url_target_organization(view)
         if organization is not None:
-            enforce_two_factor(request, request.user, organization)
+            self._enforce(request, organization)
         return True
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
@@ -361,14 +361,21 @@ class TwoFactorEnforcementPermission(BasePermission):
             return True
 
         if isinstance(object, Organization):
-            enforce_two_factor(request, request.user, object)
+            self._enforce(request, object)
         elif isinstance(object, Team | Project):
-            enforce_two_factor(request, request.user, object.organization)
+            self._enforce(request, object.organization)
         return True
 
     @staticmethod
     def _applies(request: Request) -> bool:
         return isinstance(request.user, User) and isinstance(request.successful_authenticator, SessionAuthentication)
+
+    @staticmethod
+    def _enforce(request: Request, organization: Organization) -> None:
+        user = cast(User, request.user)
+        # `SessionAuthentication` already checked the current organization; repeating it costs queries.
+        if organization.pk != user.current_organization_id:
+            enforce_two_factor(request, user, organization)
 
 
 def url_target_organization(view) -> Optional[Organization]:
