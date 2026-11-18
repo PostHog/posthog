@@ -65,7 +65,10 @@ _TIER_WORKFLOW_ID = re.compile(r"^execute-dag-(?:trino-)?[0-9a-f-]{36}:(\d+)")
 NO_ERROR_LABEL = "none"
 OTHER_ERROR_CODE = "other"
 DEADLINE_EXCEEDED_ERROR_CODE = "DEADLINE_EXCEEDED"
-TRINO_DEADLINE_ERROR_PREFIX = "Trino model execution exceeded its "
+TRINO_DEADLINE_ERROR_PREFIXES = (
+    "Trino model execution exceeded its ",
+    "Trino model execution was canceled or exceeded its deadline",
+)
 _TRINO_COMPILER_CODE = re.compile(r"\[(TRINO_[A-Z0-9_]+)\]")
 _TRINO_ERROR_NAME = re.compile(r"Trino\w*Error\(type=\w+, name=(\w+),")
 _HTTP_ERROR_STATUS = re.compile(r"error (\d{3}):")
@@ -203,7 +206,7 @@ def error_code(error: str) -> str:
     http_status = _HTTP_ERROR_STATUS.match(error)
     if http_status:
         return f"HTTP_{http_status.group(1)}"
-    if error.startswith(TRINO_DEADLINE_ERROR_PREFIX):
+    if error.startswith(TRINO_DEADLINE_ERROR_PREFIXES):
         return DEADLINE_EXCEEDED_ERROR_CODE
     return OTHER_ERROR_CODE
 

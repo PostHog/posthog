@@ -28,6 +28,7 @@ def test_tier_label(workflow_id: str | None, expected: str) -> None:
             "TYPE_MISMATCH",
         ),
         ("Trino model execution exceeded its 360-minute deadline after 2 attempts", "DEADLINE_EXCEEDED"),
+        ("Trino model execution was canceled or exceeded its deadline", "DEADLINE_EXCEEDED"),
         ("error 503: service unavailable", "HTTP_503"),
         ("Cannot redefine an alias with the name: TrinoUserError(type=USER_ERROR, name=TYPE_MISMATCH,", "other"),
     ]
