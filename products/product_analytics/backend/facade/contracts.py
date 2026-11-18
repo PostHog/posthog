@@ -66,6 +66,25 @@ class TrendsQueryRunResult:
 
 
 @dataclass(frozen=True)
+class ClosedSeriesValues:
+    """Stored Trends counts for every bucket before ``live_from``, keyed by the naive bucket start in the team timezone.
+
+    ``live_from`` is the first bucket that still needs a live read, or None when the whole range is closed.
+    """
+
+    values: dict[datetime, int]
+    live_from: datetime | None
+    freshly_built: bool = False
+
+
+@dataclass(frozen=True)
+class SeriesValuesUnavailable:
+    """Why stored Trends counts cannot serve a query, as the ``reason`` label of the fallback counter."""
+
+    reason: str
+
+
+@dataclass(frozen=True)
 class TrendsActorsDateWindow:
     """The time window of the events that the actors of one Trends data point have.
 
