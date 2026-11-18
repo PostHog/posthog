@@ -1261,6 +1261,11 @@ class TestLocationAndErrors:
                 OSError("An error occurred (PermanentRedirect) when calling the ListObjectsV2 operation"),
                 WRONG_REGION_ERROR,
             ),
+            (
+                "malformed_credential_length",
+                OSError(22, "Credential access key has length 145, should be 32"),
+                INVALID_CONFIG_ERROR,
+            ),
         ]
     )
     def test_storage_errors_map_to_stable_prefixes(self, _name: str, error: Exception, expected: str) -> None:

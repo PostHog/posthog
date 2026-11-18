@@ -34,6 +34,7 @@ from posthog.models.user import User
 
 from products.apm.backend.facade.api import (
     get_dependencies,
+    get_endpoint_time_spent,
     get_service_map,
     is_apm_enabled,
     list_deployments,
@@ -48,6 +49,8 @@ from products.apm.backend.presentation.serializers import (
     DeploymentsResponseSerializer,
     EndpointsHealthRequestSerializer,
     EndpointsHealthResponseSerializer,
+    EndpointTimeSpentRequestSerializer,
+    EndpointTimeSpentResponseSerializer,
     ServiceMapResponseSerializer,
     ServicesHealthRequestSerializer,
     ServicesHealthResponseSerializer,
@@ -187,6 +190,45 @@ class EndpointsHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "date_to": window.date_to,
         }
         return Response(EndpointsHealthResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+
+class EndpointTimeSpentViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Where one endpoint's request time goes, by service and inferred dependency. Same gate and window as services."""
+
+    scope_object = "tracing"
+    # Loads up to TIME_SPENT_SPAN_LIMIT spans per request, and the UI reloads it on every poll.
+    slot_for_every_authenticator = True
+
+    @extend_schema(
+        parameters=[EndpointTimeSpentRequestSerializer], responses={200: EndpointTimeSpentResponseSerializer}
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        _check_flag(self.team, cast(User, request.user))
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        params = EndpointTimeSpentRequestSerializer(data=request.query_params)
+        window = _window(params)
+        service = params.validated_data["service"]
+        endpoint = params.validated_data["endpoint"]
+
+        result = get_endpoint_time_spent(
+            team=self.team,
+            date_from=window.date_from,
+            date_to=window.date_to,
+            environment=window.environment,
+            service=service,
+            endpoint=endpoint,
+        )
+        payload = {
+            "components": [{**asdict(row), "kind": row.kind.value} for row in result.components],
+            "request_count": result.request_count,
+            "avg_duration_ms": result.avg_duration_ms,
+            "service": service,
+            "endpoint": endpoint,
+            "environment": window.environment,
+            "date_from": window.date_from,
+            "date_to": window.date_to,
+        }
+        return Response(EndpointTimeSpentResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
 class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
