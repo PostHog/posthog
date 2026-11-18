@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import { environmentLabel } from './environmentDisplay'
 import type { ServiceHealthApi } from './generated/api.schemas'
@@ -18,7 +20,15 @@ export function ServicesTab(): JSX.Element {
         {
             title: 'Service',
             key: 'service_name',
-            render: (_, row) => <span className="font-semibold">{row.service_name}</span>,
+            render: (_, row) => (
+                <Link
+                    to={urls.applicationObservabilityService(row.service_name, { range: timeRange, environment })}
+                    className="font-semibold"
+                    data-attr="apm-service-page"
+                >
+                    {row.service_name}
+                </Link>
+            ),
         },
         ...healthColumns<ServiceHealthApi>(),
         {

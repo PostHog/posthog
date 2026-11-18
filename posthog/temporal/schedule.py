@@ -188,10 +188,6 @@ async def cleanup_retired_replay_vision_schedules(client: Client):
     )
 
 
-async def cleanup_retired_session_replay_schedules(client: Client):
-    await _delete_retired_schedules(client, ["surfacing-scoring-sweep-batch", "surfacing-score-export-sweep"])
-
-
 async def create_run_quota_limiting_schedule(client: Client):
     """Create or update the schedule for the RunQuotaLimitingWorkflow.
 
@@ -974,7 +970,6 @@ schedules = [
     create_evaluation_clustering_schedule,
     create_ducklake_compaction_schedule,
     create_purge_deleted_recording_metadata_schedule,
-    cleanup_retired_session_replay_schedules,
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
