@@ -43,8 +43,12 @@ function DependencyMapPlaceholder(): JSX.Element {
     )
 }
 
+// A load that is replaced keeps running on the server and holds one of the few concurrent query slots,
+// so the service can change only once the current load finishes.
+const LOADING_REASON = 'Loading dependencies…'
+
 function DependenciesTooHeavyBanner({ detail }: { detail: string }): JSX.Element {
-    const { serviceNames, dependencyService } = useValues(dependenciesLogic)
+    const { serviceNames, dependencyService, dependenciesLoading } = useValues(dependenciesLogic)
     const { setDependencyService } = useActions(dependenciesLogic)
     const { timeRange } = useValues(applicationObservabilityLogic)
     const { setTimeRange } = useActions(applicationObservabilityLogic)
@@ -70,6 +74,7 @@ function DependenciesTooHeavyBanner({ detail }: { detail: string }): JSX.Element
                             placeholder="Pick a service"
                             value={null}
                             onChange={(value) => value && setDependencyService(value)}
+                            disabledReason={dependenciesLoading ? LOADING_REASON : undefined}
                             options={serviceNames.map((name) => ({ value: name, label: name }))}
                             data-attr="apm-dependencies-pick-service"
                         />
@@ -129,6 +134,7 @@ export function DependenciesTab(): JSX.Element {
                     size="small"
                     value={dependencyService}
                     onChange={(value) => setDependencyService(value)}
+                    disabledReason={dependenciesLoading ? LOADING_REASON : undefined}
                     options={[
                         { value: null, label: 'All services' },
                         ...serviceNames.map((name) => ({ value: name, label: name })),
