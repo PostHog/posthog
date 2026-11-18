@@ -1203,13 +1203,21 @@ class WorkflowProofTests(SimpleTestCase):
     @parameterized.expand(
         [
             # A refresh that failed after a key rotation must not let an older success decide.
-            ("a_newer_failure_behind_an_unreadable_key", "77", "failure", None),
+            ("a_newer_failure_behind_an_unreadable_key", "77", "failure", [], None),
+            # A newer token from another job must not lift the cutoff above that failure.
+            (
+                "another_jobs_token_above_an_unreadable_failure",
+                "77",
+                "failure",
+                [_signed_check_run(7, run_id="78", check_run_id="901")],
+                None,
+            ),
             # GitHub dropped the key of an old run, and a newer verified result still decides.
-            ("an_older_token_behind_an_unreadable_key", "75", "success", "success"),
+            ("an_older_token_behind_an_unreadable_key", "75", "success", [], "success"),
         ]
     )
     def test_a_token_whose_key_cannot_be_read_never_lets_an_older_result_decide(
-        self, _name: str, unread_run: str, unread_conclusion: str, expected: str | None
+        self, _name: str, unread_run: str, unread_conclusion: str, others: list[dict], expected: str | None
     ) -> None:
         verified = _signed_check_run(5, run_id="76", check_run_id="899")
         unread = _signed_check_run(6, conclusion=unread_conclusion, run_id=unread_run)
@@ -1220,7 +1228,8 @@ class WorkflowProofTests(SimpleTestCase):
                 raise UnknownSigningKeyError("Client assertion is signed by an unknown key")
             return _test_signing_key(token)
 
-        client = _WorkflowClient([verified, unread], {899: {"name": "publish", "run_id": 76}})
+        jobs = {899: {"name": "publish", "run_id": 76}, 901: {"name": "conclude", "run_id": 78}}
+        client = _WorkflowClient([verified, unread, *others], jobs)
         proofs = WorkflowProofs(
             cast(StamphogGitHubClient, client), "acme/widgets", pr_number=7, head_sha="sha", signing_key=signing_key
         )

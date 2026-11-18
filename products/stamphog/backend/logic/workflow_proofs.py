@@ -102,13 +102,25 @@ class _SigningKeyUnavailable(Exception):
     """GitHub's key for a token could not be read, so the token was neither accepted nor refused."""
 
 
-def _claimed_run(token: str) -> tuple[int, int]:
-    """The run and attempt a token claims, unverified, or (0, 0) when it claims none."""
+@frozen(order=True)
+class RunOrder:
+    """Where a run stands among the publisher's runs: a later run, then a later attempt, comes after."""
+
+    run_id: int
+    run_attempt: int
+
+
+def _claimed_run(token: str) -> RunOrder:
+    """The run a token claims, unverified, or the earliest run when it claims none.
+
+    The claims only decide whether to refuse an older result. Nothing unverified is ever accepted.
+    """
     try:
+        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
         claims = jwt.decode(token, options={"verify_signature": False})
     except jwt.PyJWTError:
-        return (0, 0)
-    return (_id_claim(claims, "run_id") or 0, _id_claim(claims, "run_attempt") or 0)
+        return RunOrder(run_id=0, run_attempt=0)
+    return RunOrder(run_id=_id_claim(claims, "run_id") or 0, run_attempt=_id_claim(claims, "run_attempt") or 0)
 
 
 def _github_signing_key(token: str) -> PyJWK:
@@ -131,8 +143,7 @@ class SignedResult:
     """A candidate whose token verified, with the claims the later checks need."""
 
     check_run: dict
-    run_id: int
-    run_attempt: int
+    run: RunOrder
     job_id: int
     commit_sha: str
     blobs: dict[str, str | None]
@@ -254,8 +265,7 @@ class WorkflowProofs:
             return None
         return SignedResult(
             check_run=candidate.check_run,
-            run_id=run_id,
-            run_attempt=run_attempt,
+            run=RunOrder(run_id=run_id, run_attempt=run_attempt),
             job_id=job_id,
             commit_sha=commit_sha,
             blobs=blobs,
@@ -263,41 +273,35 @@ class WorkflowProofs:
 
     def _requested_by_publishing_job(self, signed: SignedResult, publisher: WorkflowPublisher) -> bool:
         job = self._client.get_workflow_job(self._repo, signed.job_id, priority=self._priority)
-        return job is not None and job.get("name") == publisher.job and job.get("run_id") == signed.run_id
-
-    def _signed_results(self, publisher: WorkflowPublisher) -> list[SignedResult]:
-        """The verified results, newest run first.
-
-        A token whose key cannot be read is set aside. When its own unchecked claims say it is newer
-        than every verified result, it may be the newest result, so nothing older may decide: the
-        publisher is unreadable. A key GitHub removed after an old run leaves that old token behind a
-        newer verified one, where it changes nothing.
-        """
-        signed: list[SignedResult] = []
-        unchecked_runs: list[tuple[int, int]] = []
-        for candidate in self._candidates(publisher):
-            try:
-                result = self._signed(candidate, publisher)
-            except _SigningKeyUnavailable:
-                unchecked_runs.append(_claimed_run(candidate.token))
-                continue
-            if result is not None:
-                signed.append(result)
-        signed.sort(key=lambda result: (result.run_id, result.run_attempt), reverse=True)
-        newest = (signed[0].run_id, signed[0].run_attempt) if signed else (0, 0)
-        if any(run > newest for run in unchecked_runs):
-            logger.warning("stamphog_workflow_proof_keys_unreachable", repo=self._repo, entry=publisher.name)
-            raise StamphogGitHubError(f"A newer {publisher.check!r} result is signed with a key that cannot be read")
-        return signed
+        return job is not None and job.get("name") == publisher.job and job.get("run_id") == signed.run.run_id
 
     def _publisher_result(self, publisher: WorkflowPublisher) -> SignedResult | None:
-        """The newest result that the publishing job signed for this PR and head."""
+        """The newest result that the publishing job signed for this PR and head.
+
+        A token whose key cannot be read is set aside. When its own unchecked claims name a later run
+        than the result that would decide, it may be the newest result, so the older one must not
+        decide: the publisher is unreadable. A key GitHub removed after an old run leaves that old
+        token behind a newer result, where it changes nothing.
+        """
         try:
-            for result in self._signed_results(publisher):
+            signed: list[SignedResult] = []
+            unchecked: list[RunOrder] = []
+            for candidate in self._candidates(publisher):
+                try:
+                    result = self._signed(candidate, publisher)
+                except _SigningKeyUnavailable:
+                    unchecked.append(_claimed_run(candidate.token))
+                    continue
+                if result is not None:
+                    signed.append(result)
+            for result in sorted(signed, key=lambda result: result.run, reverse=True):
                 # A token from another job of the workflow is not the publisher's result, so an older
                 # one from the publishing job may still be.
-                if self._requested_by_publishing_job(result, publisher):
-                    return result
+                if not self._requested_by_publishing_job(result, publisher):
+                    continue
+                if any(run > result.run for run in unchecked):
+                    raise StamphogGitHubError(f"A newer {publisher.check!r} result is signed with an unreadable key")
+                return result
         except _UNREADABLE:
             logger.warning("stamphog_workflow_proof_unreadable", repo=self._repo, entry=publisher.name)
         return None
