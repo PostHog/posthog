@@ -9,7 +9,7 @@ use anyhow::Error;
 use async_trait::async_trait;
 use common_types::{InternallyCapturedEvent, RawEvent};
 use metrics::counter;
-use posthog_rs::{Client, Error as PosthogError, Event};
+use posthog::{Client, Error as PosthogError, Event};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -198,7 +198,7 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
 /// metrics. The split is what makes worker-side alerting actionable: `quota` (HTTP
 /// 402) is expected billing enforcement and is excluded from alerts, while
 /// transport / server / bad_request failures are real ingestion problems. The
-/// `_` arm is required because `posthog_rs::Error` is `#[non_exhaustive]`.
+/// `_` arm is required because `posthog::Error` is `#[non_exhaustive]`.
 fn failure_reason(err: &PosthogError) -> &'static str {
     match err {
         PosthogError::BillingLimitExceeded(_) => "quota", // 402
@@ -403,17 +403,17 @@ mod tests {
     }
 
     async fn make_client(base_url: &str) -> Client {
-        let options = posthog_rs::ClientOptionsBuilder::default()
+        let options = posthog::ClientOptionsBuilder::default()
             .api_key("test_api_key".to_string())
             .host(base_url)
             .max_capture_attempts(1u32)
             .build()
             .unwrap();
-        posthog_rs::client(options).await
+        posthog::client(options).await
     }
 
     async fn make_client_with_retries(base_url: &str, attempts: u32) -> Client {
-        let options = posthog_rs::ClientOptionsBuilder::default()
+        let options = posthog::ClientOptionsBuilder::default()
             .api_key("test_api_key".to_string())
             .host(base_url)
             .max_capture_attempts(attempts)
@@ -421,7 +421,7 @@ mod tests {
             .retry_max_backoff_ms(1u64)
             .build()
             .unwrap();
-        posthog_rs::client(options).await
+        posthog::client(options).await
     }
 
     fn make_transaction(client: &Client) -> Box<CaptureTransaction<'_>> {
@@ -481,6 +481,79 @@ mod tests {
         txn.commit_write().await.unwrap();
 
         mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_outbound_event_shape_for_an_import_without_lib_and_with_legacy_options() {
+        let ice = make_internally_captured_event(
+            "signed_up",
+            "user123",
+            serde_json::json!({
+                "custom_prop": 1,
+                "$session_id": "session-1",
+                "$process_person_profile": false,
+                "$ignore_sent_at": true,
+            }),
+            Some(serde_json::json!({ "plan": "pro" })),
+            None,
+        );
+
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let sink = captured.clone();
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/i/v1/analytics/events")
+            .match_request(move |request| {
+                *sink.lock().unwrap() = request.body().ok().cloned();
+                true
+            })
+            .with_status(200)
+            .with_body(V1_OK_BODY)
+            .expect(1)
+            .create();
+
+        let client = make_client(&server.url()).await;
+        let mut emitter = CaptureEmitter::new(client, 10_000);
+        let txn = emitter.begin_write().await.unwrap();
+        txn.emit(&[ice]).await.unwrap();
+        txn.commit_write().await.unwrap();
+        mock.assert();
+
+        let body = captured
+            .lock()
+            .unwrap()
+            .take()
+            .expect("capture received a body");
+        let batch: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(batch["historical_migration"], true);
+        let event = &batch["batch"][0];
+        assert_eq!(event["session_id"], "session-1");
+        assert_eq!(
+            event["options"],
+            serde_json::json!({ "process_person_profile": false, "disable_skew_correction": true })
+        );
+
+        let properties = event["properties"].as_object().unwrap();
+        let prop = |key: &str| properties.get(key).cloned();
+        assert_eq!(prop("custom_prop"), Some(serde_json::json!(1)));
+        assert_eq!(prop("$set"), Some(serde_json::json!({ "plan": "pro" })));
+        assert_eq!(prop("$geoip_disable"), Some(serde_json::json!(true)));
+        assert_eq!(prop("$lib"), Some(serde_json::json!("posthog-rs")));
+        assert!(
+            prop("$lib_version").is_some_and(|v| v.as_str().is_some_and(|v| v.starts_with("1.")))
+        );
+        assert_eq!(prop("$lib_version__major"), Some(serde_json::json!(1)));
+        assert!(prop("$lib_version__minor").is_some());
+        assert!(prop("$lib_version__patch").is_some());
+        assert!(prop("$os").is_some_and(|v| v.is_string()));
+        assert!(prop("$os_version").is_some_and(|v| v.is_string()));
+        assert_eq!(prop("$is_server"), Some(serde_json::json!(true)));
+        for moved in ["$session_id", "$process_person_profile", "$ignore_sent_at"] {
+            assert!(
+                !properties.contains_key(moved),
+                "{moved} must leave properties"
+            );
+        }
     }
 
     #[tokio::test]

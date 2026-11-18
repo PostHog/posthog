@@ -353,7 +353,7 @@ impl SinkConfig {
             }
             SinkConfig::Capture(capture_config) => {
                 let token = context.get_token_for_team_id(model.team_id).await?;
-                let options = posthog_rs::ClientOptionsBuilder::default()
+                let options = posthog::ClientOptionsBuilder::default()
                     .api_key(token)
                     .host(&context.config.capture_url)
                     .request_timeout_seconds(30u64)
@@ -364,7 +364,7 @@ impl SinkConfig {
                     .map_err(|e| {
                         Error::msg(format!("Failed to build capture client options: {e}"))
                     })?;
-                let client = posthog_rs::client(options).await;
+                let client = posthog::client(options).await;
                 Ok(Box::new(CaptureEmitter::new(
                     client,
                     capture_config.send_rate,
