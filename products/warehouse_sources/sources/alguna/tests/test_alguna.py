@@ -1,5 +1,7 @@
 from typing import Any
 
+from parameterized import parameterized
+
 from products.warehouse_sources.sources.alguna._config import AlgunaSourceConfig
 from products.warehouse_sources.sources.alguna.alguna import AlgunaResumeConfig, validate_credentials
 from products.warehouse_sources.sources.alguna.source import AlgunaSource
@@ -18,14 +20,22 @@ def _response(items: list[dict[str, Any]] | None, *, drop_data: bool = False) ->
 
 
 class TestPagination:
-    def test_paginates_and_progresses_offset(self) -> None:
+    @parameterized.expand(
+        [
+            ("customers", "created_at:asc"),
+            # /bundles documents only limit/offset; a leaked `sort` would be an undocumented param.
+            ("bundles", None),
+        ]
+    )
+    def test_paginates_and_progresses_offset(self, endpoint: str, expected_sort: str | None) -> None:
         full_page = [{"id": f"c_{i}"} for i in range(100)]
-        result = _driver().run("customers", [_response(full_page), _response([{"id": "c_last"}])])
+        result = _driver().run(endpoint, [_response(full_page), _response([{"id": "c_last"}])])
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == [*(f"c_{i}" for i in range(100)), "c_last"]
         assert result.params("offset") == ["0", "100"]
         assert result.params("limit") == ["100", "100"]
+        assert result.params("sort") == [expected_sort, expected_sort]
         # Checkpoint saved after the first full page (points at the next page); short page ends it.
         assert result.saved_states == [AlgunaResumeConfig(offset=100)]
 
@@ -98,6 +108,106 @@ class TestFanout:
         assert {request.path.split("/subscriptions/")[1].split("/")[0] for request in child} == {"sub_1", "sub_2"}
         # The versions endpoint takes no page-size param; a leaked `limit` would be an undocumented param.
         assert all(request.param("limit") is None for request in child)
+
+    def test_subscription_revenue_fans_out_and_ignores_subscription_without_revenue(self) -> None:
+        result = _driver().run(
+            "subscription_revenue",
+            [
+                _response([{"id": "sub_1"}, {"id": "sub_2"}, {"id": "sub_3"}]),
+                ScriptedResponse(
+                    json={
+                        "subscription_id": "sub_1",
+                        "mrr": "100.00",
+                        "arr": "1200.00",
+                        "acv": "1200.00",
+                        "currency": "USD",
+                        "recurring_revenue_status": "complete",
+                    }
+                ),
+                ScriptedResponse(status=404, json={"error": "not found"}),
+                ScriptedResponse(
+                    json={
+                        "subscription_id": "sub_3",
+                        "mrr": "0",
+                        "arr": "0",
+                        "acv": "0",
+                        "currency": "EUR",
+                        "recurring_revenue_status": "unavailable",
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        # The single-object body is one row, not exploded into its keys.
+        assert [(row["subscription_id"], row["mrr"]) for row in result.rows] == [("sub_1", "100.00"), ("sub_3", "0")]
+        child = [request.path for request in result.requests if request.path.endswith("/revenue")]
+        assert child == ["/subscriptions/sub_1/revenue", "/subscriptions/sub_2/revenue", "/subscriptions/sub_3/revenue"]
+        assert all(request.param("limit") is None for request in result.requests if request.path.endswith("/revenue"))
+
+
+class TestRevenueSchedule:
+    def test_rows_are_entries_with_envelope_fields(self) -> None:
+        body = {
+            "currency": "USD",
+            "interval": "monthly",
+            "start_date": "2026-01-01T00:00:00Z",
+            "end_date": "2026-03-01T00:00:00Z",
+            "entries": [
+                {
+                    "start_date": "2026-01-01T00:00:00Z",
+                    "end_date": "2026-02-01T00:00:00Z",
+                    "new_recognized_revenue": "10.00",
+                },
+                {
+                    "start_date": "2026-02-01T00:00:00Z",
+                    "end_date": "2026-03-01T00:00:00Z",
+                    "new_recognized_revenue": "20.00",
+                },
+            ],
+        }
+        result = _driver().run("revenue_schedule", [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.rows == [
+            {
+                "currency": "USD",
+                "interval": "monthly",
+                "start_date": "2026-01-01T00:00:00Z",
+                "end_date": "2026-02-01T00:00:00Z",
+                "new_recognized_revenue": "10.00",
+            },
+            {
+                "currency": "USD",
+                "interval": "monthly",
+                "start_date": "2026-02-01T00:00:00Z",
+                "end_date": "2026-03-01T00:00:00Z",
+                "new_recognized_revenue": "20.00",
+            },
+        ]
+        assert result.paths == ["/revenue-schedules"]
+        assert result.params("interval") == ["monthly"]
+        assert result.params("limit") == [None]
+
+    def test_empty_entries_yield_no_rows(self) -> None:
+        body = {"currency": "USD", "interval": "monthly", "entries": []}
+        result = _driver().run("revenue_schedule", [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.rows == []
+
+    @parameterized.expand(
+        [
+            ("missing_entries", {"currency": "USD", "interval": "monthly"}),
+            ("entries_not_a_list", {"currency": "USD", "entries": {"start_date": "2026-01-01T00:00:00Z"}}),
+            ("list_body", [{"start_date": "2026-01-01T00:00:00Z"}]),
+        ]
+    )
+    def test_unexpected_shape_raises_loudly(self, _name: str, body: Any) -> None:
+        result = _driver().run("revenue_schedule", [ScriptedResponse(json=body)])
+
+        assert isinstance(result.raised, ValueError)
+        assert "'entries'" in str(result.raised)
 
 
 class TestValidateCredentials:

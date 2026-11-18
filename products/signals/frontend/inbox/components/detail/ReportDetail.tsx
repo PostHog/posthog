@@ -254,6 +254,7 @@ export function InboxDetailFrame({
         reportChecks,
         reportChecksError,
         prioritySaving,
+        decisionAttributions,
         reportClaimant,
         isClaimedByMe,
         report: currentReport,
@@ -501,6 +502,7 @@ export function InboxDetailFrame({
                                 updatePriority(priority)
                             }}
                             prioritySaving={prioritySaving}
+                            decisionAttributions={decisionAttributions}
                         />
                         {isMonitoring && <ReportChecksSection report={report} />}
                         {/* The observation leads, then the evidence its claims rest on. */}

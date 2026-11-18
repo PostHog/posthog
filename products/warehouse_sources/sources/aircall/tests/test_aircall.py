@@ -67,24 +67,32 @@ class TestValidateCredentials:
 
 
 class TestPagination:
-    def test_paginates_via_next_page_link(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            ("users", "/v1/users"),
+            ("user_availabilities", "/v1/users/availabilities"),
+        ],
+    )
+    def test_paginates_via_next_page_link(self, endpoint: str, path: str) -> None:
+        next_url = f"https://api.aircall.io{path}?page=2"
         result = _driver().run(
-            "users",
+            endpoint,
             [
-                _page("users", [{"id": 1}, {"id": 2}], "https://api.aircall.io/v1/users?page=2"),
+                _page("users", [{"id": 1}, {"id": 2}], next_url),
                 _page("users", [{"id": 3}], None),
             ],
         )
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == [1, 2, 3]
-        assert result.urls[0] == "https://api.aircall.io/v1/users?per_page=50"
+        assert result.urls[0] == f"https://api.aircall.io{path}?per_page=50"
         assert result.queries[0] == {"per_page": ("50",)}
         # The next-page URL is self-contained; original params are dropped.
-        assert result.urls[1] == "https://api.aircall.io/v1/users?page=2"
+        assert result.urls[1] == next_url
         assert result.queries[1] == {"page": ("2",)}
         # State is saved only while a next page exists.
-        assert result.saved_states == [AircallResumeConfig(next_url="https://api.aircall.io/v1/users?page=2")]
+        assert result.saved_states == [AircallResumeConfig(next_url=next_url)]
 
     def test_unpaginated_endpoint_sends_no_page_size(self) -> None:
         result = _driver().run("trackers", [ScriptedResponse(json={"trackers": [{"id": 1}, {"id": 2}]})])
@@ -174,16 +182,25 @@ class TestPagination:
 
 
 class TestConversationIntelligenceFanout:
-    def test_child_rows_carry_call_id_from_parent(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, sub_path, wrap_key",
+        [
+            ("call_transcriptions", "transcription", None),
+            ("call_custom_summary_results", "custom_summary_result", None),
+            ("call_summaries", "summary", "summary"),
+            ("call_predicted_csats", "predicted_csat", "csat"),
+        ],
+    )
+    def test_child_rows_carry_call_id_from_parent(self, endpoint: str, sub_path: str, wrap_key: str | None) -> None:
         # The per-call sub-resource is fanned out over the calls list. Each child row must carry
         # the parent call id as `call_id` (the primary key), overriding whatever the body itself
         # holds, so one CI object per call stays uniquely keyed.
+        bodies: list[dict[str, Any]] = [{"id": 55, "content": "hi", "call_id": "999"}, {"id": 66, "content": "yo"}]
         result = _driver().run(
-            "call_transcriptions",
+            endpoint,
             [
                 _page("calls", [{"id": 1, "started_at": 100}, {"id": 2, "started_at": 200}], None),
-                ScriptedResponse(json={"id": 55, "content": "hi", "call_id": 999}),
-                ScriptedResponse(json={"id": 66, "content": "yo"}),
+                *(ScriptedResponse(json={wrap_key: body} if wrap_key else body) for body in bodies),
                 # The calls paginator re-anchors once the first window ends; an empty window stops it.
                 _page("calls", [], None),
             ],
@@ -194,8 +211,8 @@ class TestConversationIntelligenceFanout:
             (1, 55, "hi"),
             (2, 66, "yo"),
         ]
-        child_paths = [path for path in result.paths if "transcription" in path]
-        assert child_paths == ["/v1/calls/1/transcription", "/v1/calls/2/transcription"]
+        child_paths = [path for path in result.paths if path.endswith(f"/{sub_path}")]
+        assert child_paths == [f"/v1/calls/1/{sub_path}", f"/v1/calls/2/{sub_path}"]
 
     def test_calls_without_ci_data_are_skipped(self) -> None:
         # A call with no AI data answers 404; that call is skipped rather than sinking the table.

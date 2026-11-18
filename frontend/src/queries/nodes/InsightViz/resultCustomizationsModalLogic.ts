@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { DataColorToken } from 'lib/colors'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
@@ -265,7 +266,14 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
     }),
 
     listeners(({ actions, values }) => ({
+        openModal: () => {
+            posthog.capture('insight result customizations opened', { insight_type: values.querySource?.kind })
+        },
         save: () => {
+            posthog.capture('insight result customizations saved', {
+                insight_type: values.querySource?.kind,
+                color_changed: values.localColorTokenTouched,
+            })
             if (!values.localColorTokenTouched || values.dataset == null) {
                 actions.closeModal()
                 return

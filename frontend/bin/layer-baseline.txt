@@ -348,7 +348,6 @@ frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> frontend/s
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> products/alerts/frontend/logic/insightAlertsLogic.ts
-frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> products/business_intelligence/frontend/BIChartAxisControls.tsx
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> products/business_intelligence/frontend/BIChartYearLabels.tsx
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> products/business_intelligence/frontend/BIComparisonSummary.tsx
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> products/business_intelligence/frontend/BIDrilldownMenu.tsx
