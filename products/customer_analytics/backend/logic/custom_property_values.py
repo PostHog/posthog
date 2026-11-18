@@ -17,6 +17,7 @@ from django.core.validators import URLValidator
 from django.db import IntegrityError, connections, router, transaction
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
@@ -391,11 +392,17 @@ def list_active_custom_property_values(*, team_id: int, account_id: str | UUID) 
     )
 
 
+@frozen
+class CustomPropertyValueHistoryRow:
+    row: CustomPropertyValue
+    replaced_at: datetime | None
+    is_current: bool
+
+
 def list_custom_property_value_history(
     *, team_id: int, account_id: str | UUID, definition_id: str | UUID
-) -> list[tuple[CustomPropertyValue, datetime | None, bool]]:
-    """Every value the account has held for the definition, oldest first, as
-    `(row, replaced_at, is_current)`.
+) -> list[CustomPropertyValueHistoryRow]:
+    """Every value the account has held for the definition, oldest first.
 
     Setting the same value again stores a new row, so a run of equal values collapses into its
     first row. A clear stores no time, so a cleared value reads as held until the next value is
@@ -417,10 +424,10 @@ def list_custom_property_value_history(
             entries.append(row)
     has_current = bool(rows) and not rows[-1].is_deleted
     return [
-        (
-            row,
-            entries[index + 1].created_at if index + 1 < len(entries) else None,
-            has_current and index == len(entries) - 1,
+        CustomPropertyValueHistoryRow(
+            row=row,
+            replaced_at=entries[index + 1].created_at if index + 1 < len(entries) else None,
+            is_current=has_current and index == len(entries) - 1,
         )
         for index, row in enumerate(entries)
     ]

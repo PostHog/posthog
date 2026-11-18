@@ -5401,13 +5401,13 @@ def list_custom_property_value_history(
     )
     return [
         contracts.CustomPropertyValueHistoryEntry(
-            value=_custom_property_values_logic.stored_value_of(row),
-            set_at=row.created_at,
-            set_by_id=row.created_by_id,
-            replaced_at=replaced_at,
-            is_current=is_current,
+            value=_custom_property_values_logic.stored_value_of(entry.row),
+            set_at=entry.row.created_at,
+            set_by_id=entry.row.created_by_id,
+            replaced_at=entry.replaced_at,
+            is_current=entry.is_current,
         )
-        for row, replaced_at, is_current in history
+        for entry in history
     ]
 
 
