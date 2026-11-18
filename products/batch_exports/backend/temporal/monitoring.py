@@ -7,14 +7,20 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.clickhouse.events_json import EVENTS_JSON_RECENT_TABLE
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import afetch_batch_export_runs_in_range, aupdate_records_total_count
-from products.batch_exports.backend.temporal.sql.events import EVENT_COUNT_BY_INTERVAL
+from products.batch_exports.backend.temporal.pipeline.query_ranges import is_covered_by_events_json_recent
+from products.batch_exports.backend.temporal.sql.events import (
+    EVENT_COUNT_BY_INTERVAL,
+    build_event_count_by_interval_query,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -114,7 +120,16 @@ class EventCount:
 async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[EventCount]:
     """Get the total number of events for a given team over a set of time intervals from ClickHouse."""
 
-    query = EVENT_COUNT_BY_INTERVAL
+    # Count from the table the exports read, so that a native export, which leaves out `$feature_flag_called`
+    # events, isn't compared with counts that include them.
+    reads_events_json_recent = batch_exports_read_new_events_table() and is_covered_by_events_json_recent(
+        str_to_datetime(inputs.overall_interval_start)
+    )
+    query = (
+        build_event_count_by_interval_query(EVENTS_JSON_RECENT_TABLE)
+        if reads_events_json_recent
+        else EVENT_COUNT_BY_INTERVAL
+    )
 
     interval = inputs.interval
     # we check interval is "every 5 minutes" above but double check here
