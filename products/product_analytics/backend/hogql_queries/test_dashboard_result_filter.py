@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
@@ -256,6 +257,7 @@ class TestDashboardResultFilterCache(BaseTest):
         granted_key = runner_class(query=query, team=self.team, user=self.user).get_cache_key()
         assert denied_key != granted_key
 
+    @time_machine.travel("2026-01-03T12:00:00Z", tick=False)
     def test_saved_test_account_selection_does_not_share_an_admin_cache_entry(self) -> None:
         source = TrendsQuery(
             series=[EventsNode(event="$pageview")],
