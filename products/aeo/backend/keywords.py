@@ -185,7 +185,7 @@ def _build_keyword_report(
     answers = (
         AEOCitationCheck.objects.for_team(team_id)
         .filter(
-            scope_filter(scope, target_domains),
+            scope_filter(scope),
             created_at__gte=window.start,
             created_at__lt=window.until,
             check_failed=False,
@@ -204,7 +204,7 @@ def _build_keyword_report(
                     "until": window.until,
                     "brand": brand_regex(target_domains),
                     "keywords": keywords,
-                    **named_scope_sql_params(scope, target_domains),
+                    **named_scope_sql_params(scope),
                 },
             )
             rows = {row[0]: row[1:] for row in cursor.fetchall()}
@@ -448,7 +448,7 @@ def get_keyword_modifiers(
     checks = (
         AEOCitationCheck.objects.for_team(team_id)
         .filter(
-            scope_filter(scope, target_domains),
+            scope_filter(scope),
             created_at__gte=window.start,
             created_at__lt=window.until,
             check_failed=False,

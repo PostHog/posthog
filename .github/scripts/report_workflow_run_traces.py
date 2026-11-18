@@ -883,6 +883,68 @@ def format_span_tree(run: WorkflowRun) -> Iterator[str]:
 # ---------- CLI ----------
 
 
+FAILED_JOB_ENV_VARS = (
+    "FAILED_JOB_NAME",
+    "FAILED_JOB_RUN_ID",
+    "FAILED_JOB_RUN_ATTEMPT",
+    "FAILED_JOB_WORKFLOW",
+    "FAILED_JOB_WORKFLOW_PATH",
+    "FAILED_JOB_SHA",
+    "FAILED_JOB_BRANCH",
+    "FAILED_JOB_EVENT",
+)
+
+
+def failed_job_run(env: Mapping[str, str], now: datetime) -> WorkflowRun:
+    """The run in progress with one failed job, for a job that must report itself before its run ends.
+
+    The run is about to be cancelled, so its root span carries `cancelled` and stays out of error counts.
+    The job ends `now`, which keeps the span inside any alert window that is open when it is sent.
+    """
+    if missing := [var for var in FAILED_JOB_ENV_VARS if not env.get(var)]:
+        raise ValueError(f"missing {', '.join(missing)}")
+    run_id = f"depot:{env['FAILED_JOB_RUN_ID']}"
+    repository = env.get("GITHUB_REPOSITORY") or DEFAULT_REPO
+    checks_url = f"https://github.com/{repository}/commit/{env['FAILED_JOB_SHA']}/checks"
+    job = Job(
+        id=f"{run_id}:{env['FAILED_JOB_NAME']}",
+        name=env["FAILED_JOB_NAME"],
+        status="completed",
+        conclusion="failure",
+        url=checks_url,
+        runner_name="depot-ci",
+        runner_group_name="",
+        labels=(),
+        created=now,
+        start=now,
+        end=now,
+        steps=(),
+    )
+    return WorkflowRun(
+        id=run_id,
+        attempt=int(env["FAILED_JOB_RUN_ATTEMPT"]),
+        name=env["FAILED_JOB_WORKFLOW"],
+        path=env["FAILED_JOB_WORKFLOW_PATH"],
+        workflow_id="",
+        run_number=0,
+        event=env["FAILED_JOB_EVENT"],
+        status="in_progress",
+        conclusion="cancelled",
+        display_title="",
+        head_sha=env["FAILED_JOB_SHA"],
+        head_branch=env["FAILED_JOB_BRANCH"],
+        actor="",
+        triggering_actor="",
+        repository=repository,
+        html_url=checks_url,
+        created=now,
+        start=now,
+        end=now,
+        jobs=(job,),
+        provider="depot",
+    )
+
+
 def emission_tokens(env: Mapping[str, str]) -> list[str]:
     """Distinct project API tokens to emit to, in ``TOKEN_ENV_VARS`` order."""
     tokens = (env.get(var, "") for var in TOKEN_ENV_VARS)
@@ -911,6 +973,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--entry-jobs",
         action="store_true",
         help="emit each job as an entry span with no step children, so a traces alert counts each failed job once",
+    )
+    parser.add_argument(
+        "--failed-job",
+        action="store_true",
+        help=f"emit one failed job of the run in progress, described by {', '.join(FAILED_JOB_ENV_VARS)}",
     )
     return parser.parse_args(argv)
 
@@ -971,16 +1038,23 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = parse_args(argv if argv is not None else sys.argv[1:])
 
-    github_token = os.environ.get("GITHUB_TOKEN", "")
-    if not github_token:
-        logger.error("GITHUB_TOKEN is not set; nothing was traced")
-        return EXIT_INCOMPLETE
-
-    try:
-        collection = collect_runs(args, github_token, datetime.now(UTC))
-    except Exception:
-        logger.exception("failed to collect workflow runs")
-        return EXIT_INCOMPLETE
+    if args.failed_job:
+        try:
+            collection = Collection(runs=(failed_job_run(os.environ, datetime.now(UTC)),))
+        except ValueError:
+            logger.exception("could not describe the failed job; nothing was emitted")
+            return EXIT_INCOMPLETE
+        args.entry_jobs = True
+    else:
+        github_token = os.environ.get("GITHUB_TOKEN", "")
+        if not github_token:
+            logger.error("GITHUB_TOKEN is not set; nothing was traced")
+            return EXIT_INCOMPLETE
+        try:
+            collection = collect_runs(args, github_token, datetime.now(UTC))
+        except Exception:
+            logger.exception("failed to collect workflow runs")
+            return EXIT_INCOMPLETE
 
     if not collection.runs:
         logger.info("no completed master runs to trace")

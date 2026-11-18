@@ -32,11 +32,17 @@ def test_gate_stays_closed_when_a_required_scope_is_missing(workspace_integratio
     assert gate(workspace_integration) is False
 
 
-@pytest.mark.parametrize(
-    "gate",
-    [feature_flags.is_slack_app_agent_design_enabled],
-    ids=["agent design"],
-)
+USER_KEYED_GATES = [
+    feature_flags.is_slack_app_agent_design_enabled,
+    feature_flags.is_slack_app_onboarding_enabled,
+    feature_flags.is_slack_app_link_search_scopes_enabled,
+    feature_flags.is_slack_app_connect_tool_from_chat_enabled,
+    feature_flags.is_slack_app_daily_work_focus_enabled,
+    feature_flags.is_slack_app_slack_mcp_enabled,
+]
+
+
+@pytest.mark.parametrize("gate", USER_KEYED_GATES, ids=[gate.__name__ for gate in USER_KEYED_GATES])
 @pytest.mark.parametrize(
     ("distinct_id", "expected_identity"),
     [
@@ -55,7 +61,7 @@ def test_user_keyed_gate_resolves_against_the_acting_user(
     org, _, _ = org_team_user
 
     with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
-        gate(workspace_integration, distinct_id)
+        assert gate(workspace_integration, distinct_id) is True
 
     assert feature_enabled.call_args.args[1] == expected_identity
     assert feature_enabled.call_args.kwargs["person_properties"] == {"region": "DEV"}

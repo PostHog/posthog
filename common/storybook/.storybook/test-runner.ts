@@ -56,6 +56,9 @@ const NAVIGATION_ATTEMPTS = 3
 const NAVIGATION_LIVENESS_TIMEOUT_MS = 10000
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
+// The jest environment replaces a page that stops responding. A retry on the new page must not ask the
+// preview to remount the story, because that preview has not rendered it and does not answer the request.
+const STORY_VISITED_BY_PAGE = new WeakMap<Page, string>()
 
 // Storybook channel events that mean a forced remount's play function failed. Shared between the
 // in-page listener (which also waits for the success event, `storyRendered`) and the outer check
@@ -156,7 +159,7 @@ export default {
         // does NOT re-run loaders or the play function — the retry would just re-snapshot the
         // page the failed attempt left behind. Force a full remount so retries start fresh,
         // and surface the replayed play function's error if it throws again.
-        if (ATTEMPT_COUNT_PER_ID[context.id]) {
+        if (STORY_VISITED_BY_PAGE.get(page) === context.id) {
             const remountResult = await page
                 .evaluate(
                     ({ storyId, failureEvents }) => {
@@ -241,6 +244,7 @@ export default {
 
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
+        STORY_VISITED_BY_PAGE.set(page, context.id)
         // The generated test also calls postVisit when the story or its play function already
         // failed (so configs can do failure handling — our jest environment takes the failure
         // screenshot). Don't run the snapshot flow then: its selector waits can outlast the jest

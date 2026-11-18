@@ -484,6 +484,7 @@ class BrandNotFoundError(Exception):
 
 # "-90d" counts today too, so the longest relative range has 91 days.
 MAX_WINDOW_DAYS = 91
+# The window the page opens on, and so the one the stored results are kept ready for.
 DEFAULT_DATE_FROM = "-30d"
 KEYWORD_DEFAULT_DATE_FROM = "-7d"
 

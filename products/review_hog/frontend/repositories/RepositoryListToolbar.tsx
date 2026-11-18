@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
+
+import { RepositoryListFilters } from 'lib/components/RepositoryList/RepositoryListFilters'
 
 import { CodeReviewRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { PANE_LEFT, PANE_ROW } from './paneClasses'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
@@ -21,17 +22,14 @@ export function RepositoryListToolbar(): JSX.Element {
     const { selectInstallation, setSearch, setView } = useActions(reviewHogRepositoriesLogic)
 
     return (
-        <div className={`col-span-full flex flex-wrap items-center gap-2 px-4 py-2.5 ${PANE_LEFT} ${PANE_ROW}`}>
-            <LemonInput
-                type="search"
-                size="small"
-                className="min-w-48 flex-1"
-                placeholder="Filter repositories"
-                aria-label="Filter repositories"
-                value={search}
-                onChange={setSearch}
-                data-attr="review-hog-repository-filter"
-            />
+        <RepositoryListFilters
+            search={search}
+            onSearchChange={setSearch}
+            view={view}
+            views={VIEW_OPTIONS}
+            onViewChange={setView}
+            data-attr="review-hog-repository-filter"
+        >
             {installations.length > 1 && installation && (
                 <LemonSelect
                     size="small"
@@ -41,7 +39,6 @@ export function RepositoryListToolbar(): JSX.Element {
                     onChange={selectInstallation}
                 />
             )}
-            <LemonSegmentedButton size="small" value={view} options={VIEW_OPTIONS} onChange={setView} />
-        </div>
+        </RepositoryListFilters>
     )
 }

@@ -5517,18 +5517,6 @@ export namespace Schemas {
       variables_override?: AccountsTableQueryRequestVariablesOverride;
     }
 
-    /**
-     * * `user` - user
-     * * `team` - team
-     */
-    export type AchievementDefinitionScopeEnum = typeof AchievementDefinitionScopeEnum[keyof typeof AchievementDefinitionScopeEnum];
-
-
-    export const AchievementDefinitionScopeEnum = {
-      User: 'user',
-      Team: 'team',
-    } as const;
-
     export interface AchievementStage {
       /** Stage number within the track, 1-5. */
       stage: number;
@@ -5545,11 +5533,6 @@ export namespace Schemas {
       display_name: string;
       /** One-line description of what the track rewards. */
       description: string;
-      /** Whether the track is tracked per user or per team.
-       *
-       * * `user` - user
-       * * `team` - team */
-      scope: AchievementDefinitionScopeEnum;
       /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
       is_experiment_track: boolean;
       /** The five stages of this track, in ascending threshold order. */
@@ -5589,10 +5572,8 @@ export namespace Schemas {
     export interface AchievementsListResponse {
       /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
       definitions: AchievementDefinition[];
-      /** The requesting user's progress on per-user tracks. */
+      /** The requesting user's progress on each track. */
       user_progress: AchievementProgress[];
-      /** The team's progress on per-team tracks. */
-      team_progress: AchievementProgress[];
       /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
       pending_celebrations: PendingCelebration[];
     }
@@ -7777,18 +7758,29 @@ export namespace Schemas {
       Preset15: 'preset-15',
     } as const;
 
+    export type YAxisPosition2 = typeof YAxisPosition2[keyof typeof YAxisPosition2];
+
+
+    export const YAxisPosition2 = {
+      Auto: 'auto',
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
     export interface ResultCustomizationByValue {
       assignmentBy?: 'value';
       color?: DataColorToken | null;
       customColor?: string | null;
       hidden?: boolean | null;
       label?: string | null;
+      yAxisPosition?: YAxisPosition2 | null;
     }
 
     export interface ResultCustomizationByPosition {
       assignmentBy?: 'position';
       color?: DataColorToken | null;
       hidden?: boolean | null;
+      yAxisPosition?: YAxisPosition2 | null;
     }
 
     export type YAxisScaleType = typeof YAxisScaleType[keyof typeof YAxisScaleType];
@@ -8084,6 +8076,7 @@ export namespace Schemas {
       showAnnotations?: boolean | null;
       /** Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels. */
       showLegend?: boolean | null;
+      showSummaryOnDashboards?: boolean | null;
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
@@ -12693,6 +12686,8 @@ export namespace Schemas {
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
+      /** Color each X-axis category in single-series bar charts. */
+      colorBarsByCategory?: boolean | null;
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
@@ -12717,6 +12712,8 @@ export namespace Schemas {
       /** Whether we fill the bars to 100% in stacked mode */
       stackBars100?: boolean | null;
       valueLabelBackground?: boolean | null;
+      valueLabelBackgroundColor?: string | null;
+      valueLabelColor?: string | null;
       valueLabelFontSize?: number | null;
       valueLabelPosition?: ValueLabelPosition | null;
       valueLabelRotation?: number | null;
@@ -14059,6 +14056,51 @@ export namespace Schemas {
     }
 
     /**
+     * * `infer` - Infer from the file names
+     * * `csv` - CSV with a header row
+     * * `csv_no_header` - CSV without a header row
+     * * `jsonl` - JSON Lines
+     * * `parquet` - Parquet
+     * * `delta` - Delta table
+     */
+    export type ObjectStorageTableFileFormatEnum = typeof ObjectStorageTableFileFormatEnum[keyof typeof ObjectStorageTableFileFormatEnum];
+
+
+    export const ObjectStorageTableFileFormatEnum = {
+      Infer: 'infer',
+      Csv: 'csv',
+      CsvNoHeader: 'csv_no_header',
+      Jsonl: 'jsonl',
+      Parquet: 'parquet',
+      Delta: 'delta',
+    } as const;
+
+    export interface AddTableRequest {
+      /**
+         * Name of the new table in the source. Starts with a letter or underscore, and contains only letters, numbers and underscores. Must not be the name of another table in the source.
+         * @maxLength 128
+         * @pattern ^[a-zA-Z_][a-zA-Z0-9_]*$
+         */
+      name: string;
+      /**
+         * Where the table's files are. Use a path inside the folder of the source's files URL, such as `events/`, `events/2026/*.parquet` or `data/file.csv`, or a full URL inside that folder. A folder reads every file under it. Wildcards use ClickHouse glob syntax. An empty path reads the whole folder. A source whose files URL names one file or a pattern can't add tables.
+         * @maxLength 2048
+         */
+      path: string;
+      /** The format of the files. `infer` reads each file by its extension, and reads a folder that holds a `_delta_log` folder as a Delta table. `delta` needs the folder of a Delta table, without wildcards.
+       *
+       * * `infer` - Infer from the file names
+       * * `csv` - CSV with a header row
+       * * `csv_no_header` - CSV without a header row
+       * * `jsonl` - JSON Lines
+       * * `parquet` - Parquet
+       * * `delta` - Delta table */
+      file_format?: ObjectStorageTableFileFormatEnum;
+      /** For CSV files: whether a double quote encloses a field. When false, it is an ordinary character. */
+      csv_allow_double_quotes?: boolean;
+    }
+
+    /**
      * * `serves` - Serves
      * * `slice` - Slice
      * * `different` - Different
@@ -14296,6 +14338,8 @@ export namespace Schemas {
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
+      /** Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results. */
+      entry_span_count?: number | null;
       error_count: number;
       /** Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`. */
       health_reason?: string | null;
@@ -14314,32 +14358,6 @@ export namespace Schemas {
       total_duration_nano: number;
       users?: number | null;
     }
-
-    /**
-     * * `sum` - sum
-     * * `avg` - avg
-     * * `count` - count
-     * * `min` - min
-     * * `max` - max
-     * * `p95` - p95
-     * * `rate` - rate
-     * * `increase` - increase
-     * * `histogram_quantile` - histogram_quantile
-     */
-    export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
-
-
-    export const AggregationEnum = {
-      Sum: 'sum',
-      Avg: 'avg',
-      Count: 'count',
-      Min: 'min',
-      Max: 'max',
-      P95: 'p95',
-      Rate: 'rate',
-      Increase: 'increase',
-      HistogramQuantile: 'histogram_quantile',
-    } as const;
 
     export interface AhaFeedbackSignalExtra {
       workflow_status: string | null;
@@ -15784,20 +15802,6 @@ export namespace Schemas {
       last_seen: string | null;
     }
 
-    /**
-     * * `trace` - trace
-     * * `generation` - generation
-     * * `evaluation` - evaluation
-     */
-    export type AnalysisLevelEnum = typeof AnalysisLevelEnum[keyof typeof AnalysisLevelEnum];
-
-
-    export const AnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-      Evaluation: 'evaluation',
-    } as const;
-
     export interface AnalyticsAlertFiringSignalExtra {
       alert_id: string;
       alert_name: string;
@@ -16281,6 +16285,16 @@ export namespace Schemas {
       details: AnomalyBucketDetails;
     }
 
+    export interface AnomalyDashboard {
+      /** The numeric id of the dashboard. */
+      id: number;
+      /**
+         * The name of the dashboard. Null when it has none.
+         * @nullable
+         */
+      name: string | null;
+    }
+
     export interface AnomalyFlaggedPoint {
       /** The start of the flagged bucket, in the project timezone. */
       bucket_start: string;
@@ -16493,6 +16507,7 @@ export namespace Schemas {
     /**
      * * `unusual` - Unusual
      * * `recent` - Recent
+     * * `rate` - Rate
      */
     export type AnomalyOrderEnum = typeof AnomalyOrderEnum[keyof typeof AnomalyOrderEnum];
 
@@ -16500,6 +16515,7 @@ export namespace Schemas {
     export const AnomalyOrderEnum = {
       Unusual: 'unusual',
       Recent: 'recent',
+      Rate: 'rate',
     } as const;
 
     export interface AnomalySeriesPoint {
@@ -16581,6 +16597,8 @@ export namespace Schemas {
       last_flagged_bucket: string | null;
       /** Up to 5 flagged buckets in the range, newest first. */
       flagged_points: AnomalyFlaggedPoint[];
+      /** The dashboards the insight sits on that the caller may view, oldest tile first. Empty when none. */
+      dashboards: AnomalyDashboard[];
       /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
       points?: AnomalySeriesPoint[];
     }
@@ -16608,7 +16626,8 @@ export namespace Schemas {
       /** The applied order.
        *
        * * `unusual` - Unusual
-       * * `recent` - Recent */
+       * * `recent` - Recent
+       * * `rate` - Rate */
       order: AnomalyOrderEnum;
       /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
       series: AnomalySeries[];
@@ -23110,6 +23129,8 @@ export namespace Schemas {
       sends_email?: boolean;
       /** The workflow's email sending rate limit. A slow enough rate raises the email audience limit. The response's rate_limited field says which rates qualify. */
       email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
+      /** Count the audience now instead of reusing a count from the last few minutes. Set it when the count decides whether a send may go ahead. */
+      refresh?: boolean;
     }
 
     /**
@@ -24621,6 +24642,129 @@ export namespace Schemas {
        * * `jobs_not_synced` - Jobs not synced
        * * `not_executed` - Not executed */
       unavailable_reason: CITimingUnavailableReasonEnum | null;
+    }
+
+    /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+     * @nullable
+     */
+    export type CachedTileInsightResultResolvedDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    export type CachedTileInsightResultResolvedCompareDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    export type CachedTileInsightResultActionNames = {[key: string]: string} | null;
+
+    /**
+     * The result fields of an insight tile, without the insight's own metadata.
+     *
+     * Results come from `InsightSerializer.insight_result`, the same computation as the per-tile insight
+     * endpoint, so the cache key, dashboard and tile filters, variables and access restrictions match it.
+     */
+    export interface CachedTileInsightResult {
+      readonly id: number;
+      readonly result: unknown;
+      /** @nullable */
+      readonly hasMore: boolean | null;
+      /** @nullable */
+      readonly columns: readonly string[] | null;
+      /** @nullable */
+      readonly types: readonly unknown[] | null;
+      /**
+         * The timezone this chart is displayed in.
+         * @nullable
+         */
+      readonly timezone: string | null;
+      /**
+         *
+       *     The datetime this insight's results were generated.
+       *     If added to one or more dashboards the insight can be refreshed separately on each.
+       *     Returns the appropriate last_refresh datetime for the context the insight is viewed in
+       *     (see from_dashboard query parameter).
+       *
+         * @nullable
+         */
+      readonly last_refresh: string | null;
+      /**
+         * The target age of the cached results for this insight.
+         * @nullable
+         */
+      readonly cache_target_age: string | null;
+      /**
+         *
+       *     The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+       *     by querying the database.
+       *
+         * @nullable
+         */
+      readonly next_allowed_client_refresh: string | null;
+      readonly is_cached: boolean;
+      readonly query_status: unknown;
+      /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_date_range: CachedTileInsightResultResolvedDateRange;
+      /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_compare_date_range: CachedTileInsightResultResolvedCompareDateRange;
+      /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         * @nullable
+         */
+      readonly action_names: CachedTileInsightResultActionNames;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings: _InsightResultWarnings | null;
+    }
+
+    /**
+     * * `hit` - Hit
+     * * `miss` - Miss
+     * * `forbidden` - Forbidden
+     * * `not_found` - Not found
+     */
+    export type CachedTileStatusEnum = typeof CachedTileStatusEnum[keyof typeof CachedTileStatusEnum];
+
+
+    export const CachedTileStatusEnum = {
+      Hit: 'hit',
+      Miss: 'miss',
+      Forbidden: 'forbidden',
+      NotFound: 'not_found',
+    } as const;
+
+    export interface CachedTileResult {
+      /** Dashboard tile ID. */
+      id: number;
+      /** 'hit' carries the cached result in `insight`, even when it is older than its target age. 'miss' means nothing usable is cached, so load the tile through the insight endpoint. 'forbidden' means the caller can't view the tile's insight. 'not_found' means the ID isn't an insight tile on this dashboard.
+       *
+       * * `hit` - Hit
+       * * `miss` - Miss
+       * * `forbidden` - Forbidden
+       * * `not_found` - Not found */
+      status: CachedTileStatusEnum;
+      /** The cached result. Present only when status is 'hit'. */
+      insight?: CachedTileInsightResult;
+    }
+
+    export interface CachedTilesResponse {
+      /** One entry per requested tile ID, in request order. */
+      results: CachedTileResult[];
     }
 
     export interface EventsHeatMapColumnAggregationResult {
@@ -28271,6 +28415,13 @@ export namespace Schemas {
       Slack: 'slack',
     } as const;
 
+    export interface ClaimCoupon {
+      /** Coupon code to redeem. Give this or `campaign_slug`, never both. Needs billing access. */
+      code?: string;
+      /** Slug of a campaign to redeem. Give this or `code`, never both. Any organization member can redeem an allowlisted campaign. */
+      campaign_slug?: string;
+    }
+
     export interface TagCount {
       /** The tag value. */
       tag: string;
@@ -28750,13 +28901,34 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    /**
+     * * `trace` - trace
+     * * `generation` - generation
+     * * `evaluation` - evaluation
+     */
+    export type ClusteringAnalysisLevelEnum = typeof ClusteringAnalysisLevelEnum[keyof typeof ClusteringAnalysisLevelEnum];
+
+
+    export const ClusteringAnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+      Evaluation: 'evaluation',
+    } as const;
+
     export type ClusteringConfigEventFiltersItem = { [key: string]: unknown };
 
     export interface ClusteringConfig {
+      /** Whether this project has opted in to automated clustering. */
+      enabled: boolean;
       /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
       event_filters: ClusteringConfigEventFiltersItem[];
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface ClusteringConfigSetEnabled {
+      /** Enable or disable automated clustering for this project. */
+      enabled: boolean;
     }
 
     export type ClusteringConfigSetEventFiltersEventFiltersItem = { [key: string]: unknown };
@@ -28772,7 +28944,7 @@ export namespace Schemas {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
-      analysis_level: AnalysisLevelEnum;
+      analysis_level: ClusteringAnalysisLevelEnum;
       /** PostHog property filters that scope this clustering job. Empty array means no filters. */
       event_filters?: ClusteringJobEventFiltersItem[];
       enabled?: boolean;
@@ -34125,6 +34297,28 @@ export namespace Schemas {
     }
 
     /**
+     * One value an account held for a custom property (read shape).
+     */
+    export interface CustomPropertyValueHistoryEntry {
+      /** The value, typed per the property's data type. */
+      readonly value: string | number | boolean;
+      /** When the account got this value. */
+      readonly set_at: string;
+      /**
+         * ID of the user who set this value. Null when a sync or the system set it.
+         * @nullable
+         */
+      readonly set_by_id: number | null;
+      /**
+         * When the next value replaced this one. Null for the current value, and for a value that was cleared with no value after it.
+         * @nullable
+         */
+      readonly replaced_at: string | null;
+      /** Whether this is the account's value now. */
+      readonly is_current: boolean;
+    }
+
+    /**
      * One suggested filter value for a custom property.
      */
     export interface CustomPropertyValueSuggestion {
@@ -34562,11 +34756,15 @@ export namespace Schemas {
       layout: AnalyticsFragmentLayout;
     }
 
-    export interface DailyCitedRuns {
+    export interface DailyUsage {
       /** Day, in UTC. */
       readonly date: string;
       /** Support agent runs that cited knowledge on this day. */
       readonly cited_run_count: number;
+      /** Chunks written on this day. */
+      readonly chunks_ingested: number;
+      /** Knowledge searches made on this day. */
+      readonly query_count: number;
     }
 
     export type DashboardFilters = { [key: string]: unknown };
@@ -38289,9 +38487,10 @@ export namespace Schemas {
     }
 
     /**
-     * * `datasets` - datasets
-     * * `dataset_items` - dataset_items
-     * * `dataset_item_versions` - dataset_item_versions
+     * * `datasets` - Datasets
+     * * `dataset_items` - Dataset Items
+     * * `dataset_item_versions` - Dataset Item Versions
+     * * `project_dataset_item_versions` - Project Dataset Item Versions
      */
     export type DatasetConflictResponseResourceEnum = typeof DatasetConflictResponseResourceEnum[keyof typeof DatasetConflictResponseResourceEnum];
 
@@ -38300,6 +38499,7 @@ export namespace Schemas {
       Datasets: 'datasets',
       DatasetItems: 'dataset_items',
       DatasetItemVersions: 'dataset_item_versions',
+      ProjectDatasetItemVersions: 'project_dataset_item_versions',
     } as const;
 
     export interface DatasetConflictResponse {
@@ -38327,9 +38527,10 @@ export namespace Schemas {
       current_item_id?: string | null;
       /** Resource whose configured limit was reached.
        *
-       * * `datasets` - datasets
-       * * `dataset_items` - dataset_items
-       * * `dataset_item_versions` - dataset_item_versions */
+       * * `datasets` - Datasets
+       * * `dataset_items` - Dataset Items
+       * * `dataset_item_versions` - Dataset Item Versions
+       * * `project_dataset_item_versions` - Project Dataset Item Versions */
       resource?: DatasetConflictResponseResourceEnum;
       /** Number of resources that already exist. */
       current_count?: number;
@@ -39154,6 +39355,68 @@ export namespace Schemas {
       push_count: number;
     }
 
+    /**
+     * * `service` - Service
+     * * `database` - Database
+     * * `queue` - Queue
+     * * `external` - External
+     */
+    export type DependencyKindEnum = typeof DependencyKindEnum[keyof typeof DependencyKindEnum];
+
+
+    export const DependencyKindEnum = {
+      Service: 'service',
+      Database: 'database',
+      Queue: 'queue',
+      External: 'external',
+    } as const;
+
+    export interface DependencyEdge {
+      /** The calling service. */
+      caller: string;
+      /** The called service, or for an inferred dependency the peer service, database, queue or host it names. */
+      callee: string;
+      /** True when the callee sends no spans and is named by the caller's client span attributes. */
+      inferred: boolean;
+      /** What the callee is.
+       *
+       * * `service` - Service
+       * * `database` - Database
+       * * `queue` - Queue
+       * * `external` - External */
+      kind: DependencyKindEnum;
+      /** Calls from the caller into the callee in the window. */
+      requests: number;
+      /** Calls with an error status, on the caller's client span when it has one. */
+      error_count: number;
+      /**
+         * 95th percentile call duration in ms, on the caller's client span when it has one.
+         * @nullable
+         */
+      p95_ms: number | null;
+    }
+
+    export interface DependenciesResponse {
+      /** One edge per caller and callee, most requests first. */
+      edges: DependencyEdge[];
+      /** True when more edges matched than the response holds. */
+      truncated: boolean;
+      /**
+         * The environment filter the edges were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
+      /**
+         * The service filter applied, if any.
+         * @nullable
+         */
+      service: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
+    }
+
     export interface DependentFlag {
       /** Feature flag ID */
       id: number;
@@ -39168,6 +39431,62 @@ export namespace Schemas {
       bucket_start: string;
       /** Deployments whose first success status landed in this bucket, within the environment scope. Zero-filled: 0 means nothing shipped. */
       deployment_count: number;
+    }
+
+    export interface DeploymentVersion {
+      /** The service.version resource attribute. */
+      version: string;
+      /** First span of this version in the window. */
+      first_seen: string;
+      /** Last span of this version in the window. */
+      last_seen: string;
+      /** Requests counted in the window. */
+      requests: number;
+      /** Requests with an error status. */
+      error_count: number;
+      /**
+         * Share of requests with an error status, 0 to 1.
+         * @nullable
+         */
+      error_rate: number | null;
+      /**
+         * 95th percentile request duration in milliseconds.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /**
+         * The version first seen just before this one. Null for the oldest.
+         * @nullable
+         */
+      previous_version: string | null;
+      /**
+         * Error rate minus the previous version's, as a fraction.
+         * @nullable
+         */
+      error_rate_change: number | null;
+      /**
+         * Change in p95 from the previous version, in percent.
+         * @nullable
+         */
+      p95_change_pct: number | null;
+      /** True for the version first seen most recently. */
+      active: boolean;
+    }
+
+    export interface DeploymentsResponse {
+      /** One row per version, oldest first. */
+      results: DeploymentVersion[];
+      /** The service the versions belong to. */
+      service: string;
+      /**
+         * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
     }
 
     export interface DepotCIRepoUsage {
@@ -42591,8 +42910,11 @@ export namespace Schemas {
       service_name: string;
       /** The entry span name, for example the HTTP route or the job name. */
       endpoint: string;
-      /** The environment the row was computed for. */
-      environment: string;
+      /**
+         * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Health band from the error rate.
        *
        * * `good` - Good
@@ -42860,6 +43182,62 @@ export namespace Schemas {
     }
 
     /**
+     * * `service` - Service
+     * * `inferred` - Inferred
+     * * `other` - Other
+     */
+    export type TimeSpentComponentKindEnum = typeof TimeSpentComponentKindEnum[keyof typeof TimeSpentComponentKindEnum];
+
+
+    export const TimeSpentComponentKindEnum = {
+      Service: 'service',
+      Inferred: 'inferred',
+      Other: 'other',
+    } as const;
+
+    export interface TimeSpentComponent {
+      /** The service name, the inferred dependency (for example a database system or host), or 'Other'. */
+      name: string;
+      /** service: an instrumented service. inferred: a dependency seen only through client spans. other: the remaining components combined.
+       *
+       * * `service` - Service
+       * * `inferred` - Inferred
+       * * `other` - Other */
+      kind: TimeSpentComponentKindEnum;
+      /** Self-time summed across the sampled requests, in milliseconds. */
+      total_ms: number;
+      /** Self-time per sampled request, in milliseconds. */
+      avg_ms_per_request: number;
+      /** Share of the attributed request time, 0 to 1. */
+      share: number;
+    }
+
+    export interface EndpointTimeSpentResponse {
+      /** Where the request time goes, largest share first. */
+      components: TimeSpentComponent[];
+      /** Requests sampled to compute the breakdown. */
+      request_count: number;
+      /**
+         * Mean duration of the sampled requests, in milliseconds.
+         * @nullable
+         */
+      avg_duration_ms: number | null;
+      /** The service the endpoint belongs to. */
+      service: string;
+      /** The endpoint's entry span name. */
+      endpoint: string;
+      /**
+         * The environment filter the breakdown was computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
+    }
+
+    /**
      * Per-column bucket overrides for range variable materialization.
      * @nullable
      */
@@ -42961,8 +43339,11 @@ export namespace Schemas {
     export interface EndpointsHealthResponse {
       /** One row per service and endpoint, worst status first. */
       results: EndpointHealth[];
-      /** The environment the rows were computed for. */
-      environment: string;
+      /**
+         * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /**
          * The service filter applied, if any.
          * @nullable
@@ -43765,7 +44146,7 @@ export namespace Schemas {
     }
 
     /**
-     * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+     * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue.
      */
     export type ErrorTrackingExternalReferenceLinkExternalContext = { [key: string]: unknown };
 
@@ -43774,7 +44155,7 @@ export namespace Schemas {
       integration_id: number;
       /** ID of the error tracking issue to link the reference to. */
       issue: string;
-      /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+      /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue. */
       external_context: ErrorTrackingExternalReferenceLinkExternalContext;
     }
 
@@ -44189,6 +44570,8 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
+      /** Work linked to this issue in GitHub, GitLab, Linear, or Jira, such as provider issues and GitHub pull requests, oldest first. An empty list means nothing is linked. Absent when the lookup failed. */
+      external_issues?: ErrorTrackingExternalReferenceResult[];
       /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
       summary?: ErrorTrackingIssueSummary;
       /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
@@ -45029,6 +45412,8 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
+      /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+      ai_issue_summaries_enabled?: boolean;
     }
 
     /**
@@ -45611,7 +45996,7 @@ export namespace Schemas {
       readonly applies: boolean;
       /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
       readonly template_key: string;
-      /** A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
+      /** A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
       readonly headline: string;
       /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
       readonly outcome: string;
@@ -53180,6 +53565,7 @@ export namespace Schemas {
       readonly supported_api_versions?: string[];
       /** @nullable */
       readonly file_name?: string | null;
+      readonly supports_table_discovery?: boolean;
     } | null;
 
     /**
@@ -53828,6 +54214,15 @@ export namespace Schemas {
       readonly webhook_not_registered: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
+      /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern. */
+      readonly supports_adding_tables: boolean;
+      /**
+         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
+         * @nullable
+         */
+      readonly table_root: string | null;
+      /** Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path. */
+      readonly supports_table_discovery: boolean;
       /**
          * The name of the file a file upload source imports. Null for other sources or when it is unknown.
          * @nullable
@@ -55939,6 +56334,33 @@ export namespace Schemas {
       Number1: 1,
       Number2: 2,
     } as const;
+
+    export interface ReleaseRef {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+    }
+
+    export interface ReleaseSuggestion {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+      /** Words the flag shares with the release's name, description or linked flags. */
+      matched_terms: string[];
+    }
+
+    export interface FlagReleases {
+      /** ID of the feature flag. */
+      feature_flag_id: number;
+      /** True when this project puts each new flag in a release of its own about a minute after it is created, unless the flag is already in a release. */
+      auto_release: boolean;
+      /** Releases that already link this flag. */
+      current: ReleaseRef[];
+      /** Up to 5 existing releases this flag probably belongs to, best match first. Empty when nothing matches. */
+      suggestions: ReleaseSuggestion[];
+    }
 
     export interface FlagValueItem {
       name: unknown;
@@ -61035,7 +61457,7 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationsSource {
-      /** Google Ads ad table, used to read the ad copy of each ad group. */
+      /** Google Ads ad table, used to read the ad copy and landing pages of each ad group. */
       adTable?: string | null;
       /** Google Ads daily campaign conversions split by conversion action. */
       campaignConversionActionTable?: string | null;
@@ -61682,6 +62104,8 @@ export namespace Schemas {
       Rate: 'rate',
       Increase: 'increase',
       HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
     } as const;
 
     export interface MetricsQueryGroupBy {
@@ -61711,6 +62135,8 @@ export namespace Schemas {
     export interface MetricsQueryClause {
       /** Omit to get one line per series (at most 100), without combining them */
       aggregation?: MetricsAggregation | null;
+      /** Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. */
+      apdexThresholdMs?: number | null;
       filters?: MetricsQueryFilter[] | null;
       groupBy?: MetricsQueryGroupBy[] | null;
       metricName: string;
@@ -62016,6 +62442,8 @@ export namespace Schemas {
       filterGroup?: PropertyGroupFilter | null;
       /** Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this. */
       flatSpans?: boolean | null;
+      /** Include each span's OpenTelemetry events. The column is large, so only set this on small lists */
+      includeEvents?: boolean | null;
       kind?: 'TraceSpansQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -67263,8 +67691,11 @@ export namespace Schemas {
          * @maxLength 40
          */
       label: string;
-      /** The library this key reads. It cannot be changed later. */
-      library_id: string;
+      /**
+         * The library this key reads. Send null for a key that reads all business knowledge in the project. It cannot be changed later.
+         * @nullable
+         */
+      library_id: string | null;
     }
 
     export interface KnowledgeLibrary {
@@ -67497,6 +67928,13 @@ export namespace Schemas {
       readonly safety_verdict: SafetyVerdictEnum;
     }
 
+    export interface SurfaceUsage {
+      /** Where the usage came from. For chunks: text, url, file, or generated (learned from a support ticket). For searches: api (the API and MCP), support, posthog_ai, or learning. */
+      readonly surface: string;
+      /** Usage from this surface in the period. */
+      readonly total: number;
+    }
+
     export interface SourceUsage {
       /** ID of the knowledge source. */
       readonly source_id: string;
@@ -67511,7 +67949,7 @@ export namespace Schemas {
     }
 
     /**
-     * How much support agent runs used the knowledge base in a period.
+     * How much the knowledge base was used in a period: ingestion, searches, and support agent citations.
      */
     export interface KnowledgeUsage {
       /** Number of days the report covers, today included. */
@@ -67524,8 +67962,16 @@ export namespace Schemas {
       readonly source_count: number;
       /** Knowledge sources that at least one run cited in the period. */
       readonly cited_source_count: number;
+      /** Chunks written in the period. Content that a refresh finds changed is chunked again and counts again. */
+      readonly chunks_ingested: number;
+      /** Knowledge searches made in the period, from every surface. */
+      readonly query_count: number;
+      /** Chunks written in the period by source type, largest first. */
+      readonly chunks_by_surface: readonly SurfaceUsage[];
+      /** Searches in the period by where they came from, largest first. */
+      readonly queries_by_surface: readonly SurfaceUsage[];
       /** One entry per day, oldest first. */
-      readonly daily: readonly DailyCitedRuns[];
+      readonly daily: readonly DailyUsage[];
       /** The most cited sources in the period, most cited first. */
       readonly top_sources: readonly SourceUsage[];
     }
@@ -68016,10 +68462,10 @@ export namespace Schemas {
       readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
-         * Optional note describing what changed in this version. Set when the version is published.
-         * @nullable
+         * Optional note on where this skill came from, such as written from scratch or ported from another skill. Stored on version 1 and shown in the version history.
+         * @maxLength 400
          */
-      readonly version_description: string | null;
+      version_description?: string;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -71648,7 +72094,7 @@ export namespace Schemas {
     } as const;
 
     export interface MCPRecurringIntent {
-      /** The intent text repeated verbatim across sessions. Empty when intent text is redacted. */
+      /** The most common wording of this automation step. Empty when intent text is redacted. */
       readonly intent_text: string;
       /** Sessions in the window that opened with this intent. */
       readonly session_count: number;
@@ -71658,6 +72104,10 @@ export namespace Schemas {
       readonly error_count: number;
       /** Error rate across those sessions' tool calls, from 0 to 100. */
       readonly error_rate_pct: number;
+      /** How many different wordings of this automation step were merged into the entry. 1 when none were. */
+      readonly variant_count: number;
+      /** Up to five merged wordings, most common first. Empty when nothing was merged or intent text is redacted. */
+      readonly sample_variants: readonly string[];
     }
 
     export interface MCPToolPivotCompetitor {
@@ -73817,6 +74267,36 @@ export namespace Schemas {
     }
 
     /**
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `min` - min
+     * * `max` - max
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase
+     */
+    export type MetricAnomalyAggregationEnum = typeof MetricAnomalyAggregationEnum[keyof typeof MetricAnomalyAggregationEnum];
+
+
+    export const MetricAnomalyAggregationEnum = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
+    } as const;
+
+    /**
      * * `up` - up
      * * `down` - down
      * * `flat` - flat
@@ -73850,6 +74330,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `at_least` - At least the target
+     * * `at_most` - At most the target
+     */
+    export type ReleaseGoalDirectionEnum = typeof ReleaseGoalDirectionEnum[keyof typeof ReleaseGoalDirectionEnum];
+
+
+    export const ReleaseGoalDirectionEnum = {
+      AtLeast: 'at_least',
+      AtMost: 'at_most',
+    } as const;
+
+    export interface MetricGoal {
+      /**
+         * ID of the metric insight the goal is for.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      insight_id: number;
+      /** at_least when the metric should reach the value, at_most when it should stay at or below it.
+       *
+       * * `at_least` - At least the target
+       * * `at_most` - At most the target */
+      direction: ReleaseGoalDirectionEnum;
+      /** Target value of the metric. */
+      value: number;
+    }
+
+    /**
      * * `precise` - Precise
      * * `coarse` - Coarse
      * * `partial` - Partial
@@ -73874,6 +74382,8 @@ export namespace Schemas {
      * * `rate` - rate
      * * `increase` - increase
      * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase
      */
     export type MetricQueryAggregationEnum = typeof MetricQueryAggregationEnum[keyof typeof MetricQueryAggregationEnum];
 
@@ -73889,6 +74399,8 @@ export namespace Schemas {
       Rate: 'rate',
       Increase: 'increase',
       HistogramQuantile: 'histogram_quantile',
+      CountRate: 'count_rate',
+      CountIncrease: 'count_increase',
     } as const;
 
     /**
@@ -80853,6 +81365,10 @@ export namespace Schemas {
       readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
       readonly broadcasts: readonly LinkedBroadcastDTO[];
+      /** IDs of the insights that are the release's metrics. The first is the primary metric. */
+      readonly metric_insight_ids: readonly number[];
+      /** Target for each metric that has one. Metrics without a goal are left out. */
+      readonly metric_goals: readonly MetricGoal[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
       readonly has_hidden_flags: boolean;
       id: string;
@@ -82129,6 +82645,12 @@ export namespace Schemas {
       SourceSuggestion: 'source_suggestion',
     } as const;
 
+    /**
+     * * `user` - User
+     * * `task` - Task
+     * * `agent` - Agent
+     * * `system` - System
+     */
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
 
 
@@ -82618,6 +83140,110 @@ export namespace Schemas {
       reason: string;
     }
 
+    export interface ReportDecisionSetBy {
+      /** Who set the value. `user`: a person in PostHog. `agent`: a person's external coding agent. `task`: a PostHog agent task, such as report research. `system`: the pipeline, or an older row with no recorded attribution.
+       *
+       * * `user` - User
+       * * `task` - Task
+       * * `agent` - Agent
+       * * `system` - System */
+      kind: SignalActorKindEnum;
+      /** The person who set the value, or whose external agent did. Null for task and system writes. */
+      user: _User | null;
+      /**
+         * External agent client name when kind is `agent`, otherwise null.
+         * @nullable
+         */
+      agent: string | null;
+      /**
+         * PostHog task that set the value when kind is `task`.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
+    export interface ReportRepositoryDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /**
+         * 'owner/repo' the report's work targets. Null when repository selection chose no repository.
+         * @nullable
+         */
+      value: string | null;
+    }
+
+    export interface ReportPriorityDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /** Report priority, from P0 (critical) to P4.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      value: AutonomyPriorityEnum | null;
+    }
+
+    export interface ReportActionabilityDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /**
+         * `immediately_actionable`, `requires_human_input`, or `not_actionable`: whether the report can be acted on now, needs a person's input first, or needs no action.
+         * @nullable
+         */
+      value: string | null;
+    }
+
+    export interface ReportAlreadyAddressedDecision {
+      /**
+         * The reason stored with the value by whoever set it. Null when none was stored.
+         * @nullable
+         */
+      reason: string | null;
+      /** Who set the current value. */
+      set_by: ReportDecisionSetBy;
+      /** When the current value was set. */
+      set_at: string;
+      /**
+         * Whether the issue is already fixed, or has a fix in flight that someone else is working on.
+         * @nullable
+         */
+      value: boolean | null;
+    }
+
+    export interface ReportDecisions {
+      /** From the latest repo_selection artefact. Null when there is none. */
+      repository: ReportRepositoryDecision | null;
+      /** From the latest priority_judgment artefact. Null when there is none. */
+      priority: ReportPriorityDecision | null;
+      /** From the latest actionability_judgment artefact. Null when there is none. */
+      actionability: ReportActionabilityDecision | null;
+      /** From the latest actionability_judgment artefact, so it shares the reason and the setter with actionability. Null when there is none. */
+      already_addressed: ReportAlreadyAddressedDecision | null;
+    }
+
     export type SignalReportSuppressionSourceEnum = typeof SignalReportSuppressionSourceEnum[keyof typeof SignalReportSuppressionSourceEnum];
 
 
@@ -83092,6 +83718,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly already_addressed: boolean | null;
+      /** The current value of each decision made about the report (repository, priority, actionability, already addressed), with the reason stored with it and who set it. Always null in list responses. */
+      readonly decisions: ReportDecisions | null;
       /**
          * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
          * @nullable
@@ -88725,7 +89353,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
-      analysis_level?: AnalysisLevelEnum;
+      analysis_level?: ClusteringAnalysisLevelEnum;
       /** PostHog property filters that scope this clustering job. Empty array means no filters. */
       event_filters?: PatchedClusteringJobEventFiltersItem[];
       enabled?: boolean;
@@ -90057,6 +90685,15 @@ export namespace Schemas {
       readonly group_type_index?: number | null;
     }
 
+    export interface PatchedEnvironmentMappingUpdate {
+      /** ID of the PostHog project that receives the Vercel production environment. */
+      production?: number;
+      /** ID of the PostHog project for the Vercel preview environment. Defaults to the production project. */
+      preview?: number;
+      /** ID of the PostHog project for the Vercel development environment. Defaults to the production project. */
+      development?: number;
+    }
+
     export interface PatchedErrorTrackingAlertUpdateRequest {
       /**
          * Human-readable name of the alert. Omit to keep the current name.
@@ -90226,6 +90863,8 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
+      /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+      ai_issue_summaries_enabled?: boolean;
     }
 
     /**
@@ -90969,6 +91608,7 @@ export namespace Schemas {
       readonly supported_api_versions?: string[];
       /** @nullable */
       readonly file_name?: string | null;
+      readonly supports_table_discovery?: boolean;
     } | null;
 
     /**
@@ -91229,6 +91869,15 @@ export namespace Schemas {
       readonly webhook_not_registered?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
+      /** Whether tables can be added to this source by their path with the add_table endpoint. True for object storage sources whose files URL names a folder, not one file or a pattern. */
+      readonly supports_adding_tables?: boolean;
+      /**
+         * For object storage sources: the folder that add_table resolves relative paths against, as `<bucket>/<folder>/`, such as `my-bucket/exports/`. It is the folder of the source's files URL. Null for other sources, for a files URL that names one file or a pattern, or when the URL can't be read.
+         * @nullable
+         */
+      readonly table_root?: string | null;
+      /** Whether PostHog can find new tables in this source on its own, with refresh_schemas. False for a source that reads tables from anywhere in its bucket. Add tables to such a source by their path. */
+      readonly supports_table_discovery?: boolean;
       /**
          * The name of the file a file upload source imports. Null for other sources or when it is unknown.
          * @nullable
@@ -93406,20 +94055,6 @@ export namespace Schemas {
       sso_enforcement?: string;
       /** @nullable */
       readonly scim_base_url?: string | null;
-    }
-
-    /**
-     * Serializer for organization-level integrations.
-     */
-    export interface PatchedOrganizationIntegration {
-      readonly id?: string;
-      readonly kind?: OrganizationIntegrationKindEnum;
-      /** @nullable */
-      readonly integration_id?: string | null;
-      readonly config?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      readonly created_by?: UserBasic;
     }
 
     export interface PatchedOrganizationMember {
@@ -98035,6 +98670,18 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       insight_ids?: number[];
+      /**
+         * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+         * @maxItems 5
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      metric_insight_ids?: number[];
+      /**
+         * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+         * @maxItems 5
+         */
+      metric_goals?: MetricGoal[];
     }
 
     /**
@@ -108990,6 +109637,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly already_addressed: boolean | null;
+      /** The current value of each decision made about the report (repository, priority, actionability, already addressed), with the reason stored with it and who set it. Always null in list responses. */
+      readonly decisions: ReportDecisions | null;
       /**
          * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
          * @nullable
@@ -110114,6 +110763,7 @@ export namespace Schemas {
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
      * * `resolve_conflicts` - Resolve conflicts
+     * * `implement` - Implement
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask
      */
@@ -110124,6 +110774,7 @@ export namespace Schemas {
       GetItMerged: 'get_it_merged',
       MakeItGreen: 'make_it_green',
       ResolveConflicts: 'resolve_conflicts',
+      Implement: 'implement',
       SuggestedPrompt: 'suggested_prompt',
       Ask: 'ask',
     } as const;
@@ -115963,8 +116614,11 @@ export namespace Schemas {
     export interface ServiceHealth {
       /** The service.name resource attribute. */
       service_name: string;
-      /** The environment the row was computed for. */
-      environment: string;
+      /**
+         * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Health band from the error rate.
        *
        * * `good` - Good
@@ -116241,8 +116895,11 @@ export namespace Schemas {
       edges: ServiceEdge[];
       /** Traces sampled to build the map. */
       trace_count: number;
-      /** The environment the map was built for. */
-      environment: string;
+      /**
+         * The environment filter the map was built for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Start of the window used. */
       date_from: string;
       /** End of the window used. */
@@ -116307,10 +116964,13 @@ export namespace Schemas {
     export interface ServicesHealthResponse {
       /** One row per service, worst status first. */
       results: ServiceHealth[];
-      /** Environments seen in the window. */
-      environments: string[];
-      /** The environment the rows were computed for. */
-      environment: string;
+      /** Environments seen in the window. Null stands for spans that set no environment. */
+      environments: (string | null)[];
+      /**
+         * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Start of the window used. */
       date_from: string;
       /** End of the window used. */
@@ -117247,6 +117907,15 @@ export namespace Schemas {
       report_id: string;
     }
 
+    export interface SignalReportRepositoryUpdate {
+      /**
+         * Repository the report's work targets, in 'owner/repo' format (case-insensitive). It must be a repository the project's GitHub integration can reach. Later implementation runs use it.
+         * @minLength 1
+         * @maxLength 140
+         */
+      repository: string;
+    }
+
     export interface SignalReportSearchHit {
       /** The report id. Pass it to inbox-reports-retrieve for the full report. */
       id: string;
@@ -117498,11 +118167,12 @@ export namespace Schemas {
      * One report action that starts an agent run, with whether the report offers it now.
      */
     export interface SignalReportTaskAction {
-      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `suggested_prompt` sends one of the prompts the report suggests.
+      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `implement` starts the run the inbox's Implement button starts: it claims the report, implements the fix, and opens a pull request that is attached to the report. `suggested_prompt` sends one of the prompts the report suggests.
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
        * * `resolve_conflicts` - Resolve conflicts
+       * * `implement` - Implement
        * * `suggested_prompt` - Suggested prompt
        * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
@@ -117544,6 +118214,7 @@ export namespace Schemas {
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
        * * `resolve_conflicts` - Resolve conflicts
+       * * `implement` - Implement
        * * `suggested_prompt` - Suggested prompt
        * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
@@ -117553,10 +118224,16 @@ export namespace Schemas {
          */
       suggested_prompt_index?: number;
       /**
-         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Optional for `implement`, where it is added to the prompt as extra instructions. Not accepted for `suggested_prompt`.
          * @maxLength 2000
          */
       message?: string;
+      /**
+         * Only for `implement`: the repository to implement in, in 'owner/repo' format (case-insensitive). It must be connected to the project, and it becomes the report's repo selection. Omit it to use the report's own repository. A report whose repository cannot be resolved returns `report_implementation_repository_unresolved`.
+         * @minLength 1
+         * @maxLength 140
+         */
+      repository?: string;
     }
 
     export interface SignalReportTaskActionRunResponse {
@@ -129135,6 +129812,18 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       insight_ids?: number[];
+      /**
+         * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+         * @maxItems 5
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      metric_insight_ids?: number[];
+      /**
+         * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+         * @maxItems 5
+         */
+      metric_goals?: MetricGoal[];
     }
 
     export interface ZendeskImportError {
@@ -130296,8 +130985,10 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
-      aggregation?: AggregationEnum | null;
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
+      aggregation?: MetricAnomalyAggregationEnum | null;
       /**
          * Quantile for histogram_quantile. Defaults to 0.95.
          * @minimum 0
@@ -130565,7 +131256,9 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
       aggregation?: MetricQueryAggregationEnum;
       /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
        *
@@ -130579,6 +131272,12 @@ export namespace Schemas {
          * @nullable
          */
       quantile?: number | null;
+      /**
+         * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+         * @minimum 0.001
+         * @nullable
+         */
+      apdexThresholdMs?: number | null;
       /** Label predicates ANDed together for this clause. */
       filters?: _MetricFilter[];
       /** Labels to split this clause into separate series by. */
@@ -130660,6 +131359,10 @@ export namespace Schemas {
          * @nullable
          */
       first_seen?: string | null;
+      /** Approximate number of distinct series (label sets) in the last 24 hours. Only present when `series_stats` was requested. */
+      series_count?: number;
+      /** Number of distinct datapoint attribute keys in the last 24 hours. Only present when `series_stats` was requested. */
+      tag_key_count?: number;
       /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
       classic_histogram?: _MetricClassicHistogram;
     }
@@ -130695,7 +131398,7 @@ export namespace Schemas {
        * * `exponential_histogram` - exponential_histogram
        * * `summary` - summary */
       metricType?: OtelMetricTypeEnum | null;
-      /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
+      /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'count_rate' (per-second) and 'count_increase' are 'rate' and 'increase' over a histogram's or summary's observation count instead of its running sum, so they chart requests per second from a latency histogram; they take no 'rangeFunction'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
        *
        * * `none` - none
        * * `sum` - sum
@@ -130706,7 +131409,9 @@ export namespace Schemas {
        * * `p95` - p95
        * * `rate` - rate
        * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
+       * * `histogram_quantile` - histogram_quantile
+       * * `count_rate` - count_rate
+       * * `count_increase` - count_increase */
       aggregation?: MetricQueryAggregationEnum;
       /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
        *
@@ -130720,6 +131425,12 @@ export namespace Schemas {
          * @nullable
          */
       quantile?: number | null;
+      /**
+         * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+         * @minimum 0.001
+         * @nullable
+         */
+      apdexThresholdMs?: number | null;
       /** Label predicates ANDed together. Rows must satisfy every filter. */
       filters?: _MetricFilter[];
       /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
@@ -130967,6 +131678,23 @@ export namespace Schemas {
     export type _SpanResourceAttributes = {[key: string]: string};
 
     /**
+     * Event attributes. Keys are whatever the instrumentation set.
+     */
+    export type _SpanEventAttributes = {[key: string]: string};
+
+    export interface _SpanEvent {
+      /** Event name, for example `exception`. */
+      name: string;
+      /**
+         * When the event occurred. Null when the SDK did not set a time.
+         * @nullable
+         */
+      timestamp: string | null;
+      /** Event attributes. Keys are whatever the instrumentation set. */
+      attributes: _SpanEventAttributes;
+    }
+
+    /**
      * One span row as the query and trace actions return it.
      *
      * The runner assembles these from HogQL result columns by position, so the key set is fixed even
@@ -131008,23 +131736,8 @@ export namespace Schemas {
       attributes: _SpanAttributes;
       /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
       resource_attributes: _SpanResourceAttributes;
-    }
-
-    /**
-     * Event attributes. Keys are whatever the instrumentation set.
-     */
-    export type _SpanEventAttributes = {[key: string]: string};
-
-    export interface _SpanEvent {
-      /** Event name, for example `exception`. */
-      name: string;
-      /**
-         * When the event occurred. Null when the SDK did not set a time.
-         * @nullable
-         */
-      timestamp: string | null;
-      /** Event attributes. Keys are whatever the instrumentation set. */
-      attributes: _SpanEventAttributes;
+      /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+      events?: _SpanEvent[];
     }
 
     /**
@@ -131271,7 +131984,7 @@ export namespace Schemas {
     export type _TraceSpanResourceAttributes = {[key: string]: string};
 
     /**
-     * A span in a single trace. The trace action adds self time and span events, which the list does not return.
+     * A span in a single trace. The trace action adds self time, which the list does not return.
      */
     export interface _TraceSpan {
       /** Span's own UUID. */
@@ -131308,10 +132021,10 @@ export namespace Schemas {
       attributes: _TraceSpanAttributes;
       /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
       resource_attributes: _TraceSpanResourceAttributes;
+      /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+      events?: _SpanEvent[];
       /** Span duration minus the time spent in its children, in nanoseconds. */
       self_time_nano: number;
-      /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
-      events?: _SpanEvent[];
     }
 
     /**
@@ -131781,6 +132494,8 @@ export namespace Schemas {
       prefetchSpans?: number;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
+      /** Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false. */
+      includeEvents?: boolean;
     }
 
     export interface _TracingQueryRequest {
@@ -133334,6 +134049,17 @@ export namespace Schemas {
      * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
      */
     tags?: string;
+    };
+
+    export type AccountsCustomPropertyValuesHistoryRetrieveParams = {
+    /**
+     * ID of the custom property definition to read the history of.
+     */
+    definition: string;
+    /**
+     * Only return values held on or after this date (YYYY-MM-DD, UTC). The first entry is the value in place on that date. Omit for the full history.
+     */
+    since?: string;
     };
 
     export type AccountsNotebooksListParams = {
@@ -135188,6 +135914,78 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ApmDependenciesListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * Only edges where this service is the caller or the callee.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service?: string;
+    };
+
+    export type ApmDeploymentsListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * The service to list versions for.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service: string;
+    };
+
+    export type ApmEndpointTimeSpentListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * The endpoint's entry span name, as listed by apm/endpoints.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    endpoint: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * The service that handles the endpoint.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service: string;
+    };
+
     export type ApmEndpointsListParams = {
     /**
      * Start of the window, ISO 8601. Defaults to one hour before date_to.
@@ -135198,8 +135996,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string;
@@ -135221,8 +136018,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string;
@@ -135238,8 +136034,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string;
@@ -137311,6 +138106,21 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type DashboardsCachedTilesRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
+    /**
+     * Comma-separated dashboard tile IDs to read, at most 100. Results come back in this order.
+     */
+    tile_ids: string;
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
+    };
 
     export type DashboardsCopyGroupCreateParams = {
     format?: DashboardsCopyGroupCreateFormat;
@@ -139869,7 +140679,7 @@ export namespace Schemas {
      */
     repository?: string;
     /**
-     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase and returns issues only, not pull requests. Leave blank for recent issues.
      */
     search?: string;
     };
@@ -144984,6 +145794,10 @@ export namespace Schemas {
      */
     match?: MetricsValuesRetrieveMatch;
     /**
+     * Add `series_count` and `tag_key_count` for each name, over the last 24 hours.
+     */
+    series_stats?: boolean;
+    /**
      * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
      * @maxLength 1024
      */
@@ -145897,6 +146711,11 @@ export namespace Schemas {
      */
     cursor?: string;
     /**
+     * Only releases that link this feature flag.
+     * @minimum 1
+     */
+    feature_flag_id?: number;
+    /**
      * How many releases to return, at most 100.
      * @minimum 1
      * @maximum 100
@@ -145920,6 +146739,14 @@ export namespace Schemas {
      * @maxLength 200
      */
     search?: string;
+    };
+
+    export type ReleasesFlagSuggestionsRetrieveParams = {
+    /**
+     * ID of the feature flag to find releases for.
+     * @minimum 1
+     */
+    feature_flag_id: number;
     };
 
     export type SandboxCustomImagesListParams = {
@@ -146529,10 +147356,11 @@ export namespace Schemas {
      */
     only_flagged?: boolean;
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
+     * * `rate` - Rate
      * @minLength 1
      */
     order?: SignalsAnomaliesSearchRetrieveOrder;
@@ -146567,6 +147395,7 @@ export namespace Schemas {
     export const SignalsAnomaliesSearchRetrieveOrder = {
       Unusual: 'unusual',
       Recent: 'recent',
+      Rate: 'rate',
     } as const;
 
     export type SignalsProcessingListParams = {

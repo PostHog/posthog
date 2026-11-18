@@ -59,6 +59,7 @@ The reader compiles each regex predicate once at parse time and stores it on the
 Its caller supplies the resolved person distinct ID, complete or partial properties (or unavailable context), timezone, exact-matching setting, and a fixed evaluation time.
 `get_match` runs it for an active flag whose parse succeeded, with the request distinct ID as the subject (hash key overrides, device identifiers and experience continuity do not apply), the team timezone and exact-matching setting, and the matcher's request time.
 Person properties come from the same override-and-database acquisition v1 conditions use: a v2 predicate key absent from the request overrides triggers database preparation, and the merged map is `Complete` once the database was consulted or the request restricted evaluation to its overrides (`only_use_override_person_properties`, which the historical `test_evaluation` endpoint sets with the reconstructed property set, so a missing key means not set, as for v1), and `Partial` when the overrides covered every predicate key without a database read.
+A partial map is passed as `Complete` when every predicate key is in it or listed as known absent, so a listed key evaluates as not set instead of reporting missing context.
 A request always carries its distinct ID as an override, so a predicate never sees `Unavailable` context; that variant is passed only for a rule set without predicates, where it is never read.
 The typed outcome is projected onto the existing match shape and reaches every response format unchanged: a targeting match sets `enabled` to the rule value with `condition_match` and the rule index, a terminal rollout miss and no rule match set `enabled` to the flag default (`false` for a null default) with `out_of_rollout_bound` or `no_condition_match`, never a variant or a payload.
 An evaluation error (missing context, an invalid property value, an invalid regex, a hash failure) returns that flag with `failed: true`, `enabled: false` and the `flag_evaluation_error` reason, and sets `errorsWhileComputingFlags`, so a configured `false` stays distinct from an error and from omission.
@@ -574,6 +575,11 @@ Property overrides from the request body are merged on top of DB-fetched propert
 GeoIP-derived `$geoip_*` properties follow the same rule. They are added to the request overrides before evaluation, but only fill keys the request didn't supply.
 See [GeoIP enrichment of `person_properties`](rust-service-overview.md#geoip-enrichment-of-person_properties).
 
+Keys the request lists in `person_property_keys_known_absent` or `group_property_keys_known_absent` are removed from the merged map before and after synthesis (`$initial_*` copies and the `$os`/`$os_name` alias). A listed key therefore loses its database and override values, never feeds a synthesized key, and never receives a synthesized value.
+Every reader takes its map from these merges: condition filters, feature enrollment, cohorts evaluated from properties, flag dependencies (through the dependency's own evaluation), v2 flags, and detailed analysis.
+Static and realtime cohort membership comes from stored tables, so known absence doesn't change it. Holdouts read no properties.
+See [Known-absent property keys](rust-service-overview.md#known-absent-property-keys).
+
 ### Unfetched properties fail closed
 
 A property map that was never fetched is not the same as a property map that came back empty. An empty map means the property is unset, which makes a negative operator such as `is_not` match. A map that was never fetched says nothing, so treating it as empty grants the flag to exactly the people or groups the condition excludes.
@@ -583,6 +589,8 @@ Both property sources record whether their fetch ran, and a filter whose source 
 - `person_property_state` distinguishes `Pending` (prep has not run) from `Skipped` (request overrides cover every key the batch needs) and `Fetched`.
 - The key set of `group_properties` carries the same distinction per group type. A missing index means the fetch never ran; a present index is authoritative, so an empty map there means the group has no stored properties.
 - `group_type_mapping` records `Uninitialized`, `Loaded`, or `Failed`. A group filter fails closed unless the mapping resolves its group type index: a loaded mapping that lacks the index — a cache entry from before the group type was added — says nothing about that group.
+
+A key the request lists as known absent is unset whatever the fetch state, so a filter on it never fails closed. A listed key also counts as supplied when the matcher decides whether to fetch, so it never forces a fetch.
 
 One case deliberately keeps the old behavior: a group type the request supplies no key for. It applies when the request carries no usable group key and no group property override, or when the mapping resolves the filter's index to a group type name and the request omits that name. The request never claimed to be in a group of that type, so there is no group context to fail closed on, and filters on it match as before. A request without group context therefore gets the same answer under a loaded, stale, or failed mapping.
 
@@ -603,7 +611,7 @@ The evaluation engine follows a lazy-but-batched approach:
 1. **Flag definitions**: Fetched once per request from HyperCache (Redis -> S3 -> PostgreSQL), including pre-computed `evaluation_metadata` when available
 2. **Group type mappings**: Fetched once per request if any flag references a group type, through flag-level or condition-level aggregation or through an individual group property filter. The outcome is reused for the rest of the request, so a failed lookup is not retried
 3. **Person properties**: Fetched once per request from PostgreSQL, merged with request overrides
-4. **Group properties**: Fetched once per request from PostgreSQL, merged with request overrides. A group filter keeps its flag in this preparation only when the fetch can serve it — the mapping resolves the filter's index, the request carries a usable key for that group type, and no request override already supplies the filtered property — so a flag whose only database need is an unservable group filter skips the person and group queries entirely
+4. **Group properties**: Fetched once per request from PostgreSQL, merged with request overrides. A group filter keeps its flag in this preparation only when the fetch can serve it — the mapping resolves the filter's index, the request carries a usable key for that group type, and no request override or known-absent listing already supplies the filtered property — so a flag whose only database need is an unservable group filter skips the person and group queries entirely
 5. **Cohort definitions**: Fetched from moka cache (backed by PostgreSQL)
 6. **Static cohort memberships**: Fetched once per request via batched query
 7. **Hash key overrides**: Fetched once per request if any flag uses experience continuity

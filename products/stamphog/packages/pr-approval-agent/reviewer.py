@@ -357,12 +357,15 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     reported, not a code review. Do NOT describe what the code does. Do NOT
     mention internal gate codes (T0, T1, T2, etc.). When gates denied the PR,
     explain the reason in plain language so the author understands without
-    checking logs.
+    checking logs. When the deny-list gate failed, name the files its message
+    lists, because they are the cause. Do not give the size, the file count or
+    the scope as a cause: they never make the deny-list or the tier gate fail.
     Examples:
     - "Contained frontend fix; no open review concerns."
     - "CodeRabbit's open concern in lineage.ts is not fixed in the current code."
     - "Touches shared query builder — needs team review."
     - "Gates denied: touches CI workflows and migration files."
+    - "Gates denied: settings/owners.yaml changes an existing ownership line, and ownership files are stamphog's own gate inputs."
 
     When you report a refusal ground or an unresolved concern, or risky
     territory that no current-head review covers and whose author is neither on
@@ -372,6 +375,10 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     (e.g. "request review from @PostHog/team-x"); when the prompt lists who is
     most familiar with the modified lines, name them as suggested reviewers.
     When a specific comment blocks approval, reference it by file and commenter.
+    When an inline finding from a reviewer bot blocks approval, also tell the
+    author that if the finding is wrong, they can reply in its thread with why
+    and resolve the thread. Do not suggest this for a security, auth, data-loss
+    or migration finding.
     Examples:
     - "Get a review from a team member on [team] before re-requesting."
     - "Request review from @PostHog/team-x (owns the changed files)."
