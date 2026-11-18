@@ -615,7 +615,8 @@ def create_posthog_code_task_for_repo_activity(
         api as signals_facade,
         report_tasks,
     )
-    from products.slack_app.backend.models import PUBLIC_CHANNEL_CONVERSATION_TYPES, SlackThreadTaskMapping
+    from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES
+    from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade

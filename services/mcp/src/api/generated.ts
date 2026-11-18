@@ -39189,6 +39189,68 @@ export namespace Schemas {
       push_count: number;
     }
 
+    /**
+     * * `service` - Service
+     * * `database` - Database
+     * * `queue` - Queue
+     * * `external` - External
+     */
+    export type DependencyKindEnum = typeof DependencyKindEnum[keyof typeof DependencyKindEnum];
+
+
+    export const DependencyKindEnum = {
+      Service: 'service',
+      Database: 'database',
+      Queue: 'queue',
+      External: 'external',
+    } as const;
+
+    export interface DependencyEdge {
+      /** The calling service. */
+      caller: string;
+      /** The called service, or for an inferred dependency the peer service, database, queue or host it names. */
+      callee: string;
+      /** True when the callee sends no spans and is named by the caller's client span attributes. */
+      inferred: boolean;
+      /** What the callee is.
+       *
+       * * `service` - Service
+       * * `database` - Database
+       * * `queue` - Queue
+       * * `external` - External */
+      kind: DependencyKindEnum;
+      /** Calls from the caller into the callee in the window. */
+      requests: number;
+      /** Calls with an error status, on the caller's client span when it has one. */
+      error_count: number;
+      /**
+         * 95th percentile call duration in ms, on the caller's client span when it has one.
+         * @nullable
+         */
+      p95_ms: number | null;
+    }
+
+    export interface DependenciesResponse {
+      /** One edge per caller and callee, most requests first. */
+      edges: DependencyEdge[];
+      /** True when more edges matched than the response holds. */
+      truncated: boolean;
+      /**
+         * The environment filter the edges were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
+      /**
+         * The service filter applied, if any.
+         * @nullable
+         */
+      service: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
+    }
+
     export interface DependentFlag {
       /** Feature flag ID */
       id: number;
@@ -42626,8 +42688,11 @@ export namespace Schemas {
       service_name: string;
       /** The entry span name, for example the HTTP route or the job name. */
       endpoint: string;
-      /** The environment the row was computed for. */
-      environment: string;
+      /**
+         * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Health band from the error rate.
        *
        * * `good` - Good
@@ -42996,8 +43061,11 @@ export namespace Schemas {
     export interface EndpointsHealthResponse {
       /** One row per service and endpoint, worst status first. */
       results: EndpointHealth[];
-      /** The environment the rows were computed for. */
-      environment: string;
+      /**
+         * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /**
          * The service filter applied, if any.
          * @nullable
@@ -43800,7 +43868,7 @@ export namespace Schemas {
     }
 
     /**
-     * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+     * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue.
      */
     export type ErrorTrackingExternalReferenceLinkExternalContext = { [key: string]: unknown };
 
@@ -43809,7 +43877,7 @@ export namespace Schemas {
       integration_id: number;
       /** ID of the error tracking issue to link the reference to. */
       issue: string;
-      /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+      /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue. */
       external_context: ErrorTrackingExternalReferenceLinkExternalContext;
     }
 
@@ -44224,6 +44292,8 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
+      /** Work linked to this issue in GitHub, GitLab, Linear, or Jira, such as provider issues and GitHub pull requests, oldest first. An empty list means nothing is linked. Absent when the lookup failed. */
+      external_issues?: ErrorTrackingExternalReferenceResult[];
       /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
       summary?: ErrorTrackingIssueSummary;
       /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
@@ -45646,7 +45716,7 @@ export namespace Schemas {
       readonly applies: boolean;
       /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
       readonly template_key: string;
-      /** A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
+      /** A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
       readonly headline: string;
       /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
       readonly outcome: string;
@@ -67312,8 +67382,11 @@ export namespace Schemas {
          * @maxLength 40
          */
       label: string;
-      /** The library this key reads. It cannot be changed later. */
-      library_id: string;
+      /**
+         * The library this key reads. Send null for a key that reads all business knowledge in the project. It cannot be changed later.
+         * @nullable
+         */
+      library_id: string | null;
     }
 
     export interface KnowledgeLibrary {
@@ -71697,7 +71770,7 @@ export namespace Schemas {
     } as const;
 
     export interface MCPRecurringIntent {
-      /** The intent text repeated verbatim across sessions. Empty when intent text is redacted. */
+      /** The most common wording of this automation step. Empty when intent text is redacted. */
       readonly intent_text: string;
       /** Sessions in the window that opened with this intent. */
       readonly session_count: number;
@@ -71707,6 +71780,10 @@ export namespace Schemas {
       readonly error_count: number;
       /** Error rate across those sessions' tool calls, from 0 to 100. */
       readonly error_rate_pct: number;
+      /** How many different wordings of this automation step were merged into the entry. 1 when none were. */
+      readonly variant_count: number;
+      /** Up to five merged wordings, most common first. Empty when nothing was merged or intent text is redacted. */
+      readonly sample_variants: readonly string[];
     }
 
     export interface MCPToolPivotCompetitor {
@@ -116053,8 +116130,11 @@ export namespace Schemas {
     export interface ServiceHealth {
       /** The service.name resource attribute. */
       service_name: string;
-      /** The environment the row was computed for. */
-      environment: string;
+      /**
+         * The environment filter the row was computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Health band from the error rate.
        *
        * * `good` - Good
@@ -116331,8 +116411,11 @@ export namespace Schemas {
       edges: ServiceEdge[];
       /** Traces sampled to build the map. */
       trace_count: number;
-      /** The environment the map was built for. */
-      environment: string;
+      /**
+         * The environment filter the map was built for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Start of the window used. */
       date_from: string;
       /** End of the window used. */
@@ -116397,10 +116480,13 @@ export namespace Schemas {
     export interface ServicesHealthResponse {
       /** One row per service, worst status first. */
       results: ServiceHealth[];
-      /** Environments seen in the window. */
-      environments: string[];
-      /** The environment the rows were computed for. */
-      environment: string;
+      /** Environments seen in the window. Null stands for spans that set no environment. */
+      environments: (string | null)[];
+      /**
+         * The environment filter the rows were computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
       /** Start of the window used. */
       date_from: string;
       /** End of the window used. */
@@ -135256,6 +135342,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ApmDependenciesListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * Only edges where this service is the caller or the callee.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service?: string;
+    };
+
     export type ApmEndpointsListParams = {
     /**
      * Start of the window, ISO 8601. Defaults to one hour before date_to.
@@ -135266,8 +135374,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string;
@@ -135289,8 +135396,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string;
@@ -135306,8 +135412,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
-     * @minLength 1
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
      * @maxLength 200
      */
     environment?: string;
@@ -139937,7 +140042,7 @@ export namespace Schemas {
      */
     repository?: string;
     /**
-     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase and returns issues only, not pull requests. Leave blank for recent issues.
      */
     search?: string;
     };
