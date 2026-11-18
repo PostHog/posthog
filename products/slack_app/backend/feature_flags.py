@@ -22,14 +22,16 @@ surfaces:
   on that user, so the person's own record answers the rule. That makes the usual
   internal rollout rules work unchanged: ``email ends_with @posthog.com``, a cohort,
   any person property. Nothing here forwards those properties; the person already
-  carries them.
+  carries them. A gate deciding for a Slack user gets the linked user's distinct ID
+  from ``slack_user_oauth.linked_posthog_distinct_id``, and falls back to the
+  workspace before the person links.
 - ``send_feature_flag_events=False`` — these are control checks, not analytics.
 - **Fail-closed** — any error returns ``False`` so a flaky flag call never
   silently enables a feature for everyone.
 
-The identity a gate is keyed on is also the identity it buckets on. So give a gate
-either a user on every call or on none, and read a rollout percentage on a
-user-keyed gate as a share of people rather than of workspaces.
+The identity a gate is keyed on is also the identity it buckets on. So read a rollout
+percentage on a user-keyed gate as a share of people rather than of workspaces, and
+on a gate that falls back to the workspace as a mix of the two.
 """
 
 from __future__ import annotations
@@ -203,46 +205,51 @@ def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
     )
 
 
-def is_slack_app_link_search_scopes_enabled(integration: IntegrationRecord) -> bool:
+def is_slack_app_link_search_scopes_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
     """The account link asks for the search scopes only once the Slack app manifest declares them. Slack refuses an
     authorize request for an undeclared scope, so this flag guards every account link, not only the onboarding."""
     return _workspace_flag_enabled(
         SLACK_APP_LINK_SEARCH_SCOPES_FLAG,
         integration,
         failure_log_key="slack_app_link_search_scopes_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 
-def is_slack_app_slack_mcp_enabled(integration: IntegrationRecord) -> bool:
+def is_slack_app_slack_mcp_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
     """The Slack account link also connects the person's Slack MCP."""
     return _workspace_flag_enabled(
         SLACK_APP_SLACK_MCP_FLAG,
         integration,
         failure_log_key="slack_app_slack_mcp_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 
-def is_slack_app_connect_tool_from_chat_enabled(integration: IntegrationRecord) -> bool:
+def is_slack_app_connect_tool_from_chat_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
     return _workspace_flag_enabled(
         SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG,
         integration,
         failure_log_key="slack_app_connect_tool_from_chat_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 
-def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord) -> bool:
+def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
     return _workspace_flag_enabled(
         SLACK_APP_DAILY_WORK_FOCUS_FLAG,
         integration,
         failure_log_key="slack_app_daily_work_focus_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 
-def is_slack_app_onboarding_enabled(integration: IntegrationRecord) -> bool:
-    """Keyed on the workspace, because most people who get the onboarding thread are not linked to a PostHog user
-    yet. Each step checks its own scopes."""
+def is_slack_app_onboarding_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Decided for the person who would get the thread, who is usually not linked to a PostHog user yet. Each step
+    checks its own scopes."""
     return _workspace_flag_enabled(
         SLACK_APP_ONBOARDING_FLAG,
         integration,
         failure_log_key="slack_app_onboarding_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )

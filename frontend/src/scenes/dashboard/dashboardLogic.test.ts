@@ -1234,7 +1234,7 @@ describe('dashboardLogic', () => {
                 {
                     name: 'the viewer opens it',
                     open: () => logic.actions.selectTileGroupTab('group-target'),
-                    beforeMount: () => {},
+                    beforeMount: () => router.actions.push('/dashboard/5', { tab: 'tiles-ungrouped' }),
                     ungroupedLoads: 1,
                     tabSelections: 1,
                 },
@@ -1248,7 +1248,7 @@ describe('dashboardLogic', () => {
                 {
                     name: 'the viewer follows a link to it',
                     open: () => router.actions.push('/dashboard/5', { tab: 'group-target' }),
-                    beforeMount: () => {},
+                    beforeMount: () => router.actions.push('/dashboard/5', { tab: 'tiles-ungrouped' }),
                     ungroupedLoads: 1,
                     tabSelections: 0,
                 },
@@ -1270,8 +1270,8 @@ describe('dashboardLogic', () => {
                     await expectLogic(logic, open).toFinishAllListeners()
 
                     expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
-                        'tiles-ungrouped',
                         'group-target',
+                        'tiles-ungrouped',
                     ])
                     expect(logic.values.activeTileGroupTab).toEqual('target')
                     expect(router.values.searchParams.tab).toEqual('group-target')
@@ -1309,6 +1309,7 @@ describe('dashboardLogic', () => {
                         customization: { group_display: 'tabs' },
                         tiles: [...leftTiles, targetTile],
                     }
+                    router.actions.push('/dashboard/5', { tab: 'tiles-ungrouped' })
                     await mountDashboard()
                     refreshInsight.mockClear()
                     const finishLoads: (() => void)[] = []
@@ -2624,50 +2625,62 @@ describe('dashboardLogic', () => {
             ],
             ['a filter change', (): void => logic.actions.setDates('-7d', null), false],
             ['an automatic stale refresh', (): void => logic.actions.triggerDashboardRefresh(true), true],
-        ])('adds the tile request timing to refresh analytics after %s', async (_name, refreshTiles, isAutomatic) => {
-            await expectLogic(logic).toFinishAllListeners()
-            const requestId = '11111111-1111-4111-8111-111111111111'
-            const refresh = jest
-                .spyOn(dashboardUtils, 'getInsightWithRetry')
-                .mockImplementation(async (_teamId, insight, _dashboardId, _queryId, _refresh, methodOptions) => {
-                    methodOptions?.onRequestTiming?.({
-                        request_total_ms: 20,
-                        http_request_id: requestId,
-                        resource_timing_status: 'matched',
-                        envoy_upstream_ms: 12,
-                        resource_pre_request_ms: 3,
-                        resource_ttfb_ms: 15,
-                        http_status: 200,
+        ])(
+            'adds the tile request timing and cache outcome to refresh analytics after %s',
+            async (_name, refreshTiles, isAutomatic) => {
+                await expectLogic(logic).toFinishAllListeners()
+                const dashboard = logic.values.dashboard!
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboardSuccess({
+                        ...dashboard,
+                        tiles: dashboard.tiles.map((tile) => ({ ...tile, is_cached: true })),
                     })
-                    return insight
-                })
-            const capture = jest.spyOn(posthog, 'capture').mockClear()
-
-            try {
-                await expectLogic(logic, refreshTiles).toFinishAllListeners()
-
-                expect(capture).toHaveBeenCalledWith(
-                    'dashboard insight refreshed',
-                    expect.objectContaining({
-                        http_request_id: requestId,
-                        resource_timing_status: 'matched',
-                        envoy_upstream_ms: 12,
-                        resource_pre_request_ms: 3,
-                        resource_ttfb_ms: 15,
-                        request_total_ms: 20,
-                        http_status: 200,
+                }).toFinishAllListeners()
+                const requestId = '11111111-1111-4111-8111-111111111111'
+                const refresh = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight, _dashboardId, _queryId, _refresh, methodOptions) => {
+                        methodOptions?.onRequestTiming?.({
+                            request_total_ms: 20,
+                            http_request_id: requestId,
+                            resource_timing_status: 'matched',
+                            envoy_upstream_ms: 12,
+                            resource_pre_request_ms: 3,
+                            resource_ttfb_ms: 15,
+                            http_status: 200,
+                        })
+                        return { ...insight, is_cached: false }
                     })
-                )
-                const refreshEvents = capture.mock.calls.filter(([event]) =>
-                    ['dashboard refreshed', 'dashboard insight refreshed'].includes(event)
-                )
-                for (const [, properties] of refreshEvents) {
-                    expect(properties?.$update_person_last_seen_at).toBe(isAutomatic ? false : undefined)
+                const capture = jest.spyOn(posthog, 'capture').mockClear()
+
+                try {
+                    await expectLogic(logic, refreshTiles).toFinishAllListeners()
+
+                    expect(capture).toHaveBeenCalledWith(
+                        'dashboard insight refreshed',
+                        expect.objectContaining({
+                            was_cached: false,
+                            was_cached_before_refresh: true,
+                            http_request_id: requestId,
+                            resource_timing_status: 'matched',
+                            envoy_upstream_ms: 12,
+                            resource_pre_request_ms: 3,
+                            resource_ttfb_ms: 15,
+                            request_total_ms: 20,
+                            http_status: 200,
+                        })
+                    )
+                    const refreshEvents = capture.mock.calls.filter(([event]) =>
+                        ['dashboard refreshed', 'dashboard insight refreshed'].includes(event)
+                    )
+                    for (const [, properties] of refreshEvents) {
+                        expect(properties?.$update_person_last_seen_at).toBe(isAutomatic ? false : undefined)
+                    }
+                } finally {
+                    refresh.mockRestore()
                 }
-            } finally {
-                refresh.mockRestore()
             }
-        })
+        )
 
         it.each(['immediate', 'interval'])('skips Last seen for %s automatic refresh telemetry', async (source) => {
             await expectLogic(logic).toFinishAllListeners()

@@ -117,7 +117,7 @@ Leading CTEs stay in scope across all operands of a set operation. Trino prints 
 
 `IN` and `NOT IN` with array literals print SQL value lists, including the `in(...)` and `notIn(...)` function forms. Empty literals reduce the entire predicate to `FALSE` for membership and `TRUE` for non-membership, including for a NULL left operand, tuple operands, and predicates inside lambdas. Nonempty lists retain SQL NULL comparison behavior. Array expressions outside membership predicates still use Trino's `ARRAY[...]` constructor. These rewrites run in the shared printer for both pure and Django-expanded compilation.
 
-`LIMIT BY` and `QUALIFY` wrappers preserve ordering by projecting unselected sort expressions inside the wrapper and removing those helper columns from the result. The inner query gives projected expressions explicit output aliases, including property accesses, so the outer query can reference them by name. Helper names avoid existing aliases, and matching uses resolved column bindings so joined columns with the same name remain distinct. Expression matching also distinguishes literal types, including `1`, `true`, and `1.0`. `DISTINCT` and `GROUP BY` wrappers still reject unprojected sort expressions. Unprojected aggregate sort expressions are also rejected; callers must select them explicitly. `LIMIT BY` rejects partition or sort expressions containing window functions, including aliases and ordinals resolving to them, because its ranking would otherwise nest window functions.
+`LIMIT BY` and `QUALIFY` wrappers preserve ordering by projecting unselected sort expressions inside the wrapper and removing those helper columns from the result. The inner query gives projected expressions explicit output aliases, including property accesses, so the outer query can reference them by name. Helper names avoid existing aliases, and matching uses resolved column bindings so joined columns with the same name remain distinct. Expression matching also distinguishes literal types, including `1`, `true`, and `1.0`. `SELECT DISTINCT` ordered by an unselected expression becomes `LIMIT 1 BY` the selected columns, so each distinct row sorts by its first source row in that order, as ClickHouse does. `GROUP BY` wrappers still reject unprojected sort expressions. Unprojected aggregate sort expressions are also rejected; callers must select them explicitly. A saved view whose body uses `LIMIT BY` or `QUALIFY` keeps its helper columns inside the wrapper, and only the outer query carries the view's name. Trino refuses `ORDER BY ... LIMIT` above 2147483647 rows, and a result that large cannot be cut by a limit, so the printer drops such a limit. The outermost query keeps its `ORDER BY`. A subquery, CTE or view keeps it as `OFFSET 0 ROWS`, because Trino ignores a subquery's `ORDER BY` unless `OFFSET` or `LIMIT` sits next to it. `LIMIT BY` rejects partition or sort expressions containing window functions, including aliases and ordinals resolving to them, because its ranking would otherwise nest window functions.
 
 For ordinary `GROUP BY`, an expression that matches a selected expression uses that output's ordinal. This keeps property paths, date conversions, and other bound expressions identical for Trino's grouping checks. An alias for an integer constant uses the selected expression's position; the constant's value does not become an ordinal. Explicit source ordinals remain unchanged. Alias references inside larger expressions expand to their expressions, not ordinals. Complex grouping modes retain their expressions. These rewrites apply to both pure and Django-expanded compilation.
 
@@ -196,7 +196,7 @@ Trino compilation currently requires `personsOnEventsMode=person_id_override_pro
 
 Trino compilation fails when the caller has any effective property-level access restrictions. This applies to the entire query, including queries that do not reference a restricted property directly. The compiler must not return SQL until Trino supports equivalent masking for explicit property reads, whole property blobs, and wildcard projections.
 
-The provisioned persons relation stores one row per distinct ID and can retain person snapshots from more than one export partition. Trino lowering groups direct `persons` reads by person ID and selects values from the latest person version. For V2 event queries, it reads person properties from the exported event row and resolves `person_id` through the latest exported distinct-ID mapping, falling back to the event's physical `person_id`. Managed warehouse persons exports do not include `last_seen_at`, so the compiler rejects that field instead of emitting SQL for a missing column. The DuckLake export contract, rather than the SQL printer, defines deletion behavior.
+The provisioned persons relation stores one row per distinct ID and can retain person snapshots from more than one export partition. Trino lowering groups direct `persons` reads by person ID and selects values from the latest person version. For V2 event queries, it reads person properties from the exported event row and resolves `person_id` through the latest exported distinct-ID mapping, falling back to the event's physical `person_id`. Managed warehouse persons exports do not include `last_seen_at`, so the compiler rejects that field with `TRINO_PERSONS_LAST_SEEN_UNAVAILABLE` instead of emitting SQL for a missing column. The message points to `max(timestamp)` from events grouped by `person_id`. The DuckLake export contract, rather than the SQL printer, defines deletion behavior.
 
 Source metadata describes what HogQL means. Target mappings describe where the corresponding Trino data exists. Missing mappings and unsupported constructs fail compilation; the compiler must not invent physical relations or assume a ClickHouse materialized view exists in Trino.
 
@@ -271,6 +271,8 @@ When an eligible organization's ClickHouse DAG run starts, it starts one `manage
 The shadow run has a fixed workflow id per DAG and cadence tier: `execute-dag-trino-{dag_id}:{tier}`, or `execute-dag-trino-{dag_id}` for runs outside a tier schedule.
 If the previous shadow run with that id is still running, the new one is skipped, so a slow Trino never builds a backlog.
 Shadow runs record their outcomes in managed warehouse job rows and metrics only: they run no data quality checks and send no failure notifications.
+A failed shadow run carries an `error_code` label on `data_modeling_node_finished`: the Trino compiler code, the Trino error name, `HTTP_<status>`, `DEADLINE_EXCEEDED`, or `other`.
+The run failure rate understates broken views, because a view stops running after five consecutive failures. Count views by the latest managed warehouse job row of each saved query.
 Preemption is scoped to the run's engine, so the ClickHouse and Trino runs of a tier never cancel each other's jobs.
 A Trino run never cancels a running build, because cancelling a Trino build does not stop its SQL. It only reaps job rows whose workflow has ended.
 Each Trino build of a node has a fixed workflow id, so Temporal starts at most one build of that node at a time. A run that reaches a node another run is building skips it and its Trino dependents.
@@ -353,7 +355,11 @@ one-based position, or zero when no element matches. Simple `CASE`
 expressions and numeric conditions in `if`/`multiIf` use native Trino conditionals.
 Aliases inside expressions are omitted from SQL; projection aliases are retained.
 String inputs to `toInt` use `TRY_CAST`, returning NULL for strings that do not
-represent an integer. Numeric aggregate-filter conditions are cast to BOOLEAN.
+represent an integer. Numeric `WHERE`, `PREWHERE`, `HAVING`, `QUALIFY`, and `ON` conditions, and numeric aggregate-filter conditions, are cast to BOOLEAN.
+A nested query that projects one name twice, such as `SELECT a.id, b.id` in a subquery, gives each later column an internal alias, because ClickHouse reads an outer `id` as the first column and Trino reports it as ambiguous. A name the query gives explicitly keeps its meaning in `WHERE`, `GROUP BY` and `ORDER BY` when a later column has the same name.
+A number added to or subtracted from a date or datetime prints as `date_add`, in days for a date and seconds for a datetime, with the number on either side of a sum and in the `plus` and `minus` forms, because Trino has no such operator.
+`sum`, `avg`, `sumIf`, and `avgIf` over text or property values cast the value to a number first, because Trino has no such aggregate over `varchar`.
+An aggregate inside a lambda body, as in `arrayMap(i -> ids[i], range(1, 3))` where `ids` is `groupArray(...)`, is computed once outside the lambda and read from a one-element row, because Trino rejects aggregates in lambdas.
 This includes conditional argument, array, and quantile aggregates and conditional window functions.
 Window quantiles use a conditional NULL input because Trino does not support `FILTER` on window functions.
 
@@ -394,6 +400,8 @@ Typed `JSONExtract` maps convert individual scalar values too, but retain keys
 and use the requested type's default for values that cannot be converted.
 `splitByChar`/`splitByString` support an optional maximum substring count with the
 ClickHouse default behavior of excluding the remaining suffix.
+`splitByString` with an empty separator returns one item per character, because Trino's `split` rejects an empty delimiter.
+ClickHouse returns one item per byte, so the results differ for text outside ASCII.
 
 `parseDateTimeBestEffort` supports ISO timestamps with explicit offsets, ordinary
 date/timestamp strings, day-abbreviated-month-two-digit-year strings, and 9–10 digit Unix-second strings. An optional timezone
@@ -436,6 +444,7 @@ Additional build-oriented mappings cover UTF-8 string aliases, URL encoding,
 array enumeration and predicates, supported hashes and domain extraction, UUID
 conversion, dynamic JSON paths, and scalar tuple membership. Numeric
 and UUID values are aligned with string branches in subqueries and set operations.
+A column that gets such a cast keeps its name, so an outer query can still read it from the set operation.
 Date/time inputs to `toFloat` and `_toUInt64` use Unix epoch conversion rather than
 casts that Trino rejects.
 String rewrites also cover byte-based `locate`, Unicode tokens, subsequences,
@@ -621,6 +630,7 @@ The compiler rewrites these forms before it prints Trino SQL:
 - Equi-key `SEMI` joins use a distinct right-key relation. `ANTI` joins use a left
   join to that relation and test an equality key for null. Both preserve duplicate
   left rows. Right-side output references and computed right keys remain blocked.
+- `ANY INNER` and `LEFT ANY` joins deduplicate the right relation on every right-side equality key. Other ON terms over right-side columns only filter the right relation first, as ClickHouse does, and terms over left-side columns stay in `ON`. Keys may be saved view fields or `equals()` and `and()` calls. A property of the right side is refused, except for persons joined by `id`, which already has one row per id. `SEMI`, `ANTI` and `ASOF` joins keep the stricter rules above.
 - Two-table `RIGHT ANY`, `RIGHT SEMI`, and `RIGHT ANTI` joins reverse their inputs
   before the existing left-side rewrite. Longer right-join chains remain blocked.
 - Two-table `INNER ASOF` and `LEFT ASOF` forms use a join followed by ranking.
