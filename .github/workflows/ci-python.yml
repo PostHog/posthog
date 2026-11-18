@@ -173,6 +173,8 @@ jobs:
                         - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         - 'frontend/src/lib/oauthScopes.generated.ts'
+                        - 'frontend/src/queries/schema/latest-versions.json'
+                        - 'products/warehouse_sources/backend/temporal/data_imports/sources/field_classification.csv'
                         - 'frontend/src/lib/scopeDocs.generated.ts'
                         - 'products/commands/commands.generated.json'
                         - 'products/commands/COMMANDS.generated.md'
@@ -743,7 +745,6 @@ jobs:
                       test_dataclass_defaults.py
                       test_dataclass_secret_fields.py
                       test_database_free_test_classes.py
-                      test_warehouse_source_generated_files.py
                   )
                   if [ "$MODE" = "vendors" ]; then
                       REPO_INVARIANTS_SCAN_SCOPE="$SCAN_SCOPE" pytest -p no:cacheprovider "${vendor_invariants[@]/#/posthog/test/repo_invariants/}"
@@ -756,7 +757,7 @@ jobs:
                       test_feature_flag_raw_reads.py
                       test_local_kafka_consumers.py
                       test_rbac_shadow_resolver_callers.py
-                      test_warehouse_source_core_coupling.py
+                      test_warehouse_source_generated_config_inputs.py
                   )
                   pytest -p no:cacheprovider -n auto "${full_invariants[@]/#/posthog/test/repo_invariants/}"
 
@@ -780,7 +781,7 @@ jobs:
 
             # These suites check that every vendor declares a valid, unique credential kind and an
             # auth type. A vendors run skips Backend CI, so they run in both modes. The check that
-            # the committed maps are current runs in "Run repo invariants that scan the vendors".
+            # the committed maps are current is `hogli build:projections --check` in code-quality.
             - name: Run credential map tests
               # The catalog's vendor filter would deselect credential cases in a shared session.
               if: steps.select.outputs.mode == 'vendors'

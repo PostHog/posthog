@@ -23,6 +23,7 @@ and no formatter needs an exemption for it.
 
 from __future__ import annotations
 
+import os
 import sys
 import json
 import runpy
@@ -51,6 +52,8 @@ class Projection:
     inputs: tuple[str, ...]
     # Repo-relative paths of every file the renderer returns.
     outputs: tuple[str, ...]
+    # The renderer imports Django models, so the runner sets Django up before it loads the renderer.
+    django: bool = False
 
     @property
     def triggers(self) -> tuple[str, ...]:
@@ -130,6 +133,26 @@ PROJECTIONS: tuple[Projection, ...] = (
         ),
         outputs=("posthog/integrations/catalogue_generated.json",),
     ),
+    Projection(
+        name="schema-latest-versions",
+        renderer="posthog/schema_migrations/latest_versions_projection.py",
+        inputs=("posthog/schema_migrations/*", "posthog/schema.py"),
+        outputs=("frontend/src/queries/schema/latest-versions.json",),
+    ),
+    Projection(
+        name="warehouse-source-fields",
+        renderer="products/warehouse_sources/backend/temporal/data_imports/sources/common/fields_projection.py",
+        inputs=(
+            "products/warehouse_sources/sources/*",
+            "products/warehouse_sources/backend/temporal/data_imports/sources/*",
+        ),
+        outputs=(
+            "products/warehouse_sources/backend/facade/credential_kinds.py",
+            "products/warehouse_sources/backend/facade/credential_auth_types.py",
+            "products/warehouse_sources/backend/temporal/data_imports/sources/field_classification.csv",
+        ),
+        django=True,
+    ),
 )
 
 
@@ -190,7 +213,13 @@ RUFF = Formatter(
 FORMATTERS = (OXFMT, BIOME, AGENT_BIOME, MOBILE_BIOME, RUFF)
 
 
-def formatter_for(path: str) -> Formatter:
+# No formatter in the repo reads these, so the runner keeps the rendered text as it is.
+UNFORMATTED_SUFFIXES = (".csv",)
+
+
+def formatter_for(path: str) -> Formatter | None:
+    if path.endswith(UNFORMATTED_SUFFIXES):
+        return None
     if path.endswith(".py"):
         return RUFF
     for formatter in (BIOME, AGENT_BIOME, MOBILE_BIOME):
@@ -259,6 +288,8 @@ class OutputFormatter:
 
     def format(self, path: str, text: str) -> str:
         formatter = formatter_for(path)
+        if formatter is None:
+            return text
         result = subprocess.run(
             [*self._command(formatter), *formatter.stdin_args, str(self.repo_root / path)],
             input=text,
@@ -284,6 +315,8 @@ class ProjectionRunner:
         # checkout and not an installed copy of the same name.
         if str(self.repo_root) not in sys.path:
             sys.path.insert(0, str(self.repo_root))
+        if projection.django:
+            _setup_django()
         render: Callable[[], dict[str, str]] = runpy.run_path(str(self.repo_root / projection.renderer))["render"]
         rendered = render()
         if set(rendered) != set(projection.outputs):
@@ -312,6 +345,19 @@ class ProjectionRunner:
         # None, not b"", so a missing file never matches an empty rendered output.
         target = self.repo_root / path
         return target.read_bytes() if target.exists() else None
+
+
+def _setup_django() -> None:
+    import django
+    from django.apps import apps
+
+    if apps.ready:
+        return
+    # TEST keeps app ready() hooks away from Redis, Kafka and Celery, which the CI drift check does not have.
+    os.environ.setdefault("DEBUG", "1")
+    os.environ.setdefault("TEST", "1")
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+    django.setup()
 
 
 def _select(only: tuple[str, ...]) -> tuple[Projection, ...]:

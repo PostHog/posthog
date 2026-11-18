@@ -584,7 +584,6 @@ jobs:
                         - 'docker/kafka/topics.txt'
                         - 'frontend/public/admin-console/**'
                         - 'frontend/public/message-preferences.css'
-                        - 'frontend/src/queries/schema/latest-versions.json'
                         - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
                         - 'products/aeo/mcp/tools.yaml'
                         - 'products/ai_observability/fixtures/sample_traces/**'

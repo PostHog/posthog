@@ -113,9 +113,10 @@ class TestRuffFormatter:
             ("products/desktop/scripts/tool.py", RUFF),
             ("frontend/src/lib/oauthScopes.generated.ts", OXFMT),
             ("products/desktop/packages/core/src/a.generated.ts", BIOME),
+            ("products/warehouse_sources/backend/field_classification.csv", None),
         ],
     )
-    def test_formatter_for_picks_ruff_for_python(self, path: str, expected: Formatter) -> None:
+    def test_formatter_for_picks_ruff_for_python(self, path: str, expected: Formatter | None) -> None:
         assert formatter_for(path) == expected
 
     @pytest.mark.parametrize(
@@ -134,3 +135,6 @@ class TestRuffFormatter:
         _uv_lock(tmp_path, importlib.metadata.version("ruff"))
 
         assert OutputFormatter(tmp_path).format("out/kinds.py", "x={ 'a':1 }") == 'x = {"a": 1}\n'
+
+    def test_output_without_a_formatter_is_written_as_rendered(self, tmp_path: Path) -> None:
+        assert OutputFormatter(tmp_path).format("out/table.csv", "a,b\n1,2\n") == "a,b\n1,2\n"

@@ -21,7 +21,7 @@ class Command(BaseCommand):
     help = (
         "Write the audit table of which job_inputs keys of each warehouse source are connection fields, "
         "references, selectors, sync settings or runtime state, and write the frozen credential kind of "
-        "each source and the default auth type of each kind. A test fails when a committed file is out of date."
+        "each source and the default auth type of each kind. `hogli build:projections --check` fails when a committed file is out of date."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
