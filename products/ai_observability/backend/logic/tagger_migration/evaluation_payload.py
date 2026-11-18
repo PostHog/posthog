@@ -8,6 +8,8 @@ from products.ai_observability.backend.models.evaluation_configs import Evaluati
 from products.ai_observability.backend.models.taggers import HogTaggerConfig, LLMTaggerConfig, TagDefinition
 
 MAX_OPTION_KEY_LENGTH = 128
+# The tagger runtime named a returned value with Python's str(), which spells these differently from Hog's toString().
+_PYTHON_NAMES = {"True": "true", "False": "false", "None": "null"}
 
 # The tagger runtime gave Hog code a `tags` list and dropped returned names that were not in it, or kept every name
 # when the list was empty. The wrapper keeps the same `tags` list and turns the names it knows into option keys. A tagger error only failed that run, while an evaluation error
@@ -107,10 +109,9 @@ def _category_names(config: HogTaggerConfig, sent_tags: tuple[str, ...]) -> list
 
 def hog_source(config: HogTaggerConfig, sent_tags: tuple[str, ...] = ()) -> str:
     names = _category_names(config, sent_tags)
-    tag_keys = ", ".join(
-        f"{escape_hogql_string(name)}: {escape_hogql_string(key)}"
-        for name, key in zip(names, option_keys(names), strict=True)
-    )
+    pairs = list(zip(names, option_keys(names), strict=True))
+    pairs += [(_PYTHON_NAMES[name], key) for name, key in pairs if _PYTHON_NAMES.get(name, name) not in names]
+    tag_keys = ", ".join(f"{escape_hogql_string(name)}: {escape_hogql_string(key)}" for name, key in pairs)
     return HOG_WRAPPER.format(
         # The tagger runtime passed the tag names sorted, and code may index into the list.
         tags="[" + ", ".join(escape_hogql_string(name) for name in sorted(_names(config.tags))) + "]",
