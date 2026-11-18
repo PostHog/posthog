@@ -436,8 +436,8 @@ class TestDashboardCharts:
         assert result.raised is None
         assert result.paths == ["/api/2/retention"]
         request = result.requests[0]
-        assert json.loads(request.param("se")) == {"event_type": "_new"}
-        assert json.loads(request.param("re")) == {"event_type": "_all"}
+        assert json.loads(request.param("se") or "null") == {"event_type": "_new"}
+        assert json.loads(request.param("re") or "null") == {"event_type": "_all"}
         assert (request.param("rm"), request.param("i")) == ("nday", "1")
         assert (request.param("start"), request.param("end")) == ("20251008", "20260105")
         # Index 0 is the cohort size, so day 0 is the second bucket.

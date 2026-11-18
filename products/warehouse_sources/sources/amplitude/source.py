@@ -38,7 +38,7 @@ from products.warehouse_sources.sources.sdk import (
 
 AMPLITUDE_READ_TIMEOUT_ERROR = "Read timed out"
 
-_DASHBOARD_WINDOW_DESCRIPTION = f"Covers the last {DASHBOARD_LOOKBACK_DAYS} days. Each sync replaces the table"
+_DASHBOARD_WINDOW_DESCRIPTION = f"Covers the last {DASHBOARD_LOOKBACK_DAYS} days. Each sync replaces the table."
 
 SCHEMA_DESCRIPTIONS: dict[str, str] = {
     EVENTS_ENDPOINT: "Only syncs the last 30 days on initial sync",

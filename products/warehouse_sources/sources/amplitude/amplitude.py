@@ -32,6 +32,7 @@ from products.warehouse_sources.sources.amplitude.settings import (
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    frozen,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -369,9 +370,19 @@ def _parse_chart_date(label: Any, end: date) -> date:
     raise ValueError(f"Amplitude returned an unrecognized chart date: {label!r}")
 
 
-def _dashboard_window() -> tuple[date, date]:
+@frozen
+class DashboardWindow:
+    start: date
+    end: date
+
+    @property
+    def params(self) -> dict[str, str]:
+        return {"start": self.start.strftime("%Y%m%d"), "end": self.end.strftime("%Y%m%d")}
+
+
+def _dashboard_window() -> DashboardWindow:
     end = datetime.now(UTC).date()
-    return end - timedelta(days=DASHBOARD_LOOKBACK_DAYS - 1), end
+    return DashboardWindow(start=end - timedelta(days=DASHBOARD_LOOKBACK_DAYS - 1), end=end)
 
 
 def _fetch_chart(
@@ -408,7 +419,7 @@ def _get_retention_rows(
     config: AmplitudeEndpointConfig,
     logger: FilteringBoundLogger,
 ) -> Iterator[dict[str, Any]]:
-    start, end = _dashboard_window()
+    window = _dashboard_window()
     data = _fetch_chart(
         make_tracked_session(),
         _host(region),
@@ -420,8 +431,7 @@ def _get_retention_rows(
             "re": json.dumps({"event_type": RETENTION_RETURN_EVENT}),
             "rm": "nday",
             "i": "1",
-            "start": start.strftime("%Y%m%d"),
-            "end": end.strftime("%Y%m%d"),
+            **window.params,
         },
     )
 
@@ -431,7 +441,7 @@ def _get_retention_rows(
     for label, buckets in values.items():
         if not isinstance(buckets, list):
             continue
-        cohort_date = _parse_chart_date(label, end)
+        cohort_date = _parse_chart_date(label, window.end)
         # Index 0 holds the cohort size, and index N + 1 holds day N retention.
         for index, bucket in enumerate(buckets[1:]):
             if isinstance(bucket, dict):
@@ -446,7 +456,7 @@ def _get_composition_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AmplitudeResumeConfig],
 ) -> Iterator[dict[str, Any]]:
-    start, end = _dashboard_window()
+    window = _dashboard_window()
     host = _host(region)
     headers = _auth_headers(api_key, secret_key)
     session = make_tracked_session()
@@ -458,7 +468,7 @@ def _get_composition_rows(
             headers,
             config,
             logger,
-            params={"start": start.strftime("%Y%m%d"), "end": end.strftime("%Y%m%d"), "p": prop},
+            params={**window.params, "p": prop},
         )
         series = data.get("series")
         counts = series[0] if isinstance(series, list) and series and isinstance(series[0], list) else []
@@ -477,7 +487,7 @@ def _get_revenue_ltv_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AmplitudeResumeConfig],
 ) -> Iterator[dict[str, Any]]:
-    start, end = _dashboard_window()
+    window = _dashboard_window()
     host = _host(region)
     headers = _auth_headers(api_key, secret_key)
     session = make_tracked_session()
@@ -490,8 +500,7 @@ def _get_revenue_ltv_rows(
             config,
             logger,
             params={
-                "start": start.strftime("%Y%m%d"),
-                "end": end.strftime("%Y%m%d"),
+                **window.params,
                 "m": str(metric_param),
                 "i": "1",
             },
@@ -500,7 +509,7 @@ def _get_revenue_ltv_rows(
         if isinstance(values, dict):
             for label, row in values.items():
                 if isinstance(row, dict):
-                    yield {**row, "date": _parse_chart_date(label, end), "metric": metric}
+                    yield {**row, "date": _parse_chart_date(label, window.end), "metric": metric}
         resumable_source_manager.safe_point()
 
 
