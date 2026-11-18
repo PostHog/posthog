@@ -49,22 +49,10 @@ def _provider_module(module: str, function: str, implementation: Callable[..., N
     return fake
 
 
-def _injected_provider(spec: tuple[str, str]) -> Callable[..., None] | None:
-    # These are coordinator tests: only fakes a test injects count as providers. The real provider
-    # modules arrive in the layers above this one and would otherwise change what each test proves.
-    module = sys.modules.get(f"{PROVIDER_PACKAGE}.{spec[0]}")
-    if module is None or module.__spec__ is None or module.__spec__.origin is not None:
-        return None
-    return getattr(module, spec[1])
-
-
 class TestMCPIntentErasure(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.cluster = self.enterContext(isolated_clickhouse_cluster())
-        self.enterContext(
-            patch("products.mcp_analytics.backend.intent_erasure._provider", side_effect=_injected_provider)
-        )
         self.sibling = Team.objects.create(organization=self.organization, parent_team=self.team)
         self.other = Team.objects.create(organization=self.organization)
         # ClickHouse is not rolled back with Postgres, so rows from other tests or runs can share these team ids.
