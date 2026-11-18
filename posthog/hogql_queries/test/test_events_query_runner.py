@@ -243,6 +243,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [cast(ast.Constant, cast(ast.Call, x).args[0]).value for x in right_expr.exprs], ["id1", "id2"]
         )
+        plain_expr = cast(ast.CompareOperation, cast(ast.And, query_ast.where).exprs[1])
+        self.assertEqual([cast(ast.Constant, x).value for x in cast(ast.Tuple, plain_expr.right).exprs], ["id1", "id2"])
 
         # another team
         another_team = Team.objects.create(organization=Organization.objects.create())
