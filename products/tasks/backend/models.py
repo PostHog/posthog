@@ -2761,6 +2761,11 @@ class TaskRun(models.Model):
         LOCAL = "local", "Local"
         CLOUD = "cloud", "Cloud"
 
+    class AgentStatus(models.TextChoices):
+        STARTING = "starting", "Starting"
+        READY = "ready", "Ready"
+        BUSY = "busy", "Busy"
+
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
@@ -2854,6 +2859,8 @@ class TaskRun(models.Model):
     # The requested start time for a deferred run. It remains populated after dispatch so the
     # actual queue/start timestamps can be compared with the requested time.
     scheduled_at = models.DateTimeField(null=True, blank=True)
+    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    agent_status = models.CharField(max_length=20, choices=AgentStatus, null=True, blank=True)
 
     class Meta:
         db_table = "posthog_task_run"
@@ -3201,6 +3208,18 @@ class TaskRun(models.Model):
             return persisted
         return self.get_workflow_id(self.task_id, self.id)
 
+    def set_agent_status(self, agent_status: "TaskRun.AgentStatus") -> None:
+        TaskRun.objects.filter(pk=self.pk, team_id=self.team_id).update(agent_status=agent_status)
+        self.agent_status = agent_status
+
+    def record_heartbeat(self) -> None:
+        heartbeat_at = django_timezone.now()
+        TaskRun.objects.filter(pk=self.pk, team_id=self.team_id).update(
+            last_heartbeat_at=heartbeat_at, agent_status=TaskRun.AgentStatus.BUSY
+        )
+        self.last_heartbeat_at = heartbeat_at
+        self.agent_status = TaskRun.AgentStatus.BUSY
+
     def heartbeat_workflow(self, agent_active: bool = False, *, force: bool = False) -> None:
         if not agent_active:
             return
@@ -3224,6 +3243,8 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
+        self.record_heartbeat()
+
     def signal_agent_turn_completed(self, *, succeeded: bool = False) -> None:
         import asyncio
 
@@ -3243,12 +3264,16 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.turn_completed_signal_failed", task_run_id=str(self.id), error=str(e))
 
+        self.set_agent_status(TaskRun.AgentStatus.READY)
+
     def signal_agent_boot_milestone(
         self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
     ) -> bool:
         import asyncio
 
         from posthog.temporal.common.client import sync_connect
+
+        self.set_agent_status(TaskRun.AgentStatus.BUSY)
 
         try:
             client = sync_connect()
