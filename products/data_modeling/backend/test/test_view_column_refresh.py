@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.db import OperationalError
+
 from parameterized import parameterized
 
 from posthog.schema import RevenueAnalyticsEventItem
@@ -152,6 +154,27 @@ class TestViewColumnRefresh(ClickhouseTestMixin, BaseTest):
 
         downstream.refresh_from_db()
         assert downstream.column_order == ["edited_id"]
+
+    def test_refresh_continues_after_a_failed_database_build(self) -> None:
+        first = self._create_view("first_view", "SELECT 1 AS first_id")
+        second = self._create_view("second_view", "SELECT 2 AS second_id")
+        stale_columns = {"stale_id": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt8", "valid": True}}
+        DataWarehouseSavedQuery.objects.filter(pk__in=[first.pk, second.pk]).update(
+            columns=stale_columns, column_order=["stale_id"]
+        )
+        build_database = Database.create_for
+        builds: list[int] = []
+
+        def fail_the_first_build(*args: Any, **kwargs: Any) -> Database:
+            builds.append(1)
+            if len(builds) == 1:
+                raise OperationalError("catalog read failed")
+            return build_database(*args, **kwargs)
+
+        with patch.object(Database, "create_for", side_effect=fail_the_first_build):
+            changed = refresh_view_columns(self.team, [first.id, second.id], self.user)
+
+        assert len(changed) == 1
 
     def test_refresh_of_unchanged_views_builds_the_database_once(self) -> None:
         views = [

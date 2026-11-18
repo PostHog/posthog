@@ -48,7 +48,9 @@ def refresh_view_columns(team: "Team", saved_query_ids: Collection[UUID | str], 
     database: Database | None = None
     for view_id in saved_query_ids_upstream_first(team.pk, set(views)):
         if database is None:
-            database = Database.create_for(team=team, user=user, bypass_warehouse_access_control=user is None)
+            database = _inference_database(views[view_id], user)
+        if database is None:
+            continue
         outcome = _refresh_columns(views[view_id], user, database)
         if outcome is _ColumnRefresh.SAVED:
             changed.add(view_id)
@@ -83,6 +85,14 @@ def _saved_query_uuids(saved_query_ids: Collection[UUID | str]) -> list[UUID]:
 
 def _infers_masked_columns(team: "Team", user: "User | None") -> bool:
     return bool(get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk))
+
+
+def _inference_database(view: DataWarehouseSavedQuery, user: "User | None") -> Database | None:
+    try:
+        return Database.create_for(team=view.team, user=user, bypass_warehouse_access_control=user is None)
+    except Exception:
+        logger.warning("view_column_refresh_failed", team_id=view.team_id, saved_query_id=str(view.id), exc_info=True)
+        return None
 
 
 class _ColumnRefresh(Enum):
