@@ -5,6 +5,7 @@ and a builder insight over the same window chart the same buckets.
 """
 
 import re
+import json
 import math
 import datetime as dt
 from typing import Any
@@ -47,12 +48,36 @@ def _sample_value(raw: Any) -> float | None:
     return value if math.isfinite(value) else None
 
 
-def _error_message(response: requests.Response) -> str:
+def _error_message(response: requests.Response, body: bytes | None) -> str:
+    fallback = f"The PromQL query failed with status {response.status_code}."
     try:
-        payload = response.json()
+        payload = _decoded(response, body)
     except ValueError:
-        return f"The PromQL query failed with status {response.status_code}."
-    return str(payload.get("error") or f"The PromQL query failed with status {response.status_code}.")
+        return fallback
+    return str(payload.get("error") or fallback) if isinstance(payload, dict) else fallback
+
+
+def _decoded(response: requests.Response, body: bytes | None) -> Any:
+    return response.json() if body is None else json.loads(body)
+
+
+def _read_body(response: requests.Response, max_bytes: int | None) -> bytes | None:
+    """The body read no further than `max_bytes`, so an oversized result is never held whole. None when
+    unbounded, so the response decodes itself."""
+    if max_bytes is None:
+        return None
+    try:
+        body = bytearray()
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            body.extend(chunk)
+            if len(body) > max_bytes:
+                raise PromQLQueryError(
+                    f"The PromQL query returned more than {max_bytes // 1_000_000} MB. Aggregate it, for example "
+                    "with sum by (...), or look back over a shorter window."
+                )
+        return bytes(body)
+    finally:
+        response.close()
 
 
 def _quantile_clauses(expr: str) -> dict[float, str]:
@@ -93,8 +118,11 @@ def snuffle_payload(
     params: dict[str, list[str]] | None = None,
     timeout: float | None = None,
     ch_user: ClickHouseUser | None = None,
+    max_bytes: int | None = None,
 ) -> dict[str, Any]:
-    """Send one Prometheus API request to Snuffle and return its JSON body. Errors are safe to show."""
+    """Send one Prometheus API request to Snuffle and return its JSON body. Errors are safe to show.
+
+    With `max_bytes`, a larger body fails the query before it is decoded."""
     if path in _QUERY_PATHS and data and data.get("query"):
         record_promql_query(team, data["query"])
     try:
@@ -107,7 +135,9 @@ def snuffle_payload(
             timeout=timeout,
             ch_user=ch_user,
             workload=Workload.METRICS,
+            stream=max_bytes is not None,
         )
+        body = _read_body(response, max_bytes)
     except SnuffleNotConfiguredError as exc:
         # Deployment config, not the query, so an alert waiting on it is not counted as broken.
         raise PromQLQueryError("PromQL queries are not available on this PostHog instance.", transient=True) from exc
@@ -120,15 +150,15 @@ def snuffle_payload(
         raise PromQLQueryError("The PromQL query backend failed. Try again later.", transient=True)
     # Snuffle's rate limit, which passes once the budget refills.
     if response.status_code == 429:
-        raise PromQLQueryError(_error_message(response), transient=True)
+        raise PromQLQueryError(_error_message(response, body), transient=True)
     if response.status_code >= 400:
-        raise PromQLQueryError(_error_message(response))
+        raise PromQLQueryError(_error_message(response, body))
     try:
-        payload = response.json()
+        payload = _decoded(response, body)
     except ValueError as exc:
         raise PromQLQueryError("The PromQL query backend sent a response that cannot be read.", transient=True) from exc
     if not isinstance(payload, dict) or payload.get("status") != "success":
-        raise PromQLQueryError(_error_message(response))
+        raise PromQLQueryError(_error_message(response, body))
     return payload
 
 

@@ -11,7 +11,7 @@ import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cohortBlockingWorkflowsModalLogic } from 'scenes/cohorts/cohortBlockingWorkflowsModalLogic'
-import { CohortLogicProps, REALTIME_POLL_INTERVAL_MS, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -43,6 +43,7 @@ import type {
     CohortRealtimeReadinessApi,
     CohortUsedInResponseApi,
 } from 'products/cohorts/frontend/generated/api.schemas'
+import { REALTIME_POLL_INTERVAL_MS } from 'products/cohorts/frontend/realtime/realtimeReadiness'
 
 jest.mock('uuid', () => ({
     v4: jest.fn().mockReturnValue('mocked-uuid'),
