@@ -1176,7 +1176,7 @@ class TestCIMDVerificationToken(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.post")
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_links_through_the_issuer_and_keeps_the_link_when_it_cannot_answer(self, mock_get, mock_post, _url_mock):
-        metadata = _make_metadata(**{"com.posthog": {"verification_token": "phvt_issued_in_us"}})
+        metadata = _make_metadata(com_posthog={"verification_token": "phvt_issued_in_us"})
         mock_get.side_effect = lambda *args, **kwargs: _mock_response(metadata, headers={})
         mock_post.return_value = MagicMock(json=MagicMock(return_value={"valid": True}))
 
