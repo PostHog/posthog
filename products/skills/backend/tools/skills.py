@@ -180,6 +180,7 @@ class CreateSkillArgs(BaseModel):
     )
     version_description: str | None = Field(
         default=None,
+        max_length=400,
         description="Optional note (max 400 chars) on where the skill came from. Shown in the skill's version history.",
     )
 
