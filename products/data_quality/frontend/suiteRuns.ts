@@ -158,3 +158,27 @@ export function suiteRunSummary(suiteRun: DataQualitySuiteRunApi): string {
         .map(([count, outcome]) => `${count} ${outcome}`)
         .join(', ')
 }
+
+export const SUITE_RUN_TOAST_DISPOSABLE = 'suiteRunToast'
+
+export function suiteRunToastId(suiteRun: DataQualitySuiteRunApi): string {
+    return `data-quality-suite-run-${suiteRun.id}`
+}
+
+export function suiteRunToastMessage(suiteRun: DataQualitySuiteRunApi): string {
+    const problemCount = suiteRun.checks_failed + suiteRun.checks_errored
+    if (problemCount > 0) {
+        return `${pluralize(problemCount, 'data quality check')} ${suiteRunProblemVerb(suiteRun)}`
+    }
+    if (suiteRun.checks_passed === 0) {
+        return `${pluralize(suiteRun.checks_skipped, 'data quality check')} skipped`
+    }
+    return `All ${pluralize(suiteRun.checks_passed, 'data quality check')} passed`
+}
+
+function suiteRunProblemVerb(suiteRun: DataQualitySuiteRunApi): string {
+    if (!suiteRun.checks_errored) {
+        return 'failed'
+    }
+    return suiteRun.checks_failed ? "didn't pass" : "couldn't run"
+}

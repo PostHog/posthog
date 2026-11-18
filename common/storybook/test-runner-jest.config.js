@@ -19,6 +19,19 @@ module.exports = {
     setupFilesAfterEnv: ['./common/storybook/test-runner-globals.js', ...(baseConfig.setupFilesAfterEnv || [])],
     testTimeout: 60000,
     testEnvironment: './common/storybook/test-runner-jest-environment.mjs',
+    testEnvironmentOptions: {
+        ...baseConfig.testEnvironmentOptions,
+        'jest-playwright': {
+            ...baseConfig.testEnvironmentOptions['jest-playwright'],
+            launchOptions: {
+                // Chromium re-rasters a partly changed tile in place, and its anti-aliased edge pixels then
+                // differ from a full raster by a color level or two. Which tiles that hits depends on timing,
+                // so the same story can give a different picture on each run. A per-browser key keeps the
+                // Chromium-only switch away from WebKit.
+                chromium: { args: ['--disable-partial-raster'] },
+            },
+        },
+    },
     snapshotResolver: './common/storybook/test-snapshot-resolver.js',
     testPathIgnorePatterns: ['/node_modules/', '/rust/cymbal/tests/snapshots/'],
     testSequencer: path.resolve(__dirname, 'test-sequencer.js'),

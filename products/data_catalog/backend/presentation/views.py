@@ -49,6 +49,7 @@ from .serializers import (
     CertificationCreateSerializer,
     CertificationSerializer,
     MetricApproveRequestSerializer,
+    MetricAvailabilitySerializer,
     MetricBulkApproveResponseSerializer,
     MetricBulkChangeOwnerRequestSerializer,
     MetricBulkChangeOwnerResponseSerializer,
@@ -119,7 +120,7 @@ class MetricSearchFilter(CatalogSearchFilter):
     search_description = (
         "Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely "
         "metric name, and the spelled-out form of an acronym, separated by commas, such as "
-        "'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason "
+        "'mrr, monthly recurring revenue'. Results come best match first, 20 by default, and match_reason "
         "says why each one matched. Words match by stem in the name, display name, description, and "
         "definition. Synonyms do not match unless the metric's text contains them."
     )
@@ -699,7 +700,7 @@ class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(UsageSnapshotSummarySerializer(snapshot).data, status=status.HTTP_202_ACCEPTED)
 
 
-class PendingReviewViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class CatalogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "data_catalog"
 
     @action(
@@ -709,6 +710,16 @@ class PendingReviewViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={200: PendingReviewCountsSerializer},
     )
     def pending_review(self, request: Request, **kwargs) -> Response:
-        """How many items wait in each review queue, counted as the list of that queue shows them to you."""
+        """How many items wait in each review queue, as its list shows them to you, up to a minute behind an access change."""
         counts = api.pending_review_counts(self.team, cast(User, request.user), self.user_access_control)
         return Response(PendingReviewCountsSerializer(counts).data)
+
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["data_catalog:read"],
+        responses={200: MetricAvailabilitySerializer},
+    )
+    def metric_availability(self, request: Request, **kwargs) -> Response:
+        """Whether the project has any live metric. Skips the list's per-table access checks, which build the whole HogQL schema."""
+        return Response(MetricAvailabilitySerializer({"has_metrics": api.metrics_for_team(self.team).exists()}).data)

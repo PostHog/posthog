@@ -15,6 +15,7 @@ from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -37,6 +38,7 @@ from products.cdp.backend.filters import (
     compile_filters_expr,
     filter_action_ids,
     filter_cohort_ids,
+    iter_property_leaves,
 )
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -359,14 +361,22 @@ def _is_unlayer_render_of(html: str, block_html: str) -> bool:
 def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:
     if not design:
         return True
+    # The new email editor stores the html it rendered with its document. Once the html has moved on, the design next
+    # to that document shows an older email, so it's replaced by the current html.
+    document = design.get("emailDocument") if isinstance(design, dict) else None
+    if isinstance(document, dict) and isinstance(document.get("html"), str):
+        return document["html"] != html
     try:
         wrapped_html = design["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"]
     except (KeyError, IndexError, TypeError):
         return False
+    # The new email editor stores its document next to the wrap. When the html has moved on, that document is stale,
+    # and the refresh below drops it along with the old wrap.
+    design_without_document = {key: value for key, value in design.items() if key != "emailDocument"}
     return (
         isinstance(wrapped_html, str)
         and wrapped_html != html
-        and design == build_html_wrap_design(wrapped_html)
+        and design_without_document == build_html_wrap_design(wrapped_html)
         and not _is_unlayer_render_of(html, wrapped_html)
     )
 
@@ -1146,6 +1156,16 @@ class InputsItemSerializer(serializers.Serializer):
                         )
                     }
                 )
+            # A brace typed as plain text, such as JSON in an AI prompt, opens an expression that never parses.
+            if isinstance(e, HogQLSyntaxError):
+                raise serializers.ValidationError(
+                    {
+                        "input": (
+                            f"Invalid template: {str(e)}. Curly braces insert a value, like "
+                            "{person.properties.email}. To use a literal brace, type \\{ instead."
+                        )
+                    }
+                )
             raise serializers.ValidationError({"input": f"Invalid template: {str(e)}"})
 
         return attrs
@@ -1306,13 +1326,13 @@ def _contains_behavioral_property(filters: dict) -> bool:
     history, which realtime function filters (bytecode per-event, or JS transpiled into the browser)
     can never evaluate."""
     entities = (filters.get("events") or []) + (filters.get("actions") or []) + (filters.get("data_warehouse") or [])
-    property_lists = [filters.get("properties") or []] + [
+    property_trees = [filters.get("properties") or []] + [
         entity.get("properties") or [] for entity in entities if isinstance(entity, dict)
     ]
     return any(
         isinstance(prop, dict) and prop.get("type") == "behavioral"
-        for property_list in property_lists
-        for prop in property_list
+        for property_tree in property_trees
+        for prop in iter_property_leaves(property_tree)
     )
 
 
@@ -1517,6 +1537,12 @@ COHORT_NOT_READY_CODE = "cohort_not_ready"
 
 
 def _cohort_not_ready_error(cohort: Cohort) -> serializers.ValidationError:
+    if cohort.cohort_type == CohortType.REALTIME and not cohort.realtime_enabled and has_realtime_state(cohort):
+        return serializers.ValidationError(
+            f"Realtime is off for cohort {cohort.pk}. Turn it on from the cohort's page, and workflows can use the "
+            "cohort once it finishes calculating.",
+            code=COHORT_NOT_READY_CODE,
+        )
     readiness = resolve_realtime_readiness([cohort]).get(cohort.pk)
     if readiness is not None and readiness.state in (CohortRealtimeState.BUILDING, CohortRealtimeState.REBUILDING):
         percent = readiness.build.percent_complete if readiness.build is not None else None
@@ -1554,7 +1580,9 @@ def validate_realtime_cohorts(cohort_ids: Iterable[int], team: Team, *, require_
             )
         if cohort.is_flag_compatible:
             continue
-        can_become_ready = cohort.cohort_type == CohortType.REALTIME and has_realtime_state(cohort)
+        can_become_ready = (
+            cohort.cohort_type == CohortType.REALTIME and cohort.realtime_enabled and has_realtime_state(cohort)
+        )
         if require_ready or not can_become_ready:
             raise _cohort_not_ready_error(cohort)
 

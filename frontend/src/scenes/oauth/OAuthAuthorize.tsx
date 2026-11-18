@@ -84,13 +84,8 @@ export const OAuthAuthorizeRedirecting = ({
 
 export const OAuthAuthorize = (): JSX.Element => {
     const {
-        requiredScopeRows,
-        adjustableScopeRows,
         scopeGroups,
-        scopeRowsGrouped,
-        allScopesRequired,
-        identityScopeDescriptions,
-        showReadOnlyBulkAction,
+        isStepUp,
         oauthApplication,
         oauthApplicationLoading,
         appName,
@@ -124,7 +119,6 @@ export const OAuthAuthorize = (): JSX.Element => {
         setOauthAuthorizationValue,
         setScopeAccess,
         setScopeGroupAccess,
-        setAllScopeAccess,
     } = useActions(oauthAuthorizeLogic)
 
     const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
@@ -270,7 +264,11 @@ export const OAuthAuthorize = (): JSX.Element => {
                             <span>{appName}</span>
                         </>
                     }
-                    sub={`${appName} is requesting access to your data.`}
+                    sub={
+                        isStepUp
+                            ? `${appName} is requesting more access. What you granted before stays as it is.`
+                            : `${appName} is requesting access to your data.`
+                    }
                     className="mb-2"
                 />
                 {user && (
@@ -415,58 +413,25 @@ export const OAuthAuthorize = (): JSX.Element => {
                         </div>
 
                         <div className="flex flex-col">
-                            {/* Sticky and full-bleed, so the bulk actions stay in reach once the
-                                first rows scroll away. z-10 clears the access selectors, whose
-                                own parts sit at z-index 2. */}
-                            <div className="AuthScene__cardSurface sticky top-0 z-10 flex items-center justify-between gap-2 flex-wrap px-4 sm:px-6 py-2 border-y border-border">
-                                <div className="text-sm font-semibold uppercase text-muted">Permissions</div>
-                                {adjustableScopeRows.length > 1 && (
-                                    <div className="flex items-center gap-1 flex-wrap">
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => setAllScopeAccess('write')}
-                                        >
-                                            Select all
-                                        </LemonButton>
-                                        {showReadOnlyBulkAction && (
-                                            <LemonButton
-                                                size="xsmall"
-                                                type="secondary"
-                                                onClick={() => setAllScopeAccess('read')}
-                                            >
-                                                Read-only
-                                            </LemonButton>
-                                        )}
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => setAllScopeAccess('none')}
-                                        >
-                                            Deselect all
-                                        </LemonButton>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="flex flex-col gap-3 px-4 sm:px-6 py-4">
-                                <OAuthScopeList
-                                    appName={appName}
-                                    identityScopeDescriptions={identityScopeDescriptions}
-                                    requiredScopeRows={requiredScopeRows}
-                                    adjustableScopeRows={adjustableScopeRows}
-                                    scopeGroups={scopeRowsGrouped ? scopeGroups : null}
-                                    allScopesRequired={allScopesRequired}
-                                    onChangeRow={setScopeAccess}
-                                    onChangeGroup={setScopeGroupAccess}
-                                    dataAttrPrefix="oauth-scope-group"
-                                />
-                                {accessControlsApply && (
+                            <OAuthScopeList
+                                groups={scopeGroups}
+                                onChangeRow={setScopeAccess}
+                                onChangeGroup={setScopeGroupAccess}
+                                dataAttrPrefix="oauth-scope-group"
+                                // Sticky and full-bleed, so the list-wide controls stay in reach once the
+                                // first rows scroll away. z-10 clears the access selectors, whose own
+                                // parts sit at z-index 2.
+                                headerClassName="AuthScene__cardSurface sticky top-0 z-10 px-4 sm:px-6 py-2 border-y border-border"
+                                bodyClassName="px-4 sm:px-6 pt-3 pb-4"
+                            />
+                            {accessControlsApply && (
+                                <div className="px-4 sm:px-6 pb-4">
                                     <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>
                                         <strong className="block">Access controls still apply.</strong>
                                         {appName} can only do what both your access level and these permissions allow.
                                     </LemonBanner>
-                                )}
-                            </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 

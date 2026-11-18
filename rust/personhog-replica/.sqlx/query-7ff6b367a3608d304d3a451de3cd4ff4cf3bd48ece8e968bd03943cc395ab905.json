@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='delete_group_type_mapping' */\n            DELETE FROM posthog_grouptypemapping\n            WHERE project_id = $1 AND group_type_index = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7ff6b367a3608d304d3a451de3cd4ff4cf3bd48ece8e968bd03943cc395ab905"
+}

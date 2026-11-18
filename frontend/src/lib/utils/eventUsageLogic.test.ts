@@ -399,6 +399,7 @@ describe('eventUsageLogic', () => {
                     has_formula: false,
                     funnel_viz_type: FunnelVizType.Steps,
                     funnel_order_type: StepOrderValue.STRICT,
+                    funnel_summary_on_dashboards: false,
                 },
             ],
             [

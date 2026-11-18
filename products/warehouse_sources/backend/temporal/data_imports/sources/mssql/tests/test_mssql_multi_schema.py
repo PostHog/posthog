@@ -138,6 +138,13 @@ class TestGetPrimaryKeys:
         assert "s.name = %(schema)s" in sql
         assert params["schema"] == "dbo"
 
+    @pytest.mark.parametrize("schema,tables", [("", ["dbo.users"]), ("dbo", ["users"])])
+    def test_unexpected_row_shape_degrades_to_no_primary_keys(self, impl, schema, tables):
+        rows = [("dbo", "users", "id", "int", "NO")]
+        conn, _cursor = _conn_with_rows(rows)
+        result = impl.get_primary_keys(conn, _make_config(schema=schema), tables)
+        assert result == dict.fromkeys(tables)
+
 
 class TestGetLeadingIndexColumns:
     @pytest.mark.parametrize(

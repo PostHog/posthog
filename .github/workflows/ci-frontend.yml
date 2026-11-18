@@ -117,6 +117,22 @@ jobs:
                     || steps.filter.outputs.all_files_count == ''
                     || steps.filter.outputs.all_files_count >= 3000
                     || steps.filter.outputs.all_files_count != github.event.pull_request.changed_files }}
+            markdown_format: >-
+                ${{ github.event_name != 'pull_request'
+                    || startsWith(github.head_ref, 'trunk-merge/')
+                    || steps.filter.outputs.markdown_format != 'false'
+                    || github.event.pull_request.changed_files == null
+                    || steps.filter.outputs.all_files_count == ''
+                    || steps.filter.outputs.all_files_count >= 3000
+                    || steps.filter.outputs.all_files_count != github.event.pull_request.changed_files }}
+            yaml_format: >-
+                ${{ github.event_name != 'pull_request'
+                    || startsWith(github.head_ref, 'trunk-merge/')
+                    || steps.filter.outputs.yaml_format != 'false'
+                    || github.event.pull_request.changed_files == null
+                    || steps.filter.outputs.all_files_count == ''
+                    || steps.filter.outputs.all_files_count >= 3000
+                    || steps.filter.outputs.all_files_count != github.event.pull_request.changed_files }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -141,12 +157,53 @@ jobs:
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
               # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
+                  reuse-checks: Frontend Tests Pass
+                  reuse-filters: |
+                      frontend
+                      frontend_code
+                      replay_shared
+                      complexity
+                  reuse-blocking-labels: |
+                      run-ci-frontend
+                      ci-no-reuse
+                  reuse-proof-checks: |
+                      Frontend formatting
+                      Frontend typechecking
+                      Jest test (replay-shared)
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       all_files:
                         - '**'
+                      markdown_format: &markdown_format_inputs
+                        - '**/*.{md,mdx}'
+                        - &formatter_inputs
+                          - '**/.oxfmtrc*'
+                          - '**/oxfmt.config.*'
+                          - '**/.prettierignore'
+                          - '**/.editorconfig'
+                          - '**/.gitignore'
+                          - '**/package.json'
+                          - '**/.npmrc'
+                          - '**/.pnpmfile.*'
+                          - 'pnpm-*.yaml'
+                          - 'patches/**'
+                          - '.nvmrc'
+                          - '.node-version'
+                          - '.config/**'
+                          - 'turbo.json'
+                          - 'bin/**'
+                          - '.github/workflows/ci-frontend.yml'
+                          - '.github/actions/paths-filter/**'
+                          - '.github/actions/pnpm-install/**'
+                          - '.github/actions/setup-pnpm/**'
+                      yaml_format: &yaml_format_inputs
+                        - '**/*.{yaml,yml}'
+                        - *formatter_inputs
                       markdown: &markdown_inputs
                         - '**/*.{md,mdx}'
                         - '**/.markdownlint*'
@@ -173,6 +230,8 @@ jobs:
                           - 'products/**/*.ts'
                           - 'products/**/*.tsx'
                       frontend:
+                        - *markdown_format_inputs
+                        - *yaml_format_inputs
                         - *markdown_inputs
                         - '.github/scripts/jest-retries.cjs'
                         - '.github/scripts/jest-select.js'
@@ -461,9 +520,11 @@ jobs:
                   fi
 
             - name: Check markdown formatting with oxfmt
+              if: needs.changes.outputs.markdown_format != 'false'
               run: pnpm exec oxfmt --check "**/*.{md,mdx}"
 
             - name: Check YAML formatting with oxfmt
+              if: needs.changes.outputs.yaml_format != 'false'
               run: pnpm exec oxfmt --check "**/*.{yaml,yml}"
 
             - name: Lint markdown files

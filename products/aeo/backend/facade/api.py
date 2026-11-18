@@ -30,6 +30,7 @@ from django.db.models import (
     QuerySet,
     Value,
 )
+from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 
@@ -50,15 +51,7 @@ from products.aeo.backend import (
     rankings,
     suggestions,
 )
-from products.aeo.backend.brand import (
-    SEGMENT_SQL,
-    brand_names,
-    brand_pattern,
-    branded_filter,
-    mention_filter,
-    segment_filter,
-    segment_sql_params,
-)
+from products.aeo.backend.brand import brand_names, brand_pattern, branded_filter, mention_filter, segment_filter
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
@@ -68,6 +61,7 @@ from products.aeo.backend.facade.contracts import (
     BrandedSegment,
     BrandKind,
     BrandNotFoundError,
+    BrandSentimentSentence,
     BrandSource,
     BrandStatus,
     BrandSyncResult,
@@ -75,6 +69,7 @@ from products.aeo.backend.facade.contracts import (
     CheckMode,
     CitationGap,
     CitationRunSummary,
+    CompetitorCandidate,
     EngineSetting,
     EngineSettingUpdate,
     Keyword,
@@ -87,6 +82,7 @@ from products.aeo.backend.facade.contracts import (
     Prompt,
     PromptAuthor,
     PromptCheck,
+    PromptCitation,
     PromptDailyEngineStats,
     PromptEngineCheck,
     PromptEngineDomainShare,
@@ -120,6 +116,7 @@ from products.aeo.backend.facade.contracts import (
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
+from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scope_sql_params, scope_without_segment
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
 from products.aeo.backend.tasks.tasks import (
     recompute_aeo_own_citations_task,
@@ -141,6 +138,25 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
     return gaps.list_citation_gaps(team_id, since=since)
 
 
+def list_domains_across_teams(*, cited_since: dt.datetime) -> list[str]:
+    """Every catalog brand's domain plus every host answers cited since `cited_since`, across all
+    teams, for jobs that prepare per-domain assets such as favicons. The most cited hosts come
+    first, so that a job that works through the list serves the hosts people see most before the
+    long tail."""
+    citations: Counter[str] = Counter()
+    cited = (
+        AEOCitationCheck.objects.unscoped()
+        .filter(created_at__gte=cited_since)
+        .values_list("top_cited_domains", flat=True)
+        .iterator(chunk_size=2000)
+    )
+    for hosts in cited:
+        citations.update(hosts or [])
+    domains = set(AEOBrand.objects.unscoped().values_list("domain", flat=True)) | set(citations)
+    domains.discard("")
+    return sorted(domains, key=lambda domain: (-citations[domain], domain))
+
+
 NEEDS_IMPROVEMENT_DAYS = 30
 
 
@@ -154,9 +170,12 @@ def list_prompts(
     include_archived: bool = False,
     needs_improvement: bool = False,
     branded: bool | None = None,
+    needs_improvement_days: int = NEEDS_IMPROVEMENT_DAYS,
+    needs_improvement_engine: str | None = None,
 ) -> tuple[list[Prompt], int]:
     """One page of the team's prompt set and the total count, paged in SQL.
-    A topic of "" selects the prompts that have no topic."""
+    A topic of "" selects the prompts that have no topic. `needs_improvement` reads the answers of the last
+    `needs_improvement_days` days, from one engine when `needs_improvement_engine` is set."""
     prompts = AEOPrompt.objects.for_team(team_id)
     if branded is not None:
         names_brand = branded_filter(catalog.own_domains(team_id), field="prompt")
@@ -174,8 +193,10 @@ def list_prompts(
             prompt_id=OuterRef("pk"),
             mode=CheckMode.WEB_SEARCH,
             check_failed=False,
-            created_at__gte=timezone.now() - dt.timedelta(days=NEEDS_IMPROVEMENT_DAYS),
+            created_at__gte=timezone.now() - dt.timedelta(days=needs_improvement_days),
         )
+        if needs_improvement_engine is not None:
+            answered = answered.filter(engine=needs_improvement_engine)
         prompts = prompts.filter(Exists(answered), ~Exists(answered.filter(cited=True)))
     page = list(prompts.order_by("topic", "-rank", "created_at", "id")[offset : offset + limit])
     return _to_prompts(team_id, page), prompts.count()
@@ -285,6 +306,101 @@ def list_prompt_checks(
     fields = _CHECK_FIELDS if include_answer_text else tuple(f for f in _CHECK_FIELDS if f != "answer_text")
     page = checks.order_by("-created_at", "-id").values(*fields)[offset : offset + limit]
     return [_to_prompt_check(row) for row in page], checks.count()
+
+
+# Hosts and searches live in JSON arrays, so these match one element; a value that is not a list matches nothing.
+_CITES_DOMAIN_SQL = """EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(
+        CASE WHEN jsonb_typeof("posthog_aeo_citation_check"."top_cited_domains") = 'array'
+            THEN "posthog_aeo_citation_check"."top_cited_domains" ELSE '[]'::jsonb END
+    ) AS host
+    WHERE lower(host) = %s OR right(lower(host), %s) = %s
+)"""
+# Normalizes each search the same way as `_TOP_SEARCHES_SQL`, so a search from the overview finds its checks.
+_RAN_SEARCH_SQL = """EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(
+        CASE WHEN jsonb_typeof("posthog_aeo_citation_check"."search_queries") = 'array'
+            THEN "posthog_aeo_citation_check"."search_queries" ELSE '[]'::jsonb END
+    ) AS query
+    WHERE lower(btrim(regexp_replace(query, '\\s+', ' ', 'g'))) = %s
+)"""
+
+
+def _normalize_search(query: str) -> str:
+    return " ".join(query.split()).lower()
+
+
+def list_prompt_set_citations(
+    team_id: int,
+    *,
+    timezone_name: str,
+    days: int,
+    limit: int,
+    offset: int,
+    url: str | None = None,
+    domain: str | None = None,
+    search: str | None = None,
+    engine: str | None = None,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    include_answer_text: bool = False,
+) -> tuple[list[PromptCitation], int]:
+    """One page, newest first, of the answered web-search checks in the last `days` days that cited `url`,
+    cited a host on `domain` or one of its subdomains, or ran `search`, and the total count. Exactly one of
+    the three must be set."""
+    if sum(value is not None for value in (url, domain, search)) != 1:
+        raise ValueError("Pass exactly one of url, domain or search.")
+    target_domains = catalog.own_domains(team_id)
+    checks = AEOCitationCheck.objects.for_team(team_id).filter(
+        segment_filter(branded, target_domains),
+        created_at__gte=_window_start(timezone_name, days),
+        check_failed=False,
+        mode=CheckMode.WEB_SEARCH,
+    )
+    if url is not None:
+        checks = checks.filter(cited_urls__contains=[url])
+    elif domain is not None:
+        domain = domain.strip().lower()
+        checks = checks.filter(
+            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- constant SQL, the domain is a bound parameter
+            RawSQL(_CITES_DOMAIN_SQL, [domain, len(domain) + 1, f".{domain}"], output_field=BooleanField())
+        )
+    elif search is not None:
+        checks = checks.filter(
+            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- constant SQL, the search is a bound parameter
+            RawSQL(_RAN_SEARCH_SQL, [_normalize_search(search)], output_field=BooleanField())
+        )
+    if engine is not None:
+        checks = checks.filter(engine=engine)
+
+    fields = _CHECK_FIELDS if include_answer_text else tuple(f for f in _CHECK_FIELDS if f != "answer_text")
+    page = (
+        checks.annotate(
+            # A check with no answer text makes the regex match NULL, so default it to not mentioned.
+            mentioned=Coalesce(
+                ExpressionWrapper(mention_filter(target_domains), output_field=BooleanField()), Value(False)
+            )
+        )
+        .order_by("-created_at", "-id")
+        .values(*fields, "prompt_id", "prompt_text", "prompt_topic", "mentioned")[offset : offset + limit]
+    )
+    citations = [
+        PromptCitation(
+            **_check_values(row),
+            prompt_id=str(row["prompt_id"]),
+            prompt_text=row["prompt_text"],
+            prompt_topic=row["prompt_topic"],
+            mentioned=row["mentioned"],
+        )
+        for row in page
+    ]
+    return citations, checks.count()
+
+
+def _window_start(timezone_name: str, days: int) -> dt.datetime:
+    """Start of the last `days` days, today included, in the team's timezone."""
+    tz = ZoneInfo(timezone_name)
+    window_from = timezone.now().astimezone(tz).date() - dt.timedelta(days=days - 1)
+    return dt.datetime.combine(window_from, dt.time.min, tzinfo=tz)
 
 
 MAX_OVERVIEW_DOMAINS = 20
@@ -424,7 +540,7 @@ _TOP_DOMAINS_SQL = f"""
     SELECT host, count(*) AS checks_citing
     FROM posthog_aeo_citation_check AS check_row, jsonb_array_elements_text(check_row.top_cited_domains) AS host
     WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
-        AND check_row.mode = 'web_search' AND {SEGMENT_SQL}
+        AND check_row.mode = 'web_search' AND {SCOPE_SQL}
     GROUP BY host
     ORDER BY checks_citing DESC, host
     LIMIT %s
@@ -432,7 +548,7 @@ _TOP_DOMAINS_SQL = f"""
 
 
 def _top_domains(
-    team_id: int, *, since: dt.datetime, answers: int, target_domains: list[str], segment: BrandedSegment
+    team_id: int, *, since: dt.datetime, answers: int, target_domains: list[str], scope: CheckScope
 ) -> tuple[PromptSetDomain, ...]:
     """Domains ranked by how many answered checks in the window cited them, counted in Postgres from
     each check's distinct hosts. `answers` is the number of answered checks the shares are over."""
@@ -443,7 +559,7 @@ def _top_domains(
     with connection.cursor() as cursor:
         cursor.execute(
             _TOP_DOMAINS_SQL,
-            [team_id, since, *segment_sql_params(segment, target_domains), MAX_OVERVIEW_DOMAINS],
+            [team_id, since, *scope_sql_params(scope, target_domains), MAX_OVERVIEW_DOMAINS],
         )
         rows = cursor.fetchall()
     return tuple(
@@ -470,7 +586,7 @@ _TOP_SEARCHES_SQL = f"""
             ) AS query
         WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
             AND check_row.mode = 'web_search'
-            AND {SEGMENT_SQL}
+            AND {SCOPE_SQL}
     ),
     ranked AS (
         SELECT query, count(DISTINCT prompt_id) AS prompts, count(*) AS answers,
@@ -498,7 +614,7 @@ _TOP_SEARCHES_SQL = f"""
 
 
 def _top_searches(
-    team_id: int, *, since: dt.datetime, target_domains: list[str], segment: BrandedSegment
+    team_id: int, *, since: dt.datetime, target_domains: list[str], scope: CheckScope
 ) -> tuple[PromptSetSearch, ...]:
     """The searches the engines ran while answering, ranked by how many prompts triggered them,
     each with the prompts that ran it most."""
@@ -509,7 +625,7 @@ def _top_searches(
             [
                 team_id,
                 since,
-                *segment_sql_params(segment, target_domains),
+                *scope_sql_params(scope, target_domains),
                 MAX_OVERVIEW_SEARCHES,
                 MAX_SEARCH_PROMPTS,
             ],
@@ -539,12 +655,20 @@ def _top_searches(
 
 
 def get_prompt_set_overview(
-    team_id: int, *, timezone_name: str, days: int, branded: BrandedSegment = BrandedSegment.ALL
+    team_id: int,
+    *,
+    timezone_name: str,
+    days: int,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    engine: str | None = None,
+    topic: str | None = None,
 ) -> PromptSetOverview:
     """Web-search checks across the whole prompt set over the last `days` days in the team's timezone, the same
     counts for the `days` days before, the current window split per engine and per topic, and how often each
     engine names the brand without search against with it. `branded` keeps the checks, and the active prompts,
-    on one side of the branded split."""
+    on one side of the branded split. `engine` and `topic` keep the checks of one engine or one topic, and
+    `topic` also keeps the active prompts that have it now."""
+    scope = CheckScope(segment=branded, engine=engine, topic=topic)
     target_domains = catalog.own_domains(team_id)
     tz = ZoneInfo(timezone_name)
     window_to = timezone.now().astimezone(tz).date()
@@ -553,7 +677,10 @@ def get_prompt_set_overview(
     previous_start = window_start - dt.timedelta(days=days)
     counts = _check_counts(target_domains, prompts=True)
 
-    all_checks = AEOCitationCheck.objects.for_team(team_id).filter(mode=CheckMode.WEB_SEARCH)
+    # The branded split counts both sides, so it narrows by engine and topic only.
+    all_checks = AEOCitationCheck.objects.for_team(team_id).filter(
+        scope_filter(scope_without_segment(scope), target_domains), mode=CheckMode.WEB_SEARCH
+    )
     split = all_checks.filter(created_at__gte=window_start, check_failed=False).aggregate(
         branded=Count("id", filter=branded_filter(target_domains)),
         answers=Count("id"),
@@ -568,13 +695,12 @@ def get_prompt_set_overview(
 
     # Checks carry the topic they ran with, and prompts carry their topic now, so a topic with no
     # check in the window still gets a row, with its prompt count and no rate.
-    active_prompts = {
-        row["topic"]: row["prompts"]
-        for row in AEOPrompt.objects.for_team(team_id)
-        .filter(segment_filter(branded, target_domains, field="prompt"), archived_at__isnull=True, active=True)
-        .values("topic")
-        .annotate(prompts=Count("id"))
-    }
+    prompts = AEOPrompt.objects.for_team(team_id).filter(
+        segment_filter(branded, target_domains, field="prompt"), archived_at__isnull=True, active=True
+    )
+    if topic is not None:
+        prompts = prompts.filter(topic=topic)
+    active_prompts = {row["topic"]: row["prompts"] for row in prompts.values("topic").annotate(prompts=Count("id"))}
     topic_checks = {
         row["prompt_topic"]: row for row in current.values("prompt_topic").annotate(**counts).order_by("prompt_topic")
     }
@@ -598,6 +724,8 @@ def get_prompt_set_overview(
         target_domains=tuple(target_domains),
         brand_names=brand_names(target_domains),
         branded=branded,
+        engine=engine,
+        topic=topic,
         current=current_counts,
         previous=PromptSetCounts(**_set_counts(previous.aggregate(**counts))),
         branded_answers=split["branded"],
@@ -609,24 +737,31 @@ def get_prompt_set_overview(
             since=window_start,
             answers=current_counts.checks - current_counts.failed,
             target_domains=target_domains,
-            segment=branded,
+            scope=scope,
         ),
-        top_searches=_top_searches(team_id, since=window_start, target_domains=target_domains, segment=branded),
+        top_searches=_top_searches(team_id, since=window_start, target_domains=target_domains, scope=scope),
     )
 
 
 def get_prompt_set_rankings(
-    team_id: int, *, timezone_name: str, days: int, branded: BrandedSegment = BrandedSegment.ALL
+    team_id: int,
+    *,
+    timezone_name: str,
+    days: int,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    engine: str | None = None,
+    topic: str | None = None,
 ) -> PromptSetRankings:
     """How often answers named the project against the brands behind the domains the engines cite
     most, over the last `days` days in the team's timezone, with the domains and pages cited most.
-    `branded` keeps the checks on one side of the branded split."""
+    `branded`, `engine` and `topic` keep the checks on one side of the branded split, of one engine, or of
+    one topic."""
     return rankings.get_rankings(
         team_id,
         target_domains=catalog.own_domains(team_id),
         timezone_name=timezone_name,
         days=days,
-        segment=branded,
+        scope=CheckScope(segment=branded, engine=engine, topic=topic),
     )
 
 
@@ -756,6 +891,11 @@ def list_brands(
         rows = rows.filter(status=status)
     page = rows.order_by("domain")[offset : offset + limit]
     return [_to_brand(brand) for brand in page], rows.count()
+
+
+def list_competitor_candidates(team_id: int, *, limit: int) -> list[CompetitorCandidate]:
+    """Suggested brands that recent answers to non-branded prompts both name and cite, most likely competitor first."""
+    return catalog.competitor_candidates(team_id, limit=limit)
 
 
 def get_brand(team_id: int, brand_id: str) -> Brand:
@@ -892,20 +1032,48 @@ def delete_keyword(team_id: int, keyword_id: str) -> None:
     keywords.delete_keyword(team_id, keyword_id)
 
 
-def get_keyword_report(team_id: int, *, timezone_name: str, days: int) -> KeywordReport:
+def get_keyword_report(
+    team_id: int,
+    *,
+    timezone_name: str,
+    days: int,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    engine: str | None = None,
+    topic: str | None = None,
+) -> KeywordReport:
     """How each keyword shows up in the prompts, the engines' searches and the answers over the last
-    `days` days in the team's timezone."""
+    `days` days in the team's timezone, counting only the checks on one side of the branded split, of one
+    engine, or of one topic when those are set."""
     return keywords.get_keyword_report(
-        team_id, target_domains=catalog.own_domains(team_id), timezone_name=timezone_name, days=days
+        team_id,
+        target_domains=catalog.own_domains(team_id),
+        timezone_name=timezone_name,
+        days=days,
+        scope=CheckScope(segment=branded, engine=engine, topic=topic),
     )
 
 
 def get_keyword_modifiers(
-    team_id: int, *, timezone_name: str, days: int, keyword: str | None = None
+    team_id: int,
+    *,
+    timezone_name: str,
+    days: int,
+    keyword: str | None = None,
+    branded: BrandedSegment = BrandedSegment.ALL,
+    engine: str | None = None,
+    topic: str | None = None,
 ) -> KeywordModifierReport:
     """The words the engines added to their searches beyond the prompt over the last `days` days,
-    optionally only in answers whose searches contain `keyword`."""
-    return keywords.get_keyword_modifiers(team_id, timezone_name=timezone_name, days=days, keyword=keyword)
+    optionally only in answers whose searches contain `keyword`, and only in the checks on one side of the
+    branded split, of one engine, or of one topic when those are set."""
+    return keywords.get_keyword_modifiers(
+        team_id,
+        target_domains=catalog.own_domains(team_id),
+        timezone_name=timezone_name,
+        days=days,
+        keyword=keyword,
+        scope=CheckScope(segment=branded, engine=engine, topic=topic),
+    )
 
 
 def start_keyword_suggestions(team_id: int, request: KeywordSuggestionRequest) -> KeywordSuggestionJob:
@@ -1097,6 +1265,7 @@ _CHECK_FIELDS = (
     "prompt_version",
     "brand_sentiment",
     "brand_sentiment_score",
+    "brand_sentiment_sentences",
 )
 
 
@@ -1104,27 +1273,41 @@ def _strings(value: Any) -> tuple[str, ...]:
     return tuple(str(item) for item in value) if isinstance(value, list) else ()
 
 
-def _to_prompt_check(row: dict[str, Any]) -> PromptCheck:
-    return PromptCheck(
-        id=str(row["id"]),
-        run_id=str(row["run_id"]),
-        engine=row["engine"],
-        mode=CheckMode(row["mode"]),
-        model=row["model"],
-        created_at=row["created_at"],
-        cited=row["cited"],
-        check_failed=row["check_failed"],
-        error=row["error"],
-        cited_urls=_strings(row["cited_urls"]),
-        target_urls=_strings(row["target_urls"]),
-        target_best_position=row["target_best_position"],
-        top_cited_domains=_strings(row["top_cited_domains"]),
-        search_queries=_strings(row["search_queries"]),
-        answer_text=row.get("answer_text"),
-        prompt_version=row["prompt_version"],
-        brand_sentiment=row["brand_sentiment"],
-        brand_sentiment_score=row["brand_sentiment_score"],
+def _sentiment_sentences(value: Any) -> tuple[BrandSentimentSentence, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(
+        BrandSentimentSentence(start=item["start"], end=item["end"], label=item["label"], score=item["score"])
+        for item in value
     )
+
+
+def _to_prompt_check(row: dict[str, Any]) -> PromptCheck:
+    return PromptCheck(**_check_values(row))
+
+
+def _check_values(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "run_id": str(row["run_id"]),
+        "engine": row["engine"],
+        "mode": CheckMode(row["mode"]),
+        "model": row["model"],
+        "created_at": row["created_at"],
+        "cited": row["cited"],
+        "check_failed": row["check_failed"],
+        "error": row["error"],
+        "cited_urls": _strings(row["cited_urls"]),
+        "target_urls": _strings(row["target_urls"]),
+        "target_best_position": row["target_best_position"],
+        "top_cited_domains": _strings(row["top_cited_domains"]),
+        "search_queries": _strings(row["search_queries"]),
+        "answer_text": row.get("answer_text"),
+        "prompt_version": row["prompt_version"],
+        "brand_sentiment": row["brand_sentiment"],
+        "brand_sentiment_score": row["brand_sentiment_score"],
+        "brand_sentiment_sentences": _sentiment_sentences(row["brand_sentiment_sentences"]),
+    }
 
 
 def _latest_checks(

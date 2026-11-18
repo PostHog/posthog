@@ -298,19 +298,17 @@ class _LedgerAdvancer:
         )
 
     def _merged_here(self, pull_request: github_api.PullRequestState, commit_sha: str) -> bool:
-        return (
-            pull_request.merged
-            and pull_request.merge_commit_sha == commit_sha
-            and pull_request.base_ref == self._require_default_branch()
-        )
+        # The commit is on the first-parent line of the default branch, so a merge commit that equals it
+        # proves the landing. The base branch does not: the merge queue lands each layer of a stack as its
+        # own commit on the default branch, and GitHub keeps the parent layer's branch as the base.
+        return pull_request.merged and pull_request.merge_commit_sha == commit_sha
 
     def _plan_from_commit_pulls(self, commit_sha: str, first_seen_at: datetime) -> _CommitPlan:
         pull_requests = github_api.merged_pull_requests_for_commit(self.repo, commit_sha, self.priority)
         if pull_requests is None:
             raise errors.BaselineAdvanceError(f"GitHub did not list the pull requests of commit {commit_sha}.")
-        default_branch = self._require_default_branch()
         for pull_request in pull_requests:
-            if pull_request.base_ref == default_branch and pull_request.head_sha:
+            if pull_request.head_sha:
                 landing = self.plan_landing(pull_request.number, pull_request.head_sha)
                 return _CommitPlan(pr_number=pull_request.number, resolved=landing is not None, landing=landing)
         # GitHub links a new commit to its pull request with a short delay, so an empty list for a commit
@@ -542,6 +540,16 @@ class _LedgerAdvancer:
             self._write_new_commits(plans)
         self._retry_unresolved()
 
+    def _in_ledger(self, commit_sha: str | None) -> bool:
+        """Whether the commit is on the first-parent line of the default branch that the ledger walked.
+
+        A stack layer keeps the parent layer's branch as its base after the merge queue lands it on the
+        default branch, so its merge commit is the proof that it did not merge into another branch.
+        """
+        if not commit_sha:
+            return False
+        return BaselineCommit.objects.using(WRITER_DB).filter(repo_id=self.repo.id, commit_sha=commit_sha).exists()
+
     def _landing_commit(self, merge_commit_sha: str, seed: BaselineCommit) -> BaselineCommit | None:
         """The ledger commit a merged pull request lands at, or None when this pass cannot place it.
 
@@ -579,7 +587,7 @@ class _LedgerAdvancer:
                 if pull_request.state == "closed":
                     closed.append(pr_number)
                 continue
-            if pull_request.base_ref != default_branch:
+            if pull_request.base_ref != default_branch and not self._in_ledger(pull_request.merge_commit_sha):
                 if pull_request.merged_at is not None and pull_request.merged_at < self.now - MERGED_ELSEWHERE_WINDOW:
                     merged_elsewhere.append(pr_number)
                 continue

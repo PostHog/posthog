@@ -268,6 +268,9 @@ export const evaluationSuggestionsLogic = kea<evaluationSuggestionsLogicType>([
                     const timer = window.setTimeout(() => actions.loadEvalSuggestions(), PENDING_POLL_INTERVAL_MS)
                     return () => window.clearTimeout(timer)
                 }, 'pendingPoll')
+            } else {
+                // A registered setup reruns on every tab return, so it goes once the run is ready.
+                cache.disposables.dispose('pendingPoll')
             }
         },
 

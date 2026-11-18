@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -5,6 +6,7 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import schema from '~/queries/schema.json'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -24,6 +26,22 @@ const SAVED_DRAFT = {
     status: 'draft',
     actions: [{ id: 'trigger_node', type: 'trigger', config: { type: 'batch', filters: { properties: PRO_PLAN } } }],
 }
+
+const ACCEPTED_FILTER_KEYS: Record<string, string[]> = {
+    cohort: Object.keys(schema.definitions.CohortPropertyFilter.properties),
+    person: Object.keys(schema.definitions.PersonPropertyFilter.properties),
+}
+const savedCondition = (filter: Record<string, unknown>, negation: boolean): Record<string, unknown> => ({
+    ...filter,
+    negation,
+    bytecode: ['_H', 1, 29],
+    conditionHash: 'hash',
+})
+const savedBroadcast = (properties: Record<string, unknown>[]): Record<string, unknown> => ({
+    id: 'broadcast-1',
+    status: 'draft',
+    actions: [{ id: 'trigger_node', type: 'trigger', config: { type: 'batch', filters: { properties } } }],
+})
 
 describe('broadcastPreviewLogic', () => {
     let wizard: ReturnType<typeof broadcastWizardLogic.build>
@@ -83,6 +101,64 @@ describe('broadcastPreviewLogic', () => {
 
         expect(query.mock.lastCall?.[0].properties).toEqual(PRO_PLAN)
         expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada'])
+    })
+
+    describe('a saved broadcast with a cohort audience', () => {
+        let saved: Record<string, unknown>[]
+        let received: Record<string, unknown>[][]
+
+        beforeEach(() => {
+            received = []
+            useMocks({
+                get: { '/api/projects/:team_id/hog_flows/:id/': () => [200, savedBroadcast(saved)] },
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const sent: Record<string, unknown>[] = ((await request.json()) as any).query.properties
+                        received.push(sent)
+                        const rejected = sent.flatMap((filter) =>
+                            Object.keys(filter).filter(
+                                (key) => !ACCEPTED_FILTER_KEYS[String(filter.type)]?.includes(key)
+                            )
+                        )
+                        return rejected.length
+                            ? [400, { type: 'validation_error', detail: `Extra inputs: ${rejected.join(', ')}` }]
+                            : [200, { results: sent.length ? [ADA] : [] }]
+                    },
+                },
+            })
+        })
+
+        const resume = async (properties: Record<string, unknown>[]): Promise<void> => {
+            saved = properties
+            silenceKeaLoadersErrors()
+            wizard.unmount()
+            wizard = broadcastWizardLogic({ id: 'broadcast-1' })
+            wizard.mount()
+            logic = broadcastPreviewLogic({ id: 'broadcast-1' })
+            logic.mount()
+        }
+        const previewPeople = (): string[] => logic.values.persons.map((person) => person.id)
+
+        const COHORT = { key: 'id', type: 'cohort', value: 42, operator: 'in' }
+        const PRO = { key: 'plan', type: 'person', value: ['pro'], operator: 'exact' }
+
+        it.each([
+            [
+                'an included cohort and sends it to the query as in',
+                [savedCondition(COHORT, false), savedCondition(PRO, false)],
+                [COHORT, PRO],
+            ],
+            [
+                'an excluded cohort and sends it to the query as not_in',
+                [savedCondition(COHORT, true), savedCondition(PRO, false)],
+                [{ ...COHORT, operator: 'not_in' }, PRO],
+            ],
+        ])('loads preview people for %s', async (_name, conditions, sent) => {
+            await resume(conditions)
+
+            await waitFor(() => expect(previewPeople()).toEqual(['person-ada']))
+            expect(received.at(-1)).toEqual(sent)
+        })
     })
 
     it.each([

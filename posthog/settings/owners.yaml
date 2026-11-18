@@ -1,0 +1,5 @@
+version: 1
+owners: []
+rules:
+    - match: ['/celery.py', '/test_celery.py']
+      owners: team-devex

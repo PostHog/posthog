@@ -475,9 +475,21 @@ export function rowMatchesFilters(row: CatalogTableRow, filters: TablesFilters):
     )
 }
 
-export function rowMatchesSearch(row: CatalogTableRow, search: string): boolean {
+function textMatchesSearch(search: string, ...texts: string[]): boolean {
     const needle = search.trim().toLowerCase()
-    return !needle || row.name.toLowerCase().includes(needle) || row.subtitle.toLowerCase().includes(needle)
+    return !needle || texts.some((text) => text.toLowerCase().includes(needle))
+}
+
+export function rowMatchesSearch(row: CatalogTableRow, search: string): boolean {
+    return textMatchesSearch(search, row.name, row.subtitle)
+}
+
+export function subjectMatchesSearch(subject: ChecksSubject, search: string): boolean {
+    return textMatchesSearch(search, subject.name)
+}
+
+export function subjectHasFailingChecks(subject: ChecksSubject): boolean {
+    return (passingChecks(subject)?.failing ?? 0) > 0
 }
 
 export type TablesSortColumn = 'name' | 'status' | 'checks' | 'trust' | 'freshness'

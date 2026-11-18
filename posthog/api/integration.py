@@ -131,6 +131,8 @@ from posthog.models.integration import (
     JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
+    MotherDuckIntegration,
+    MotherDuckIntegrationError,
     OauthIntegration,
     PostgreSQLIntegration,
     ReconnectRequired,
@@ -158,8 +160,7 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     is_service_auth,
 )
-from posthog.ph_client import feature_enabled_or_false
-from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
+from posthog.rate_limit import EmailSenderCreateThrottle, GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
@@ -167,7 +168,7 @@ from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
-from products.workflows.backend.facade.api import lookup_existing_email_tools
+from products.workflows.backend.facade.api import lookup_existing_email_tools, lookup_existing_email_tools_when_answered
 from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
 from products.workflows.backend.facade.enums import EmailDomainSetupMethod
 
@@ -1242,6 +1243,19 @@ class IntegrationSerializer(serializers.Serializer):
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "motherduck":
+            config = validated_data.get("config", {})
+            try:
+                instance = MotherDuckIntegration.integration_from_config(
+                    team_id=team_id,
+                    name=config.get("name"),
+                    access_token=config.get("access_token"),
+                    created_by=request.user,
+                )
+            except MotherDuckIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
         elif validated_data["kind"] == "google-cloud-service-account":
             config = validated_data.get("config", {})
             service_account_email = config.get("service_account_email")
@@ -1841,6 +1855,8 @@ class IntegrationViewSet(
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
         if self.action == "push_tokens":
             return [PushTokenImportThrottle(), *super().get_throttles()]
+        if self.action == "create" and self.request.data.get("kind") == "email":
+            return [EmailSenderCreateThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
     def perform_destroy(self, instance: IntegrationRecord) -> None:
@@ -2348,9 +2364,14 @@ class IntegrationViewSet(
         customer_id = request.query_params.get("customerId")
         parent_id = request.query_params.get("parentId")
 
-        conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
+        try:
+            search_stream = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
+            # Still captured although the user gets a 400: it is the only signal that retries were not enough.
+            capture_exception(error)
+            raise ValidationError("Google Ads did not respond in time. Try again.") from error
 
-        if not conversion_actions or "results" not in conversion_actions[0]:
+        if not search_stream or "results" not in search_stream[0]:
             return Response({"conversionActions": []})
 
         conversion_actions = [
@@ -2359,7 +2380,7 @@ class IntegrationViewSet(
                 "name": conversionAction["conversionAction"]["name"],
                 "resourceName": conversionAction["conversionAction"]["resourceName"],
             }
-            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id, parent_id)[0]["results"]
+            for conversionAction in search_stream[0]["results"]
         ]
 
         return Response({"conversionActions": conversion_actions})
@@ -3082,20 +3103,6 @@ class IntegrationViewSet(
     )
     @action(methods=["GET"], detail=True, url_path="email/status")
     def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        if not any(
-            feature_enabled_or_false(
-                flag,
-                str(cast(User, request.user).distinct_id),
-                groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.uuid)},
-                },
-                send_feature_flag_events=False,
-            )
-            for flag in ("workflows-email-domain-wizard", "workflows-email-domain-agent-setup")
-        ):
-            raise NotFound()
         instance = self.get_object()
         if instance.kind != "email":
             raise ValidationError("email/status is only supported for email integrations")
@@ -3114,9 +3121,21 @@ class IntegrationViewSet(
             {
                 "method": self._email_domain_setup_method(request, instance),
                 "seconds_since_created": int((timezone.now() - instance.created_at).total_seconds()),
+                "previous_email_providers": self._previous_email_providers(instance),
             },
             team=self.team,
         )
+
+    # The domain is already verified when this runs, so a failed lookup must not fail the request.
+    @staticmethod
+    def _previous_email_providers(instance: IntegrationRecord) -> list[str] | None:
+        try:
+            return lookup_existing_email_tools_when_answered(
+                extract_root_domain_and_host(instance.config["domain"]).root_domain
+            )
+        except Exception as e:
+            capture_exception(e)
+            return None
 
     @staticmethod
     def _email_domain_setup_method(request: Request, instance: IntegrationRecord) -> str:

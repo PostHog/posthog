@@ -11,6 +11,8 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 import { SidePanelTab } from '~/types'
 
+import { suiteRunResultsLogic } from 'products/data_quality/frontend/suiteRunResultsLogic'
+
 import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 import {
     dataCatalogMetricSceneLogic,
@@ -267,6 +269,15 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(logic.values.lineageRetried).toBe(expected === 'not_ready')
     })
 
+    it.each([
+        ['opens the data quality tab for its own metric', 'metric-1', 'data-quality'],
+        ['stays put for another metric', 'metric-2', 'definition'],
+    ])('when a toast asks to show run results, %s', (_, subjectId, expectedTab) => {
+        suiteRunResultsLogic.actions.revealSubjectResults({ subjectType: 'metric', subjectId })
+
+        expect(logic.values.activeTab).toBe(expectedTab)
+    })
+
     it('redirects the legacy tests key to the data quality tab and preserves it on rename', async () => {
         router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'tests' })
         await expectLogic(logic).toFinishAllListeners()
@@ -283,6 +294,31 @@ describe('dataCatalogMetricSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(router.values.searchParams.tab).toBe('data-quality')
     })
+
+    it.each([
+        ['on', [true], false, 'usage'],
+        ['off', [false], false, 'definition'],
+        ['on after the page loads', [false, true], false, 'usage'],
+        ['on in the Quill layout', [true], true, 'definition'],
+    ])(
+        'opens the usage tab from a link only when its flag is on (flag %s)',
+        async (_, flagStates: boolean[], quillLayout: boolean, expectedTab) => {
+            const setUsageFlag = (flagOn: boolean): void => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_CATALOG_USAGE], {
+                    [FEATURE_FLAGS.DATA_CATALOG_USAGE]: flagOn,
+                    [FEATURE_FLAGS.TODAY_RAIL_NAV]: quillLayout,
+                    [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: quillLayout,
+                })
+            }
+            const [flagAtLoad, ...laterFlags] = flagStates
+            setUsageFlag(flagAtLoad)
+            router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'usage' })
+            await expectLogic(logic).toFinishAllListeners()
+            laterFlags.forEach(setUsageFlag)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.activeTab).toBe(expectedTab)
+        }
+    )
 
     it.each(['HogQLQuery', 'TrendsQuery', 'FunnelsQuery', 'EventsNode', 'MarkdownDefinition', null])(
         'allows check authoring only for a HogQL definition (%s)',

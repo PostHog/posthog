@@ -27,7 +27,7 @@ from collections.abc import Collection, Mapping
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from posthog.dataclasses import frozen
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from .commands import SUBJECT_NAMES, SubjectKind
 
@@ -273,7 +273,7 @@ REVIEW = CommandDeclaration(
     summary="Start a Standard review of this pull request.",
     args=ReviewArgs,
     dispatches_to="PostHog Review",
-    access=ResourceAccess(resource="review_hog", level="editor"),
+    access=ResourceAccess(resource="code_review", level="editor"),
 )
 STAMP = CommandDeclaration(
     verb="stamp",
@@ -281,7 +281,7 @@ STAMP = CommandDeclaration(
     args=StampArgs,
     dispatches_to="Stamphog",
     aliases=("approve",),
-    access=ResourceAccess(resource="stamphog", level="editor"),
+    access=ResourceAccess(resource="code_review_approval", level="editor"),
 )
 QA = CommandDeclaration(
     verb="qa",

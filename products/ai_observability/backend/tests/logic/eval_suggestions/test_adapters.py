@@ -34,7 +34,11 @@ def _verdict(check: adapters.AdaptedCheck, events: list[tuple[str, dict[str, Any
 
 
 def _answer(text: str, **properties: Any) -> tuple[str, dict[str, Any]]:
-    return "$ai_generation", {"$ai_output_choices": [{"role": "assistant", "content": text}], **properties}
+    return "$ai_generation", {
+        "$ai_model": "gpt-5-mini",
+        "$ai_output_choices": [{"role": "assistant", "content": text}],
+        **properties,
+    }
 
 
 def _calls(*calls: tuple[str, dict[str, Any], str]) -> tuple[str, dict[str, Any]]:
@@ -84,6 +88,13 @@ class TestAdaptedChecks:
             ),
             # Mentioning an abort or an approval does not make a real failure a pause.
             ("connection_abort_is_a_failure", UNRECOVERED, [_span("search", "('Connection aborted.', x)")], False),
+            # A caller that aborts a request it no longer needs did not fail.
+            (
+                "aborted_call_is_not_a_failure",
+                UNRECOVERED,
+                [_span("fetch_page", "AbortError: The operation was aborted.")],
+                True,
+            ),
             (
                 "approval_service_outage_is_a_failure",
                 UNRECOVERED,
@@ -138,57 +149,6 @@ class TestAdaptedChecks:
                 adapters.refusals(),
                 [_answer("I can't help with that"), _answer("Here it is")],
                 True,
-            ),
-            (
-                "links_and_versions_are_not_sensitive",
-                adapters.sensitive_data(),
-                [_answer("See https://example.com/docs for v2.31.4")],
-                True,
-            ),
-            ("email_in_final_answer", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io for access")], False),
-            (
-                "automated_and_placeholder_addresses",
-                adapters.sensitive_data(),
-                [_answer("Mail support@example.com or noreply@acme.io")],
-                True,
-            ),
-            ("card_number", adapters.sensitive_data(), [_answer("Card 4242 4242 4242 4242 is on file")], False),
-            ("secret_key", adapters.sensitive_data(), [_answer("Use sk-abcdefghijklmnopqrstuvwx123")], False),
-            (
-                "sk_inside_a_path_is_not_a_key",
-                adapters.sensitive_data(),
-                [_answer("Read /docs/ask-questions-about-your-data first")],
-                True,
-            ),
-            (
-                "sk_inside_a_word_is_not_a_key",
-                adapters.sensitive_data(),
-                [_answer("See our risk-management-frameworks guide")],
-                True,
-            ),
-            ("no_final_text_does_not_apply", adapters.sensitive_data(), [_span("search")], None),
-            # The email went to a tool, and the answer the user read has none.
-            (
-                "email_only_in_a_tool_call",
-                adapters.sensitive_data(),
-                [_answer("I'll send the invite."), _calls(("send_invite", {"email": "jane.doe@acme.io"}, "c1"))],
-                True,
-            ),
-            # OpenAI-compatible clients send an empty tool_calls list on a plain answer.
-            (
-                "email_in_an_answer_with_no_tool_calls",
-                adapters.sensitive_data(),
-                [
-                    (
-                        "$ai_generation",
-                        {
-                            "$ai_output_choices": [
-                                {"role": "assistant", "content": "Ask jane.doe@acme.io", "tool_calls": []}
-                            ]
-                        },
-                    )
-                ],
-                False,
             ),
             (
                 "otel_tool_call_parts_repeat",

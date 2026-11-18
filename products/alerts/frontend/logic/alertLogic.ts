@@ -56,18 +56,23 @@ function isModelCheck(check: AlertCheck): boolean {
     )
 }
 
-/**
- * The AI detector has no score, so its history plots the metric value. Older AI checks still
- * carry a stored score, and it is not plotted either.
- */
-function plotsAnomalyScores(detectorConfig: DetectorConfig | null | undefined): boolean {
-    return !!detectorConfig && detectorConfig.type !== DetectorType.LLM
+function isForecastCheck(check: AlertCheck): boolean {
+    return check.triggered_metadata?.detector_type === DetectorType.FORECAST
 }
 
 /**
- * How a saved check reads under the alert's current detector. An AI check has no score to compare,
- * so the check's own state is its classification under the AI detector. Under any other detector an
- * AI check is unclassifiable. `undefined` leaves a statistical check to the chart's own threshold comparison.
+ * The AI and forecast detectors have no score, so their history plots the metric value. Older AI
+ * checks still carry a stored score, and it is not plotted either.
+ */
+export function detectorHasAnomalyScore(detectorConfig: DetectorConfig | null | undefined): boolean {
+    return !!detectorConfig && detectorConfig.type !== DetectorType.LLM && detectorConfig.type !== DetectorType.FORECAST
+}
+
+/**
+ * How a saved check reads under the alert's current detector. An AI or forecast check has no score to
+ * compare, so the check's own state is its classification under the detector that produced it. Under
+ * any other detector it is unclassifiable. `undefined` leaves a statistical check to the chart's own
+ * threshold comparison.
  */
 export function checkWouldFireUnderCurrentConfiguration(
     check: AlertCheck,
@@ -76,7 +81,10 @@ export function checkWouldFireUnderCurrentConfiguration(
     if (detectorConfig?.type === DetectorType.LLM) {
         return isModelCheck(check) ? check.state === AlertState.FIRING : null
     }
-    return isModelCheck(check) ? null : undefined
+    if (detectorConfig?.type === DetectorType.FORECAST) {
+        return isForecastCheck(check) ? check.state === AlertState.FIRING : null
+    }
+    return isModelCheck(check) || isForecastCheck(check) ? null : undefined
 }
 
 export function getAlertHistoryScoreName(usesAnomalyScores: boolean): 'Anomaly score' | 'Value' {
@@ -254,7 +262,7 @@ export const alertLogic = kea<alertLogicType>([
                 if (!alert) {
                     return []
                 }
-                const isAnomaly = plotsAnomalyScores(alert.detector_config)
+                const isAnomaly = detectorHasAnomalyScore(alert.detector_config)
                 const sortedAsc = [...(alert.checks ?? [])].sort(
                     (a, b) => dayjs(a.created_at).valueOf() - dayjs(b.created_at).valueOf()
                 )
@@ -278,7 +286,7 @@ export const alertLogic = kea<alertLogicType>([
         alertHistoryUsesAnomalyScores: [
             (s) => [s.alert],
             (alert: AlertType | null): boolean => {
-                if (!plotsAnomalyScores(alert?.detector_config)) {
+                if (!detectorHasAnomalyScore(alert?.detector_config)) {
                     return false
                 }
                 const checks = alert?.checks ?? []
