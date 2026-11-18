@@ -1179,6 +1179,27 @@ class TestChunkEnrichment(SimpleTestCase):
         for fill_field in ACCOUNT_FILL_FIELDS:
             assert fill_field not in normal_record
 
+    @parameterized.expand([("salesforce_connection_fails", True), ("account_query_fails", False)])
+    @pytest.mark.asyncio
+    async def test_chunk_raises_when_accounts_cannot_be_read(self, _name: str, connection_fails: bool) -> None:
+        outage = ConnectionError("Synthetic Salesforce outage")
+
+        with (
+            patch(
+                "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+                return_value=fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer()),
+            ),
+            patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
+            patch("ee.billing.salesforce_enrichment.enrichment.capture_exception"),
+        ):
+            if connection_fails:
+                mock_get_sf.side_effect = outage
+            else:
+                mock_get_sf.return_value.query_all.side_effect = outage
+
+            with pytest.raises(ConnectionError):
+                await enrich_accounts_async(chunk_number=3, chunk_size=10)
+
     @pytest.mark.asyncio
     @time_machine.travel("2025-07-29T12:00:00.123456Z", tick=False)
     async def test_chunk_scores_matched_companies_and_clears_sub_entities(self) -> None:

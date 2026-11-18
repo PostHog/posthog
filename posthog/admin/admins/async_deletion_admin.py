@@ -5,7 +5,7 @@ from django.db.models import QuerySet, Subquery
 from django.http import HttpRequest
 from django.utils.html import format_html
 
-from posthog.admin.admins.data_deletion_request_admin import dagster_run_url
+from posthog.admin.dagster_links import dagster_run_url
 from posthog.models import AsyncDeletion
 from posthog.models.async_deletion import DeletionRunJob, DeletionRunLog, DeletionRunStatus, DeletionType
 

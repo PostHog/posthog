@@ -37669,6 +37669,11 @@
                     "csv": false
                 },
                 {
+                    "param": "series_stats",
+                    "key": "series_stats",
+                    "csv": false
+                },
+                {
                     "param": "service",
                     "key": "service",
                     "csv": false

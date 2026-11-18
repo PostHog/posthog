@@ -18,7 +18,6 @@ from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.data_modeling.backend.facade.api import (
     SCHEDULABLE_BUCKETS,
@@ -31,6 +30,7 @@ from products.data_modeling.backend.facade.api import (
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     apply_saved_query_frequency_target,
+    assert_user_can_read_saved_query,
     cadence_changes,
     can_describe_node,
     clear_legacy_sync_interval,
@@ -498,7 +498,7 @@ def _write_cadence(
         raise serializers.ValidationError(PIN_NEEDS_A_CADENCE)
     if target is not None:
         # Scheduling a view is the same grant as materializing it directly.
-        assert_user_can_read_query(saved_query.query, saved_query.team_id, cast(User, request.user))
+        assert_user_can_read_saved_query(saved_query, cast(User, request.user))
     try:
         apply_saved_query_frequency_target(
             saved_query, target, visible_names=visible_names, pinned=pinned, keep_target=keep_target
@@ -994,7 +994,7 @@ class NodeViewSet(
         # skips the check for a real node; it exists because the FK is typed as nullable.
         self._require_view_edit_access(node.saved_query)
         if node.saved_query is not None:
-            assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
+            assert_user_can_read_saved_query(node.saved_query, cast(User, req.user))
             try:
                 raise_if_manual_run_is_refused(
                     self.team_id,
