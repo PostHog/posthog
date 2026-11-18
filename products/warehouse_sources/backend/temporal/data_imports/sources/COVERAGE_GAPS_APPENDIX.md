@@ -1715,7 +1715,7 @@ Diffed against: <https://api-docs.bitrise.io/docs/swagger.json>
 
 ## BlandAI — **thin**
 
-Today (13): `call_events`, `call_transcripts`, `calls`, `eval_call_results`, `eval_runs`, `inbound_numbers`, `pathway_versions`, `pathways`, `personas`, `sms_conversations`, `sms_messages`, `voices`, `web_agents`
+Today (18): `agent_test_runs`, `agent_test_scenarios`, `audit_logs`, `call_events`, `call_transcripts`, `calls`, `eval_call_results`, `eval_runs`, `inbound_numbers`, `knowledge_bases`, `pathway_versions`, `pathways`, `personas`, `sms_conversations`, `sms_messages`, `voices`, `web_agents`, `widget_threads`
 
 Diffed against: <https://docs.bland.ai/llms.txt>
 
@@ -1727,10 +1727,10 @@ Diffed against: <https://docs.bland.ai/llms.txt>
 - [x] `GET /v1/pathway_versions` — pathway version history so a call can be attributed to the version that served it (medium)
 - [x] `GET /v1/voices` — lookup resolving voice IDs referenced by calls (medium)
 - [x] `GET /v1/evals/runs and /v1/evals/runs/{id}/call-results` — per-call eval scores, the quality metric for voice agents (medium)
-- [ ] `GET /v1/agent-testing/runs (and /agent-testing/scenarios)` — regression test outcomes per pathway over time (medium)
-- [ ] `GET /v1/widget/{id}/threads` — web widget conversation threads, another engagement channel (medium)
-- [ ] `GET /v1/audit-logs` — account change history for compliance reporting (low)
-- [ ] `GET /v1/knowledge` — knowledge base inventory referenced by pathways (low)
+- [x] `GET /v1/agent-testing/runs (and /agent-testing/scenarios)` — regression test outcomes per pathway over time (medium)
+- [x] `GET /v1/widget/{id}/threads` — web widget conversation threads, another engagement channel (medium)
+- [x] `GET /v1/audit-logs` — account change history for compliance reporting (low)
+- [x] `GET /v1/knowledge` — knowledge base inventory referenced by pathways (low)
 
 Note: Source directory has no dynamic table discovery — bland_ai.py exposes a static table catalog only. Bland's API is very large (200+ documented operations), so the remaining gaps above are still a sizeable fraction.
 
