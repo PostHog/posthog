@@ -5517,18 +5517,6 @@ export namespace Schemas {
       variables_override?: AccountsTableQueryRequestVariablesOverride;
     }
 
-    /**
-     * * `user` - user
-     * * `team` - team
-     */
-    export type AchievementDefinitionScopeEnum = typeof AchievementDefinitionScopeEnum[keyof typeof AchievementDefinitionScopeEnum];
-
-
-    export const AchievementDefinitionScopeEnum = {
-      User: 'user',
-      Team: 'team',
-    } as const;
-
     export interface AchievementStage {
       /** Stage number within the track, 1-5. */
       stage: number;
@@ -5545,11 +5533,6 @@ export namespace Schemas {
       display_name: string;
       /** One-line description of what the track rewards. */
       description: string;
-      /** Whether the track is tracked per user or per team.
-       *
-       * * `user` - user
-       * * `team` - team */
-      scope: AchievementDefinitionScopeEnum;
       /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
       is_experiment_track: boolean;
       /** The five stages of this track, in ascending threshold order. */
@@ -5589,10 +5572,8 @@ export namespace Schemas {
     export interface AchievementsListResponse {
       /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
       definitions: AchievementDefinition[];
-      /** The requesting user's progress on per-user tracks. */
+      /** The requesting user's progress on each track. */
       user_progress: AchievementProgress[];
-      /** The team's progress on per-team tracks. */
-      team_progress: AchievementProgress[];
       /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
       pending_celebrations: PendingCelebration[];
     }
@@ -7777,18 +7758,29 @@ export namespace Schemas {
       Preset15: 'preset-15',
     } as const;
 
+    export type YAxisPosition2 = typeof YAxisPosition2[keyof typeof YAxisPosition2];
+
+
+    export const YAxisPosition2 = {
+      Auto: 'auto',
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
     export interface ResultCustomizationByValue {
       assignmentBy?: 'value';
       color?: DataColorToken | null;
       customColor?: string | null;
       hidden?: boolean | null;
       label?: string | null;
+      yAxisPosition?: YAxisPosition2 | null;
     }
 
     export interface ResultCustomizationByPosition {
       assignmentBy?: 'position';
       color?: DataColorToken | null;
       hidden?: boolean | null;
+      yAxisPosition?: YAxisPosition2 | null;
     }
 
     export type YAxisScaleType = typeof YAxisScaleType[keyof typeof YAxisScaleType];
@@ -8084,6 +8076,7 @@ export namespace Schemas {
       showAnnotations?: boolean | null;
       /** Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels. */
       showLegend?: boolean | null;
+      showSummaryOnDashboards?: boolean | null;
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
@@ -12693,6 +12686,8 @@ export namespace Schemas {
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
+      /** Color each X-axis category in single-series bar charts. */
+      colorBarsByCategory?: boolean | null;
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
@@ -12717,6 +12712,8 @@ export namespace Schemas {
       /** Whether we fill the bars to 100% in stacked mode */
       stackBars100?: boolean | null;
       valueLabelBackground?: boolean | null;
+      valueLabelBackgroundColor?: string | null;
+      valueLabelColor?: string | null;
       valueLabelFontSize?: number | null;
       valueLabelPosition?: ValueLabelPosition | null;
       valueLabelRotation?: number | null;
@@ -14341,6 +14338,8 @@ export namespace Schemas {
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
+      /** Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results. */
+      entry_span_count?: number | null;
       error_count: number;
       /** Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`. */
       health_reason?: string | null;
@@ -23130,6 +23129,8 @@ export namespace Schemas {
       sends_email?: boolean;
       /** The workflow's email sending rate limit. A slow enough rate raises the email audience limit. The response's rate_limited field says which rates qualify. */
       email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
+      /** Count the audience now instead of reusing a count from the last few minutes. Set it when the count decides whether a send may go ahead. */
+      refresh?: boolean;
     }
 
     /**
@@ -34603,11 +34604,15 @@ export namespace Schemas {
       layout: AnalyticsFragmentLayout;
     }
 
-    export interface DailyCitedRuns {
+    export interface DailyUsage {
       /** Day, in UTC. */
       readonly date: string;
       /** Support agent runs that cited knowledge on this day. */
       readonly cited_run_count: number;
+      /** Chunks written on this day. */
+      readonly chunks_ingested: number;
+      /** Knowledge searches made on this day. */
+      readonly query_count: number;
     }
 
     export type DashboardFilters = { [key: string]: unknown };
@@ -42969,6 +42974,62 @@ export namespace Schemas {
     }
 
     /**
+     * * `service` - Service
+     * * `inferred` - Inferred
+     * * `other` - Other
+     */
+    export type TimeSpentComponentKindEnum = typeof TimeSpentComponentKindEnum[keyof typeof TimeSpentComponentKindEnum];
+
+
+    export const TimeSpentComponentKindEnum = {
+      Service: 'service',
+      Inferred: 'inferred',
+      Other: 'other',
+    } as const;
+
+    export interface TimeSpentComponent {
+      /** The service name, the inferred dependency (for example a database system or host), or 'Other'. */
+      name: string;
+      /** service: an instrumented service. inferred: a dependency seen only through client spans. other: the remaining components combined.
+       *
+       * * `service` - Service
+       * * `inferred` - Inferred
+       * * `other` - Other */
+      kind: TimeSpentComponentKindEnum;
+      /** Self-time summed across the sampled requests, in milliseconds. */
+      total_ms: number;
+      /** Self-time per sampled request, in milliseconds. */
+      avg_ms_per_request: number;
+      /** Share of the attributed request time, 0 to 1. */
+      share: number;
+    }
+
+    export interface EndpointTimeSpentResponse {
+      /** Where the request time goes, largest share first. */
+      components: TimeSpentComponent[];
+      /** Requests sampled to compute the breakdown. */
+      request_count: number;
+      /**
+         * Mean duration of the sampled requests, in milliseconds.
+         * @nullable
+         */
+      avg_duration_ms: number | null;
+      /** The service the endpoint belongs to. */
+      service: string;
+      /** The endpoint's entry span name. */
+      endpoint: string;
+      /**
+         * The environment filter the breakdown was computed for: null for every environment, empty for spans with no environment.
+         * @nullable
+         */
+      environment: string | null;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
+    }
+
+    /**
      * Per-column bucket overrides for range variable materialization.
      * @nullable
      */
@@ -45143,6 +45204,8 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
+      /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+      ai_issue_summaries_enabled?: boolean;
     }
 
     /**
@@ -67657,6 +67720,13 @@ export namespace Schemas {
       readonly safety_verdict: SafetyVerdictEnum;
     }
 
+    export interface SurfaceUsage {
+      /** Where the usage came from. For chunks: text, url, file, or generated (learned from a support ticket). For searches: api (the API and MCP), support, posthog_ai, or learning. */
+      readonly surface: string;
+      /** Usage from this surface in the period. */
+      readonly total: number;
+    }
+
     export interface SourceUsage {
       /** ID of the knowledge source. */
       readonly source_id: string;
@@ -67671,7 +67741,7 @@ export namespace Schemas {
     }
 
     /**
-     * How much support agent runs used the knowledge base in a period.
+     * How much the knowledge base was used in a period: ingestion, searches, and support agent citations.
      */
     export interface KnowledgeUsage {
       /** Number of days the report covers, today included. */
@@ -67684,8 +67754,16 @@ export namespace Schemas {
       readonly source_count: number;
       /** Knowledge sources that at least one run cited in the period. */
       readonly cited_source_count: number;
+      /** Chunks written in the period. Content that a refresh finds changed is chunked again and counts again. */
+      readonly chunks_ingested: number;
+      /** Knowledge searches made in the period, from every surface. */
+      readonly query_count: number;
+      /** Chunks written in the period by source type, largest first. */
+      readonly chunks_by_surface: readonly SurfaceUsage[];
+      /** Searches in the period by where they came from, largest first. */
+      readonly queries_by_surface: readonly SurfaceUsage[];
       /** One entry per day, oldest first. */
-      readonly daily: readonly DailyCitedRuns[];
+      readonly daily: readonly DailyUsage[];
       /** The most cited sources in the period, most cited first. */
       readonly top_sources: readonly SourceUsage[];
     }
@@ -74041,6 +74119,34 @@ export namespace Schemas {
     export interface MetricAvailability {
       /** Whether the project has any live metric, counted before per-table access checks. */
       has_metrics: boolean;
+    }
+
+    /**
+     * * `at_least` - At least the target
+     * * `at_most` - At most the target
+     */
+    export type ReleaseGoalDirectionEnum = typeof ReleaseGoalDirectionEnum[keyof typeof ReleaseGoalDirectionEnum];
+
+
+    export const ReleaseGoalDirectionEnum = {
+      AtLeast: 'at_least',
+      AtMost: 'at_most',
+    } as const;
+
+    export interface MetricGoal {
+      /**
+         * ID of the metric insight the goal is for.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      insight_id: number;
+      /** at_least when the metric should reach the value, at_most when it should stay at or below it.
+       *
+       * * `at_least` - At least the target
+       * * `at_most` - At most the target */
+      direction: ReleaseGoalDirectionEnum;
+      /** Target value of the metric. */
+      value: number;
     }
 
     /**
@@ -81051,6 +81157,10 @@ export namespace Schemas {
       readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
       readonly broadcasts: readonly LinkedBroadcastDTO[];
+      /** IDs of the insights that are the release's metrics. The first is the primary metric. */
+      readonly metric_insight_ids: readonly number[];
+      /** Target for each metric that has one. Metrics without a goal are left out. */
+      readonly metric_goals: readonly MetricGoal[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
       readonly has_hidden_flags: boolean;
       id: string;
@@ -90545,6 +90655,8 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
+      /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+      ai_issue_summaries_enabled?: boolean;
     }
 
     /**
@@ -98350,6 +98462,18 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       insight_ids?: number[];
+      /**
+         * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+         * @maxItems 5
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      metric_insight_ids?: number[];
+      /**
+         * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+         * @maxItems 5
+         */
+      metric_goals?: MetricGoal[];
     }
 
     /**
@@ -129480,6 +129604,18 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       insight_ids?: number[];
+      /**
+         * IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.
+         * @maxItems 5
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      metric_insight_ids?: number[];
+      /**
+         * Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.
+         * @maxItems 5
+         */
+      metric_goals?: MetricGoal[];
     }
 
     export interface ZendeskImportError {
@@ -130928,6 +131064,12 @@ export namespace Schemas {
          * @nullable
          */
       quantile?: number | null;
+      /**
+         * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+         * @minimum 0.001
+         * @nullable
+         */
+      apdexThresholdMs?: number | null;
       /** Label predicates ANDed together for this clause. */
       filters?: _MetricFilter[];
       /** Labels to split this clause into separate series by. */
@@ -131009,6 +131151,10 @@ export namespace Schemas {
          * @nullable
          */
       first_seen?: string | null;
+      /** Approximate number of distinct series (label sets) in the last 24 hours. Only present when `series_stats` was requested. */
+      series_count?: number;
+      /** Number of distinct datapoint attribute keys in the last 24 hours. Only present when `series_stats` was requested. */
+      tag_key_count?: number;
       /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
       classic_histogram?: _MetricClassicHistogram;
     }
@@ -131071,6 +131217,12 @@ export namespace Schemas {
          * @nullable
          */
       quantile?: number | null;
+      /**
+         * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+         * @minimum 0.001
+         * @nullable
+         */
+      apdexThresholdMs?: number | null;
       /** Label predicates ANDed together. Rows must satisfy every filter. */
       filters?: _MetricFilter[];
       /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
@@ -135527,6 +135679,34 @@ export namespace Schemas {
      * @maxLength 400
      */
     service?: string;
+    };
+
+    export type ApmEndpointTimeSpentListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * The endpoint's entry span name, as listed by apm/endpoints.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    endpoint: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Omit it for every environment. Pass an empty value for spans that set no environment.
+     * @maxLength 200
+     */
+    environment?: string;
+    /**
+     * The service that handles the endpoint.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service: string;
     };
 
     export type ApmEndpointsListParams = {
@@ -145321,6 +145501,10 @@ export namespace Schemas {
      * @minLength 1
      */
     match?: MetricsValuesRetrieveMatch;
+    /**
+     * Add `series_count` and `tag_key_count` for each name, over the last 24 hours.
+     */
+    series_stats?: boolean;
     /**
      * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
      * @maxLength 1024
