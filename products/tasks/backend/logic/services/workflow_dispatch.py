@@ -574,12 +574,6 @@ def enqueue_or_start_workflow(
     execute_after_commit(start_synchronously)
 
 
-async def aenqueue_or_start_workflow(task_run: TaskRun, *, options: WorkflowDispatchOptions) -> None:
-    from asgiref.sync import sync_to_async
-
-    await sync_to_async(enqueue_or_start_workflow)(task_run, options=options)
-
-
 def dispatch_task_processing_workflow(
     task_id: str,
     run_id: str,
