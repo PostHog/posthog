@@ -133,20 +133,22 @@ jobs:
                   MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
               run: uv run --frozen --project tools/change-prover --group scan python -I tools/change-prover/change_prover/__main__.py scan-gate
 
-    # stamphog waits for a completed check on every pull request that changes a dependency file, so
-    # every run posts one. The `conclude` command in change_prover/core/conclusion.py decides the
-    # check run and whether the run fails.
-    publish:
-        name: Publish the Dependency proof check
+    # The `conclude` command in change_prover/core/conclusion.py decides the check run and whether the
+    # run fails. It runs here, with no environment and no token, so the job that holds the App key
+    # installs and runs nothing but `gh`. `publish` checks every job's result before it exits.
+    # hogli-lint: not-a-required-gate — decides the check run that `publish` posts
+    conclude:
+        name: Decide the Dependency proof check
         needs: [identify, prove, scan]
         if: ${{ !cancelled() }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions: {}
-        environment: dependency-proof
+        outputs:
+            check_run: ${{ steps.conclude.outputs.check_run }}
+            unproved: ${{ steps.conclude.outputs.unproved }}
         steps:
-            # The private mirror skips `identify`, so this job posts no check there. The guard is
-            # on the steps because a required-check gate may not skip itself.
+            # The private mirror skips `identify`, so nothing is decided or posted there.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: github.repository == 'PostHog/posthog'
               with:
@@ -161,18 +163,10 @@ jobs:
               with:
                   enable-cache: false
 
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              id: app-token
+            - name: Decide the check run
+              id: conclude
               if: github.repository == 'PostHog/posthog'
-              with:
-                  client-id: ${{ vars.DEPENDENCY_PROOF_APP_ID }}
-                  private-key: ${{ secrets.DEPENDENCY_PROOF_APP_PRIVATE_KEY }}
-                  permission-checks: write
-
-            - name: Create the check run
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  REPOSITORY: ${{ github.repository }}
                   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
                   WORKFLOW_SHA: ${{ github.sha }}
                   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -189,20 +183,65 @@ jobs:
                   SCAN_CLEAN: ${{ needs.scan.outputs.clean }}
               run: |
                   set -euo pipefail
+                  # `conclude` prints the check run, and exits 1 when the update went unproved.
+                  unproved=0
+                  check_run="$(uv run --frozen --project tools/change-prover \
+                      python -I tools/change-prover/change_prover/__main__.py conclude)" || unproved=$?
+                  {
+                      echo "unproved=$unproved"
+                      echo "check_run<<CHECK_RUN_JSON_EOF"
+                      echo "$check_run"
+                      echo "CHECK_RUN_JSON_EOF"
+                  } >> "$GITHUB_OUTPUT"
+
+    # stamphog waits for a completed check on every pull request that changes a dependency file, so
+    # every run posts one.
+    publish:
+        name: Publish the Dependency proof check
+        needs: [identify, prove, scan, conclude]
+        if: ${{ !cancelled() }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        environment: dependency-proof
+        steps:
+            # The private mirror skips `identify`, so this job posts no check there. The guard is
+            # on the steps because a required-check gate may not skip itself.
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.repository == 'PostHog/posthog'
+              with:
+                  client-id: ${{ vars.DEPENDENCY_PROOF_APP_ID }}
+                  private-key: ${{ secrets.DEPENDENCY_PROOF_APP_PRIVATE_KEY }}
+                  permission-checks: write
+
+            - name: Create the check run
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  CHECK_RUN: ${{ needs.conclude.outputs.check_run }}
+                  UNPROVED: ${{ needs.conclude.outputs.unproved }}
+                  IDENTIFY_RESULT: ${{ needs.identify.result }}
+                  PROVE_RESULT: ${{ needs.prove.result }}
+                  SCAN_RESULT: ${{ needs.scan.result }}
+                  CONCLUDE_RESULT: ${{ needs.conclude.result }}
+              run: |
+                  set -euo pipefail
 
                   if [[ "$REPOSITORY" != "PostHog/posthog" ]]; then
                       exit 0
                   fi
-                  # `conclude` prints the check run, and exits 1 when the update went unproved.
-                  # Empty output means the command itself broke, so nothing is posted. It runs
-                  # without the App token, which only `gh` needs.
-                  unproved=0
-                  check_run="$(env -u GH_TOKEN uv run --frozen --project tools/change-prover \
-                      python -I tools/change-prover/change_prover/__main__.py conclude)" || unproved=$?
-                  if [[ -z "$check_run" ]]; then
-                      exit 1
+                  # An empty check run means `conclude` itself broke. stamphog waits for a completed
+                  # check, so a neutral one that proves nothing is posted, and the run still fails.
+                  if [[ -z "$CHECK_RUN" ]]; then
+                      CHECK_RUN="$(jq -cn --arg head_sha "$HEAD_SHA" '{
+                          name: "Dependency proof", head_sha: $head_sha, status: "completed", conclusion: "neutral",
+                          output: {title: "Not proved", summary: "The proof job failed before it decided."}
+                      }')"
+                      UNPROVED=1
                   fi
-                  gh api --method POST "repos/$REPOSITORY/check-runs" --input - <<< "$check_run" > /dev/null
+                  gh api --method POST "repos/$REPOSITORY/check-runs" --input - <<< "$CHECK_RUN" > /dev/null
 
                   if [[ "$IDENTIFY_RESULT" != "success" ]]; then
                       exit 1
@@ -213,4 +252,7 @@ jobs:
                   if [[ "$SCAN_RESULT" != "success" && "$SCAN_RESULT" != "skipped" ]]; then
                       exit 1
                   fi
-                  exit "$unproved"
+                  if [[ "$CONCLUDE_RESULT" != "success" && "$CONCLUDE_RESULT" != "skipped" ]]; then
+                      exit 1
+                  fi
+                  exit "${UNPROVED:-1}"

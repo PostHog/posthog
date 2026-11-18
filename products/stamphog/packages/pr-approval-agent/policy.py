@@ -494,8 +494,8 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
         issuer = entry.get("issuer", "")
         if "issuer" in entry:
             _require(
-                isinstance(issuer, str) and is_plain_repo_path(issuer) and not issuer.endswith("/"),
-                f"{context}.issuer: must be a plain repo-relative file path",
+                isinstance(issuer, str) and is_issuer_path(issuer),
+                f"{context}.issuer: must be a plain .yml or .yaml path outside the engine directories",
             )
         attestations.append(
             Attestation(
@@ -515,12 +515,23 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
 def is_plain_repo_path(path: str) -> bool:
     """A repo-relative path with no glob, no `.` or `..` segment, and no empty segment.
 
-    A trailing `/` marks a directory. The server writes an issuer manifest into the review tree at
-    the path the policy names, and holds the path to the same rule.
+    A trailing `/` marks a directory.
     """
     if not path or _GLOB_CHARACTERS_RE.search(path):
         return False
     return all(segment not in ("", ".", "..") for segment in path.removesuffix("/").split("/"))
+
+
+def is_issuer_path(path: str) -> bool:
+    """A plain repo-relative YAML file outside the directories the engine and its owners package run from.
+
+    The server writes the manifest into the tree the engine runs from, at this path. A `.py` file
+    there, or any file beside those modules, would run as code when the engine imports its modules.
+    The server's `issuer_manifests.py` holds the path to the same rule.
+    """
+    if not is_plain_repo_path(path) or not path.endswith((".yml", ".yaml")):
+        return False
+    return not path.startswith(("tools/pr-approval-agent/", "tools/owners/"))
 
 
 def parse_issuer_manifest(text: str, own_path: str) -> tuple[str, ...]:

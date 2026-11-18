@@ -7,18 +7,34 @@ after it removes the PR head's copy.
 """
 
 import re
+from pathlib import PurePosixPath
 from typing import TypeGuard
 
 import yaml
 
-# Mirrors `is_plain_repo_path` in the engine's policy.py, which refuses a policy whose `issuer` breaks
-# it. The server writes the manifest into a tree at this path, so a path that escapes the tree or
-# names a directory is never written, and the engine then refuses the policy that names it.
+from products.stamphog.backend.temporal.constants import (
+    STAMPHOG_SANDBOX_ENGINE_DIR,
+    STAMPHOG_SANDBOX_OWNERS_DIR,
+    STAMPHOG_SANDBOX_REPO_DIR,
+)
+
+# Mirrors `is_issuer_path` in the engine's policy.py, which refuses a policy whose `issuer` breaks it.
+# The worker writes the manifest into the tree it runs the engine from, at the path the repository
+# chose. A `.py` file there, or any file beside the engine or owners modules, would be imported by
+# the worker's engine subprocess as code. So only a YAML file outside those directories is written,
+# and the engine then refuses the policy that names any other path.
 _GLOB_CHARACTERS_RE = re.compile(r"[*?\[\]{}\\]")
+_MANIFEST_SUFFIXES = (".yml", ".yaml")
+_ENGINE_TREE_PREFIXES = tuple(
+    f"{PurePosixPath(directory).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()}/"
+    for directory in (STAMPHOG_SANDBOX_ENGINE_DIR, STAMPHOG_SANDBOX_OWNERS_DIR)
+)
 
 
 def _is_plain_file_path(path: object) -> TypeGuard[str]:
-    if not isinstance(path, str) or not path or path.endswith("/") or _GLOB_CHARACTERS_RE.search(path):
+    if not isinstance(path, str) or not path.endswith(_MANIFEST_SUFFIXES) or _GLOB_CHARACTERS_RE.search(path):
+        return False
+    if path.startswith(_ENGINE_TREE_PREFIXES):
         return False
     return all(segment not in ("", ".", "..") for segment in path.split("/"))
 

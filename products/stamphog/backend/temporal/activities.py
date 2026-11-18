@@ -83,6 +83,7 @@ from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
     GateAttestation,
     PregateOutcome,
+    check_outside_engine_tree,
     engine_source_files,
     fetch_folder_policy_files,
     fetch_manifest_contents,
@@ -2554,6 +2555,7 @@ def _review_payload_archive(policy_files: dict[str, str], context_json: str) -> 
     Each ``write_file`` and ``execute`` call is one round trip to the sandbox provider, and the engine
     alone is some twenty files. One archive and one extract command replace them.
     """
+    check_outside_engine_tree(policy_files)
     members = {
         **policy_files,
         **{f"{_ENGINE_RELATIVE_DIR}/{name}": content for name, content in engine_source_files().items()},
