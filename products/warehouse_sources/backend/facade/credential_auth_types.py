@@ -314,6 +314,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "collibra": "credentials",
     "commercetools": "credentials",
     "commission-junction": "credentials",
+    "common-room": "token",
     "commslayer": "credentials",
     "companycam": "token",
     "concord": "credentials",

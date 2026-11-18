@@ -312,6 +312,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Collibra": "collibra",
     "Commercetools": "commercetools",
     "CommissionJunction": "commission-junction",
+    "CommonRoom": "common-room",
     "Commslayer": "commslayer",
     "Companycam": "companycam",
     "Concord": "concord",
