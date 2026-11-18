@@ -28,7 +28,7 @@ describe('manualCosts', () => {
             expected: {
                 prompt_token: 0.0000025,
                 completion_token: 0.000015,
-                cache_read_token: 0.000000625,
+                cache_read_token: 0.00000025,
             },
         },
         {
@@ -41,8 +41,9 @@ describe('manualCosts', () => {
         {
             model: 'mistral-large-latest',
             expected: {
-                prompt_token: 0.000002,
-                completion_token: 0.000006,
+                prompt_token: 0.0000007,
+                completion_token: 0.0000021,
+                cache_read_token: 0.00000007,
             },
         },
         {
@@ -85,6 +86,42 @@ describe('manualCosts', () => {
         if (expected.cache_read_token !== undefined) {
             expect(modelEntry?.cost.default.cache_read_token).toBe(expected.cache_read_token)
         }
+    })
+
+    // Rows generated from llm-prices by `pnpm update-ai-costs`, priced end to end.
+    describe('direct-provider pricing through ingestion', () => {
+        it('prices mistral-large-latest at the Mistral Large 4 list rate', () => {
+            const result = processCost(
+                createAIEvent({
+                    $ai_provider: 'mistral',
+                    $ai_model: 'mistral-large-latest',
+                    $ai_input_tokens: 1_000_000,
+                    $ai_output_tokens: 1_000_000,
+                })
+            )
+
+            expect(result.properties.$ai_model_cost_used).toBe('mistral-large-latest')
+            expect(result.properties.$ai_input_cost_usd).toBeCloseTo(0.7, 8)
+            expect(result.properties.$ai_output_cost_usd).toBeCloseTo(2.1, 8)
+            expect(result.properties.$ai_total_cost_usd).toBeCloseTo(2.8, 8)
+        })
+
+        it('prices cache reads above 200k Gemini 2.5 Pro input tokens at the long-context cache rate', () => {
+            const result = processCost(
+                createAIEvent({
+                    $ai_provider: 'google',
+                    $ai_model: 'gemini-2.5-pro-preview',
+                    $ai_input_tokens: 300_000,
+                    $ai_cache_read_input_tokens: 100_000,
+                    $ai_output_tokens: 1_000,
+                })
+            )
+
+            expect(result.properties.$ai_model_cost_used).toBe('gemini-2.5-pro-preview:large')
+            // (200,000 uncached x $2.50 + 100,000 cached x $0.25) / 1M
+            expect(result.properties.$ai_input_cost_usd).toBeCloseTo(0.525, 8)
+            expect(result.properties.$ai_output_cost_usd).toBeCloseTo(0.015, 8)
+        })
     })
 
     // These TTS models accept text input and emit audio output. They must resolve

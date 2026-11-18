@@ -1,0 +1,49 @@
+[
+    {
+        "model": "gemini-2.5-pro-preview:large",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.000015,
+                "cache_read_token": 2.5e-7
+            }
+        }
+    },
+    {
+        "model": "mistral-large-latest",
+        "cost": {
+            "default": {
+                "prompt_token": 7e-7,
+                "completion_token": 0.0000021,
+                "cache_read_token": 7e-8
+            }
+        }
+    },
+    {
+        "model": "text-embedding-3-large",
+        "cost": {
+            "default": {
+                "prompt_token": 1.3e-7,
+                "completion_token": 0
+            }
+        }
+    },
+    {
+        "model": "text-embedding-3-small",
+        "cost": {
+            "default": {
+                "prompt_token": 2e-8,
+                "completion_token": 0
+            }
+        }
+    },
+    {
+        "model": "text-embedding-ada-002",
+        "cost": {
+            "default": {
+                "prompt_token": 1e-7,
+                "completion_token": 0
+            }
+        }
+    }
+]
