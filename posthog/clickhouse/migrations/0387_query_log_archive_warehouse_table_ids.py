@@ -10,6 +10,7 @@ from posthog.clickhouse.query_log_archive import (
     SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE,
     WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE,
 )
+from posthog.run_mode import run_mode
 
 # Archives the warehouse table ids that HogQL writes into log_comment as warehouse_table_ids.
 # Rows archived before this migration keep an empty array: there is no backfill.
@@ -21,27 +22,51 @@ from posthog.clickhouse.query_log_archive import (
 COLUMN = "lc_warehouse_table_ids SimpleAggregateFunction(max, Array(String))"
 AFTER = "AFTER lc_estimated_bytes"
 
-READ_ROLES = [
-    NodeRole.DATA,
-    NodeRole.AUX,
-    NodeRole.AI_EVENTS,
-    NodeRole.SESSIONS,
-    NodeRole.LOGS,
-    NodeRole.OPS,
-    NodeRole.INGESTION_EVENTS,
-    NodeRole.INGESTION_SMALL,
-    NodeRole.INGESTION_MEDIUM,
-]
-WRITE_ROLES = [
-    NodeRole.DATA,
-    NodeRole.AUX,
-    NodeRole.AI_EVENTS,
-    NodeRole.SESSIONS,
-    NodeRole.LOGS,
-    NodeRole.METRICS,
-    NodeRole.OPS,
-    NodeRole.INGESTION_METRICS,
-]
+# The roles that hold each object differ between the cloud clusters and the local multinode stack,
+# so each deployment lists the roles its HCL goldens declare: dev, prod-us and prod-eu for cloud,
+# local-multi for the rest. A role without the table fails the ALTER, so do not add a role the
+# golden lacks. The multinode migration smoke checks the local list.
+if run_mode().is_deployed_cloud:
+    READ_ROLES = [
+        NodeRole.DATA,
+        NodeRole.AUX,
+        NodeRole.AI_EVENTS,
+        NodeRole.SESSIONS,
+        NodeRole.LOGS,
+        NodeRole.OPS,
+        NodeRole.BATCH_EXPORTS,
+    ]
+    WRITE_ROLES = [
+        NodeRole.DATA,
+        NodeRole.AUX,
+        NodeRole.AI_EVENTS,
+        NodeRole.SESSIONS,
+        NodeRole.LOGS,
+        NodeRole.METRICS,
+        NodeRole.OPS,
+        NodeRole.INGESTION_METRICS,
+        NodeRole.APM,
+        NodeRole.BATCH_EXPORTS,
+    ]
+else:
+    READ_ROLES = [
+        NodeRole.DATA,
+        NodeRole.AUX,
+        NodeRole.AI_EVENTS,
+        NodeRole.SESSIONS,
+        NodeRole.LOGS,
+        NodeRole.OPS,
+        NodeRole.INGESTION_EVENTS,
+        NodeRole.INGESTION_SMALL,
+        NodeRole.INGESTION_MEDIUM,
+    ]
+    WRITE_ROLES = [
+        NodeRole.DATA,
+        NodeRole.AUX,
+        NodeRole.AI_EVENTS,
+        NodeRole.SESSIONS,
+        NodeRole.OPS,
+    ]
 
 
 def add_column(table: str) -> str:
