@@ -22,6 +22,25 @@ TeamId = str
 HogFunctionId = str
 Body = bytes
 
+EVENT_JSON_TEXT_FIELDS = frozenset(("properties", "person_properties"))
+JSON_TEXT_FIELDS = EVENT_JSON_TEXT_FIELDS | {f"group{i}_properties" for i in range(5)}
+
+
+def parse_json_text_fields(record: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    # The native events table prints these fields with sorted keys and no spaces, and the legacy table keeps the
+    # text as it was inserted. The comparison parses the text so that it checks the data and not the formatting.
+    # An event without properties exports '{}' from the native table and '' from the legacy table. The CDP
+    # consumer reads both as an empty object, so the comparison does the same.
+    parsed: dict[str, typing.Any] = {}
+    for k, v in record.items():
+        if k in EVENT_JSON_TEXT_FIELDS and v == "":
+            parsed[k] = {}
+        elif k in JSON_TEXT_FIELDS and isinstance(v, str) and v:
+            parsed[k] = json.loads(v)
+        else:
+            parsed[k] = v
+    return parsed
+
 
 class RequestData(typing.NamedTuple):
     team_id: TeamId
@@ -44,7 +63,7 @@ async def assert_clickhouse_records_were_handled(
     include_events: list[str] | None = None,
     is_backfill: bool = False,
 ):
-    handled_records = [json.loads(request.body)["clickhouse_event"] for request in handler.data]
+    handled_records = [parse_json_text_fields(json.loads(request.body)["clickhouse_event"]) for request in handler.data]
     hog_function_ids = {request.hog_function_id for request in handler.data}
 
     assert hog_function_id in hog_function_ids and len(hog_function_ids) == 1, (
@@ -117,7 +136,7 @@ async def assert_clickhouse_records_were_handled(
                     else:
                         expected_record[k] = v
 
-                expected_records.append(expected_record)
+                expected_records.append(parse_json_text_fields(expected_record))
 
     produced_column_names = list(handled_records[0].keys())
     expected_column_names = [key for key in expected_records[0].keys() if key != "_inserted_at"]
