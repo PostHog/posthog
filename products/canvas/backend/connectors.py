@@ -554,6 +554,7 @@ def _call_mcp_tool(
     actor_label: str,
     approval_token: str | None,
     approval_context: str,
+    scoped_session: bool,
 ) -> ConnectorCallResult:
     outcome = mcp_store_facade.call_member_server_tool(
         team_id,
@@ -565,6 +566,7 @@ def _call_mcp_tool(
         allow_writes=False,
         approval_token=approval_token,
         approval_context=approval_context,
+        scoped_session=scoped_session,
     )
     if outcome.status != "ok":
         return ConnectorCallResult(
@@ -593,6 +595,7 @@ def call_connector_tool(
     actor_label: str = "",
     approval_token: str | None = None,
     approval_context: str = "",
+    scoped_session: bool,
 ) -> ConnectorCallResult:
     """Run one declared connector tool as the viewer. The caller has already
     checked the canvas's capabilities and the rollout flag."""
@@ -606,7 +609,9 @@ def call_connector_tool(
             detail=f'Unknown provider "{provider}". Use a native provider ({", ".join(sorted(NATIVE_CONNECTORS))}) '
             f'or "{MCP_PROVIDER_PREFIX}<server host>".',
         )
-    return _call_mcp_tool(team_id, user_id, host, tool_name, arguments, actor_label, approval_token, approval_context)
+    return _call_mcp_tool(
+        team_id, user_id, host, tool_name, arguments, actor_label, approval_token, approval_context, scoped_session
+    )
 
 
 @frozen

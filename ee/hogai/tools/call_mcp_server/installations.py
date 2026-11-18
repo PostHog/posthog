@@ -58,7 +58,7 @@ def _get_installations(team: Team, user: User) -> list[dict]:
     rows = [
         row
         for row in rows
-        if row["user_id"] == user.id or not is_posthog_connection(row["url"], _row_bearer_token(row))
+        if row["user_id"] == user.id or not is_posthog_connection(str(row["url"]), _row_bearer_token(row))
     ]
     ready_shared_by_url = {row["url"]: row for row in rows if row["scope"] == "shared" and _is_row_ready(row)}
     results: list[dict] = []

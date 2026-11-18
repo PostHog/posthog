@@ -29,6 +29,7 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
+from products.mcp_store.backend.borrowed_credential import BORROWED_POSTHOG_CREDENTIAL_DETAIL
 from products.mcp_store.backend.connector_approvals import (
     ConnectorApprovalBinding,
     consume_connector_approval,
@@ -68,7 +69,12 @@ from products.mcp_store.backend.policy import (
     is_read_only_connector_tool,
     legacy_state_for_caller,
 )
-from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
+from products.mcp_store.backend.proxy import (
+    is_posthog_installation,
+    record_tool_call_audit,
+    resolve_call_decision,
+    validate_installation_auth,
+)
 from products.mcp_store.backend.tasks import sync_installation_tools_task
 from products.mcp_store.backend.tools import (
     ToolCallError,
@@ -985,14 +991,22 @@ def call_member_server_tool(
     allow_writes: bool = True,
     approval_token: str | None = None,
     approval_context: str = "",
+    scoped_session: bool,
 ) -> ConnectorCallOutcome:
     """Call one tool on the server at ``server_host`` with the member's own
     connection (or the team's shared one). Runs the same policy resolution
     and audit as the member proxy, so a canvas cannot reach a tool the member
-    could not call from the MCP settings page."""
+    could not call from the MCP settings page.
+
+    ``scoped_session`` marks a member whose own credential is limited to some
+    projects or organizations. That member cannot use a PostHog connection,
+    even their own, because the connection may reach further."""
     installation = member_installation_for_host(team_id, user_id, server_host)
     if installation is None:
         return ConnectorCallOutcome(status="not_connected", detail=f"You have not connected {server_host}.")
+    borrowed = installation.user_id != user_id or scoped_session
+    if borrowed and is_posthog_installation(installation):
+        return ConnectorCallOutcome(status="blocked", detail=BORROWED_POSTHOG_CREDENTIAL_DETAIL)
     access_outcome = _member_access_outcome(installation, team_id, user_id)
     if access_outcome is not None:
         return access_outcome
@@ -1056,7 +1070,7 @@ def call_member_server_tool(
         return ConnectorCallOutcome(status="blocked", detail=f"Tool '{tool_name}' is turned off by team policy.")
 
     try:
-        result = call_upstream_tool(installation, tool_name, arguments, borrowed=installation.user_id != user_id)
+        result = call_upstream_tool(installation, tool_name, arguments, borrowed=borrowed)
     except (ToolCallError, ToolsFetchError) as exc:
         logger.warning(
             "mcp_store member tool call failed",

@@ -18,7 +18,7 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
-from .borrowed_credential import BorrowedCredentialRefused, refuse_borrowed_posthog_credential
+from .borrowed_credential import BORROWED_POSTHOG_CREDENTIAL_DETAIL, BorrowedCredentialRefused, is_posthog_connection
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token
 from .policy import GatewayCaller, PolicyContext, legacy_state_for_caller
@@ -122,11 +122,19 @@ def build_upstream_auth_headers(installation: MCPServerInstallation, *, borrowed
     """`borrowed` marks a caller other than the credential's owner. BorrowedCredentialRefused is raised when that
     caller would act with a PostHog credential."""
     headers = _owner_auth_headers(installation)
-    if borrowed:
-        refuse_borrowed_posthog_credential(
-            installation.url, headers.get("Authorization", "").removeprefix("Bearer ") or None
-        )
+    if borrowed and _is_posthog_connection(installation, headers):
+        raise BorrowedCredentialRefused(BORROWED_POSTHOG_CREDENTIAL_DETAIL)
     return headers
+
+
+def is_posthog_installation(installation: MCPServerInstallation) -> bool:
+    return _is_posthog_connection(installation, _owner_auth_headers(installation))
+
+
+def _is_posthog_connection(installation: MCPServerInstallation, auth_headers: dict[str, str]) -> bool:
+    return is_posthog_connection(
+        installation.url, auth_headers.get("Authorization", "").removeprefix("Bearer ") or None
+    )
 
 
 def is_borrowed_by(installation: MCPServerInstallation, caller: GatewayCaller | None) -> bool:
@@ -578,6 +586,13 @@ def proxy_mcp_request(
             status=400,
         )
 
+    # Refused before the policy check, so that a refused call is not audited as an approved one.
+    borrowed = scoped_session or is_borrowed_by(installation, caller)
+    try:
+        auth_headers = build_upstream_auth_headers(installation, borrowed=borrowed)
+    except BorrowedCredentialRefused as exc:
+        return HttpResponse(json.dumps({"error": str(exc)}), content_type="application/json", status=403)
+
     policy_context: PolicyContext | None = None
     audit_entries: list[tuple[str, str]] = []
     if gateway_server is not None and caller is not None:
@@ -618,11 +633,6 @@ def proxy_mcp_request(
             status=413,
         )
 
-    borrowed = scoped_session or is_borrowed_by(installation, caller)
-    try:
-        auth_headers = build_upstream_auth_headers(installation, borrowed=borrowed)
-    except BorrowedCredentialRefused as exc:
-        return HttpResponse(json.dumps({"error": str(exc)}), content_type="application/json", status=403)
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",

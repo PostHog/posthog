@@ -55,6 +55,7 @@ from posthog.rate_limit import (
 from products.cdp.backend.presentation.icons import CDPIconsService
 
 from ..agents import sync_built_in_agents
+from ..borrowed_credential import BORROWED_POSTHOG_CREDENTIAL_DETAIL
 from ..facade.api import check_mcp_url_policy, resolve_member_tool_states
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
@@ -89,7 +90,13 @@ from ..oauth import (
     select_token_endpoint_auth_method,
 )
 from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_state_allowed
-from ..proxy import proxy_mcp_request, record_tool_call_audit, resolve_call_decision, validate_installation_auth
+from ..proxy import (
+    is_posthog_installation,
+    proxy_mcp_request,
+    record_tool_call_audit,
+    resolve_call_decision,
+    validate_installation_auth,
+)
 from ..tasks import sync_installation_tools_task
 from ..tools import ToolCallError, ToolsFetchError, call_upstream_tool, sync_installation_tools
 
@@ -1343,6 +1350,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        borrowed = installation.user_id != request.user.id or _is_scoped_session(request)
+        if borrowed and is_posthog_installation(installation):
+            return Response({"detail": BORROWED_POSTHOG_CREDENTIAL_DETAIL}, status=status.HTTP_403_FORBIDDEN)
+
         gateway_server = installation.gateway_server
         policy_context = (
             PolicyContext(
@@ -1375,12 +1386,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
         try:
-            result = call_upstream_tool(
-                installation,
-                tool_name,
-                arguments,
-                borrowed=installation.user_id != request.user.id or _is_scoped_session(request),
-            )
+            result = call_upstream_tool(installation, tool_name, arguments, borrowed=borrowed)
         except (ToolCallError, ToolsFetchError) as exc:
             logger.warning(
                 "mcp_store call_tool failed",
@@ -2153,12 +2159,15 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             _server_slug_base(_installation_display_name(row), row.url) for row in namespace_rows
         )
 
+        scoped_session = _is_scoped_session(request)
         servers: list[dict[str, Any]] = []
         for installation in installations:
             # The same credential check `call_tool` runs, so the list can never
             # advertise a connection the call path would immediately reject.
             ok, _error = validate_installation_auth(installation)
             if not ok:
+                continue
+            if (installation.user_id != user.id or scoped_session) and is_posthog_installation(installation):
                 continue
 
             states = resolve_member_tool_states(

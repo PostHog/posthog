@@ -28,7 +28,11 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
-from posthog.permissions import is_service_auth
+from posthog.permissions import (
+    get_authenticator_scoped_organization_ids,
+    get_authenticator_scoped_team_ids,
+    is_service_auth,
+)
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -2109,6 +2113,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 tool=tool,
                 arguments=payload.validated_data["arguments"],
                 approval_token=payload.validated_data["approval_token"],
+                scoped_session=(
+                    get_authenticator_scoped_team_ids(request.successful_authenticator) is not None
+                    or get_authenticator_scoped_organization_ids(request.successful_authenticator) is not None
+                ),
             )
         except CanvasRequestRejected as rejection:
             return Response(rejection.body, status=rejection.status_code)
