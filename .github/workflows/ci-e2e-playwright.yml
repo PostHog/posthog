@@ -1156,7 +1156,7 @@ jobs:
                   if ! pnpm --filter=@posthog/playwright exec playwright test --last-failed --retries=2 \
                       --output=test-results-quarantine-rerun --reporter=line,./playwright.quarantine.reporter.ts \
                       --trace=off --workers=2 --update-snapshots; then
-                      echo "::error::A quarantined test failed all 3 reruns, so it is treated as a real break. The rerun output above names the test."
+                      echo "::error::The rerun of the failures the quarantine masked did not pass, so the job treats them as a real break. The rerun output above shows which test or setup step failed."
                       exit 1
                   fi
             # Verdict: red a real failure the gate didn't clear as a quarantined flake, or a masked failure
