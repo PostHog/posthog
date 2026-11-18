@@ -1065,9 +1065,10 @@ _SendThrottle = rate_limit.PersonalOrProjectSecretApiKeyRateThrottle | rate_limi
 
 
 class _TeamView(APIView):
-    def __init__(self, team_id: int) -> None:
+    def __init__(self, team_id: int, throttle_classes: list[type[_SendThrottle]] | None = None) -> None:
         super().__init__()
         self.team_id = team_id
+        self.throttle_classes = throttle_classes or []
 
 
 class TestReserveUnits(BaseTest):
@@ -1110,13 +1111,11 @@ class TestReserveUnits(BaseTest):
 
     def _send(self, throttle_classes: list[type[_SendThrottle]], recipients: int) -> str | None:
         request = self._request()
+        view = _TeamView(self.team.pk, throttle_classes)
         try:
-            for throttle_class in throttle_classes:
-                throttle = throttle_class()
-                if not throttle.allow_request(request, self.view):
-                    raise exceptions.Throttled(wait=throttle.wait())
+            view.check_throttles(request)
             rate_limit.reserve_units(
-                [throttle_class() for throttle_class in throttle_classes], request, self.view, recipients - 1
+                [throttle_class() for throttle_class in throttle_classes], request, view, recipients - 1
             )
         except exceptions.Throttled as refusal:
             response = exception_handler(refusal, {"request": request})
@@ -1170,6 +1169,23 @@ class TestReserveUnits(BaseTest):
             clock.shift(int(retry_after))
             self.assertIsNone(self._send(throttle_classes, 2))
 
+    def test_a_reused_throttle_charges_nothing_left_from_a_refused_reservation(self):
+        with (
+            patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
+            patch.object(_PSAKTeamThrottleForTest, "rate", "5/minute"),
+        ):
+            self._singles_allowed(_PSAKThrottleForTest, 2)
+            throttles: list[_SendThrottle] = [_PSAKThrottleForTest(), _PSAKTeamThrottleForTest()]
+            with self.assertRaises(exceptions.Throttled):
+                rate_limit.reserve_units(throttles, self._request(), self.view, 2)
+
+            with override_instance_config("RATE_LIMIT_ENABLED", False):
+                self._clear_policy_caches()
+                rate_limit.reserve_units(throttles, self._request(), self.view, 2)
+
+            self._clear_policy_caches()
+            self.assertEqual(self._singles_allowed(_PSAKTeamThrottleForTest, 6), [True, True, True, True, True, False])
+
     def test_a_refusal_is_counted(self):
         route = rate_limit.get_route_from_path("/api/messaging/send/email_batch/")
         labels = {"team_id": str(self.team.pk), "scope": _PSAKThrottleForTest.scope, "path": route, "route": route}
@@ -1196,12 +1212,18 @@ class TestReserveUnits(BaseTest):
         with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
             self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 4), [True, True, True, False])
 
-    def test_an_over_budget_reservation_passes_when_the_cache_is_unreachable(self):
+    @parameterized.expand(
+        [
+            ("read_fails_open_over_budget", "django.core.cache.cache.get", 4),
+            ("write_fails_without_refusing", "django.core.cache.cache.set", 2),
+        ]
+    )
+    def test_a_reservation_passes_when_the_cache_fails(self, _name, cache_call, units):
         with (
             patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
-            patch("django.core.cache.cache.get", side_effect=RedisError("down")),
+            patch(cache_call, side_effect=RedisError("down")),
         ):
-            self._reserve([_PSAKThrottleForTest], 4)
+            self._reserve([_PSAKThrottleForTest], units)
 
         with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
             self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 4), [True, True, True, False])

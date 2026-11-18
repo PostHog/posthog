@@ -217,6 +217,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         self.num_requests, self.duration = self.parse_rate(self.rate)
 
     def allow_units(self, request: "Request", view: "APIView", units: int) -> bool:
+        self.units_to_charge = 0
         self.units_to_check = units
         try:
             return self.allow_request(request, view)
