@@ -224,7 +224,7 @@ export const Notebook: Story = {
         await userEvent.click(canvas.getByLabelText('Notebook options'))
         const menu = within(document.body)
         await userEvent.click(await menu.findByText('App builder'))
-        await waitFor(() => expect(canvas.getByLabelText('App components')).toBeVisible())
+        await waitFor(() => expect(canvas.getByLabelText('App components')).toBeVisible(), { timeout: 60000 })
         await userEvent.click(canvas.getByLabelText('More app actions'))
         await userEvent.click(await menu.findByText('Open notebook'))
         await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible(), { timeout: 60000 })

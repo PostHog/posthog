@@ -1,7 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { useNotebookJupyterCommands, useNotebookJupyterStoreValue } from 'lib/components/MarkdownNotebook/jupyterMode'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -13,10 +12,9 @@ import { notebookJupyterLogic } from '../Notebook/notebookJupyterLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
 import { NotebookCellOutputNameFooter } from './components/NotebookCellOutputNameFooter'
+import { NotebookCellStaleness } from './components/NotebookCellStaleness'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookJupyterCellOutput } from './components/NotebookJupyterCellOutput'
-import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
-import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { countTextLines, initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
@@ -61,7 +59,6 @@ const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodePythonV2Attributes>): JSX.Element | null => {
-    const outputOnly = !!useComponentPanelState()?.outputOnly
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic, expanded, isEditable } = useValues(nodeLogic)
 
@@ -180,19 +177,14 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
-                {!outputOnly && isStale ? (
-                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
-                        <NotebookStaleCellBanner reason={staleReason ?? undefined} />
-                    </div>
-                ) : !outputOnly && staleDownstreamCount > 0 && !isChainRunning ? (
-                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
-                        <NotebookRunDownstreamBanner
-                            count={staleDownstreamCount}
-                            onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
-                            disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
-                        />
-                    </div>
-                ) : null}
+                <NotebookCellStaleness
+                    isStale={isStale}
+                    reason={staleReason}
+                    downstreamCount={staleDownstreamCount}
+                    isChainRunning={isChainRunning}
+                    onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
+                    disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
+                />
                 {isRunning && pendingKernelStart ? (
                     <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
