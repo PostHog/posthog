@@ -81,7 +81,7 @@ class Migration(migrations.Migration):
                 "indexes": [
                     models.Index(
                         fields=["team_id", "created_at"],
-                        include=("citation_check_id", "host", "domain", "url"),
+                        include=("citation_check_id", "host", "domain"),
                         name="aeo_check_citation_window_idx",
                     )
                 ],
