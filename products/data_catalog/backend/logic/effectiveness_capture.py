@@ -51,6 +51,7 @@ def capture_effectiveness(result: TeamEffectiveness, team: Team) -> None:
                         "metric_status": row.metric_status.value if row.metric_status else None,
                         "relation": row.relation.value if row.relation else None,
                         "missed_reason": row.missed_reason.value if row.missed_reason else None,
+                        "searched": row.searched.value,
                         "metric_name": row.metric_name or None,
                         "session_started_at": row.started_at.isoformat() if row.started_at else None,
                         "is_example": row.is_example,

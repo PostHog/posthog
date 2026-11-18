@@ -26,6 +26,7 @@ from products.data_catalog.backend.logic.effectiveness import (
     MatchedQuery,
     MissedReason,
     OutcomeRow,
+    SearchKind,
     SessionEvidence,
     SessionOutcome,
     SkipReason,
@@ -39,6 +40,7 @@ from products.data_catalog.backend.logic.effectiveness import (
     merge_candidate_groups,
     missed_reason,
     nominate_read_metrics,
+    search_kind,
     split_by_question,
 )
 from products.data_catalog.backend.logic.effectiveness_capture import (
@@ -66,9 +68,16 @@ def _query(sql: str = SQL, *, trace: str = "s1") -> AgentQuery:
     return AgentQuery(occurred_at=AT, trace_id=trace, distinct_id="d1", intent="signups", sql=sql, is_scout=False)
 
 
-def _call(tool: str, metric_name: str = "", *, failed: bool = False, minutes: int = -1) -> CatalogCall:
+def _call(
+    tool: str, metric_name: str = "", *, failed: bool = False, minutes: int = -1, searched_tables: bool = False
+) -> CatalogCall:
     return CatalogCall(
-        trace_id="s1", occurred_at=AT + timedelta(minutes=minutes), tool=tool, metric_name=metric_name, failed=failed
+        trace_id="s1",
+        occurred_at=AT + timedelta(minutes=minutes),
+        tool=tool,
+        metric_name=metric_name,
+        failed=failed,
+        searched_tables=searched_tables,
     )
 
 
@@ -101,7 +110,7 @@ def _outcomes(
         session_id="s1",
         client="claude",
         source="mcp",
-        asked=bool(calls),
+        searched=search_kind(calls),
         used_metric_ids=used,
         used_table=used_table,
         matches=matches,
@@ -116,33 +125,66 @@ class TestSessionOutcomes(SimpleTestCase):
                 "ran_a_metric",
                 {"calls": [_call("data-catalog-metric-run", "signups")], "used": frozenset({SIGNUPS_ID})},
                 SessionOutcome.USED,
+                SearchKind.CATALOG,
             ),
-            ("read_a_described_table", {"calls": [_call("execute-sql")], "used_table": True}, SessionOutcome.USED),
+            (
+                "read_a_described_table",
+                {"calls": [_call("execute-sql", searched_tables=True)], "used_table": True},
+                SessionOutcome.USED,
+                SearchKind.TABLES,
+            ),
             (
                 "read_then_wrote_sql",
                 {"calls": [_call("metric-describe", "signups")], "matches": (_match(),)},
                 SessionOutcome.ADAPTED,
+                SearchKind.CATALOG,
             ),
-            ("listed_then_wrote_sql", {"calls": [_call("metric-list")], "matches": (_match(),)}, SessionOutcome.MISSED),
+            (
+                "listed_then_wrote_sql",
+                {"calls": [_call("metric-list")], "matches": (_match(),)},
+                SessionOutcome.MISSED,
+                SearchKind.CATALOG,
+            ),
             (
                 "read_another_metric_then_wrote_sql",
                 {"calls": [_call("metric-describe", "revenue")], "matches": (_match(),)},
                 SessionOutcome.MISSED,
+                SearchKind.CATALOG,
+            ),
+            (
+                "searched_the_metrics_table_then_wrote_sql",
+                {"calls": [_call("execute-sql")], "matches": (_match(),)},
+                SessionOutcome.MISSED,
+                SearchKind.CATALOG,
             ),
             (
                 "searched_tables_then_wrote_sql",
-                {"calls": [_call("execute-sql")], "matches": (_match(),)},
-                SessionOutcome.MISSED,
+                {"calls": [_call("execute-sql", searched_tables=True)], "matches": (_match(),)},
+                SessionOutcome.DID_NOT_ASK,
+                SearchKind.TABLES,
             ),
-            ("never_asked", {"calls": [], "matches": (_match(),)}, SessionOutcome.DID_NOT_ASK),
-            ("asked_and_nothing_fit", {"calls": [_call("metric-list")]}, SessionOutcome.ASKED_NO_MATCH),
-            ("never_asked_and_nothing_fit", {"calls": []}, SessionOutcome.DID_NOT_ASK),
+            ("never_asked", {"calls": [], "matches": (_match(),)}, SessionOutcome.DID_NOT_ASK, SearchKind.NONE),
+            (
+                "asked_and_nothing_fit",
+                {"calls": [_call("metric-list")]},
+                SessionOutcome.ASKED_NO_MATCH,
+                SearchKind.CATALOG,
+            ),
+            (
+                "searched_tables_and_nothing_fit",
+                {"calls": [_call("execute-sql", searched_tables=True)]},
+                SessionOutcome.DID_NOT_ASK,
+                SearchKind.TABLES,
+            ),
+            ("never_asked_and_nothing_fit", {"calls": []}, SessionOutcome.DID_NOT_ASK, SearchKind.NONE),
         ]
     )
-    def test_each_kind_of_session_gets_its_outcome(self, _name: str, evidence: dict, expected: SessionOutcome) -> None:
+    def test_each_kind_of_session_gets_its_outcome(
+        self, _name: str, evidence: dict, expected: SessionOutcome, searched: SearchKind
+    ) -> None:
         rows = _outcomes(**evidence)
 
-        assert [row.outcome for row in rows] == [expected]
+        assert [(row.outcome, row.searched) for row in rows] == [(expected, searched)]
         assert rows[0].is_headline
 
     def test_a_run_metric_that_is_also_derived_again_stays_used(self) -> None:
@@ -185,7 +227,7 @@ class TestSessionOutcomes(SimpleTestCase):
         )
 
         assert evidence.used_metric_ids == expected
-        assert evidence.asked
+        assert evidence.searched == SearchKind.CATALOG
 
     @parameterized.expand(
         [
@@ -580,6 +622,13 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         self._session("saved", "weekly signups", None, tool="insight-query")
         self._session("metadata", "weekly signups", "SELECT name FROM system.information_schema.metrics")
         self._session("listonly", "weekly signups", None, "metric-list", tool="metric-list")
+        self._session(
+            "tables",
+            "weekly signups",
+            self.SIGNUPS_SQL,
+            "execute-sql",
+            span_query="SELECT table_name, description FROM system.information_schema.tables",
+        )
         # The session starts at the window start, and its catalog listing comes a minute before it.
         self._session("early", "weekly signups", self.SIGNUPS_SQL, "metric-list", minutes=-42 * 60)
         # Its chain reaches into the window, but this conversation ends before the window starts.
@@ -596,7 +645,7 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         result = self._measure(_FakeClient())
 
         assert isinstance(result, TeamEffectiveness)
-        assert result.analysis_sessions == 8
+        assert result.analysis_sessions == 9
         assert {row.session_id: (row.outcome, row.client) for row in result.rows if row.is_headline} == {
             "ran": (SessionOutcome.USED, "claude"),
             "read": (SessionOutcome.ADAPTED, "claude"),
@@ -606,9 +655,16 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
             "nofit": (SessionOutcome.DID_NOT_ASK, "claude"),
             "asked": (SessionOutcome.ASKED_NO_MATCH, "claude"),
             "listonly": (SessionOutcome.ASKED_NO_MATCH, "claude"),
+            "tables": (SessionOutcome.DID_NOT_ASK, "claude"),
         }
         assert next(row for row in result.rows if row.session_id == "early").missed_reason == MissedReason.UNKNOWN
-        assert result.served_share == 2 / 8
+        assert result.served_share == 2 / 9
+        searched = {row.session_id: row.searched for row in result.rows if row.is_headline}
+        assert (searched["listed"], searched["tables"], searched["silent"]) == (
+            SearchKind.CATALOG,
+            SearchKind.TABLES,
+            SearchKind.NONE,
+        )
         silent = next(row for row in result.rows if row.session_id == "silent")
         assert (silent.metric_name, silent.asset_kind, silent.reasoning) == ("", AssetKind.NONE, "")
         assert silent.question == "weekly signups"

@@ -2,7 +2,9 @@
 
 Each analysis session lands in one of five outcomes: used, adapted, missed, asked with no match, and
 did not ask. Every analysis session should ask the catalog, so a session that did not ask counts even
-when no metric fits. Its asset kind says whether a metric existed.
+when no metric fits. Its asset kind says whether a metric existed. Each row also says what the session
+searched: the metric catalog, only table descriptions, or nothing. Only a search of the metric catalog
+counts as asking.
 The results go to PostHog's own project as events, so that staff can compare teams. They never go
 into a usage snapshot, because the usage tab and its API show snapshots to the team.
 """
@@ -77,7 +79,7 @@ from .usage_topics import SessionLookups, decode_nested_json, fetch_session_look
 logger = structlog.get_logger(__name__)
 
 # Raise this when a rule changes, so that a change in the rules does not read as a change in behavior.
-DEFINITION_VERSION = 1
+DEFINITION_VERSION = 2
 
 # Each candidate chain costs a model call to join its pieces, and each joined conversation costs one
 # model read. This check takes a larger sample than the usage scan, because it splits the sessions into
@@ -189,6 +191,12 @@ class MissedReason(StrEnum):
     UNKNOWN = "unknown"
 
 
+class SearchKind(StrEnum):
+    CATALOG = "catalog"
+    TABLES = "tables"
+    NONE = "none"
+
+
 class SkipReason(StrEnum):
     NO_AI_CONSENT = "no_ai_consent"
 
@@ -199,11 +207,22 @@ _EXAMPLE_OUTCOMES = frozenset({SessionOutcome.MISSED, SessionOutcome.DID_NOT_ASK
 _OUTCOME_ORDER = tuple(SessionOutcome)
 
 
+def search_kind(calls: Iterable[CatalogCall]) -> SearchKind:
+    """A metric catalog call outranks a table search, because only the catalog can show the agent a metric."""
+    found = list(calls)
+    if any(not call.searched_tables for call in found):
+        return SearchKind.CATALOG
+    return SearchKind.TABLES if found else SearchKind.NONE
+
+
 def fetch_outcome(query: AgentQuery, metric_name: str, calls: Iterable[CatalogCall]) -> SessionOutcome:
     """How the agent reached a query that re-derives a metric: through the metric, past the catalog, or without it."""
     if read_metric_first(query, metric_name, calls):
         return SessionOutcome.ADAPTED
-    if any(call.trace_id == query.trace_id and call.occurred_at <= query.occurred_at for call in calls):
+    if any(
+        call.trace_id == query.trace_id and call.occurred_at <= query.occurred_at and not call.searched_tables
+        for call in calls
+    ):
         return SessionOutcome.MISSED
     return SessionOutcome.DID_NOT_ASK
 
@@ -251,6 +270,7 @@ class OutcomeRow:
     metric_status: MetricStatus | None = None
     relation: JudgeRelation | None = None
     missed_reason: MissedReason | None = None
+    searched: SearchKind = SearchKind.NONE
     metric_name: str = ""
     started_at: datetime | None = None
     is_example: bool = False
@@ -294,7 +314,7 @@ class SessionEvidence:
     session_id: str
     client: str
     source: str
-    asked: bool
+    searched: SearchKind
     used_metric_ids: frozenset[UUID]
     used_table: bool
     matches: tuple[MatchedQuery, ...]
@@ -418,7 +438,8 @@ def classify_session(
         )
 
     if not rows:
-        outcome = SessionOutcome.ASKED_NO_MATCH if evidence.asked else SessionOutcome.DID_NOT_ASK
+        asked = evidence.searched == SearchKind.CATALOG
+        outcome = SessionOutcome.ASKED_NO_MATCH if asked else SessionOutcome.DID_NOT_ASK
         rows.append(_row(evidence, outcome, AssetKind.NONE))
     return _mark_headline(rows)
 
@@ -450,6 +471,7 @@ def _row(
         relation=relation,
         reasoning=reasoning,
         missed_reason=missed_reason,
+        searched=evidence.searched,
     )
 
 
@@ -648,7 +670,7 @@ def build_evidence(
         source=session.source,
         started_at=session.started_at,
         question=question,
-        asked=bool(calls),
+        searched=search_kind(calls),
         used_metric_ids=_used_metric_ids(calls, metric_ids_by_name),
         used_table=verdict is not None and verdict.description,
         matches=tuple(matches),
@@ -941,7 +963,11 @@ class CoverageUnavailable(Exception):
 def _queries_after_asking(activity: _AgentActivity) -> list[AgentQuery]:
     """Only a query after a catalog call shows how the agent used what it found. A conversation that never
     asked is `did_not_ask` whatever metrics existed, so its queries need no matching."""
-    first_ask = {unit: calls[0].occurred_at for unit, calls in activity.calls_by_trace.items() if calls}
+    first_ask = {
+        unit: catalog[0].occurred_at
+        for unit, calls in activity.calls_by_trace.items()
+        if (catalog := [call for call in calls if not call.searched_tables])
+    }
     return [
         query
         for query in activity.queries
