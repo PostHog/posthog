@@ -83,9 +83,10 @@ def _dependencies_query(
 ) -> ast.SelectQuery:
     # The callee side is the right side of the join, so ClickHouse builds its hash table from entry
     # spans only, one per request, not from every span in the window. A client span whose child call
-    # has the same kind or reaches the same callee is a wrapper, such as a retry around the real call,
-    # and gets no edge of its own: the inner span already draws that dependency. A database or queue span over an
-    # HTTP call keeps its edge, since the child only names the host. A leaf call whose target
+    # has the same kind or reaches a service that the wrapper names is a wrapper, such as a retry around
+    # the real call, and gets no edge of its own: the inner span already draws that dependency. A database
+    # or queue span over an HTTP call that reaches no service keeps its edge, even when the child names a
+    # host spelled like the database system. A leaf call whose target
     # is a service with spans in the window never reached it, say a timeout, and counts on that
     # service's edge rather than being dropped or drawn as a second, inferred node.
     reached = f"({_HAS_CALLEE} OR p.target_is_service)"
@@ -121,7 +122,7 @@ def _dependencies_query(
                 x.trace_id AS trace_id,
                 x.parent_span_id AS parent_span_id,
                 groupUniqArray(x.target_kind) AS child_kinds,
-                groupUniqArray(if(notEmpty(ifNull(e.service_name, '')), e.service_name, x.target)) AS child_callees
+                groupUniqArrayIf(e.service_name, notEmpty(ifNull(e.service_name, ''))) AS child_callees
             FROM (
                 SELECT trace_id, span_id, parent_span_id, {_TARGET} AS target, {_TARGET_KIND} AS target_kind
                 FROM posthog.trace_spans

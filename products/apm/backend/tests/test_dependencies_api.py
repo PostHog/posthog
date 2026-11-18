@@ -133,6 +133,20 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
             attributes={"server.address": "api-lb.internal"},
         )
         w.span("api", name="GET /orders", env="prod", trace=6, parent=http)
+        # A database client without a namespace over HTTP to a host named like the database system.
+        job = w.span("worker", name="run", env="prod", trace=7)
+        query = w.span(
+            "worker", name="SELECT", kind=3, env="prod", trace=7, parent=job, attributes={"db.system": "clickhouse"}
+        )
+        w.span(
+            "worker",
+            name="POST",
+            kind=3,
+            env="prod",
+            trace=7,
+            parent=query,
+            attributes={"server.address": "clickhouse"},
+        )
         root = w.span("eu-web", name="GET /", env="staging", trace=10)
         w.span("eu-web", name="query", kind=3, env="staging", trace=10, parent=root, attributes={"db.system": "redis"})
         w.insert()
@@ -147,20 +161,22 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_service_and_inferred_edges_with_caller_side_metrics(self) -> None:
         data = self._get()
-        edges = {(e["caller"], e["callee"]): e for e in data["edges"]}
+        edges = {(e["caller"], e["callee"], e["kind"]): e for e in data["edges"]}
         self.assertEqual(
-            {key: (e["inferred"], e["kind"], e["requests"], e["error_count"]) for key, e in edges.items()},
+            {key: (e["inferred"], e["requests"], e["error_count"]) for key, e in edges.items()},
             {
-                ("web", "api"): (False, "service", 6, 2),
-                ("api", "web"): (False, "service", 4, 0),
-                ("api", "postgresql:orders"): (True, "database", 4, 0),
-                ("api", "redis"): (True, "database", 4, 0),
-                ("api", "clickhouse:events"): (True, "database", 1, 0),
-                ("api", "ch.internal"): (True, "external", 1, 0),
-                ("api", "payments.example.com"): (True, "external", 2, 2),
+                ("web", "api", "service"): (False, 6, 2),
+                ("api", "web", "service"): (False, 4, 0),
+                ("api", "postgresql:orders", "database"): (True, 4, 0),
+                ("api", "redis", "database"): (True, 4, 0),
+                ("api", "clickhouse:events", "database"): (True, 1, 0),
+                ("api", "ch.internal", "external"): (True, 1, 0),
+                ("api", "payments.example.com", "external"): (True, 2, 2),
+                ("worker", "clickhouse", "database"): (True, 1, 0),
+                ("worker", "clickhouse", "external"): (True, 1, 0),
             },
         )
-        self.assertGreaterEqual(edges[("web", "api")]["p95_ms"], 50)
+        self.assertGreaterEqual(edges[("web", "api", "service")]["p95_ms"], 50)
         self.assertFalse(data["truncated"])
 
     def test_service_filter_keeps_edges_on_either_side(self) -> None:
