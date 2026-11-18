@@ -5,6 +5,7 @@ from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import NotImplementedError as HogQLNotImplementedError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
@@ -13,6 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.ai.ai_column_rewriter import EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES
 from posthog.hogql_queries.ai.utils import filled_property_filters
 from posthog.models import Team, User
 
@@ -232,7 +234,10 @@ def load_selection_page(
             user=user,
             query_type=SELECTION_QUERY_NAME,
             workload=Workload.ONLINE,
-            settings=HogQLGlobalSettings(max_execution_time=_SELECTION_QUERY_SECONDS),
+            context=HogQLContext(
+                team_id=team.pk, user=user, property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES
+            ),
+            settings=HogQLGlobalSettings(max_execution_time=_SELECTION_QUERY_SECONDS, timeout_overflow_mode="throw"),
         )
     page, total, errors, feedback = response.results[0]
     return SelectionPage(
