@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 from unittest import mock
@@ -103,6 +104,29 @@ class TestGetRowsTopLevel:
         )
 
         assert result.rows == [{"id": "c1", "name": "ops"}]
+
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            ("uptime_locations", "/v1/uptime-locations"),
+            ("pagespeed_locations", "/v1/pagespeed-locations"),
+        ],
+    )
+    def test_location_lookup_reads_single_unpaginated_list(self, endpoint, path):
+        rows = [
+            {"description": "Example Region - 1", "region": "Example / North", "region_code": "north", "status": "up"},
+            {
+                "description": "Example Region - 2",
+                "region": "Example / South",
+                "region_code": "south",
+                "status": "down",
+            },
+        ]
+        result = _driver().run(endpoint, [_ok({"data": rows})])
+
+        assert result.rows == rows
+        assert len(result.requests) == 1
+        assert urlsplit(result.urls[0]).path == path
 
     def test_resumes_from_saved_page(self):
         result = _driver().run(

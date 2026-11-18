@@ -633,7 +633,7 @@ export function CodeEditor({
         }
     }, [isVisible])
 
-    if (originalValue) {
+    if (originalValue !== undefined) {
         // If originalValue is provided, we render a diff editor instead
         const diffEditorOnMount = (diff: importedEditor.IStandaloneDiffEditor, monaco: Monaco): void => {
             // Same lazy-facade race as editorOnMount: bail if we already unmounted.

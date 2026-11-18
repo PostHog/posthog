@@ -5,10 +5,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
-import { certificationSummaryText, countOf } from '../suggestionCopy'
+import { suggestionCountsText, countOf } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { CertificationSuggestionRow } from './CertificationSuggestionRow'
 import { DeprecateSuggestionModal } from './DeprecateSuggestionModal'
+import { DismissSuggestionModal } from './DismissSuggestionModal'
 import { SuggestionsBanner } from './SuggestionsBanner'
 import { SuggestionsReviewModal } from './SuggestionsReviewModal'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
@@ -54,7 +55,7 @@ export function SuggestedCertificationsTableContent(): JSX.Element | null {
                                     'certification suggestions'
                                 )}
                             </strong>
-                            <span translate="no">{`: ${certificationSummaryText(surfaceSuggestions)}`}</span>
+                            <span translate="no">{`: ${suggestionCountsText(surfaceSuggestions)}`}</span>
                         </>
                     }
                 />
@@ -62,13 +63,14 @@ export function SuggestedCertificationsTableContent(): JSX.Element | null {
             {showWaitingNotice && <WaitingSuggestionsNotice />}
             <SuggestionsReviewModal
                 title="Certification suggestions"
-                summary={certificationSummaryText(surfaceSuggestions)}
+                summary={suggestionCountsText(surfaceSuggestions)}
             >
                 {listedSuggestions.map((suggestion) => (
                     <CertificationSuggestionRow key={suggestion.id} suggestion={suggestion} windowDays={windowDays} />
                 ))}
             </SuggestionsReviewModal>
             <DeprecateSuggestionModal />
+            <DismissSuggestionModal />
         </>
     )
 }

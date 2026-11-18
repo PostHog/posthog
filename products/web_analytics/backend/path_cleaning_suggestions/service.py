@@ -11,7 +11,7 @@ import structlog
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
 from posthog.models import Team
 
 from products.web_analytics.backend.path_cleaning_suggestions.prompts import (
@@ -27,6 +27,7 @@ DEFAULT_SAMPLE_DAYS = 30
 DEFAULT_SAMPLE_LIMIT = 300
 DEFAULT_MIN_DISTINCT_PATHS = 50
 MAX_EXAMPLES_PER_RULE = 3
+MAX_RESPONSE_TOKENS = 4096
 
 
 @dataclasses.dataclass
@@ -123,17 +124,22 @@ def _extract_json(content: str) -> dict:
 
 
 def call_llm_for_rules(team: Team, paths: list[tuple[str, int]], *, model: str) -> SuggestedRulesResponse:
-    client = get_llm_client(product="web_analytics", team_id=team.id)
-    completion = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": build_user_prompt(paths)},
-        ],
-        temperature=0.2,
-        user=f"team-{team.id}",
+    distinct_id = team_distinct_id(team.id)
+    client = build_anthropic_client(
+        "web_analytics",
+        ai_product="web_analytics",
+        team_id=team.id,
+        distinct_id=distinct_id,
     )
-    content = completion.choices[0].message.content or ""
+    response = client.messages.create(
+        model=model,
+        max_tokens=MAX_RESPONSE_TOKENS,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": build_user_prompt(paths)}],
+        temperature=0.2,
+        metadata={"user_id": distinct_id},
+    )
+    content = "".join(block.text for block in response.content if block.type == "text")
     return SuggestedRulesResponse.model_validate(_extract_json(content))
 
 

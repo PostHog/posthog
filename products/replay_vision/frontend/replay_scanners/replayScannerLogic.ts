@@ -70,7 +70,7 @@ import {
     parseSortParam,
     serializeSortParam,
 } from '../utils/urlParams'
-import { draftChanges } from './draftChanges'
+import { draftChanges, scannerModelChoice } from './draftChanges'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
@@ -107,7 +107,6 @@ import {
     MAX_CREDIT_LIMIT,
     OBSERVATION_CREDITS_BY_MODEL,
     OBSERVATION_LIST_URL_PARAM_KEYS,
-    SamplingMode,
     ScannerConfig,
     defaultScannerName,
     ScannerFormValues,
@@ -511,11 +510,9 @@ export interface CreditLimitState {
     seedValue: number | null
 }
 
-/** The fields a free-only change moves, copied from the saved scanner so the status updates without a reload. */
-function enabledFields(
-    saved: ReplayScannerApi
-): Pick<ReplayScannerApi, 'enabled' | 'unrunnable_reason' | 'created_by'> {
-    return { enabled: saved.enabled, unrunnable_reason: saved.unrunnable_reason, created_by: saved.created_by }
+/** The fields a toggle moves, copied from the saved scanner so the status updates without a reload. */
+function enabledFields(saved: ReplayScannerApi): Pick<ReplayScannerApi, 'enabled' | 'disabled_reason' | 'created_by'> {
+    return { enabled: saved.enabled, disabled_reason: saved.disabled_reason, created_by: saved.created_by }
 }
 
 function freeOnlyFields(
@@ -1252,6 +1249,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 entry_point: values.entryPoint,
                             })
                         }
+                        // Whether a person overrode the model the AI draft or the default offered, and in which direction.
+                        posthog.capture('replay_vision_scanner_model_chosen', {
+                            scanner_id: response.id,
+                            creation_method: values.creationMethod,
+                            entry_point: values.entryPoint,
+                            ...scannerModelChoice(values.creationMethod, values.goalDraftBaseline, scanner.model),
+                        })
                         actions.scannerSaved(scanner)
                         leaveScannerEditor(props.id, urls.replayVision(response.id))
                         // First scheduled results are minutes away, so the copy matches the Overview's
@@ -1494,8 +1498,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScannerSuccess: (_, { scanner }) => scanner,
                 // Keyed on the real save, not submitScannerSuccess — kea-forms fires that on the no-API advance path too.
                 scannerSaved: (_, { scanner }) => scanner,
-                toggleEnabledSuccess: (state, { saved }) => (state ? { ...state, ...enabledFields(saved) } : state),
-                turnOffFreeOnlySuccess: (state, { saved }) => (state ? { ...state, ...freeOnlyFields(saved) } : state),
+                toggleEnabledSuccess: (state, { saved }) =>
+                    state ? { ...state, ...freeOnlyFields(saved), ...enabledFields(saved) } : state,
+                turnOffFreeOnlySuccess: (state, { saved }) =>
+                    state ? { ...state, ...freeOnlyFields(saved), ...enabledFields(saved) } : state,
                 // Self-driving changes the prompt the model gets, so the backend bumps the version with it.
                 turnOnSelfDrivingSuccess: (state, { scannerVersion, updatedAt }) =>
                     state
@@ -2478,8 +2484,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                   : draftQuery,
                           }
                         : {}),
-                    // The budget dials the draft solved; a draft whose costing failed keeps the wizard defaults.
-                    ...(goalDraft.sampling_mode ? { sampling_mode: goalDraft.sampling_mode as SamplingMode } : {}),
+                    // The sampling rate the draft solved; a draft whose costing failed keeps the wizard default.
                     ...(goalDraft.sampling_rate != null ? { sampling_rate: goalDraft.sampling_rate } : {}),
                     // The model the draft chose for the goal, and the credit cap set to the stated
                     // budget. credit_limit_enabled is UI-only form state, so turn it on alongside.
@@ -2628,7 +2633,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         sampling_rate: scanner.sampling_rate,
                         // The proposed model prices the credit estimate.
                         model: scanner.model,
-                        sampling_mode: scanner.sampling_mode,
                         // Exclude the edited scanner from the others-sum so the forecast doesn't double-count it.
                         scanner_id: props.id !== 'new' ? props.id : null,
                     })
@@ -2672,8 +2676,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         actions.toggleEnabledFailure()
                         return
                     }
-                    // Turning on can take the scanner over, which clears its blocker and changes its creator.
-                    actions.setScannerValues(enabledFields(saved))
+                    actions.setScannerValues({ ...freeOnlyFields(saved), ...enabledFields(saved) })
                     actions.toggleEnabledSuccess(saved)
                     refreshVisionQuota()
                     lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)
@@ -2691,12 +2694,19 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     actions.turnOffFreeOnlyFailure()
                     return
                 }
+                // A scanner the free credits turned off is turned back on with it, so it scans now as the switch promises.
+                const turnOn = !values.scanner.enabled && values.scanner.disabled_reason === 'free_credits_used'
                 try {
-                    const saved = await visionScannersPartialUpdate(String(teamId), props.id, { free_only: false })
-                    actions.setScannerValues(freeOnlyFields(saved))
+                    const saved = await visionScannersPartialUpdate(String(teamId), props.id, {
+                        free_only: false,
+                        ...(turnOn && { enabled: true }),
+                    })
+                    actions.setScannerValues({ ...freeOnlyFields(saved), ...enabledFields(saved) })
                     actions.turnOffFreeOnlySuccess(saved)
                     refreshVisionQuota()
-                    lemonToast.success('Free credits only turned off')
+                    lemonToast.success(
+                        turnOn ? 'Free credits only turned off, scanning again' : 'Free credits only turned off'
+                    )
                 } catch (error: any) {
                     lemonToast.error(`Couldn't turn off free credits only${error.detail ? `: ${error.detail}` : ''}`)
                     actions.turnOffFreeOnlyFailure()

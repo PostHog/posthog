@@ -3,8 +3,8 @@ from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.admin.console.moved import MovedToConsole
-from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_inline import TeamInline
+from posthog.admin.organization_members import organization_members_table
 from posthog.models import Project
 
 
@@ -33,6 +33,7 @@ class ProjectAdmin(admin.ModelAdmin):
         "is_pending_deletion",
         "deletion_scheduled_at",
         "deletion_moved",
+        "organization_members",
     ]
     fieldsets = (
         (
@@ -50,9 +51,10 @@ class ProjectAdmin(admin.ModelAdmin):
                 )
             },
         ),
+        ("Organization members", {"fields": ("organization_members",)}),
         ("Danger zone", {"fields": ("deletion_moved",)}),
     )
-    inlines = [OrganizationMemberForRelatedInline, TeamInline]
+    inlines = [TeamInline]
 
     def organization_link(self, project: Project):
         return format_html(
@@ -66,3 +68,9 @@ class ProjectAdmin(admin.ModelAdmin):
         if not project.pk:
             return "-"
         return MovedToConsole.action("project", project, "deletion", "Deleting the project")
+
+    @admin.display(description="Members")
+    def organization_members(self, project: Project):
+        if not project.pk:
+            return "-"
+        return organization_members_table(project.organization_id)

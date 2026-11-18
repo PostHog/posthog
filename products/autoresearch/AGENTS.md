@@ -45,7 +45,9 @@ Training never ends, but exploration comes first.
 The daily sweep starts research runs on scoring days until a run fails to promote a better model or 5 research runs have run, then one run every `research_interval_days` after the latest run (`backend/training/schedule.py`).
 Each run takes `iterations_per_run` iterations, and records why it started in `kickoff_reason`.
 Per-project limits in `backend/limits.py` bound every sandbox run, however it starts (sweep, UI, API or MCP).
-A project starts at most `max_training_runs_per_day` sandbox runs (default 3) in any rolling 24 hours, across all its pipelines, and no run gets more than `max_iterations_per_run` iterations (default 10).
+A project starts at most `max_training_runs_per_day` sandbox runs (default 3) in a rolling window of 22 hours (`TRAINING_RUN_WINDOW`), across all its pipelines, and no run gets more than `max_iterations_per_run` iterations (default 10).
+The window is shorter than a day, so the runs one daily sweep starts do not hold slots in the next sweep.
+When the sweep has more due pipelines than free slots, a pipeline with no champion goes first, then a champion that cannot score, then the longest wait (see `backend/temporal/AGENTS.md`).
 Runs that `open_training_run()` opens for an external agent do not count against the daily limit, because the caller's own agent does the work.
 A project has at most `max_live_pipelines` live pipelines (default 3).
 Live means `bootstrapping`, `running` or `converged`; `draft`, `paused` and `archived` do not count.

@@ -1,31 +1,7 @@
-"""HogQL for the agent LLM token spend attributed to PRs.
+"""Coding-agent LLM token spend attributed to PRs, read from the ``events`` table.
 
-Attribution is by git **branch**, not head SHA: a coding agent stamps ``$ai_git_branch`` on its
-``$ai_generation`` events at capture time — before the PR exists — and the ``github_pull_requests``
-snapshot keeps only the latest head, so a head-SHA join would drop every push but the last (SPEC §6).
-Reads the ``events`` table directly (not the warehouse) through the same curated read handle, so the
-team scope and warehouse ACL bypass rules stay in one place.
-
-**Attribution rule (session propagation).** A per-event branch stamp alone under-counts: an agent
-explores, runs tools, and thinks *before* it creates the feature branch, and those early generations
-are stamped with whatever branch was checked out at the time — typically the base branch (agents stamp
-every event, so pre-branch work carries the base ref, not a blank). To credit that lead-in to the PR
-it became, spend is grouped by AI session (``$ai_session_id``, falling back to ``$ai_trace_id``) and,
-for a session whose first non-base branch stamp is this PR's head ref H, the following count toward H:
-
-1. any event stamped H directly (the plain branch rule, always preserved);
-2. the prefix — events before that first feature stamp that are unstamped or stamped with the base ref
-   M — because that is the pre-branch exploration that produced the branch (base-ref stamps are neutral
-   here for exactly that reason: they are what an always-stamping agent writes before the branch exists);
-3. carry-forward — an unstamped event after the first feature stamp counts for whichever branch was most
-   recently stamped at-or-before it, covering generations the agent emits without re-stamping the branch.
-
-Base-ref stamps at or after the first feature stamp are neutral, not credited: switching back to the
-base branch ends attribution. Events stamped with any other branch never count toward H. Events with no
-session and no trace id have no group, so they can only count via their own direct H stamp. The window
-and repo guard stay the OUTER filter on every counted event. Each PR evaluates a group over the stamps
-inside its own window, so a batch read whose scan spans several PRs credits each PR exactly what its
-single-PR read does.
+Attribution is by the ``$ai_git_branch`` stamp and the AI session, never by head SHA, because the PR
+snapshot keeps only the latest head (SPEC §6).
 """
 
 from collections.abc import Sequence
@@ -45,24 +21,20 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._pr_header import pr_header_placeholders, pr_header_query
 
-# Tokens are spent before a PR opens (the agent runs, then the PR is created), so the window reaches
-# back this far from created_at. The tradeoff: head_branch is reused across PRs over time, so a
-# recycled branch can pull in a neighbouring PR's spend — bounded by capping the window at the PR's
-# own open→merge/close life (below).
+# Tokens are spent before a PR opens, so the window reaches back this far from created_at. A branch
+# name is reused across PRs, so the window ends when the PR merges or closes, to limit how much of
+# another PR's spend a recycled branch pulls in.
 _LEAD_DAYS = 14
 
 _HEADER = pr_header_query("head_branch, base_branch, created_at, merged_at, closed_at")
 
-# The newest snapshot row per PR, with the same tie-break as _pr_header (updated_at, then created_at).
-# argMax skips a NULL argument, so a reopened PR would keep an older snapshot's closure date; taking the
-# whole row as one tuple keeps the newest snapshot's NULLs. __PR_FILTER__ prunes raw snapshots and must
-# only test immutable columns; __PR_WINDOW__ tests the newest snapshot, because an older open snapshot of
-# a since-closed PR would otherwise pass a window check its current row fails.
-# A PR is dropped when it has no branch to join on, no created_at to place the window (created_at comes
-# from parseDateTimeBestEffort, which yields NULL on a malformed value), or a head that is its own base
-# (a fork PR from default to default): the direct rule would sweep every default-branch generation in
-# the window onto it, and no attribution beats wrong attribution. Open PRs are still accruing spend, so
-# their window ends at now(); a closed/merged PR's ends at its close.
+# argMax skips a NULL argument, so a reopened PR would keep an older snapshot's closure date. Taking
+# the whole row as one tuple keeps the newest snapshot's NULLs.
+# __PR_FILTER__ prunes raw snapshots and must test only immutable columns. __PR_WINDOW__ tests the
+# newest snapshot, because an older open snapshot of a since-closed PR would pass a window check
+# that its current row fails.
+# A PR whose head is its own base (a fork PR from default to default) is dropped, because the direct
+# stamp rule would credit it every default-branch generation in the window.
 _PRS = """
     prs AS (
         SELECT
@@ -93,12 +65,9 @@ _PRS = """
     )
 """
 
-# The repo guard keeps events that stamped no $ai_git_repo (older agents that only carried the branch)
-# while still rejecting a same-named branch in a different repo once the repo is stamped. The compare
-# is case-insensitive: GitHub repo names are, and the stamped slug comes from a clone URL whose casing
-# need not match GitHub's canonical full_name. coalesce collapses both NULL (property absent) and ''
-# to the pass-through case. The group key is the AI session, falling back to the trace id; empty
-# properties are treated as absent everywhere (nullIf on '').
+# The repo guard keeps events that stamped no $ai_git_repo and rejects a same-named branch in another
+# repo once the repo is stamped. The compare is case-insensitive, because the stamped slug comes from
+# a clone URL whose casing need not match GitHub's full_name.
 _CANDIDATES = """
     candidates AS (
         SELECT
@@ -120,12 +89,11 @@ _CANDIDATES = """
     )
 """
 
-# One row per (group, PR) where the group stamps the PR's head inside the PR's window. Per row, `stamps`
-# is the timestamp-sorted array of (ts, branch) for the group's stamped events inside that window;
-# `feature` is the first stamp whose branch is not the PR's base ref — the "first feature stamp" that
-# anchors the prefix (before it) and the carry-forward (at/after it). Stamps outside the window are cut
-# before `feature` is picked, because a batch scan spans every requested PR and an out-of-window feature
-# stamp would otherwise turn this PR's in-window base-ref prefix neutral.
+# One row per (group, PR) where the group stamps the PR's head inside the PR's window. A group is one
+# AI session. `feature` is the first stamp whose branch is not the PR's base ref.
+# Stamps outside the window are cut before `feature` is picked, because a batch scan spans every
+# requested PR and an out-of-window feature stamp would stop this PR's in-window base-ref events
+# from counting.
 _GROUP_STAMPS = """
     group_stamps AS (
         SELECT
@@ -170,14 +138,15 @@ _GROUP_STAMPS = """
     )
 """
 
-# Each candidate yields up to two attribution keys of (branch, PR number): its own stamp, valid for any
-# PR with that head (rule 1, number 0), and, per PR its group was evaluated for, the branch the prefix
-# (rule 2) or the carry-forward (rule 3) credits for that PR. The two keys never name the same PR for one
-# event: the derived key is empty whenever the event is stamped with a non-base branch. Ungrouped
-# candidates join to no group_stamps row (g.group_key = ''), so only their own stamp can match. The
-# DISTINCT collapses the copies a candidate gets from being evaluated for several PRs, so each event
-# counts once per PR. Every counted event flows from `candidates`, which already pins the scan window
-# and repo guard; the PR's own window is checked here.
+# Each candidate yields up to two attribution keys of (branch, PR number).
+# The first is its own stamp, valid for any PR with that head (number 0).
+# The second is derived per PR its group was evaluated for. An event before the first feature stamp
+# that is unstamped or stamped with the base ref counts for the feature branch, because an agent
+# explores on the base branch before it creates the feature branch. An unstamped event at or after
+# the first feature stamp counts for the most recently stamped branch.
+# A base-ref stamp at or after the first feature stamp counts for no PR. An event with no session and
+# no trace id matches only by its own stamp. The DISTINCT collapses the copies a candidate gets from
+# being evaluated for several PRs, so each event counts once per PR.
 _MATCHED = """
     matched AS (
         SELECT DISTINCT
@@ -351,7 +320,6 @@ def query_pr_llm_spend(
     head_branch, base_branch, created_at, merged_at, closed_at = header.results[0]
     if not head_branch or created_at is None or head_branch == base_branch:
         return None
-    # None when nothing matched, so the endpoint returns llm_spend=null and the UI hides the row.
     return query_llm_spend_by_pr(
         curated=curated,
         repo_owner=repo_owner,

@@ -17,7 +17,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -658,12 +657,11 @@ function CDCConfigSection({ sourceName }: { sourceName: string }): JSX.Element {
                                 <div>
                                     <div className="flex items-center gap-2 mb-1">
                                         <h4 className="mb-0 text-base font-semibold">Change data capture (CDC)</h4>
-                                        <LemonTag type="completion">Beta</LemonTag>
                                     </div>
                                     <p className="text-sm text-secondary mb-2">
-                                        Real-time sync via PostgreSQL logical replication. Captures inserts, updates,
-                                        and <strong>deletes</strong> — the other sync modes can't. No full table scans
-                                        and no reliance on an <code>updated_at</code> field.
+                                        Streams inserts, updates, and <strong>deletes</strong> through PostgreSQL
+                                        logical replication. Changes are captured all the time and loaded into each
+                                        table on its sync schedule, every 5 minutes by default.
                                     </p>
                                 </div>
                                 <LemonSwitch checked={!!cdcEnabled} onChange={onChange} />
@@ -1053,11 +1051,9 @@ export function SourceFormComponent({
                         )
                 )}
             </Group>
-            {!isUpdateMode &&
-                showCdcConfig &&
-                !!sourceConfig.cdcEngine &&
-                featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
-                selectedAccessMethod === 'warehouse' && <CDCConfigSection sourceName={sourceConfig.name} />}
+            {!isUpdateMode && showCdcConfig && !!sourceConfig.cdcEngine && selectedAccessMethod === 'warehouse' && (
+                <CDCConfigSection sourceName={sourceConfig.name} />
+            )}
             {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField
                     name="prefix"

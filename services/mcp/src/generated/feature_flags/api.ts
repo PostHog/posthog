@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 27 enabled ops
+ * PostHog API - MCP 29 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -126,6 +126,12 @@ export const FeatureFlagsListQueryParams = () => zod.object({
         .describe(
             "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without."
         ),
+    ids: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated flag IDs, at most 200. Returns exactly those flags, including archived flags and flags that surveys or product tours own. Other filters are ignored, and soft-deleted flags are left out unless deleted=true.'
+        ),
     key: zod.string().optional().describe('Filter by exact feature flag key match. Case insensitive.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -133,7 +139,7 @@ export const FeatureFlagsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.'
+            'Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags.'
         ),
     tags: zod.string().optional().describe('JSON-encoded list of tag names to filter feature flags by.'),
     type: zod.enum(['boolean', 'experiment', 'multivariant', 'remote_config']).optional(),
@@ -1240,6 +1246,83 @@ export const FeatureFlagsUnarchiveCreateParams = () => zod.object({
 })
 
 /**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsVersionsRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    version_number: zod.number().describe('The version number to reconstruct.'),
+})
+
+/**
+ * Restore a past version of a feature flag.
+ *
+ * Sets the flag's release conditions, variants, payloads, name and evaluation options back to
+ * what they were at `version_number`. Read that version first with the versions endpoint to see
+ * what will change. The flag's key, its enabled state, and its archived state stay as they are,
+ * as do tags, evaluation contexts and how its cohorts are defined. The restore is saved as a new
+ * version, so it can be undone by restoring the version before it.
+ *
+ * Send the flag's current `version`. A change after that version is refused with 409. An
+ * approval policy that gates the change opens a change request instead. A restore to a version
+ * that matches the current configuration writes nothing and returns the flag.
+ */
+export const FeatureFlagsVersionsRestoreCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    version_number: zod.number().describe('The past version to restore.'),
+})
+
+export const featureFlagsVersionsRestoreCreateBodyAskRollbackReasonDefault = false
+export const featureFlagsVersionsRestoreCreateBodyRollbackReasonNoteMax = 1000
+
+export const featureFlagsVersionsRestoreCreateBodyVersionMin = 0
+
+export const FeatureFlagsVersionsRestoreCreateBody = () => zod.object({
+    ask_rollback_reason: zod
+        .boolean()
+        .default(featureFlagsVersionsRestoreCreateBodyAskRollbackReasonDefault)
+        .describe(
+            "When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag."
+        ),
+    rollback_reason: zod
+        .union([
+            zod
+                .enum(['errors', 'metrics', 'planned', 'wrong_configuration', 'other'])
+                .describe(
+                    '\* `errors` - Errors or bugs\n\* `metrics` - Metrics got worse\n\* `planned` - It was planned\n\* `wrong_configuration` - Wrong configuration\n\* `other` - Other'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.\n\n\* `errors` - Errors or bugs\n\* `metrics` - Metrics got worse\n\* `planned` - It was planned\n\* `wrong_configuration` - Wrong configuration\n\* `other` - Other"
+        ),
+    rollback_reason_note: zod
+        .string()
+        .max(featureFlagsVersionsRestoreCreateBodyRollbackReasonNoteMax)
+        .nullish()
+        .describe('A free-text note for `rollback_reason`. Requires `rollback_reason`.'),
+    version: zod
+        .number()
+        .min(featureFlagsVersionsRestoreCreateBodyVersionMin)
+        .nullable()
+        .describe(
+            "The flag's current `version`, from your most recent read of it. This is not the version to restore, which goes in the URL. The restore is refused with 409 if anyone changed the flag after this version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0."
+        ),
+})
+
+/**
  * Bulk delete feature flags by filter criteria or explicit IDs.
  *
  * Accepts either:
@@ -1275,7 +1358,7 @@ export const FeatureFlagsBulkDeleteCreateBody = () => zod.object({
                 .string()
                 .optional()
                 .describe(
-                    'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator.'
+                    'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags.'
                 ),
             type: zod
                 .enum(['boolean', 'multivariant', 'experiment', 'remote_config'])
@@ -1493,6 +1576,10 @@ export const ScheduledChangesListQueryParams = () => zod.object({
         .describe('Filter by model type. Use \"FeatureFlag\" to see feature flag schedules.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     record_id: zod.string().optional().describe('Filter by the ID of a specific feature flag.'),
+    record_ids: zod
+        .string()
+        .optional()
+        .describe('Comma-separated feature flag IDs. Returns the schedules of any of them, at most 200 IDs.'),
 })
 
 /**

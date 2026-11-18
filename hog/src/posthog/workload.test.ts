@@ -193,7 +193,7 @@ describe('workload credentials', () => {
             format: 'json',
             color: false,
             columns: undefined,
-            ci: true,
+            isCI: true,
         } as const
         const telemetry = new Telemetry(runtime, mode, true)
         telemetry.credentials = async () => credentials

@@ -1,9 +1,12 @@
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import { markServerResolvedIntegration, signIntegrationRef } from '../../utils/integration-input-refs'
 import { createInvocation } from '../../utils/invocation-utils'
+import { openSealedState, v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import { serializeInvocation } from './job-queue-kafka'
 import { invocationToV2JobInit } from './job-queue-postgres-v2'
 import { createInvocationSanitizer, sanitizeInvocationForPersistence } from './shared'
@@ -424,6 +427,62 @@ describe('integration input references', () => {
         })
     })
 
+    describe('inputs the executor can build again', () => {
+        const markedInvocation = () => {
+            const invocation = hogFunctionInvocation()
+            invocation.state.inputsSource = { mapping: { index: 0, fingerprint: 'fake-fingerprint' } }
+            return invocation
+        }
+        const asResult = (invocation: CyclotronJobInvocation): CyclotronJobInvocationResult => ({
+            invocation,
+            finished: false,
+            logs: [],
+            metrics: [],
+            capturedPostHogEvents: [],
+            warehouseWebhookPayloads: [],
+            messageAssets: [],
+            conversionWatchers: [],
+        })
+        const sanitizeBoth = (enabled: boolean, invocation: CyclotronJobInvocation): CyclotronJobInvocation[] => {
+            const sanitizer = createInvocationSanitizer(
+                { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '', ENCRYPTION_SALT_KEYS },
+                { isEnabled: () => enabled }
+            )
+            return [
+                sanitizer.sanitizeInvocations([invocation])[0],
+                sanitizer.sanitizeResults([asResult(invocation)])[0].invocation,
+            ]
+        }
+
+        it('stores the marker and no inputs, and leaves the invocation in memory as it was', () => {
+            const invocation = markedInvocation()
+
+            for (const sanitized of sanitizeBoth(true, invocation)) {
+                expect('inputs' in sanitized.state!.globals).toBe(false)
+                expect(sanitized.state).toMatchObject({
+                    inputsOmitted: true,
+                    inputsSource: { mapping: { index: 0, fingerprint: 'fake-fingerprint' } },
+                })
+                expect(JSON.stringify(sanitized)).not.toContain('https://example.com')
+            }
+            expect(invocation.state.globals.inputs).toEqual(resolvedInputs())
+            expect(invocation.state.inputsOmitted).toBeUndefined()
+        })
+
+        it.each([
+            ['the rollout is off', false, markedInvocation, 'fake-auth-token-value'],
+            ['the invocation has no marker', true, hogFunctionInvocation, '$integration_ref'],
+            ['a workflow paused in a function step', true, pausedWorkflowInvocation, '$integration_ref'],
+        ])('keeps the inputs when %s', (_name, enabled, buildInvocation, expected) => {
+            for (const sanitized of sanitizeBoth(enabled, buildInvocation())) {
+                const serialized = JSON.stringify(sanitized)
+                expect(serialized).toContain('"url":"https://example.com"')
+                expect(serialized).toContain(expected)
+                expect(serialized).not.toContain('inputsOmitted')
+            }
+        })
+    })
+
     it.each([
         ['no integration input', { url: 'https://example.com', body: { a: 1 } }],
         ['an integration input that did not resolve', { url: 'https://example.com', twilio: null, channels: [] }],
@@ -436,5 +495,81 @@ describe('integration input references', () => {
         delete invocation.state.globals.groups
 
         expect(sanitizeInvocationForPersistence(invocation, { integrationRefSigner: signer })).toBe(invocation)
+    })
+})
+
+describe('transactional send sealing', () => {
+    const CDP_SEALED_STATE_KEYS = '00feed0000feed0000feed0000feed00'
+    const keys = new EncryptedFields(CDP_SEALED_STATE_KEYS)
+    const CODE = 'fake-login-code-482913'
+    const send = (event: string): CyclotronJobInvocation => ({
+        id: '019a4f3e-7c1d-7000-8000-00000000c0de',
+        teamId: 2,
+        functionId: 'flow-1',
+        queue: 'email',
+        queuePriority: 1,
+        queueParameters: { type: 'email', html: CODE } as any,
+        state: {
+            event: { uuid: 'e-1', event, distinct_id: 'user-42', properties: { to: 'ada@example.com' } },
+            variables: { code: CODE },
+            globals: undefined,
+            currentAction: { id: 'email', startedAtTimestamp: 0, hogFunctionState: { vmState: { stack: [CODE] } } },
+            acceptedAt: '2026-11-17T10:00:00.000Z',
+        },
+    })
+    const sanitizer = (sealing: boolean) =>
+        createInvocationSanitizer(
+            {
+                CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+                CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: sealing,
+                CDP_SEALED_STATE_KEYS,
+                ENCRYPTION_SALT_KEYS,
+            },
+            { isEnabled: () => false }
+        )
+
+    it.each([
+        ['the postgres job state', (stored: CyclotronJobInvocation) => invocationToV2JobInit(stored).state!],
+        ['the kafka job message', (stored: CyclotronJobInvocation) => JSON.stringify(serializeInvocation(stored))],
+    ])('keeps a transactional send out of %s and reads it back whole', (name, serialize) => {
+        const invocation = send('$transactional_email')
+
+        const bytes = serialize(sanitizer(true).sanitizeInvocations([invocation])[0]).toString()
+        const read =
+            name === 'the kafka job message'
+                ? openSealedState(parseJSON(bytes), invocation, keys)
+                : v2JobToInvocation(
+                      { ...invocation, queueName: 'email', priority: 1, state: Buffer.from(bytes) } as any,
+                      keys
+                  )
+
+        expect(bytes).not.toContain(CODE)
+        expect(bytes).not.toContain('ada@example.com')
+        expect(bytes).toContain('"acceptedAt":"2026-11-17T10:00:00.000Z"')
+        expect([read.state, read.queueParameters]).toEqual([invocation.state, invocation.queueParameters])
+        expect(openSealedState(parseJSON(bytes), invocation, new EncryptedFields(ENCRYPTION_SALT_KEYS))).toMatchObject({
+            stateUnreadable: true,
+        })
+    })
+
+    it.each([undefined, ',,'])('refuses to start sealing without its own keys (%p)', (CDP_SEALED_STATE_KEYS) => {
+        expect(() =>
+            createInvocationSanitizer({
+                CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+                CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
+                CDP_SEALED_STATE_KEYS,
+                ENCRYPTION_SALT_KEYS,
+            })
+        ).toThrow('CDP_SEALED_STATE_KEYS is not set')
+    })
+
+    it.each([
+        ['the rollout is off', '$transactional_email', false],
+        ['a workflow run that is not a transactional send', '$pageview', true],
+    ])('stores the content as it is when %s', (_name, event, sealing) => {
+        const [stored] = sanitizer(sealing).sanitizeInvocations([send(event)])
+
+        expect(stored.sealed).toBeUndefined()
+        expect(JSON.stringify(stored)).toContain(CODE)
     })
 })

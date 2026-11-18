@@ -1,5 +1,23 @@
 # posthog-cli
 
+## 0.20.0 — 2026-11-12
+
+### Minor changes
+
+- [174526c9f05](https://github.com/PostHog/posthog/commit/174526c9f0577b193f4e1391c8ec9fa45e49db20) Add `--sdk none` to `exp schema pull --language typescript`, which generates only the event types, with no posthog-js dependency, for posthog-react-native or any other SDK. `--language` picks the language without a prompt — Thanks @kyleswank!
+
+## 0.19.4 — 2026-11-12
+
+### Patch changes
+
+- [390eab75e40](https://github.com/PostHog/posthog/commit/390eab75e40c02098a64e7df527e6cd39e08cdf7) Limit request diagnostics to metadata. Outside CI, API errors still show PostHog's error details and endpoint `--debug` still prints request and response bodies. In CI, both are hidden. — Thanks @marandaneto!
+
+## 0.19.3 — 2026-11-11
+
+### Patch changes
+
+- [83f1feb2b24](https://github.com/PostHog/posthog/commit/83f1feb2b2447410b3caed7c2c38df85f1e7e695) Keep presigned S3 credentials out of upload and download error logs — Thanks @jakesciotto!
+
 ## 0.19.2 — 2026-11-10
 
 ### Patch changes

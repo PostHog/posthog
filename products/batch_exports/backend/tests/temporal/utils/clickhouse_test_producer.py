@@ -14,6 +14,7 @@ import collections.abc
 
 from django.conf import settings
 
+from posthog.clickhouse.workload import Workload
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -33,7 +34,6 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
-    SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     SELECT_FROM_EVENTS_WORKFLOWS,
 )
 from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
@@ -204,9 +204,6 @@ class ClickHouseTestProducer:
             elif is_workflows:
                 self.logger.debug("Using workflows events query for batch export")
                 query_template = SELECT_FROM_EVENTS_WORKFLOWS
-            elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-                self.logger.debug("Using events_batch_export_unbounded view for batch export")
-                query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
                 self.logger.debug("Using events_batch_export_backfill view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
@@ -278,11 +275,6 @@ class ClickHouseTestProducer:
             min_records_batch_per_batch: If slicing a record batch, each slice should contain at least
                 this number of records.
         """
-        clickhouse_url = None
-        # 5 min batch exports should query a single node, which is known to have zero replication lag
-        if is_5_min_batch_export(full_range=full_range):
-            clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
-
         # Data can sometimes take a while to settle, so for 5 min batch exports we wait several seconds just to be safe.
         # For all other batch exports we wait for 1 minute since we're querying the events_recent table using a
         # distributed table and setting `max_replica_delay_for_distributed_queries` to 1 minute
@@ -293,20 +285,29 @@ class ClickHouseTestProducer:
         interval_start, interval_end = full_range
         await wait_for_delta_past_data_interval_end(interval_end, delta)
 
-        async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
+        if interval_start is not None:
+            query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+        query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        workload = Workload.OFFLINE
+        if isinstance(query_or_model, RecordBatchModel):
+            query, context = await query_or_model.as_query_with_context(interval_start, interval_end)
+            query_parameters = context.values
+            workload = context.workload or Workload.OFFLINE
+        else:
+            query = query_or_model
+
+        clickhouse_url = None
+        # 5 min batch exports should query a single node, which is known to have zero replication lag
+        if workload in (Workload.DEFAULT, Workload.OFFLINE) and is_5_min_batch_export(full_range=full_range):
+            clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
+
+        async with get_client(team_id=team_id, clickhouse_url=clickhouse_url, workload=workload) as client:
             if not await client.is_alive():
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 
-            if interval_start is not None:
-                query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
             query_id = uuid.uuid4()
             self.logger.debug("Executing query with ID '%s'", query_id)
-
-            if isinstance(query_or_model, RecordBatchModel):
-                query, query_parameters = await query_or_model.as_query_with_parameters(interval_start, interval_end)
-            else:
-                query = query_or_model
 
             try:
                 async for record_batch in client.astream_query_as_arrow(

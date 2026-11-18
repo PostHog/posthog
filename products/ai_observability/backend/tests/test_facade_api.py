@@ -76,7 +76,7 @@ READY_SUMMARY = ReadySummary(
     bullets=(SummaryItem(text="The user asks for a refund.", node_id="gen-1"),),
     notes=(),
     flow="ask → refuse",
-    model="gpt-4.1-mini",
+    model="gpt-6-luna",
     generated_at=T0,
 )
 
@@ -191,6 +191,10 @@ def test_feedback_maps_scores_texts_and_survey_responses_oldest_first() -> None:
         ("survey-2", T0 + timedelta(minutes=3))
     ]
     assert feedback.summary == contracts.TraceFeedbackSummary(total=3, thumbs_up=1, thumbs_down=0)
+    assert [(step.node_id, len(step.scores), step.response_count, step.total) for step in feedback.steps] == [
+        ("gen-uuid", 1, 0, 1),
+        ("trace-1", 0, 2, 2),
+    ]
 
 
 SURVEY_READ = call(

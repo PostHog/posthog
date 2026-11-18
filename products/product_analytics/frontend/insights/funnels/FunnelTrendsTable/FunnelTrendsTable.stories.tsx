@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import __funnelHistoricalTrends from '~/mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
@@ -63,4 +64,13 @@ export const Compare: Story = {
 
 export const CompareWithBreakdown: Story = {
     render: () => <TrendsTableStory result={funnelResultTrendsCompareWithBreakdown.result} />,
+}
+
+export const QuillCompareWithBreakdown: Story = {
+    render: () => (
+        <QuillSurfaceContext.Provider value={true}>
+            <TrendsTableStory result={funnelResultTrendsCompareWithBreakdown.result} />
+        </QuillSurfaceContext.Provider>
+    ),
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }

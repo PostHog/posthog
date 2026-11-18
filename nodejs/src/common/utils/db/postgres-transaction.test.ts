@@ -43,6 +43,16 @@ describe('postgres transaction client failures', () => {
         expect(client.listenerCount('error')).toBe(0)
     })
 
+    it('rejects with a retriable DependencyUnavailableError when the pool cannot hand out a client', async () => {
+        ;(router as any).pools
+            .get(PostgresUse.COMMON_WRITE)
+            .connect.mockRejectedValue(new Error('timeout exceeded when trying to connect'))
+
+        await expect(router.transaction(PostgresUse.COMMON_WRITE, 'merge', () => Promise.resolve())).rejects.toThrow(
+            expect.objectContaining({ name: 'DependencyUnavailableError', isRetriable: true })
+        )
+    })
+
     it('keeps the original error when ROLLBACK fails, and has the pool destroy the client', async () => {
         const rollbackFailure = new Error('Connection terminated unexpectedly')
         client.query.mockImplementation((sql: string) =>

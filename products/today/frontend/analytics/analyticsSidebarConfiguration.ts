@@ -16,6 +16,8 @@ export const DEFAULT_ANALYTICS_SIDEBAR: CustomizationApi = {
                     { type: 'link', to: { kind: 'page', page: 'analytics_all' } },
                     { type: 'link', to: { kind: 'page', page: 'analytics_mine' } },
                     { type: 'link', to: { kind: 'page', page: 'collections' } },
+                    { type: 'link', to: { kind: 'page', page: 'dashboards' } },
+                    { type: 'link', to: { kind: 'page', page: 'sql_editor' } },
                 ],
             },
             { id: 'pinned', title: 'Pinned', items: [{ type: 'list', source: 'pinned' }] },

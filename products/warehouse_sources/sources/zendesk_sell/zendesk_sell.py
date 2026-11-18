@@ -15,26 +15,28 @@ full refresh and leave incremental off until that can be verified against a live
 """
 
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlencode, urlsplit
 
 from requests import Response
 
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
     JSONResponsePaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
-from products.warehouse_sources.sources.zendesk_sell.settings import ZENDESK_SELL_ENDPOINTS
+from products.warehouse_sources.sources.zendesk_sell.settings import PER_PAGE, ZENDESK_SELL_ENDPOINTS
 
 ZENDESK_SELL_BASE_URL = "https://api.getbase.com"
 ZENDESK_SELL_HOST = "api.getbase.com"
 ZENDESK_SELL_PATH_PREFIX = "/v2/"
-PER_PAGE = 100
 
 
 class ZendeskSellUntrustedURLError(Exception):
@@ -62,10 +64,12 @@ def _validate_pagination_url(url: str) -> str:
     return url
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ZendeskSellResumeConfig:
     # Full next-page URL returned by the API. None means "start the endpoint at its first page".
     next_url: str | None = None
+    # Fan-out tables only: the state `build_dependent_resource` checkpoints over the parent listing.
+    fanout_state: dict[str, Any] | None = None
 
 
 class ZendeskSellNextPagePaginator(JSONResponsePaginator):
@@ -102,6 +106,28 @@ def _extract_item_data(item: dict[str, Any]) -> dict[str, Any]:
     return item["data"]
 
 
+def _unwrap_child_item(row: dict[str, Any]) -> dict[str, Any]:
+    """Unwrap a fan-out child's envelope item and keep the parent id that the fan-out set beside `data`."""
+    data = row.pop("data")
+    row.pop("meta", None)
+    data.update(row)
+    return data
+
+
+def _client_config(access_token: str) -> ClientConfig:
+    return {
+        "base_url": ZENDESK_SELL_BASE_URL,
+        # Auth (Bearer) goes through the framework auth config so the token is redacted from logged
+        # URLs, captured samples, and raised error messages; only the non-secret Accept header here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": access_token},
+        "paginator": ZendeskSellNextPagePaginator(),
+        # `allow_redirects=False` stops a redirect response from sending the bearer token to another
+        # host; the paginator already pins every next/resume URL to the API origin.
+        "allow_redirects": False,
+    }
+
+
 def zendesk_sell_source(
     access_token: str,
     endpoint: str,
@@ -110,19 +136,50 @@ def zendesk_sell_source(
     resumable_source_manager: ResumableSourceManager[ZendeskSellResumeConfig],
 ) -> SourceResponse:
     config = ZENDESK_SELL_ENDPOINTS[endpoint]
+    response_kwargs: dict[str, Any] = {
+        "name": endpoint,
+        "primary_keys": config.primary_keys,
+        "partition_count": 1,
+        "partition_size": 1,
+        "partition_mode": "datetime" if config.partition_key else None,
+        "partition_format": "month" if config.partition_key else None,
+        "partition_keys": [config.partition_key] if config.partition_key else None,
+    }
+
+    resume: Optional[ZendeskSellResumeConfig] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+
+    if config.fanout is not None:
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(ZendeskSellResumeConfig(fanout_state=state))
+
+        resource = build_dependent_resource(
+            endpoint_configs=ZENDESK_SELL_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(access_token),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            page_size_param="per_page",
+            parent_endpoint_extra={"data_selector": "items"},
+            child_endpoint_extra={"data_selector": "items"},
+            parent_data_map=_extract_item_data,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume else None,
+            # The parent paginator saves its `next_url`, so a resume starts at the saved parent page
+            # instead of keeping every finished parent in the state.
+            resume_parent_pagination=True,
+        )
+        child = cast(Resource, resource).add_map(_unwrap_child_item)
+        return SourceResponse(items=lambda: child, **response_kwargs)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": ZENDESK_SELL_BASE_URL,
-            # Auth (Bearer) goes through the framework auth config so the token is redacted from logged
-            # URLs, captured samples, and raised error messages; only the non-secret Accept header here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "bearer", "token": access_token},
-            "paginator": ZendeskSellNextPagePaginator(),
-            # `allow_redirects=False` stops a redirect response from sending the bearer token to another
-            # host; the paginator already pins every next/resume URL to the API origin.
-            "allow_redirects": False,
-        },
+        "client": _client_config(access_token),
         "resource_defaults": {},
         "resources": [
             {
@@ -142,10 +199,8 @@ def zendesk_sell_source(
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and resume.next_url:
-            initial_paginator_state = {"next_url": resume.next_url}
+    if resume is not None and resume.next_url:
+        initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
@@ -162,17 +217,7 @@ def zendesk_sell_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
-    )
+    return SourceResponse(items=lambda: resource, column_hints=resource.column_hints, **response_kwargs)
 
 
 def validate_credentials(access_token: str) -> bool:

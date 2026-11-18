@@ -8,7 +8,7 @@ NOTE: Imports are done inside functions to avoid circular imports
 when Celery loads this module at startup.
 """
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.core.cache import cache
 
@@ -34,6 +34,14 @@ _DEBT_DIGEST_LOCK_SECONDS = 900
 # A child task worth running is a child task worth running today. A worker draining a backlog past
 # this drops it, and the next morning's run recomputes what is still owed.
 _DEBT_DIGEST_EXPIRY_SECONDS = 60 * 60
+# The next scheduled run does the same work, so a child that waited past it is dropped.
+_BASELINE_ADVANCE_EXPIRY_SECONDS = 5 * 60
+_BASELINE_APPROVALS_EXPIRY_SECONDS = 60 * 60
+# Long enough for a repo's GitHub reads, short enough that a killed worker does not block the next run.
+_BASELINE_LEDGER_LOCK_SECONDS = 15 * 60
+# Right after a merge GitHub can still show the pull request as open, which leaves its commit
+# unresolved. A push pass asks again after each of these, then the periodic task takes over.
+_BASELINE_LEDGER_FOLLOW_UP_COUNTDOWNS = (5, 15, 45)
 # A notice that sat in a backed-up queue no longer reports something that just happened.
 QUARANTINE_NOTICE_EXPIRY_SECONDS = 15 * 60
 
@@ -71,10 +79,9 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
     Verifies hash integrity of new uploads before creating Artifact
     records and computing diffs.
     """
-    from posthog.egress.github.transport import GitHubRateLimitError
-
     from ..diffing import count_processed_diffs, process_diffs
     from ..logic import runs, uploads
+    from ..logic.github_api import GITHUB_READ_REFUSED
 
     run_uuid = UUID(run_id)
     outcome = "completed"
@@ -102,7 +109,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
             outcome = "hash_integrity_failed"
             logger.warning("visual_review.hash_integrity_failed", run_id=run_id, error=str(e))
             runs.finish_processing(run_uuid, error_message=str(e))
-        except GitHubRateLimitError as e:
+        except GITHUB_READ_REFUSED as e:
             outcome = "rate_limited"
             logger.warning(
                 "visual_review.diff_processing_rate_limited",
@@ -115,7 +122,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
                 runs.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
             else:
                 retrying = True
-                countdown = e.retry_after or 60
+                countdown = getattr(e, "retry_after", None) or 60
                 self.retry(countdown=min(countdown, 600), exc=e)
         except Exception as e:
             outcome = "failed"
@@ -262,6 +269,22 @@ def notify_quarantine_owners(team_id: int, entry_id: str) -> None:
 
 
 @shared_task(
+    name="products.visual_review.backend.tasks.notify_auto_quarantine_limit",
+    ignore_result=True,
+)
+@with_team_scope()
+def notify_auto_quarantine_limit(team_id: int, repo_id: str, automatic_count: int) -> None:
+    """Tell the visual review maintainers that the daily limit stopped automatic quarantines."""
+    from ..logic import quarantine_notice  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        quarantine_notice.send_daily_limit_notice(UUID(repo_id), team_id, automatic_count)
+    except Exception:
+        # Nothing retries: the limit warning is also in the logs and in every capped proof event.
+        logger.warning("visual_review.auto_quarantine_limit_notice_failed", repo_id=repo_id, exc_info=True)
+
+
+@shared_task(
     name="products.visual_review.backend.tasks.reconcile_quarantine_lifts",
     bind=True,
     ignore_result=True,
@@ -291,3 +314,165 @@ def reconcile_quarantine_lifts(self, team_id: int, run_id: str) -> None:
             logger.warning("visual_review.quarantine_lift_giving_up", run_id=run_id)
             return
         raise self.retry(countdown=min(e.retry_after or 60, 600), exc=e)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.release_clean_quarantines",
+    ignore_result=True,
+)
+@with_team_scope()
+def release_clean_quarantines(team_id: int, run_id: str) -> None:
+    """Lift the quarantines that a clean week of trusted runs covers, as the repo's mode says."""
+    from posthog.egress.github.transport import GitHubRateLimitError
+
+    from ..logic import auto_lift  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        auto_lift.release_clean_quarantines(UUID(run_id))
+    except GitHubRateLimitError:
+        # Nothing retries: a later default-branch run checks the same quarantines again.
+        logger.warning("visual_review.release_clean_quarantines_rate_limited", run_id=run_id, team_id=team_id)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.reconcile_visual_review_baseline_ledgers",
+    ignore_result=True,
+)
+@skip_team_scope_audit  # cross-team beat sweep; the per-repo task below scopes every query
+def reconcile_visual_review_baseline_ledgers(reconcile_approvals: bool = False) -> None:
+    """Fan out to every repo in shadow or ledger mode, one task each, so one repo's failure stops no other.
+
+    Without `reconcile_approvals` each child moves the ledger forward. With it, each child
+    reconciles the open approvals with their pull requests instead.
+    """
+    from ..logic import ledger_advance  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    expires = _BASELINE_APPROVALS_EXPIRY_SECONDS if reconcile_approvals else _BASELINE_ADVANCE_EXPIRY_SECONDS
+    for repo in ledger_advance.repos_with_ledger():
+        reconcile_visual_review_baseline_ledger.apply_async(
+            args=(repo.team_id, str(repo.id)), kwargs={"reconcile_approvals": reconcile_approvals}, expires=expires
+        )
+
+
+def _reconcile_baseline_ledger(repo: Repo, reconcile_approvals: bool) -> None:
+    from posthog.egress.limiter.policies import Priority
+
+    from ..logic import ledger_advance  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    if reconcile_approvals:
+        ledger_advance.reconcile_open_approvals(repo, Priority.BATCH)
+        logger.info("visual_review.baseline_approvals_reconciled", repo_id=str(repo.id), team_id=repo.team_id)
+        return
+    result = ledger_advance.advance(repo, Priority.BATCH)
+    logger.info(
+        "visual_review.baseline_ledger_advanced",
+        repo_id=str(repo.id),
+        team_id=repo.team_id,
+        commits_added=result.commits_added,
+        commits_resolved_late=result.commits_resolved_late,
+        approvals_landed=result.approvals_landed,
+    )
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.reconcile_visual_review_baseline_ledger",
+    ignore_result=True,
+)
+@with_team_scope()
+def reconcile_visual_review_baseline_ledger(team_id: int, repo_id: str, reconcile_approvals: bool = False) -> None:
+    """Move one repo's ledger forward, or reconcile its open approvals with their pull requests."""
+    from ..logic.github_api import GITHUB_READ_REFUSED  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    # The ledger lock already keeps the writes apart. This lock saves the GitHub reads of a run
+    # that overlaps one still in progress. Each kind has its own key, so a slow advance never
+    # skips the hourly reconcile.
+    kind = "approvals" if reconcile_approvals else "advance"
+    lock_key = f"visual_review_baseline_ledger:{repo_id}:{kind}"
+    token = uuid4().hex
+    if not cache.add(lock_key, token, timeout=_BASELINE_LEDGER_LOCK_SECONDS):
+        logger.info("visual_review.baseline_ledger_already_running", repo_id=repo_id, team_id=team_id, kind=kind)
+        return
+    try:
+        repo = Repo.objects.filter(id=UUID(repo_id), team_id=team_id).first()
+        if repo is None:
+            logger.warning("visual_review.baseline_ledger_repo_missing", repo_id=repo_id, team_id=team_id)
+            return
+        _reconcile_baseline_ledger(repo, reconcile_approvals)
+    except GITHUB_READ_REFUSED as e:
+        # The next scheduled run reads the same commits and pull requests again.
+        logger.warning(
+            "visual_review.baseline_ledger_read_refused",
+            repo_id=repo_id,
+            team_id=team_id,
+            kind=kind,
+            refusal=type(e).__name__,
+        )
+    finally:
+        if cache.get(lock_key) == token:
+            cache.delete(lock_key)
+
+
+def enqueue_baseline_ledger_advance_after_push(team_id: int, repo_id: str) -> None:
+    advance_visual_review_baseline_ledger_after_push.apply_async(
+        args=(team_id, repo_id), expires=_BASELINE_ADVANCE_EXPIRY_SECONDS
+    )
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.advance_visual_review_baseline_ledger_after_push",
+    bind=True,
+    ignore_result=True,
+    max_retries=len(_BASELINE_LEDGER_FOLLOW_UP_COUNTDOWNS),
+)
+@with_team_scope()
+def advance_visual_review_baseline_ledger_after_push(self, team_id: int, repo_id: str) -> None:
+    """Move one repo's ledger forward after a push to its default branch.
+
+    It takes no cache lock. `advance` is safe for concurrent callers, and the periodic task's lock
+    only saves duplicate GitHub reads. A push that skipped on that lock would be lost when the pass
+    holding it read the branch before the merge.
+    """
+    from posthog.egress.limiter.policies import Priority
+
+    from ..logic import ledger_advance  # noqa: PLC0415 — avoids the logic/tasks circular import
+    from ..logic.github_api import GITHUB_READ_REFUSED  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    repo = Repo.objects.filter(id=UUID(repo_id), team_id=team_id).first()
+    if repo is None:
+        logger.warning("visual_review.baseline_ledger_repo_missing", repo_id=repo_id, team_id=team_id)
+        return
+    try:
+        # The merge gate waits on this pass, so it is not shed with the periodic reads at BATCH.
+        result = ledger_advance.advance(repo, Priority.NORMAL)
+    except GITHUB_READ_REFUSED as e:
+        # The next scheduled run reads the same commits again.
+        logger.warning(
+            "visual_review.baseline_ledger_read_refused",
+            repo_id=repo_id,
+            team_id=team_id,
+            kind="advance",
+            trigger="push",
+            refusal=type(e).__name__,
+        )
+        return
+    logger.info(
+        "visual_review.baseline_ledger_advanced",
+        repo_id=repo_id,
+        team_id=team_id,
+        trigger="push",
+        retries=self.request.retries,
+        commits_added=result.commits_added,
+        commits_resolved_late=result.commits_resolved_late,
+        commits_unresolved_recently=result.commits_unresolved_recently,
+        approvals_landed=result.approvals_landed,
+    )
+    if not result.commits_unresolved_recently:
+        return
+    if self.max_retries is not None and self.request.retries >= self.max_retries:
+        return
+    countdown = _BASELINE_LEDGER_FOLLOW_UP_COUNTDOWNS[self.request.retries]
+    # Several pushes inside the window would each start a follow-up. The mark lives until this
+    # one runs, so a repo has at most one waiting at a time.
+    if not cache.add(f"visual_review_baseline_ledger:{repo_id}:advance:follow_up", "1", timeout=countdown):
+        return
+    raise self.retry(countdown=countdown)

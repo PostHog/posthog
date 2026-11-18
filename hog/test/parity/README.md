@@ -4,6 +4,8 @@
 PostHog stores a content hash per chunk ID, and a re-upload with a different hash fails with `content_hash_mismatch`.
 So a byte that differs between the two CLIs breaks every customer who switches from one to the other.
 
+`hog schema pull` must write the same module as `posthog-cli exp schema pull`, so a project can switch CLIs without a change to its generated code.
+
 These tests compare hog against goldens recorded from the Rust code.
 The goldens are checked in, so the tests need no Rust toolchain.
 
@@ -29,7 +31,7 @@ Native scenarios compare `hog error-tracking upload` with `posthog-cli symbol-se
 The fixtures cover a fat dSYM, loose Mach-O DWARF files, files without debug info or a build ID, and two files that share a build ID.
 The `--include-source` scenarios put `native/src/` back in that folder first with the `setup` hook, and one scenario leaves it empty to cover sources that can't be read.
 
-The `release`, `extract` and `download` scenarios compare requests and the files each CLI writes. The fake server stores symbol sets for download, built with hog's writers, which the upload scenarios already hold to posthog-cli's bytes.
+The `release`, `extract` and `download` scenarios compare requests and the files each CLI writes. The `schema-pull` scenarios do the same for each language, and for a types-only TypeScript module (`--sdk none`) written to the default path, a folder, and the path and SDK saved in `posthog.json`. The fake server stores symbol sets for download, built with hog's writers, which the upload scenarios already hold to posthog-cli's bytes.
 
 `real/` holds real Xcode, Rust and React Native output from getsentry/symbolic's test fixtures, with their MIT license. The `real-` scenarios run uploads, `--include-source`, `inject` and `clone` on them.
 
@@ -45,6 +47,8 @@ The files in `hermes-fixtures.ts` are hand-written, with the Metro and Hermes ke
 - the order of `symbol_sets` in request bodies, which follows posthog-cli's unsorted folder walk
 - the order of object-storage uploads within one batch, which run in parallel
 - random UUIDv7 chunk IDs in files, for scenarios marked `randomIds`
+- `posthog.json`, for scenarios marked `schemaConfig`: hog keeps other keys and adds `$schema`, posthog-cli writes keys in hash-map order, and each CLI stamps its own `updated_at`. The file is compared by its content with sorted keys
+- the `/api/environments/<id>/` prefix, which becomes `/api/projects/<id>/`: hog reads event definitions from the first and posthog-cli from the second
 
 A golden lists only the files a run created, changed or deleted. Files over 2 KB are stored as their SHA-512, so goldens stay small and still catch every changed byte. A scenario that another one starts from sets `fullSnapshot` to keep whole files.
 

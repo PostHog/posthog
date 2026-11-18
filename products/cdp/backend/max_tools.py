@@ -5,9 +5,9 @@ from typing import Optional
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
+from rest_framework import serializers
 
 from posthog.hogql import errors as hogql_errors
-from posthog.hogql.parser import parse_program
 
 from products.cdp.backend.prompts import (
     DESTINATION_LIMITATIONS_MESSAGE,
@@ -131,21 +131,22 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         try:
             compile_hog(hog_code, "transformation")
-        except Exception:
-            # Try to get a more specific error by parsing directly
-            try:
-                parse_program(hog_code)
-            except hogql_errors.SyntaxError as parse_err:
-                raise PydanticOutputParserException(
-                    llm_output=hog_code,
-                    validation_message=f"The Hog code failed to compile: {parse_err}",
-                )
+        except serializers.ValidationError as e:
             raise PydanticOutputParserException(
                 llm_output=hog_code,
-                validation_message="The Hog code failed to compile.",
+                validation_message=f"The Hog code failed to compile: {_compile_error_message(e)}",
             )
 
         return HogTransformationOutput(hog_code=hog_code)
+
+
+def _compile_error_message(error: serializers.ValidationError) -> str:
+    # compile_hog replaces a parser or compiler error with a generic message, but the original error
+    # stays on the exception chain. The retry prompt needs that original text, or the model repeats its mistake.
+    if isinstance(error.__context__, hogql_errors.ExposedHogQLError):
+        return str(error.__context__)
+    errors = serializers.as_serializer_error(error)
+    return " ".join(str(message) for messages in errors.values() for message in messages)
 
 
 class CreateHogFunctionFiltersTool(MaxTool):
@@ -229,28 +230,83 @@ class CreateHogFunctionInputsArgs(BaseModel):
 
 class HogFunctionInputsOutput(BaseModel):
     inputs_schema: list = Field(description="The generated inputs schema for the hog function")
+    input_values: dict = Field(default_factory=dict, description="Changed input values, keyed by input key")
+
+
+# The value types the model may change, with the Python types the input's editor can render.
+# Other types hold IDs or structures the model cannot know, such as integration accounts and email
+# senders, and a changed integration ID would leave its integration_field inputs on the old account.
+EDITABLE_INPUT_VALUE_TYPES: dict[str, tuple[type, ...]] = {
+    "string": (str,),
+    "number": (int, float),
+    "boolean": (bool, str),
+    "dictionary": (dict,),
+    "choice": (str,),
+    "json": (dict, list, str, int, float, bool),
+}
+
+
+def _editable_input_schemas(inputs_schema: list) -> dict[str, dict]:
+    return {
+        schema["key"]: schema
+        for schema in inputs_schema
+        if isinstance(schema, dict)
+        and "key" in schema
+        and not schema.get("secret")
+        and schema.get("type") in EDITABLE_INPUT_VALUE_TYPES
+    }
+
+
+def _input_values_for_prompt(current_inputs: dict, inputs_schema: list) -> dict:
+    editable_schemas = _editable_input_schemas(inputs_schema)
+    return {
+        key: entry.get("value")
+        for key, entry in current_inputs.items()
+        if key in editable_schemas and isinstance(entry, dict) and not entry.get("secret")
+    }
+
+
+def _changed_input_values(proposed_values: dict, current_inputs_schema: list, new_inputs_schema: list) -> dict:
+    # A suggestion can also retype an input, so a key the current schema locks stays locked
+    # even when the suggested schema would make it editable.
+    current_keys = {schema.get("key") for schema in current_inputs_schema if isinstance(schema, dict)}
+    locked_keys = current_keys - _editable_input_schemas(current_inputs_schema).keys()
+    editable_schemas = _editable_input_schemas(new_inputs_schema)
+    return {
+        key: value
+        for key, value in proposed_values.items()
+        if key in editable_schemas and key not in locked_keys and _fits_input(value, editable_schemas[key])
+    }
+
+
+def _fits_input(value: object, schema: dict) -> bool:
+    if value is None:
+        return not schema.get("required")
+    return isinstance(value, EDITABLE_INPUT_VALUE_TYPES[schema["type"]])
 
 
 class CreateHogFunctionInputsTool(MaxTool):
     name: str = "create_hog_function_inputs"
-    description: str = "Generate or modify input variables for hog functions based on the current code and requirements"
+    description: str = "Generate or modify input variables for hog functions, and change their configured values, based on the current code and requirements"
     args_schema: type[BaseModel] = CreateHogFunctionInputsArgs
     context_prompt_template: str = HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT
 
-    def _run_impl(self, instructions: str) -> tuple[str, list]:
+    def _run_impl(self, instructions: str) -> tuple[str, list | dict]:
         current_inputs_schema = self.context.get("current_inputs_schema", [])
         hog_code = self.context.get("hog_code", "")
+        current_input_values = _input_values_for_prompt(self.context.get("current_inputs") or {}, current_inputs_schema)
 
         system_content = (
             HOG_FUNCTION_INPUTS_SYSTEM_PROMPT
             + f"\n\nCurrent hog code:\n{hog_code}"
             + f"\nCurrent inputs schema:\n{current_inputs_schema}"
+            + f"\nCurrent input values:\n{json.dumps(current_input_values)}"
             + "\n\n<input_schema_types>\n"
             + INPUT_SCHEMA_TYPES_MESSAGE
             + "\n</input_schema_types>"
         )
 
-        user_content = f"Create or modify the input variables for this function: {instructions}"
+        user_content = f"Create or modify the input variables or their values for this function: {instructions}"
 
         messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
@@ -269,11 +325,21 @@ class CreateHogFunctionInputsTool(MaxTool):
             assert final_error is not None
             raise final_error
 
-        # Format the output for display
-        import json
+        # A browser tab that loaded the editor before this tool could change values sends no
+        # current_inputs. Its callback reads the artifact as the bare schema list and cannot apply values.
+        editor_applies_values = "current_inputs" in self.context
+        changed_values = (
+            _changed_input_values(parsed_result.input_values, current_inputs_schema, parsed_result.inputs_schema)
+            if editor_applies_values
+            else {}
+        )
+        content = f"```json\n{json.dumps(parsed_result.inputs_schema, indent=2)}\n```"
+        if changed_values:
+            content += f"\n\nChanged values:\n```json\n{json.dumps(changed_values, indent=2)}\n```"
 
-        formatted_json = json.dumps(parsed_result.inputs_schema, indent=2)
-        return f"```json\n{formatted_json}\n```", parsed_result.inputs_schema
+        if not editor_applies_values:
+            return content, parsed_result.inputs_schema
+        return content, {"inputs_schema": parsed_result.inputs_schema, "inputs": changed_values}
 
     @property
     def _model(self) -> BaseChatModel:
@@ -287,12 +353,13 @@ class CreateHogFunctionInputsTool(MaxTool):
         )
 
     def _parse_output(self, output: str) -> HogFunctionInputsOutput:
-        import json
+        input_values = self._parse_input_values(output)
+        output_without_values = re.sub(r"<input_values>.*?</input_values>", "", output, flags=re.DOTALL)
 
-        match = re.search(r"<inputs_schema>(.*?)</inputs_schema>", output, re.DOTALL)
+        match = re.search(r"<inputs_schema>(.*?)</inputs_schema>", output_without_values, re.DOTALL)
         if not match:
             # Try to find JSON array in the output
-            json_match = re.search(r"\[[\s\S]*\]", output)
+            json_match = re.search(r"\[[\s\S]*\]", output_without_values)
             if json_match:
                 json_str = json_match.group(0)
             else:
@@ -313,4 +380,20 @@ class CreateHogFunctionInputsTool(MaxTool):
                 llm_output=output, validation_message=f"Invalid JSON in inputs schema: {str(e)}"
             )
 
-        return HogFunctionInputsOutput(inputs_schema=inputs_schema)
+        return HogFunctionInputsOutput(inputs_schema=inputs_schema, input_values=input_values)
+
+    def _parse_input_values(self, output: str) -> dict:
+        match = re.search(r"<input_values>(.*?)</input_values>", output, re.DOTALL)
+        if not match:
+            return {}
+        try:
+            input_values = json.loads(match.group(1).strip())
+        except json.JSONDecodeError as e:
+            raise PydanticOutputParserException(
+                llm_output=output, validation_message=f"Invalid JSON in input values: {str(e)}"
+            )
+        if not isinstance(input_values, dict):
+            raise PydanticOutputParserException(
+                llm_output=output, validation_message="Input values must be a JSON object keyed by input key."
+            )
+        return input_values

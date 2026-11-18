@@ -11,7 +11,7 @@ import { TodayAccountMenu } from './TodayAccountMenu'
 import { TodayMoreMenu } from './TodayMoreMenu'
 import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
-import { TODAY_RAIL_PANES, TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
+import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 
 // Flag-gated, so users without the flag skip the wizard chunk.
 const WizardRailButton = lazyWithRetry(() =>
@@ -24,7 +24,7 @@ const WizardRailButton = lazyWithRetry(() =>
 const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'today-settings' }
 
 export function TodayRail(): JSX.Element {
-    const { activePane, effectivePhaiView, featureFlags } = useValues(todayShellLogic)
+    const { activePane, effectivePhaiView, featureFlags, railPanes } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
     const { currentProjectId } = useValues(projectLogic)
@@ -48,14 +48,14 @@ export function TodayRail(): JSX.Element {
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            {TODAY_RAIL_PANES.map(renderTile)}
+            {railPanes.map(renderTile)}
             {wizardUiEnabled &&
                 currentProjectId !== null && (
                     // A local boundary keeps a failed wizard chunk from reaching the shell's
                     // ChunkLoadErrorBoundary, which reloads the whole app.
                     <PostHogErrorBoundary fallback={<></>}>
                         <Suspense fallback={null}>
-                            <WizardRailButton projectId={String(currentProjectId)} />
+                            <WizardRailButton key={currentProjectId} projectId={String(currentProjectId)} />
                         </Suspense>
                     </PostHogErrorBoundary>
                 )}

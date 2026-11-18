@@ -12,11 +12,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.schema import AlertCondition, InsightThreshold
 
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
-from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS
+from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS, RECURRENCE, insight_activity_source
 from products.alerts.backend.platform_ownership import (
     admit_platform_write,
+    creates_native_alert,
+    guard_native_insight_edit,
     mirror_platform_edit,
-    remove_native_destinations,
+    remove_alert_destinations,
 )
 from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
@@ -94,23 +96,23 @@ def validate_insight_edit(edit: PlatformAlertConfigurationEdit) -> None:
             raise InvalidPlatformAlertEdit(name, f"An insight alert keeps this at {stored}.")
 
 
-def creates_native_alert(team_id: int) -> bool:
-    """No insight alert is created without an insight row yet."""
-    return False
-
-
 INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     model=InsightPlatformAlertSourceConfig,
     validate=validate_insight_edit,
     admit=admit_platform_write,
     mirror=mirror_platform_edit,
     # For an insight alert with no insight row: the platform deletes it, and its destinations stay
-    # HogFunctions. Creates stay off, and out of the API schema, until `creates` and
-    # `creates_native_alert` turn them on. The interval only sets a native create's cadence.
+    # HogFunctions. `creates_native_alert` turns its creates on per team. A native create picks any
+    # insight cadence, daily by default.
     native=NativeAlertLifecycle(
-        check_interval_minutes=MINUTES_PER_DAY, remove_destinations=remove_native_destinations, creates=False
+        check_interval_minutes=MINUTES_PER_DAY,
+        check_intervals=dict(RECURRENCE.values()),
+        remove_destinations=remove_alert_destinations,
+        creates=True,
     ),
     native_create=creates_native_alert,
+    native_edit_guard=guard_native_insight_edit,
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
     kept_source_config_keys=INSIGHT_ROW_SETTINGS,
+    activity_source=insight_activity_source,
 )

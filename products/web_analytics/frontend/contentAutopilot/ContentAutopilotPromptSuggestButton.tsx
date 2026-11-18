@@ -8,9 +8,11 @@ import { contentAutopilotPromptSuggestionsLogic } from './contentAutopilotPrompt
 export const ContentAutopilotPromptSuggestButton = ({
     type = 'secondary',
     size,
+    disabledReason,
 }: {
     type?: 'primary' | 'secondary'
     size?: 'small'
+    disabledReason?: string
 }): JSX.Element => {
     const { job } = useValues(contentAutopilotPromptSuggestionsLogic)
     const { openSuggest } = useActions(contentAutopilotPromptSuggestionsLogic)
@@ -21,6 +23,7 @@ export const ContentAutopilotPromptSuggestButton = ({
             size={size}
             icon={job?.status === 'pending' ? <Spinner /> : <IconSparkles />}
             onClick={openSuggest}
+            disabledReason={disabledReason}
             data-attr="content-autopilot-prompts-suggest"
         >
             {job?.status === 'pending'

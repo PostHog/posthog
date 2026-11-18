@@ -8,7 +8,6 @@ import {
     PATHS,
     readOptions,
     RELEASE_OPTIONS,
-    renderRelease,
     renderUpload,
     SELECTION_OPTIONS,
     UPLOAD_OPTIONS,
@@ -43,13 +42,16 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        renderRelease(out, result.release)
-        if (result.injected.length > 0) {
-            const changed = result.injected.filter((item) => item.action !== 'unchanged').length
-            out.line(
-                `Injected chunk IDs into ${plural(changed, 'bundle')}${changed < result.injected.length ? `, ${result.injected.length - changed} already had them` : ''}.`
-            )
-        }
-        renderUpload(out, result)
+        const changed = result.injected.filter((item) => item.action !== 'unchanged').length
+        const already = result.injected.length - changed
+        renderUpload(
+            out,
+            result,
+            result.injected.length > 0
+                ? [
+                      `Injected chunk IDs into ${plural(changed, 'bundle')}${already > 0 ? `, ${already} already had them` : ''}`,
+                  ]
+                : []
+        )
     },
 })

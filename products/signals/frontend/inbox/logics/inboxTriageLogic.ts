@@ -82,11 +82,13 @@ export interface inboxTriageLogicActions {
         report: SignalReport,
         feedback: string | undefined,
         surface: import('../inboxAnalytics').InboxReportActionSurface,
-        openedFromLink?: boolean | undefined
+        openedFromLink?: boolean | undefined,
+        repository?: string | undefined
     ) => {
         feedback: string | undefined
         openedFromLink: boolean
         report: SignalReport
+        repository: string | undefined
         surface: import('../inboxAnalytics').InboxReportActionSurface
     } // inboxTaskKickoffLogic
     dismissReport: (
@@ -523,7 +525,13 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                     return
                 }
                 // Triage is a fast keyboard flow with no note box, so it never steers the agent.
-                actions.implementReport(report, undefined, 'triage_mode')
+                actions.implementReport(
+                    report,
+                    undefined,
+                    'triage_mode',
+                    false,
+                    access?.values.repositoryRequired ? access.values.selectedRepository : undefined
+                )
             },
             openCurrent: () => {
                 const report = values.currentReport

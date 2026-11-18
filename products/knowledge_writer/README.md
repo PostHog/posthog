@@ -2,8 +2,8 @@
 
 An internal tool for now: it opens posthog.com docs pull requests for changes merged into PostHog repositories, and runs in one PostHog project per deployment.
 
-- `KNOWLEDGE_WRITER_TEAM_ID`, `KNOWLEDGE_WRITER_USER_ID` and `KNOWLEDGE_WRITER_DOCS_REPOSITORY` configure the one writer. `writer_settings()` in `backend/settings.py` is their only reader, and nothing runs while any of them is unset.
-- `KNOWLEDGE_WRITER_DOCS_PATHS` lists the folders of the docs repository a writer branch may change, comma-separated, and defaults to `contents/docs/`. Set it when the docs live elsewhere, because publish refuses a branch that changes any other path.
+- `KNOWLEDGE_WRITER_TEAM_ID`, `KNOWLEDGE_WRITER_USER_ID` and `KNOWLEDGE_WRITER_DOCS_REPOSITORY` configure the one writer. `writer_settings()` in `backend/settings.py` reads them, and nothing runs while any of them is unset. The merge check also reads `KNOWLEDGE_WRITER_DOCS_REPOSITORY` through `docs_source()`, with `KNOWLEDGE_WRITER_DOCS_SITEMAP_URL` and `KNOWLEDGE_WRITER_DOCS_URL_PREFIX` for the published pages.
+- `KNOWLEDGE_WRITER_DOCS_PATHS` lists the folders of the docs repository a writer branch may change, comma-separated. Unset, publish uses the docs folder the merge check found by matching sitemap pages to files in the docs repository, and `contents/docs/` when it found none. Publish refuses a branch that changes any other path, except a companion edit.
 - Turning it into a customer feature means replacing `writer_settings()` with a team-scoped model and triggering from the GitHub App webhook, since a customer can't add a workflow and a secret to every repository.
 
 ## Not a security check
@@ -20,7 +20,7 @@ Whether a docs page is safe to build is the docs repository's call.
 A person reviews every writer pull request before it merges, and that review is the control the writer relies on.
 Never auto-merge a writer pull request.
 
-Publish checks the branch once, when the run finishes: it must be the branch the server issued, and it may only change files under `KNOWLEDGE_WRITER_DOCS_PATHS` (default `contents/docs/`).
+Publish checks the branch once, when the run finishes: it must be the branch the server issued, and it may only change files under the docs folders, plus edits to the companion files in `COMPANION_PATHS` (`vercel.json` and `src/navs/index.js`) when the branch adds, removes or renames a page. Every changed nav line must be data only: brackets, keys, and string, number or boolean values, and every changed `url`, `to`, `href` or `link` value must point at a changed page. In `vercel.json` only `redirects` may change, the order of the other redirects must stay the same, and each changed redirect must have a literal source, stay on the site and name a changed page. Without these edits a branch could not add, move or remove a page. Any other file is refused.
 A push that arrives after that check is not checked again, so it reaches the pull request and shows up in its diff for the reviewer.
 The checks are a second layer under the review, not a replacement for it.
 
@@ -40,7 +40,8 @@ Production needs, before any stage:
 Stages, in order:
 
 1. Shadow. Turn on [`knowledge-writer`](https://us.posthog.com/project/2/feature-flags/1036127), the kill switch, and keep [`knowledge-writer-agent-launch`](https://us.posthog.com/project/2/feature-flags/1036128) off. Every `master` merge gets a `knowledge_writer verdict` event, and intake returns `shadow` for each `needs_docs` one instead of starting a run. Before stage 2, check that verdicts arrive for each merge, that `reason: merge_check_failed` is rare, and that `needs_docs` verdicts name the right pages.
-2. Launch. Turn on `knowledge-writer-agent-launch`. A `needs_docs` verdict starts a writer run that opens a draft pull request on `KNOWLEDGE_WRITER_DOCS_REPOSITORY`, held to `DAILY_RUN_CAP` and `OPEN_PULL_REQUEST_CAP` in `backend/logic/caps.py`. Check that runs finish with a pushed branch and a draft pull request, that no task carries a `knowledge_writer_pull_request_failure` state entry, and which `WriterCapReached` alerts error tracking shows.
+2. Launch. Turn on `knowledge-writer-agent-launch` and keep `knowledge-writer-open-prs` off. A `needs_docs` verdict starts a writer run whose finished draft is captured as a `knowledge_writer draft` event (outcome `logged`) with no pull request. Its branch stays on the docs repository, and the event's `compare_url` opens the draft as a diff on GitHub. Read those drafts before stage 3.
+3. Open pull requests. Turn on `knowledge-writer-open-prs`. A finished run opens a draft pull request on `KNOWLEDGE_WRITER_DOCS_REPOSITORY`, held to `DAILY_RUN_CAP` and `OPEN_PULL_REQUEST_CAP` in `backend/logic/caps.py`. Check that runs finish with a pushed branch and a draft pull request, that no task carries a `knowledge_writer_pull_request_failure` state entry, and which `WriterCapReached` alerts error tracking shows.
 
-To back out, turn off `knowledge-writer-agent-launch` to stop new runs, which still lets runs already going open their pull requests.
+To back out, turn off `knowledge-writer-open-prs` to stop opening pull requests, or `knowledge-writer-agent-launch` to stop new runs, which still lets runs already going publish.
 Turn off `knowledge-writer` to stop everything, publishing included.
