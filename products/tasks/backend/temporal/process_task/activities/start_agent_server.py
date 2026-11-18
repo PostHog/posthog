@@ -400,6 +400,7 @@ def _launch_run_policy(task: Task, run_state: dict[str, Any] | None) -> str:
         task.origin_product,
         None,
         internal=task.internal,
+        billing_product=(run_state or {}).get("billing_product"),
         profile_billing_product=profile.billing_product if profile else None,
     )
     policy = asdict(task_agent_run_policy(task, run_state))
