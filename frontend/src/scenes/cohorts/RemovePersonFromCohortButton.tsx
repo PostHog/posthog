@@ -13,13 +13,16 @@ export interface PersonDisplayNameType {
 }
 
 interface RemovePersonFromCohortButtonProps {
-    person: PersonDisplayNameType
+    person: PersonDisplayNameType | null
 }
 
 export function RemovePersonFromCohortButton({ person }: RemovePersonFromCohortButtonProps): JSX.Element {
     const { removePersonFromCohort } = useActions(cohortEditLogic)
 
     const handleRemoveClick = (): void => {
+        if (!person) {
+            return
+        }
         LemonDialog.open({
             title: 'Remove person from cohort',
             description: (
@@ -52,6 +55,7 @@ export function RemovePersonFromCohortButton({ person }: RemovePersonFromCohortB
     return (
         <LemonButton
             onClick={handleRemoveClick}
+            disabledReason={person ? undefined : 'Add the Person or ID column to remove this person'}
             icon={<IconTrash />}
             status="danger"
             size="small"
