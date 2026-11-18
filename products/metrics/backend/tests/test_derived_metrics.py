@@ -223,6 +223,7 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
             # A service without server spans counts its root spans, so its requests group as "internal".
             ("span_kind", "span.kind", None, {"server": 6, "internal": 2}),
             ("span_status", "service.name", ("span.status_code", FilterOp.EQ, "error"), {"web": 1, "worker": 1}),
+            ("span_kind_neq", "span.kind", ("span.kind", FilterOp.NEQ, "server"), {"internal": 2}),
         ]
     )
     def test_span_group_by_and_filter(

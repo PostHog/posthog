@@ -38,6 +38,7 @@ from products.metrics.backend.facade.contracts import (
 )
 from products.metrics.backend.facade.enums import (
     AttributeScope as LabelScope,
+    FilterOp,
     MetricAggregation,
     MetricRangeFunction,
     MetricType,
@@ -443,7 +444,28 @@ class DerivedMetricQueryRunner:
         )
 
     def _filters(self, filters: Sequence[MetricFilter]) -> ast.Expr:
-        return filters_expr(filters, field_for=self._field)
+        if not filters:
+            return ast.Constant(value=True)
+        conditions = [self._enum_condition(f) or filters_expr([f], field_for=self._field) for f in filters]
+        return conditions[0] if len(conditions) == 1 else ast.And(exprs=conditions)
+
+    def _enum_condition(self, filter: MetricFilter) -> ast.Expr | None:
+        # Compare the int column directly, so the column's minmax index can still skip granules.
+        enum_column = _ENUM_COLUMN_KEYS[self.metric.source].get(filter.key)
+        if enum_column is None or filter.op not in (FilterOp.EQ, FilterOp.NEQ):
+            return None
+        column, labels = enum_column
+        if filter.value in labels:
+            code = labels.index(filter.value)
+        elif filter.value.isdigit():
+            code = int(filter.value)
+        else:
+            return None
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq if filter.op == FilterOp.EQ else ast.CompareOperationOp.NotEq,
+            left=ast.Field(chain=[column]),
+            right=ast.Constant(value=code),
+        )
 
     def _query(self) -> ast.SelectQuery:
         window = _window_expr(self.date_from, self.date_to)
