@@ -19,6 +19,7 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { pageReportPath } from '../pageReports/pageReportsUtils'
+import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
@@ -142,6 +143,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     return (
         <section className="@container/rankings flex flex-col gap-4" data-attr="content-autopilot-rankings">
             {header}
+            <AiVisibilityCompetitorReview />
             <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader title="Visibility" />
