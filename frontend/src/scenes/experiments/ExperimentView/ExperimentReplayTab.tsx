@@ -34,6 +34,8 @@ import {
     ExperimentReplayMetricOption,
     ExperimentSessionBucket,
     experimentReplayTabLogic,
+    type experimentReplayTabLogicType,
+    type experimentReplayTabLogicValues,
 } from './experimentReplayTabLogic'
 import { ExperimentScannerEntryPoint } from './ExperimentScannerEntryPoint'
 import { VariantTag } from './VariantTag'
@@ -41,12 +43,17 @@ import { VariantTag } from './VariantTag'
 // LemonSegmentedButton values must be strings; the logic stores null for "All". '$' is not an
 // allowed character in variant keys, so the '$' prefix guarantees no collision with a real
 // variant — a variant literally named "all" just renders as its own option after the built-in "All".
-const ALL_VARIANTS = '$all'
+export const ALL_VARIANTS = '$all'
 
 // The 'all_exposed' caption carries the part that isn't guessable: exposure is resolved per
 // person, matching who the analysis counts, so sessions appear even when the exposure event fired
 // server-side or in an earlier session.
-const ALL_EXPOSED_CAPTION =
+export const ALL_SESSIONS_HELP =
+    'Every session of exposed participants from their first exposure onward, including sessions without the exposure event.'
+export const METRIC_FILTER_HELP =
+    "Narrow the list by what fired in each session. Whether a session fired a metric's events can differ from what the experiment analysis counts."
+
+export const ALL_EXPOSED_CAPTION =
     "Showing sessions of exposed participants from their first exposure onward. The exposure event itself doesn't have to be in the session."
 
 // The copy varies with what the in-session evidence is. 'stamped' means the flag property stands
@@ -56,33 +63,38 @@ const ALL_EXPOSED_CAPTION =
 // where the copy claims only what both kinds share. The scopeLockedReason strings park the control
 // while a bucket or watch card supplies the session set, which carries in-session evidence by
 // construction, so the control could neither widen nor narrow it.
-type InSessionEvidenceKind = 'event' | 'stamped' | 'unknown'
-const IN_SESSION_COPY: Record<InSessionEvidenceKind, { tooltip: string; caption: string; scopeLockedReason: string }> =
-    {
-        event: {
-            tooltip: 'Only sessions where an exposure event for this experiment was captured in the session.',
-            caption: 'Showing sessions of exposed participants where the exposure was captured in the session.',
-            scopeLockedReason:
-                'This metric filter already narrows to sessions where the exposure was captured in the session.',
-        },
-        stamped: {
-            tooltip:
-                'Sessions where the feature flag was active. No exposure event can be matched to a recording for this experiment, so the flag being active stands in.',
-            caption:
-                'Showing sessions of exposed participants where the feature flag was active, since no exposure event can be matched to a recording here.',
-            scopeLockedReason: 'This metric filter already narrows to sessions where the feature flag was active.',
-        },
-        unknown: {
-            tooltip: 'Only sessions carrying in-session exposure evidence for this experiment.',
-            caption: 'Showing sessions of exposed participants carrying in-session exposure evidence.',
-            scopeLockedReason: 'This metric filter already narrows to sessions carrying in-session exposure evidence.',
-        },
-    }
+export type InSessionEvidenceKind = 'event' | 'stamped' | 'unknown'
+export const IN_SESSION_COPY: Record<
+    InSessionEvidenceKind,
+    { tooltip: string; caption: string; scopeLockedReason: string }
+> = {
+    event: {
+        tooltip: 'Only sessions where an exposure event for this experiment was captured in the session.',
+        caption: 'Showing sessions of exposed participants where the exposure was captured in the session.',
+        scopeLockedReason:
+            'This metric filter already narrows to sessions where the exposure was captured in the session.',
+    },
+    stamped: {
+        tooltip:
+            'Sessions where the feature flag was active. No exposure event can be matched to a recording for this experiment, so the flag being active stands in.',
+        caption:
+            'Showing sessions of exposed participants where the feature flag was active, since no exposure event can be matched to a recording here.',
+        scopeLockedReason: 'This metric filter already narrows to sessions where the feature flag was active.',
+    },
+    unknown: {
+        tooltip: 'Only sessions carrying in-session exposure evidence for this experiment.',
+        caption: 'Showing sessions of exposed participants carrying in-session exposure evidence.',
+        scopeLockedReason: 'This metric filter already narrows to sessions carrying in-session exposure evidence.',
+    },
+}
 
 // What the tab says in place of a list the backend would refuse. Each entry carries its own
 // `data-attr` so autocapture can count how often each state is reached, and so a story can wait
 // for the one it renders.
-const LIST_UNAVAILABLE_COPY: Record<ExperimentRecordingsListUnavailableReason, { dataAttr: string; copy: string }> = {
+export const LIST_UNAVAILABLE_COPY: Record<
+    ExperimentRecordingsListUnavailableReason,
+    { dataAttr: string; copy: string }
+> = {
     not_launched: {
         dataAttr: 'experiment-recordings-unavailable-not-launched',
         copy: 'Launch the experiment to see recordings of participants.',
@@ -99,7 +111,7 @@ const LIST_UNAVAILABLE_COPY: Record<ExperimentRecordingsListUnavailableReason, {
 
 // A session fires a metric's events, never the metric — the caption spells that out where it
 // has the room the trigger doesn't.
-const MODE_SUMMARIES: Record<ExperimentReplayMetricFilterMode, string> = {
+export const MODE_SUMMARIES: Record<ExperimentReplayMetricFilterMode, string> = {
     fired_all: 'fired events from every selected metric',
     fired_any: 'fired events from at least one selected metric',
     no_metric_activity: 'fired no events from the selected metrics',
@@ -115,7 +127,7 @@ const MODE_SUMMARIES: Record<ExperimentReplayMetricFilterMode, string> = {
  * disagree with the number of boxes ticked. The mode verb carries the events half: what a
  * session fires is a metric's events, never the metric itself.
  */
-function metricFilterTriggerLabel(
+export function metricFilterTriggerLabel(
     mode: ExperimentReplayMetricFilterMode,
     selectedUuids: string[],
     options: ExperimentReplayMetricOption[]
@@ -146,7 +158,7 @@ function metricFilterTriggerLabel(
 }
 
 /** Why a picked mode isn't narrowing the list — it needs a selection it doesn't have yet. */
-function unappliedModeReason(mode: ExperimentReplayMetricFilterMode): string {
+export function unappliedModeReason(mode: ExperimentReplayMetricFilterMode): string {
     return isFunnelMode(mode)
         ? 'Pick a funnel metric whose last step can be matched to recordings. Showing every exposed recording until then.'
         : 'Pick at least one metric. Showing every exposed recording until then.'
@@ -158,7 +170,7 @@ function unappliedModeReason(mode: ExperimentReplayMetricFilterMode): string {
  * there, and "in this session" is the honest unit — the experiment analysis counts per person over
  * the whole run window.
  */
-function bucketCaption(bucket: ExperimentSessionBucket, experimentStartDate: string | null): string {
+export function bucketCaption(bucket: ExperimentSessionBucket, experimentStartDate: string | null): string {
     const { session_ids, truncated, considered_metrics, excluded_metrics, filter_test_accounts, date_from, date_to } =
         bucket.response
     // The backend clamps the window start to the experiment's start, so a scan that reached the
@@ -206,7 +218,51 @@ function MetricOptionLabel({ option }: { option: ExperimentReplayMetricOption })
     )
 }
 
-export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {
+type ReplayTabValues = Pick<
+    experimentReplayTabLogicValues,
+    | 'effectiveVariantKey'
+    | 'effectiveExposureScope'
+    | 'exposureInSessionUnavailableReason'
+    | 'playlistHeldForChecks'
+    | 'variantKeys'
+    | 'recordingsFilters'
+    | 'effectiveMetricUuids'
+    | 'metricOptions'
+    | 'metricFilterMode'
+    | 'droppedMetricReason'
+    | 'filtersCustomized'
+    | 'sessionBucket'
+    | 'sessionBucketLoading'
+    | 'sessionBucketError'
+    | 'sessionBucketRequest'
+    | 'listUnavailableReason'
+    | 'listLoadError'
+>
+type ReplayTabActions = Pick<
+    experimentReplayTabLogicType['actions'],
+    | 'setSelectedVariantKey'
+    | 'setExposureScope'
+    | 'setMetricSelected'
+    | 'setMetricFilterMode'
+    | 'loadSessionBucket'
+    | 'playlistFiltersChanged'
+    | 'recordingsLoaded'
+    | 'recordingsLoadFailed'
+    | 'recordingOpened'
+>
+
+export interface ExperimentReplayTabModel extends ReplayTabValues, ReplayTabActions {
+    experimentScannerEnabled: boolean
+    inSessionCopy: (typeof IN_SESSION_COPY)[InSessionEvidenceKind]
+    playlistLogicProps: { logicKey: string; updateSearchParams: boolean }
+    watchRecording: (sessionId: string) => boolean
+    retryList: () => void
+    linkableMetricOptions: ExperimentReplayMetricOption[]
+    unselectableOptionsByReason: Map<string, ExperimentReplayMetricOption[]>
+    clientSideFilterApplied: boolean
+}
+
+export function useExperimentReplayTab(experiment: Experiment): ExperimentReplayTabModel {
     const logic = experimentReplayTabLogic({ experiment })
     const {
         effectiveVariantKey,
@@ -267,17 +323,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         sessionRecordingsPlaylistLogic.findMounted(playlistLogicProps)?.actions.loadSessionRecordings()
     }
 
-    // The variant switcher, the scope control and the metric filter all describe a list, so they
-    // are meaningless without one. Placed after every hook, as the draft case always was.
-    if (listUnavailableReason !== null) {
-        const { dataAttr, copy } = LIST_UNAVAILABLE_COPY[listUnavailableReason]
-        return (
-            <div data-attr={dataAttr}>
-                <LemonBanner type="info">{copy}</LemonBanner>
-            </div>
-        )
-    }
-
     // Selectable metrics render as checkboxes. The rest move to labelled sections that explain
     // once, via a section tooltip, why they can't be matched — instead of repeating the same
     // reason on every row. One section per distinct reason, since metrics can be unmatchable for
@@ -304,6 +349,93 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         !sessionBucketRequest &&
         (metricFilterMode === 'fired_all' || metricFilterMode === 'funnel_completed') &&
         effectiveMetricUuids.length > 0
+
+    return {
+        effectiveVariantKey,
+        effectiveExposureScope,
+        exposureInSessionUnavailableReason,
+        playlistHeldForChecks,
+        variantKeys,
+        recordingsFilters,
+        effectiveMetricUuids,
+        metricOptions,
+        metricFilterMode,
+        droppedMetricReason,
+        filtersCustomized,
+        sessionBucket,
+        sessionBucketLoading,
+        sessionBucketError,
+        sessionBucketRequest,
+        listUnavailableReason,
+        listLoadError,
+        setSelectedVariantKey,
+        setExposureScope,
+        setMetricSelected,
+        setMetricFilterMode,
+        loadSessionBucket,
+        playlistFiltersChanged,
+        recordingsLoaded,
+        recordingsLoadFailed,
+        recordingOpened,
+        experimentScannerEnabled,
+        inSessionCopy,
+        playlistLogicProps,
+        watchRecording,
+        retryList,
+        linkableMetricOptions,
+        unselectableOptionsByReason,
+        clientSideFilterApplied,
+    }
+}
+
+export function ExperimentReplayTab({ experiment }: { experiment: Experiment }): JSX.Element {
+    const {
+        effectiveVariantKey,
+        effectiveExposureScope,
+        exposureInSessionUnavailableReason,
+        playlistHeldForChecks,
+        variantKeys,
+        recordingsFilters,
+        effectiveMetricUuids,
+        metricOptions,
+        metricFilterMode,
+        droppedMetricReason,
+        filtersCustomized,
+        sessionBucket,
+        sessionBucketLoading,
+        sessionBucketError,
+        sessionBucketRequest,
+        listUnavailableReason,
+        listLoadError,
+        setSelectedVariantKey,
+        setExposureScope,
+        setMetricSelected,
+        setMetricFilterMode,
+        loadSessionBucket,
+        playlistFiltersChanged,
+        recordingsLoaded,
+        recordingsLoadFailed,
+        recordingOpened,
+        experimentScannerEnabled,
+        inSessionCopy,
+        playlistLogicProps,
+        watchRecording,
+        retryList,
+        linkableMetricOptions,
+        unselectableOptionsByReason,
+        clientSideFilterApplied,
+    } = useExperimentReplayTab(experiment)
+
+    // The variant switcher, the scope control and the metric filter all describe a list, so they
+    // are meaningless without one. Placed after every hook, as the draft case always was.
+    if (listUnavailableReason !== null) {
+        const { dataAttr, copy } = LIST_UNAVAILABLE_COPY[listUnavailableReason]
+        return (
+            <div data-attr={dataAttr}>
+                <LemonBanner type="info">{copy}</LemonBanner>
+            </div>
+        )
+    }
 
     return (
         <div data-attr="experiment-recordings-tab">
@@ -336,8 +468,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         {
                             value: 'all_exposed' as const,
                             label: 'All sessions',
-                            tooltip:
-                                'Every session of exposed participants from their first exposure onward, including sessions without the exposure event.',
+                            tooltip: ALL_SESSIONS_HELP,
                             'data-attr': 'experiment-recordings-exposure-scope-all',
                         },
                     ]}
@@ -350,7 +481,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                     size="small"
                                     type="secondary"
                                     sideIcon={<IconChevronDown />}
-                                    tooltip="Narrow the list by what fired in each session. Whether a session fired a metric's events can differ from what the experiment analysis counts."
+                                    tooltip={METRIC_FILTER_HELP}
                                     data-attr="experiment-recordings-metric-filter"
                                 />
                             }
