@@ -10654,6 +10654,14 @@ snapshots:
         hash: v1.k794b7964.d0203fea61aee15ac584fa0386834615751bbcd6f50aaaaed4dc111bfc2ef8bd.g6BEMBzNGgJVhCuR9doqE1sIWiy7hlLu09s9XtmFwnw
     scenes-app-annotations--new-annotation-modal-quill-date-picker--light:
         hash: v1.k794b7964.80e951d6a80390a8f78649dd20bd3a267d638faa180f57fd4250f2af89a02d1b.JtotgGUtEhBga78Cwphlhyy7Pxp5GHq752kJAPiyRnQ
+    scenes-app-application-observability-health-tables--endpoints-filtered-by-search--dark:
+        hash: v1.k794b7964.86b1b63ce7d110907d7f3dd1c5974fa4c10b45f7f2575c1472082ae803cd5e31.bOhAtKIj_Zt3G6Cw9NYIHqTMsa3mwBq-9riHvj_2Mhc
+    scenes-app-application-observability-health-tables--endpoints-filtered-by-search--light:
+        hash: v1.k794b7964.aef216cced129ca9d885ce6bf8050c089358680121688882a96462374d13f516.7sh6OKCy58NZQlFswk4Po0zAo0Gf9uJDzyp-ciLRc_w
+    scenes-app-application-observability-health-tables--services-with-error-rate-bars--dark:
+        hash: v1.k794b7964.22bef710d4dbf1ef2c00879ae9cb4e1413681b2ad5cfb491058840b10ebd695e.Q5eg-IT-EkeVx-Yy04hxXlxvyHg43iLnas0mWDOYGEU
+    scenes-app-application-observability-health-tables--services-with-error-rate-bars--light:
+        hash: v1.k794b7964.f8628b3d6b9cfd96838f5893d3e86aba0d17c767a488f6a3be63f44b62c04f3d.yVGBwbY9csmZ2LFzWX1j6QGYZ1Jqv39eB_BgWhbP_aA
     scenes-app-batchexports--backfills-empty--dark:
         hash: v1.k794b7964.8addbab5dc9322002703f43982a0f950666fd19066808134206cf88a4d3fca23.rQn27PGaf9lf989r2DJBj1BYEWNECVUB8h3wcMgQo5c
     scenes-app-batchexports--backfills-empty--light:
