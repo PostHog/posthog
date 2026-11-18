@@ -240,10 +240,15 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         return super()._call_with_rate_limits(dashboard_id=dashboard_id)
 
     def _query_lane(self, dashboard_id: int | None) -> QueryLane:
-        # Metrics read Snuffle and the metrics tables, so taking the events-cluster slots protects nothing.
-        if dashboard_id is not None and self._dashboard_v2_enabled:
+        # Stored metrics read Snuffle and the metrics tables, so the events-cluster slots protect nothing there.
+        # A derived metric scans spans or logs on the events cluster, so it keeps the analytics slots.
+        if dashboard_id is not None and self._dashboard_v2_enabled and not self._reads_derived_metrics:
             return QueryLane.TELEMETRY
         return QueryLane.ANALYTICS
+
+    @cached_property
+    def _reads_derived_metrics(self) -> bool:
+        return bool(derived_metric_resources(clause.metricName for clause in self.query.clauses))
 
     @cached_property
     def _dashboard_v2_enabled(self) -> bool:
@@ -269,8 +274,12 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                     query_lane=self._query_lane(dashboard_id),
                 )
                 date_range = metrics_query_date_range(self.team, self.query.dateRange)
-                # `all` looks up the earliest event, which is a query, so it counts against the same limits.
-                with slot() if self.query.dateRange and self.query.dateRange.date_from == "all" else nullcontext():
+                # `all` looks up the earliest event on the events cluster, so it takes the analytics slots.
+                earliest_event_slot = partial(
+                    query_concurrency_slots, self.team, dashboard_id=dashboard_id, query_lane=QueryLane.ANALYTICS
+                )
+                is_all = self.query.dateRange and self.query.dateRange.date_from == "all"
+                with earliest_event_slot() if is_all else nullcontext():
                     date_from, date_to = date_range.date_from(), date_range.date_to()
                 variables = fill_all_values(
                     team=self.team,

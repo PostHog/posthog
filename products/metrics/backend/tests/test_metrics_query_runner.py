@@ -144,18 +144,33 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("flag_off_tile_rejected_by_dashboard_lane", False, 1, "dashboard", True),
             ("flag_off_tile_rejected_by_org_lane", False, 1, "org", True),
             ("flag_on_outside_a_dashboard_rejected_by_org_lane", True, None, "org", True),
+            (
+                "flag_on_derived_metric_tile_rejected_by_org_lane",
+                True,
+                1,
+                "org",
+                True,
+                "posthog.derived.spans.requests",
+            ),
         ]
     )
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_dashboard_v2_metrics_tiles_do_not_take_analytics_slots(
-        self, _name: str, flag_on: bool, dashboard_id: int | None, full_lane: str, rejected: bool
+        self,
+        _name: str,
+        flag_on: bool,
+        dashboard_id: int | None,
+        full_lane: str,
+        rejected: bool,
+        metric_name: str | None = None,
     ) -> None:
         limiter = get_app_org_rate_limiter() if full_lane == "org" else get_app_dashboard_queries_rate_limiter()
         for i in range(limiter.max_concurrency):
             slot = limiter.use(org_id=self.organization.id, dashboard_id=1, team_id=self.team.pk, task_id=f"held-{i}")
             assert slot is not None
             self.addCleanup(limiter.release, slot)
-        runner = MetricsQueryRunner(query=MetricsQuery(clauses=[], language="sql", sql="SELECT 1"), team=self.team)
+        clauses = [MetricsQueryClause(name="a", metricName=metric_name, aggregation="sum")] if metric_name else []
+        runner = MetricsQueryRunner(query=MetricsQuery(clauses=clauses, language="sql", sql="SELECT 1"), team=self.team)
 
         with (
             patch(
