@@ -281,9 +281,9 @@ function reportDashboardTileRefreshed(
 }
 
 const TILE_REFRESH_CONCURRENCY = 4
-// Metrics tiles still share the server's per-organization dashboard slots with analytics tiles,
-// so their queue is no wider than the analytics queue.
-const TELEMETRY_TILE_REFRESH_CONCURRENCY = TILE_REFRESH_CONCURRENCY
+// Metrics tiles still share the server's per-organization dashboard slots with analytics tiles.
+// Both queues together stay within those 6 slots (DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES).
+const TELEMETRY_TILE_REFRESH_CONCURRENCY = 2
 // With dashboard-v2, a first load queries this many tiles up front, in layout order.
 // The rest load when they scroll near the viewport.
 const EAGER_TILE_LOADS = 12
@@ -346,7 +346,8 @@ function insightTileQueues(
 }
 
 function isTelemetryInsight(insight: InsightModel): boolean {
-    return insight.query?.kind === NodeKind.MetricsQuery
+    const kind = insight.query?.kind
+    return kind === NodeKind.MetricsQuery || kind === NodeKind.MetricsHistogramQuery
 }
 
 function tileLoads(cache: Record<string, any>): TileLoads<TileLoadRefresh> {
@@ -387,12 +388,14 @@ function splitOffscreenTiles<T extends DashboardTile>(
         isAutomatic,
         onDashboardPage,
         tilesInView,
+        visibilityReported,
     }: {
         isInitialLoad: boolean
         forceRefresh: boolean
         isAutomatic: boolean
         onDashboardPage: boolean
         tilesInView: Set<number>
+        visibilityReported: boolean
     }
 ): OffscreenTileSplit<T> {
     const split = (shouldLoadNow: (tile: T, index: number) => boolean): OffscreenTileSplit<T> => ({
@@ -407,7 +410,8 @@ function splitOffscreenTiles<T extends DashboardTile>(
         return split((tile, index) => index < EAGER_TILE_LOADS || tilesInView.has(tile.id))
     }
     // Until a tile reports its visibility, an automatic refresh queries every tile.
-    if (isAutomatic && tiles.some((tile) => tilesInView.has(tile.id))) {
+    // Once tiles have reported, an empty view (only text or widgets on screen) defers every insight.
+    if (isAutomatic && visibilityReported) {
         return split((tile) => tilesInView.has(tile.id))
     }
     return { tilesToRefresh: tiles, deferredTileIds: [] }
@@ -1021,6 +1025,7 @@ export interface dashboardLogicValues {
     tileSavesPending: boolean
     tiles: DashboardTile[]
     tilesInView: number[]
+    tileVisibilityReported: boolean
     undoLayoutDisabledReason: string | null
     urlFilters: DashboardFilter
     urlSearchParamsAtEditModeEntry: {
@@ -3612,6 +3617,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDeferredTileIds: (_, { settings }) => settings,
             },
         ],
+        // Whether any tile has reported its visibility, so an empty view is not mistaken for unknown visibility.
+        tileVisibilityReported: [
+            false,
+            {
+                setTileInView: () => true,
+            },
+        ],
         tilesInView: [
             [] as number[],
             {
@@ -6084,6 +6096,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                       isAutomatic: !!isAutomatic,
                       onDashboardPage: values.placement === DashboardPlacement.Dashboard && !isSharedView(),
                       tilesInView: new Set(values.tilesInView),
+                      visibilityReported: values.tileVisibilityReported,
                   })
                 : { deferredTileIds: [], tilesToRefresh: openStaleTiles }
             if (values.dashboardV2Enabled) {
@@ -6682,11 +6695,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles.filter((tile) => !(tile.insight.short_id in refreshStatus)).length
             )
             // Queued before the card mounts, so it shows its loading state and does not start its own query.
-            actions.setRefreshStatuses(
-                tiles.map((tile) => tile.insight.short_id),
-                false,
-                true
-            )
+            // One tile at a time, so sibling tiles keep their loading and error states.
+            tiles.forEach((tile) => actions.setRefreshStatus(tile.insight.short_id, false, true))
             // A cancelled refresh leaves its controller aborted, but a tile that scrolls in later still loads.
             if (!cache.abortController || cache.abortController.signal.aborted) {
                 cache.abortController = new AbortController()

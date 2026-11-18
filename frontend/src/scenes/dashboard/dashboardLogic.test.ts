@@ -467,6 +467,7 @@ describe('dashboardLogic', () => {
 
             expect(loadedShortIds().slice(12)).toEqual(['long-13'])
             expect(refreshInsight.mock.calls[12][4]).toEqual('blocking')
+            expect(logic.values.refreshStatus['long-0']).toMatchObject({ refreshed: true })
             expect(logic.values.deferredTileIds).toEqual([tiles[12].id, tiles[14].id])
         })
 
@@ -524,18 +525,30 @@ describe('dashboardLogic', () => {
                 'force_blocking',
                 'force_blocking',
             ])
+
+            // Scrolled to a region with no insights: an automatic refresh queries none.
+            await expectLogic(logic, () => {
+                logic.actions.setTileInView(tiles[0].id, false)
+                logic.actions.setTileInView(tiles[7].id, false)
+            }).toFinishAllListeners()
+            refreshInsight.mockClear()
+
+            await autoRefresh()
+
+            expect(loadedShortIds()).toEqual([])
         })
 
         it.each([
-            { dashboardV2: false, analyticsTileStarts: false },
-            { dashboardV2: true, analyticsTileStarts: true },
+            { dashboardV2: false, kind: NodeKind.MetricsQuery, requestsStarted: 4, analyticsTileStarts: false },
+            { dashboardV2: true, kind: NodeKind.MetricsQuery, requestsStarted: 3, analyticsTileStarts: true },
+            { dashboardV2: true, kind: NodeKind.MetricsHistogramQuery, requestsStarted: 3, analyticsTileStarts: true },
         ])(
-            'with dashboard-v2 $dashboardV2, an analytics tile starts while metrics tiles fill their queue: $analyticsTileStarts',
-            async ({ dashboardV2, analyticsTileStarts }) => {
+            'with dashboard-v2 $dashboardV2, an analytics tile starts while $kind tiles fill their queue: $analyticsTileStarts',
+            async ({ dashboardV2, kind, requestsStarted, analyticsTileStarts }) => {
                 setDashboardV2(dashboardV2)
                 const metricsTiles = tiles.slice(0, 5).map((tile) => ({
                     ...tile,
-                    insight: { ...tile.insight!, query: { kind: NodeKind.MetricsQuery } as any },
+                    insight: { ...tile.insight!, query: { kind } as any },
                 }))
                 const analyticsTile = tiles[5]
                 useMocks({
@@ -547,12 +560,13 @@ describe('dashboardLogic', () => {
                     },
                 })
                 refreshInsight.mockImplementation((_teamId, insight) =>
-                    insight.query?.kind === NodeKind.MetricsQuery ? new Promise(() => {}) : Promise.resolve(insight)
+                    insight.query?.kind === kind ? new Promise(() => {}) : Promise.resolve(insight)
                 )
                 logic = dashboardLogic({ id: 21 })
                 logic.mount()
 
-                await waitFor(() => expect(refreshInsight).toHaveBeenCalledTimes(analyticsTileStarts ? 5 : 4))
+                // Both queues together stay within the server's 6 dashboard slots per organization.
+                await waitFor(() => expect(refreshInsight).toHaveBeenCalledTimes(requestsStarted))
                 expect(loadedShortIds().includes(analyticsTile.insight!.short_id)).toBe(analyticsTileStarts)
             }
         )
