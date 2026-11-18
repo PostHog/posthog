@@ -87,9 +87,9 @@ export interface metricsStarterDashboardLogicValues {
     metricOptionsLoading: boolean
     selectedMetrics: string[]
     serviceName: string
-    services: string[]
     servicePanelsAvailable: boolean
     servicePanelsAvailableLoading: boolean
+    services: string[]
     servicesLoading: boolean
 }
 

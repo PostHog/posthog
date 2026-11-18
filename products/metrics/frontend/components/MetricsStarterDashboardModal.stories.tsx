@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { mswDecorator } from '~/mocks/browser'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
@@ -46,6 +47,21 @@ type Story = StoryObj<typeof MetricsStarterDashboardModal>
 
 // A team that sends traces is offered request rate, error rate and latency per service.
 export const WithServiceHealthPanels: Story = {
+    // The panels need tracing access, which Storybook's default app context doesn't grant.
+    beforeEach: () => {
+        const appContext = window.POSTHOG_APP_CONTEXT
+        if (!appContext) {
+            return
+        }
+        const originalAccess = appContext.resource_access_control
+        appContext.resource_access_control = {
+            ...originalAccess,
+            [AccessControlResourceType.Tracing]: AccessControlLevel.Viewer,
+        }
+        return () => {
+            appContext.resource_access_control = originalAccess
+        }
+    },
     render: () => {
         useDelayedOnMountEffect(() => {
             metricsStarterDashboardLogic.actions.openModal()
