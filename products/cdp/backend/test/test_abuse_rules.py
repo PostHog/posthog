@@ -146,6 +146,31 @@ class TestAbuseRules(SimpleTestCase):
                 content(inputs={"url": {"value": "http://" + "a" * 1_000_000}}),
                 (Rule.OVERSIZED_INPUT,),
             ),
+            (
+                "semicolon_in_userinfo",
+                content(inputs={"url": {"value": "http://u;v@169.254.169.254/latest"}}),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "extra_slashes_after_scheme",
+                content(inputs={"url": {"value": "http:////127.0.0.1/"}}),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "backslashes_after_scheme",
+                content(inputs={"url": {"value": "http:\\\\127.0.0.1\\x"}}),
+                (Rule.INTERNAL_HOST,),
+            ),
+            (
+                "url_in_parentheses",
+                content(
+                    hog="// see (http://localhost) for local runs\nreturn event",
+                    function_type="transformation",
+                    inputs={},
+                ),
+                (Rule.INTERNAL_HOST_REFERENCE,),
+            ),
+            ("chained_schemes", content(hog="http:/a" * 200_000, inputs={}), ()),
             ("very_long_numeric_host", content(hog="fetch('https://" + "1" * 5_000 + "/')"), ()),
             (
                 "zero_padded_ipv4_part",

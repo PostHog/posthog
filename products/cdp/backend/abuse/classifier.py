@@ -28,9 +28,8 @@ from products.ml_inference.backend.facade.enums import DecisionQuestionType
 # The state limit of the ml_inference decide API, which asks the same model.
 MAX_STATE_CHARS = 65_536
 _TRUNCATED_MARKER = " [truncated]"
-# A unit of up to 8 characters repeated at least 64 times. Padding like this would fill the state and cost the model
-# tokens, and cutting it would hide how large the input is, so the run collapses to one unit and its count. The
-# repeat is possessive because a greedy one keeps backtracking state for every repeat of a megabyte run.
+# Padding would fill the state and hide how large the input is, so a long run collapses to one unit and its count.
+# The repeat is possessive because a greedy one keeps backtracking state for every repeat of a megabyte run.
 _REPEATED_RUN = re.compile(r"(.{1,8}?)\1{63,}+", re.DOTALL)
 
 _FRAMING = (
