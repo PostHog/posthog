@@ -1423,7 +1423,7 @@ jobs:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Fail on test failure
-              if: ${{ !cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success'))) }}
+              if: ${{ !cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || startsWith(github.head_ref, 'trunk-merge/') || steps.quarantine_gate.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
@@ -3949,7 +3949,10 @@ jobs:
                   variant: ${{ matrix.compat && format('compat-{0}', matrix.clickhouse-server-image) || matrix.person-on-events && (matrix.new-events-schema && 'poe-off-events-json' || 'poe-off') || matrix.new-events-schema && 'events-json' || '' }}
                   cli-version: '0.17.0'
                   use-cache: false
-                  quarantine: true
+                  # Off on merge queue branches. A regression fails only the batches that contain its
+                  # culprit, so Trunk sees it pass and fail on the same test and quarantines it as a flake.
+                  # Masking it there lets the culprit merge.
+                  quarantine: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -3967,12 +3970,12 @@ jobs:
                   variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
                   cli-version: '0.17.0'
                   use-cache: false
-                  quarantine: true
+                  quarantine: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
                   previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Fail on test failure
-              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success'))) }}
+              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || startsWith(github.head_ref, 'trunk-merge/') || steps.quarantine_gate_core.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || startsWith(github.head_ref, 'trunk-merge/') || steps.quarantine_gate_temporal.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 

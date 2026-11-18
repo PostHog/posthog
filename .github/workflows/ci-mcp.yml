@@ -805,7 +805,7 @@ jobs:
             # also covers the skipped gate on fork/Dependabot. Sits before the logs-on-failure steps
             # so a real failure still triggers them via failure().
             - name: Fail on test failure
-              if: ${{ !cancelled() && steps.run-integration-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              if: ${{ !cancelled() && steps.run-integration-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || startsWith(github.head_ref, 'trunk-merge/') || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 

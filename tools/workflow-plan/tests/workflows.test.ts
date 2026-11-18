@@ -802,6 +802,27 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
+        ['ready PR', pullRequest(), false],
+        ['merge queue', mergeQueue(), true],
+    ])('a shard whose failures Trunk quarantined fails only in the merge queue (%s)', (name, github, verdictRuns) => {
+        const wf = workflow('ci-frontend.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            vars: { TRUNK_UPLOAD_ENABLED: 'true', TRUNK_QUARANTINE_ENABLED: 'true' },
+            steps: {
+                ...allFiltersChanged(wf),
+                ...frontendSelectors,
+                jest: { 'run-jest': { outcome: 'failure' }, quarantine_gate: { outcome: 'success' } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs.jest?.steps ?? []
+        expect(steps.find((step) => step.id === 'quarantine_gate')?.runs).toBe(true)
+        expect(steps.find((step) => step.name === 'Fail on jest failure')?.runs).toBe(verdictRuns)
+    })
+
+    it.each([
         ['master push', push(), false, true, false],
         ['ready PR', pullRequest(), true, true, false],
         ['fork PR', pullRequest({ fork: true }), true, true, false],

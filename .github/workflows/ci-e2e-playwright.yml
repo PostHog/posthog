@@ -1170,13 +1170,16 @@ jobs:
                   test-collection-id: kF88Gx2u # e2e-playwright
                   cli-version: '0.17.0'
                   use-cache: false
-                  quarantine: true
+                  # Off on merge queue branches. A regression fails only the batches that contain its
+                  # culprit, so Trunk sees it pass and fail on the same test and quarantines it as a flake.
+                  # Masking it there lets the culprit merge.
+                  quarantine: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot.
             - name: Fail on Playwright failure
-              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || startsWith(github.head_ref, 'trunk-merge/') || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 

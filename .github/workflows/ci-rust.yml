@@ -570,7 +570,7 @@ jobs:
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot.
             - name: Fail on test failure
-              if: ${{ !cancelled() && steps.run-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              if: ${{ !cancelled() && steps.run-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || startsWith(github.head_ref, 'trunk-merge/') || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 

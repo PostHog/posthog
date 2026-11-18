@@ -1167,7 +1167,7 @@ jobs:
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot. Passing shards never red here.
             - name: Fail on jest failure
-              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || startsWith(github.head_ref, 'trunk-merge/') || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 
@@ -1237,7 +1237,7 @@ jobs:
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             - name: Fail on jest failure
-              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || startsWith(github.head_ref, 'trunk-merge/') || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
 
