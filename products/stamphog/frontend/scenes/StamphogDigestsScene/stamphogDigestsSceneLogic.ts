@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -153,17 +153,20 @@ export const stamphogDigestsSceneLogic = kea<stamphogDigestsSceneLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => {
-        const toUrl = (): [string, Record<string, string>] => [
-            urls.stamphogDigests(),
-            values.page > 1 ? { page: String(values.page) } : {},
-        ]
-        return { setPage: toUrl }
-    }),
+    // The list opens over Approval settings, which shares its URL with the other lists, so its page param
+    // is named apart from theirs.
+    actionToUrl(({ values }) => ({
+        setPage: (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+            router.values.location.pathname,
+            { ...router.values.searchParams, digests_page: values.page > 1 ? String(values.page) : undefined },
+            router.values.hashParams,
+            { replace: true },
+        ],
+    })),
 
     urlToAction(({ actions, values }) => ({
-        [urls.stamphogDigests()]: (_: any, searchParams: Record<string, any>) => {
-            const page = Number(searchParams.page ?? 1) || 1
+        [urls.codeReview()]: (_: any, searchParams: Record<string, any>) => {
+            const page = Number(searchParams.digests_page ?? 1) || 1
             // Guarded against the current value so replaying an unchanged page on mount does not
             // fire a second load.
             if (page !== values.page) {

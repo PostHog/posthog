@@ -30,7 +30,7 @@ export function ReleaseRolloutBar({
     stickyOffset?: number
     lane?: Lane
 }): JSX.Element | null {
-    const segments = rolloutSegments(steps, scale, dayjs())
+    const segments = rolloutSegments(steps, scale, dayjs(), lane?.kind === 'flag' && !!lane.flag.archived)
     const end = scale.days * scale.day
     if (!segments.length) {
         return null

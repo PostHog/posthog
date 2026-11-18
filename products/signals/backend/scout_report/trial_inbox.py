@@ -136,6 +136,11 @@ class TrialInboxReads:
                 break
         if any(artefact["type"] == "priority_judgment" for artefact in report.artefacts):
             changed_fields.add("priority")
+        if changed_fields & {"repo_slug", "priority"} or any(
+            artefact["type"] == "actionability_judgment" for artefact in report.artefacts
+        ):
+            # `decisions` comes from the live report, so it would contradict the private decision overlaid here.
+            document["decisions"] = None
         for field in changed_fields:
             if field in report.document:
                 document[field] = report.document[field]

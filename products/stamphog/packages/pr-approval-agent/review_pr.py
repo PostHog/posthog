@@ -42,10 +42,12 @@ from gates import (
     MAX_FILES,
     MAX_LINES,
     POLICY,
+    additive_files,
     assign_tier,
     build_ownership,
     category_fully_exempt,
     classify_files,
+    deny_matches,
     dependency_manifests_without_lockfile,
     detect_deny_categories,
     detect_ownership,
@@ -201,12 +203,25 @@ class GateResult:
     details: dict = field(default_factory=dict)
 
 
-def _describe_deny_category(category: str) -> str:
-    """Name a denied category, and for an owner-only one, the teams that stamphog approves there."""
+def _describe_deny_category(category: str, files: list[str] | None = None) -> str:
+    """Name a denied category and the files that matched it, and for an owner-only one, the teams that stamphog approves there."""
+    described = category
+    if files:
+        shown = ", ".join(f"`{_inline_path(f)}`" for f in files[:_DENY_FILES_SHOWN])
+        more = f" and {len(files) - _DENY_FILES_SHOWN} more" if len(files) > _DENY_FILES_SHOWN else ""
+        described += f" in {shown}{more}"
     teams = DENY_EXEMPT_AUTHOR_TEAMS.get(category)
-    if not teams:
-        return category
-    return f"{category} (stamphog approves these paths only for authors on {', '.join(teams)})"
+    if teams:
+        described += f" (stamphog approves these paths only for authors on {', '.join(teams)})"
+    return described
+
+
+_DENY_FILES_SHOWN = 3
+
+
+def _inline_path(path: str) -> str:
+    escaped = path.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t").replace("`", "'")
+    return _sanitize_untrusted(escaped, max_len=120)
 
 
 # ── Pipeline ─────────────────────────────────────────────────────
@@ -494,10 +509,13 @@ class Pipeline:
         pinned = pinned_files(self._attestations, pr.check_runs, pr.deny_paths, reviewed)
         unattested = sorted(set(pr.deny_paths) - pinned) if self.admitted_bot else []
         pending = pending_attestations(self._attestations, pr.check_runs, file_paths)
-        deny = detect_deny_categories(pr.deny_paths, lifted)
+        additive = additive_files(pr.files)
+        deny_files = deny_matches(pr.deny_paths, lifted, additive=additive)
+        deny = list(deny_files)
         exception_lifted = bool(POLICY.deny_exceptions) and (
-            detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False) != deny
+            detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False, additive=additive) != deny
         )
+        additions_lifted = detect_deny_categories(pr.deny_paths, lifted) != deny
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
@@ -514,6 +532,7 @@ class Pipeline:
             risky_manifests = []
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
+            deny_files["deps_toolchain"] = risky_manifests
         denied_before_exemptions = len(deny)
         deny = [
             category
@@ -534,15 +553,19 @@ class Pipeline:
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
         # An owner-only exemption lifts the deny, not the review: a workflow is .yml,
         # so without this it rides the allow-list to a T0 approval with no reviewer.
+        # An addition to an edit_paths file (an owners.yaml rule) is the same case.
         allow_only = (
             is_allow_listed_only(file_paths)
             and not has_dependency_changes(file_paths)
             and not dep_manifests
             and not owner_exempted
             and not exception_lifted
+            and not additions_lifted
         )
-        is_test = test_only(categories) and not owner_exempted and not exception_lifted
-        ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
+        is_test = test_only(categories) and not owner_exempted and not exception_lifted and not additions_lifted
+        ownership_resolvers = (
+            self._merge_base_ownership_resolvers() if additions_lifted else build_ownership(REPO_ROOT, POLICY.ownership)
+        )
         ownership = detect_ownership(file_paths, ownership_resolvers)
 
         tier = assign_tier(
@@ -576,6 +599,7 @@ class Pipeline:
             "commit_scope": cc["scope"],
             "categories": categories,
             "deny_categories": deny,
+            "deny_files": {category: deny_files.get(category, []) for category in deny},
             "title_scrutiny_flags": title_flags,
             "lifted_files": {category: sorted(files) for category, files in sorted(lifted.items())},
             "unattested_files": unattested,
@@ -589,6 +613,7 @@ class Pipeline:
             "manifest_script_changes": risky_manifests,
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
+            "ownership_from_merge_base": additions_lifted,
             "folder_policy_prose": self.effective_policy.folder_prose,
             "assurance": {
                 **self._summarize_assurance(),
@@ -747,7 +772,8 @@ class Pipeline:
 
     def _check_deny_list(self) -> tuple[bool, str]:
         deny = self.classification["deny_categories"]
-        matches = ", ".join(_describe_deny_category(c) for c in deny)
+        deny_files = self.classification.get("deny_files") or {}
+        matches = "; ".join(_describe_deny_category(c, deny_files.get(c)) for c in deny)
         risky = self.classification.get("manifest_script_changes", [])
         if risky:
             risky_names = ", ".join(manifest_basenames(risky))
@@ -774,13 +800,39 @@ class Pipeline:
             return False, f"no attestation covers: {', '.join(unattested[:5])}"
         return True, "every file attested"
 
+    def _merge_base_ownership_resolvers(self) -> list:
+        merge_base = self.pr.merge_base_sha
+        try:
+            if not merge_base:
+                merge_base = subprocess.run(
+                    ["git", "merge-base", self.pr.base_sha, self.pr.head_sha],
+                    cwd=REPO_ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=True,
+                ).stdout.strip()
+            return build_ownership(REPO_ROOT, POLICY.ownership, ref=merge_base)
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            return []
+
     def _summarize_ownership(self) -> str:
         """Build ownership context for the LLM (not a hard gate)."""
+        summary = self._summarize_resolved_ownership()
+        if self.classification.get("ownership_from_merge_base"):
+            summary += (
+                "; read at the merge base, because this PR adds lines to an ownership file. An added rule"
+                " that takes paths another team owns, or sets inherit: false or sensitive: false, needs"
+                " that team's review"
+            )
+        self.classification["ownership_summary"] = summary
+        return summary
+
+    def _summarize_resolved_ownership(self) -> str:
         ownership = self.classification["ownership"]
         individuals = ownership.get("individuals", [])
         if ownership["team_count"] == 0 and not individuals:
-            self.classification["ownership_summary"] = "no owned paths touched"
-            return self.classification["ownership_summary"]
+            return "no owned paths touched"
 
         teams = ownership["teams"]
         author = self.pr.author
@@ -804,9 +856,8 @@ class Pipeline:
         if ownership.get("cross_team"):
             parts.append("cross-team change")
 
-        self.classification["ownership_summary"] = "; ".join(parts)
         self.classification["author_on_owning_team"] = len(author_teams) > 0
-        return self.classification["ownership_summary"]
+        return "; ".join(parts)
 
     def _check_size(self) -> tuple[bool, str]:
         lines, files = substantive_size(self.pr.files)
@@ -878,7 +929,9 @@ class Pipeline:
         summary = f"{tier_label} ({self.pr.lines_total}L, {len(self.pr.files)}F, {cl['breadth']}, {cl['commit_type'] or 'unknown'})"
 
         if cl["tier"] == "T2-never":
-            return False, f"classified as T2-never: {summary}"
+            # Only a deny-list match sets T2-never. Size and breadth play no part, so the
+            # message names the deny instead of the size figures.
+            return False, f"T2-never because the deny-list matched {', '.join(cl['deny_categories'])}"
         if cl["tier"] == "T0-deterministic":
             return True, f"T0 auto-approve: {summary}"
         return True, summary
