@@ -313,6 +313,7 @@ def compile_hogql_to_trino_sql(
     )
     from posthog.hogql.printer.utils import prepare_and_print_ast, prepare_ast_for_printing  # noqa: PLC0415
     from posthog.hogql.resolver import resolve_types  # noqa: PLC0415 -- keeps compiler imports off Django startup
+    from posthog.hogql.utils import alias_output_columns  # noqa: PLC0415
     from posthog.hogql.variables import replace_variables  # noqa: PLC0415
     from posthog.hogql.visitor import clone_expr  # noqa: PLC0415
 
@@ -412,32 +413,14 @@ def compile_hogql_to_trino_sql(
         if clickhouse_output_names is None:
             return prepared
 
-        output_types: list[ast.SelectSetQueryType] = []
         trino_output = prepared
         while isinstance(trino_output, ast.SelectSetQuery):
-            if isinstance(trino_output.type, ast.SelectSetQueryType):
-                output_types.append(trino_output.type)
             trino_output = trino_output.initial_select_query
-
-        if len(trino_output.select) != len(clickhouse_output_names):
+        if not alias_output_columns(prepared, clickhouse_output_names):
             raise ValueError(
                 "ClickHouse and Trino preparation produced different output column counts "
                 f"({len(clickhouse_output_names)} and {len(trino_output.select)})"
             )
-
-        named_columns: dict[str, ast.Type] = {}
-        named_select: list[ast.Expr] = []
-        for column, name in zip(trino_output.select, clickhouse_output_names):
-            expression = column.expr if isinstance(column, ast.Alias) else column
-            column_type = column.type.type if isinstance(column.type, ast.FieldAliasType) else column.type
-            alias_type = ast.FieldAliasType(alias=name, type=column_type or ast.UnknownType())
-            named_select.append(ast.Alias(alias=name, expr=expression, type=alias_type))
-            named_columns[name] = alias_type
-        trino_output.select = named_select
-        if isinstance(trino_output.type, ast.SelectQueryType):
-            trino_output.type.columns = named_columns
-        for output_type in output_types:
-            output_type.columns = named_columns
 
         # The output can read a derived table by column name, as the incremental guard does. Trino
         # does not name an unaliased expression, so give each one the name the resolver referenced.
