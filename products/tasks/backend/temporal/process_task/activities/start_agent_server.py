@@ -396,6 +396,7 @@ class _LaunchParams:
 
 def _launch_run_policy(task: Task, run_id: str, run_state: dict[str, Any] | None) -> str:
     profile = task.stored_profile
+    # The agent splits a Signals product by the run's stage itself, so it needs the product before that split.
     billing_product = resolve_sandbox_ai_product(
         task.origin_product,
         None,

@@ -18,6 +18,7 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.facade.contracts import AgentStartupFailure
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
@@ -32,6 +33,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _ensure_repository_on_disk,
     _invoke_start_agent_server,
     _launch_agent_shadow,
+    _launch_run_policy,
     _LaunchParams,
     _network_enforcement_observation,
     _prepare_launch,
@@ -45,6 +47,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     launch_agent_server,
     start_agent_server,
 )
+from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.utils import UserMcpServerConfigs
 
 
@@ -900,6 +903,21 @@ def test_prepare_launch_resolves_the_run_policy_from_the_task_and_its_run(
     policy = json.loads(params.run_policy)
     assert (policy["finish_tool"], policy["finish_report_required"], policy["billing_product"]) == expected
     assert policy["run_id"] == "run-id"
+
+
+def test_launch_run_policy_carries_the_product_the_agent_splits_by_stage(mocker) -> None:
+    profile = get_task_profile("signals.research")
+    task = mocker.Mock(internal=not profile.listed, stored_profile=profile, origin_product=profile.origin_product)
+
+    sent = json.loads(_launch_run_policy(task, "run-id", {"ai_stage": "research"}))["billing_product"]
+
+    pinned = resolve_sandbox_ai_product(
+        task.origin_product, "research", internal=task.internal, profile_billing_product=profile.billing_product
+    )
+    split_by_the_agent = resolve_sandbox_ai_product(
+        task.origin_product, "research", internal=task.internal, profile_billing_product=sent
+    )
+    assert (sent, split_by_the_agent) == ("signals", pinned)
 
 
 @pytest.mark.parametrize(
