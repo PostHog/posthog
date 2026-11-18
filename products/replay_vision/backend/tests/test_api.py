@@ -1646,6 +1646,18 @@ class TestScannerScopeShape(SimpleTestCase):
             ("bad_experiment_id", {"kind": "experiment", "experiment_id": 0, "variants": ["a"]}, "experiment_id"),
             ("empty_variants", {"kind": "experiment", "experiment_id": 9, "variants": []}, "variants"),
             ("blank_variant", {"kind": "experiment", "experiment_id": 9, "variants": [""]}, "variants"),
+            # A scope rides into every observation's snapshot, so neither padding nor repeats may
+            # reach the column.
+            (
+                "too_many_variants",
+                {"kind": "experiment", "experiment_id": 9, "variants": [f"v{i}" for i in range(129)]},
+                "variants",
+            ),
+            (
+                "repeated_variant",
+                {"kind": "experiment", "experiment_id": 9, "variants": ["control", "control"]},
+                "variants",
+            ),
             ("not_an_object", "nope", None),
         ]
     )

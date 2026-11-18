@@ -275,6 +275,10 @@ _MAX_DESCRIPTION_LENGTH = 1_000
 # Each tag costs get_or_create round trips in set_tags_on_object, so cap the list.
 _MAX_TAGS = 32
 
+# A scope rides into every observation's snapshot, so a padded variant list is paid for on every
+# scan. Well past any real experiment's variant count, because the flag is what limits it.
+_MAX_SCOPE_VARIANTS = 128
+
 logger = structlog.get_logger(__name__)
 
 
@@ -483,15 +487,16 @@ class ScannerExperimentScopeSerializer(serializers.Serializer):
     variants = serializers.ListField(
         child=serializers.CharField(max_length=400, allow_blank=False),
         allow_empty=False,
+        max_length=_MAX_SCOPE_VARIANTS,
         # Not required only while rows exist whose scope the mirror derived from a legacy store
         # that named no variant. The backfill gives every row an explicit list and makes it
         # required again.
         required=False,
         help_text=(
-            "Every variant the scanner watches, named explicitly. Read them from the experiment "
-            "first, because a variant added to the experiment later is not watched until it is "
-            "added here. Absent only on a scope carried over from the older targeting shapes, "
-            "which watches every variant."
+            "Every variant the scanner watches, named explicitly, with no repeats. Read them from "
+            "the experiment first, because a variant added to the experiment later is not watched "
+            "until it is added here. Absent only on a scope carried over from the older targeting "
+            "shapes, which watches every variant."
         ),
     )
     variants_source = serializers.ChoiceField(
@@ -502,6 +507,13 @@ class ScannerExperimentScopeSerializer(serializers.Serializer):
             "or a subset someone picked. The launch receiver adds new variants only to the first."
         ),
     )
+
+    def validate_variants(self, value: list[str]) -> list[str]:
+        """Refuse repeats rather than dropping them, because a caller that sent the same variant
+        twice means something different from the deduplicated list it would otherwise store."""
+        if len(set(value)) != len(value):
+            raise serializers.ValidationError("Name each variant once.")
+        return value
 
 
 SCOPE_SERIALIZERS: dict[str, type[serializers.Serializer]] = {

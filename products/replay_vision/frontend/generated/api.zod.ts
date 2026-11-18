@@ -615,6 +615,8 @@ export const visionScannersCreateBodyExperimentTargetingOneVariantMax = 400
 
 export const visionScannersCreateBodyScopeOneVariantsItemMax = 400
 
+export const visionScannersCreateBodyScopeOneVariantsMax = 128
+
 export const VisionScannersCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -769,9 +771,10 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
                             .describe('The experiment whose exposed sessions the scanner watches.'),
                         variants: zod
                             .array(zod.string().max(visionScannersCreateBodyScopeOneVariantsItemMax))
+                            .max(visionScannersCreateBodyScopeOneVariantsMax)
                             .optional()
                             .describe(
-                                'Every variant the scanner watches, named explicitly. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.'
+                                'Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.'
                             ),
                         variants_source: zod
                             .enum(['all_at_creation', 'user'])
@@ -818,6 +821,8 @@ export const visionScannersPartialUpdateBodyCreditLimitMax = 2147483647
 export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantMax = 400
 
 export const visionScannersPartialUpdateBodyScopeOneVariantsItemMax = 400
+
+export const visionScannersPartialUpdateBodyScopeOneVariantsMax = 128
 
 export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -977,9 +982,10 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
                             .describe('The experiment whose exposed sessions the scanner watches.'),
                         variants: zod
                             .array(zod.string().max(visionScannersPartialUpdateBodyScopeOneVariantsItemMax))
+                            .max(visionScannersPartialUpdateBodyScopeOneVariantsMax)
                             .optional()
                             .describe(
-                                'Every variant the scanner watches, named explicitly. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.'
+                                'Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.'
                             ),
                         variants_source: zod
                             .enum(['all_at_creation', 'user'])

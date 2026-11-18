@@ -82765,7 +82765,8 @@ export namespace Schemas {
          */
       experiment_id: number;
       /**
-         * Every variant the scanner watches, named explicitly. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.
+         * Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.
+         * @maxItems 128
          * @items.maxLength 400
          */
       variants?: string[];
