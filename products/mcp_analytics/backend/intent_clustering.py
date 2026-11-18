@@ -226,6 +226,13 @@ CORPUS_SESSION_CHUNK_SIZE = 2000
 # MAX_QUERY_ROWS so a chunk can never be truncated.
 MAX_CALLS_PER_SESSION = 25
 
+# Chunking bounds each query, not the rows retained across chunks: the corpus
+# can reach MAX_CORPUS_SESSIONS x MAX_CALLS_PER_SESSION rows before the per-tool
+# cap and the intent cap run. Intents and tool names are sender-controlled, so
+# stop fetching chunks once their retained text passes this many characters.
+# Real one- or two-sentence intents stay well under it at the full row count.
+MAX_CORPUS_TEXT_CHARS = 100_000_000
+
 # Event-sourced intents are free text written by the calling agent — clip them
 # so one oversized value can't blow up embedding requests (the worker's model
 # has a token ceiling) or bloat the snapshot blob. Real intents are one or two
@@ -493,11 +500,24 @@ def fetch_session_calls(
     """Return ``(session_id, tool, raw_intent, is_error)`` rows in call order.
 
     At most ``MAX_CALLS_PER_SESSION`` calls per session, queried in chunks of
-    ``CORPUS_SESSION_CHUNK_SIZE`` sessions.
+    ``CORPUS_SESSION_CHUNK_SIZE`` sessions. Stops before the next chunk once the
+    retained text reaches ``MAX_CORPUS_TEXT_CHARS``.
     """
     rows: list[SessionCallRow] = []
-    for chunk in _chunked(session_ids):
-        rows.extend(_fetch_session_calls_chunk(team, chunk, lookback_days))
+    text_chars = 0
+    chunks = _chunked(session_ids)
+    for fetched, chunk in enumerate(chunks):
+        if text_chars >= MAX_CORPUS_TEXT_CHARS:
+            logger.warning(
+                "mcpa.intent_clustering.session_calls_text_budget_reached",
+                team_id=team.id,
+                max_text_chars=MAX_CORPUS_TEXT_CHARS,
+                skipped_chunks=len(chunks) - fetched,
+            )
+            break
+        chunk_rows = _fetch_session_calls_chunk(team, chunk, lookback_days)
+        text_chars += sum(len(tool) + len(intent) for _, tool, intent, _ in chunk_rows)
+        rows.extend(chunk_rows)
     return rows
 
 

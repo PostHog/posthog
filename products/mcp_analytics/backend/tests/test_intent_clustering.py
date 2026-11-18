@@ -1251,6 +1251,20 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         ]
         assert [(r[1], r[2], r[3]) for r in by_session["session-b"]] == [("feature_flag_get", "check flags", False)]
 
+    def test_session_calls_stop_fetching_chunks_past_the_text_budget(self) -> None:
+        self._seed_tool_call("session-a", "query_trends", intent="find slow queries")
+        self._seed_tool_call("session-b", "feature_flag_get", intent="check flags")
+        flush_persons_and_events()
+
+        # The first chunk alone exhausts the budget, so the second is never queried.
+        with (
+            patch.object(intent_clustering, "CORPUS_SESSION_CHUNK_SIZE", 1),
+            patch.object(intent_clustering, "MAX_CORPUS_TEXT_CHARS", 1),
+        ):
+            rows = fetch_session_calls(self.team, ["session-a", "session-b"])
+
+        assert [(r[0], r[1]) for r in rows] == [("session-a", "query_trends")]
+
     def test_oversized_sender_strings_are_clipped_at_the_sql_boundary(self) -> None:
         # A sender with the capture token controls these strings; without the SQL
         # clip a recompute materializes up to 50k full-size values in worker memory.
