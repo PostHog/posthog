@@ -6846,6 +6846,14 @@ snapshots:
         hash: v1.k794b7964.0184f9ca79fe2726f803b9050b013dd0b44a260bb0a6f490400f818ffc27bb55.Y7wikoBvp2ZhegOiwx-qU2WNklUo6ycXa0yGL2beoQo
     products-alerts-simulation-summary--sub-detector-scores--light:
         hash: v1.k794b7964.0a77535b3969cac543ed48fdcd1117a5fe0305a6d7aa38c7bd8af446d4b1e422.ErlO5Qkh3fOCJ8BDf3qU9EkgKb_AUPbuFPhJpFrPr7M
+    products-apm-deployments--no-versions--dark:
+        hash: v1.k794b7964.6cc4312c41305c83f6c2b9d21e2dd487304cc585ab197e1f4f2ba07464f3993f.Mm8UxjVyzGIRtHMssONEWQP_12FrWw9XzOwc5wLpC9A
+    products-apm-deployments--no-versions--light:
+        hash: v1.k794b7964.b92cc75280c57fdd2ed86c666a15637efd6f747ee0a87205574ada89268448bf.ngZlI9hgDk3ObH79ohk1WyclD7tsL4zl1QNBktwrLbg
+    products-apm-deployments--versions-compared-with-their-predecessor--dark:
+        hash: v1.k794b7964.e590d5b626d5f0f0a17d3d80edd49e3caf53b1058ec63e9c34d009115369732f.nERzUH6m5fnHWJbqLj4Gk8rEAc28zSGVFLF2cW_AA5c
+    products-apm-deployments--versions-compared-with-their-predecessor--light:
+        hash: v1.k794b7964.e654ebb5f0d7f44d4f6941defc39a5ebe468d98d2e39f166daf9e12de5a3b8ff.P3wOWEEl2fZq4LSRBi8hYMl0QaAD-whKeUkyguR-8bw
     products-autoresearch-daily-volume-chart--sparse-days--dark:
         hash: v1.k794b7964.47b1e118bc8c9e9c27efac87a76591e9d2d31a6e2d0c728e9f71180bf65dbd68._gnh7qhODKrYgIH_Ec2BOaeKSqU-OFl8NQYJxMbXL4Y
     products-autoresearch-daily-volume-chart--sparse-days--light:
