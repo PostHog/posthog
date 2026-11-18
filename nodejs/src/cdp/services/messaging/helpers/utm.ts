@@ -264,7 +264,7 @@ export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, sit
     const isOnSenderDomain = (parsed: URL): boolean =>
         parsed.host !== siteHost && registrableDomainOf(parsed.hostname) === senderDomain
     return addTagsToEmailLinks(html, {
-        isOptedOut: ({ html: anchor }) => isNeverClickTracked(anchor),
+        isOptedOut: (anchor) => isNeverClickTracked(anchor.html) || isOptedOutOfUtmTags(anchor),
         tagUrl: (url) => {
             if (runId !== null) {
                 return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isOnSenderDomain)
