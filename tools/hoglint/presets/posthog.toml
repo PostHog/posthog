@@ -522,6 +522,16 @@ attribute = "HEALTH_CHECKS"
 shape     = "abc:posthog.temporal.health_checks.framework.HealthCheckRegistration"
 lifecycle = "worker-start"
 
+# The Temporal worker, the scheduler and the log pipeline read each product's `TEMPORAL`
+# declaration: the workflows and activities it binds to task queues, its schedule reconcilers,
+# interceptors and log-source resolvers.
+[registries.temporal]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/facade/temporal.py"
+attribute = "TEMPORAL"
+shape     = "abc:posthog.temporal.common.registration.TemporalRegistration"
+lifecycle = "worker-start"
+
 [registries.integration_usages]
 loader    = "posthog.products.load_product_modules"
 module    = "products/{product}/backend/integration_usages.py"
@@ -987,7 +997,7 @@ ways          = [
 ]
 example       = { finding = "importlib.import_module(f\"products.{name}.backend.facade.api\")", fixed = "from products.billing.backend.facade import api as billing_api" }
 kinds         = ["dynamic-import"]
-from          = "src.registry == none"
+from          = "src.registry_loader == none"
 deny          = "false"
 on_unresolved = "incomplete"
 ledger        = false
