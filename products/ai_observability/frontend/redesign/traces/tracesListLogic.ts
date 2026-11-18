@@ -153,13 +153,17 @@ export const tracesListLogic = kea<tracesListLogicType>([
             {
                 loadTracesPage: async (params: AiObservabilityTracesListParams, breakpoint): Promise<TraceListApi> => {
                     cache.pageRequestedAt = performance.now()
-                    const page = await aiObservabilityTracesList(String(ApiConfig.getCurrentProjectId()), params).catch(
-                        (error: unknown) => {
-                            // A superseded request must not show its failure over the newer selection.
-                            breakpoint()
-                            throw error
-                        }
-                    )
+                    const controller = new AbortController()
+                    // The next read and the unmount abort this one, so a superseded scan frees its query slot. A
+                    // hidden tab keeps it, so coming back shows no failed load.
+                    cache.disposables.add(() => () => controller.abort(), 'pageRequest', { pauseOnPageHidden: false })
+                    const page = await aiObservabilityTracesList(String(ApiConfig.getCurrentProjectId()), params, {
+                        signal: controller.signal,
+                    }).catch((error: unknown) => {
+                        // A superseded request must not show its failure over the newer selection.
+                        breakpoint()
+                        throw error
+                    })
                     breakpoint()
                     return page
                 },

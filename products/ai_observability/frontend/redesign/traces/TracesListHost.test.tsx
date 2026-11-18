@@ -156,6 +156,19 @@ describe('TracesListHost', () => {
         )
     })
 
+    it('turns test account filtering off with the other filters when clearing them, even when the default is on', async () => {
+        filterTestAccountsDefaultsLogic.mount()
+        filterTestAccountsDefaultsLogic.actions.setLocalDefault(true)
+        answer = [200, makeTraceListPage([])]
+        const view = renderHost({ url: `${LIST_PATH}?view=errors` })
+
+        fireEvent.click(await view.findByText('Clear filters'))
+        await waitFor(() => expect(requests).toHaveLength(2))
+
+        expect(requests[1]).toEqual({ ...FIRST_PAGE_PARAMS, filter_test_accounts: 'false' })
+        expect(tracesListLogic().values.filterTestAccounts).toBe(false)
+    })
+
     it.each<[string, Answer, string, string, string]>([
         [
             'empty',
