@@ -18,7 +18,7 @@ const LANES = {
             job: 'Publish eligible shared-image channels',
             image: 'PostHog shared-image channels',
             consequence:
-                'Shared-image channel publication did not complete cleanly. Workers on channels that were not verified may remain on their previous image. See the publication evidence in the linked run for the affected channels.',
+                'Shared-image channel publication did not complete cleanly. Workers on channels that were not verified may remain on their previous image. Check the linked run for the failure and any channel results.',
         },
     ],
     'Build and deploy node container image': [
@@ -96,7 +96,7 @@ async function streakMessages({ run, jobs }, olderRuns) {
         }
         const lane = `${image} (${run.name})`
         if (conclusion === 'success') {
-            messages.push(`${job} for ${lane} succeeded after at least three consecutive failures (<${run.html_url}|successful run>).`)
+            messages.push(`${job} for ${lane} succeeded after at least ${INITIAL_FAILURES} consecutive failures (<${run.html_url}|successful run>).`)
         } else if (settled && (count - INITIAL_FAILURES) % REPEAT_INTERVAL === 0) {
             messages.push(
                 `${lane} failed in ${count} consecutive runs (<${run.html_url}|newest failure>, <${firstFailure.html_url}|first failure>). ${consequence}`

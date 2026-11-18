@@ -136,7 +136,7 @@ for (const count of [2, 3, 4]) {
         assert.deepEqual(
             messages,
             count < 3 ? [] : [
-                'Publish ordered image alias for Node.js (Build and deploy node container image) succeeded after at least three consecutive failures (<https://example.com/runs/101|successful run>).',
+                'Publish ordered image alias for Node.js (Build and deploy node container image) succeeded after at least 3 consecutive failures (<https://example.com/runs/101|successful run>).',
             ]
         )
     })
@@ -180,7 +180,7 @@ test('uses the failed channel job even when the workflow and alias succeeded', a
     assert.equal(messages.length, 1)
     assert.match(messages[0], /^PostHog shared-image channels \(Container Images CD\).*failed in 3/)
     assert.ok(messages[0].endsWith(
-        'Shared-image channel publication did not complete cleanly. Workers on channels that were not verified may remain on their previous image. See the publication evidence in the linked run for the affected channels.'
+        'Shared-image channel publication did not complete cleanly. Workers on channels that were not verified may remain on their previous image. Check the linked run for the failure and any channel results.'
     ))
 })
 
@@ -263,7 +263,7 @@ test('does not read further once a success has three preceding failures', async 
     const history = fakeHistory([trigger, ...failures, ...older])
     const messages = await history.process(trigger.run)
     assert.equal(messages.length, 1)
-    assert.match(messages[0], /succeeded after at least three consecutive failures/)
+    assert.match(messages[0], /succeeded after at least 3 consecutive failures/)
     assert.deepEqual(history.calls, [50000, 'list runs 1', 49999, 49998, 49997])
 })
 
@@ -345,6 +345,20 @@ test('cross-page completion order 1000 through 989 failures, 900 failure, 901 su
     assert.equal(messages.length, 1)
     assert.match(messages[0], /failed in 13 consecutive runs/)
     assert.ok(messages[0].includes('<https://example.com/runs/900|first failure>'))
+})
+
+test('waits at the six-hour bound for a higher-ID success on the next page', async () => {
+    const trigger = nodeRun(50000, 'failure')
+    const recentFailure = nodeRun(49999, 'failure')
+    const skipped = Array.from({ length: 97 }, (_, i) => nodeRun(1000 - i, 'skipped'))
+    const completionAtBound = 900 + 6 * 60 * 60
+    const waitingFailure = completedAt(nodeRun(900, 'failure'), completionAtBound)
+    const unreadSuccess = completedAt(nodeRun(901, 'success'), completionAtBound)
+    unreadSuccess.run.created_at = waitingFailure.run.created_at
+    const history = fakeHistory([trigger, recentFailure, ...skipped, waitingFailure, unreadSuccess])
+
+    assert.deepEqual(await history.process(trigger.run), [])
+    assert.deepEqual(history.calls, [50000, 'list runs 1', 49999, 'list runs 2', 901])
 })
 
 test('orders a later-created success after two earlier-created failures inside one page', async () => {
