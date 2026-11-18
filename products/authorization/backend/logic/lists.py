@@ -14,7 +14,9 @@ from products.access_control.backend.facade.user_access_control import (
 from ..facade.contracts import Context, ObjectIds, Resource, Subject
 from ..facade.enums import Action, ResourceType, SubjectType
 from .legacy import (
+    APPROVAL_LEVELS,
     MEMBERSHIP_LEVELS,
+    ORGANIZATION_SETTING_ACTIONS,
     _access,
     _check_project,
     _Level,
@@ -22,6 +24,8 @@ from .legacy import (
     _principal_key,
     _scope,
     _user_permissions,
+    approval_scope,
+    organization_level,
 )
 from .session import Session, current
 
@@ -70,15 +74,24 @@ def list_subjects(
 ) -> list[Subject]:
     if context is not None and context != Context():
         raise NotImplementedError("The current access rules read no request context.")
-    if resource.type != ResourceType.ORGANIZATION or subject_type != SubjectType.USER:
-        raise NotImplementedError("Subject lists support only users of an organization.")
-    if resource.id is None:
-        raise ValueError("An organization subject list needs `id`.")
-    level = MEMBERSHIP_LEVELS[ResourceType.ORGANIZATION].get(action)
-    if level is None:
-        raise ValueError(f"{action} does not apply to {resource.type} resources.")
+    if subject_type != SubjectType.USER:
+        raise NotImplementedError("Subject lists support only users.")
+    if action == Action.APPROVE and resource.type in APPROVAL_LEVELS:
+        organization_id, level = approval_scope(resource, action)
+    elif resource.type == ResourceType.ORGANIZATION:
+        if resource.id is None:
+            raise ValueError("An organization subject list needs `id`.")
+        level = _organization_action_level(resource, action)
+        organization_id = UUID(resource.id)
+        if action in ORGANIZATION_SETTING_ACTIONS:
+            organization = Organization.objects.filter(pk=organization_id).first()
+            if organization is None:
+                return []
+            level = organization_level(action, organization)
+    else:
+        raise NotImplementedError("Subject lists support only an organization and the approvers of its requests.")
     memberships = OrganizationMembership.objects.with_effective_level().filter(
-        organization_id=UUID(resource.id), resolved_level__gte=level
+        organization_id=organization_id, resolved_level__gte=level
     )
     return [Subject(user_id=user_id) for user_id in memberships.values_list("user_id", flat=True)]
 
@@ -91,18 +104,27 @@ def principal_user_id(subject: Subject | None) -> int | None:
 def _list_organizations(session: Session, resource: Resource, action: Action, subject: Subject | None) -> ObjectIds:
     if resource.id is not None:
         raise ValueError("A list takes a resource type, so `resource` has no `id`.")
-    level = MEMBERSHIP_LEVELS[ResourceType.ORGANIZATION].get(action)
-    if level is None:
-        raise ValueError(f"{action} does not apply to {resource.type} resources.")
+    level = _organization_action_level(resource, action)
     principal = _principal(session, subject)
     if not isinstance(principal, User):
         return _NOTHING
-    memberships = OrganizationMembership.objects.with_effective_level().filter(
-        user_id=principal.pk, resolved_level__gte=level
-    )
-    return ObjectIds(
-        ids=frozenset(str(org_id) for org_id in memberships.values_list("organization_id", flat=True)), complete=True
-    )
+    memberships = OrganizationMembership.objects.with_effective_level().filter(user_id=principal.pk)
+    if action in ORGANIZATION_SETTING_ACTIONS:
+        organization_ids = [
+            membership.organization_id
+            for membership in memberships.select_related("organization")
+            if membership.resolved_level >= organization_level(action, membership.organization)
+        ]
+    else:
+        organization_ids = list(memberships.filter(resolved_level__gte=level).values_list("organization_id", flat=True))
+    return ObjectIds(ids=frozenset(str(organization_id) for organization_id in organization_ids), complete=True)
+
+
+def _organization_action_level(resource: Resource, action: Action) -> OrganizationMembership.Level:
+    level = MEMBERSHIP_LEVELS[ResourceType.ORGANIZATION].get(action)
+    if level is None:
+        raise ValueError(f"{action} does not apply to {resource.type} resources.")
+    return level
 
 
 def _list_project_objects(

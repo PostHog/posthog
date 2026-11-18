@@ -1673,16 +1673,7 @@ class UserCanCreateProjectPermission(BasePermission):
         except ValueError:
             return True
 
-        membership = get_required_organization_membership(request, organization)
-
-        if membership.effective_level >= OrganizationMembership.Level.ADMIN:
-            return True
-
-        # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).
-        if not organization.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
-            return False
-
-        return bool(organization.members_can_create_projects)
+        return can_in_required_organization(request, organization, Action.CREATE_PROJECT)
 
 
 def is_mcp_built_in_agent_oauth_request(request: Request) -> bool:
