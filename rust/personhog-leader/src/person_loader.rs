@@ -1,21 +1,33 @@
 use std::collections::{HashMap, VecDeque};
-use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use futures::{FutureExt, TryStreamExt};
-use metrics::{counter, histogram};
+use futures::TryStreamExt;
+use metrics::{counter, gauge, histogram};
 use personhog_common::query_tag;
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::{PgPool, PgRow};
 use sqlx::{Postgres, Row};
 use tokio::sync::oneshot;
+use tokio::time::error::Elapsed;
 
 use crate::cache::{CachedPerson, PersonCacheKey};
 use crate::pg::{acquire_timed, decode_person_row, LoadError, PERSON_ROW_COLUMNS};
 
+/// The most persons one statement may read. Past a few hundred keys the
+/// planner can replace the index probe for each key with a merge join that
+/// scans the id index of every partition, which reads far more of the
+/// table than the batch needs.
+pub const MAX_LOAD_BATCH: usize = 100;
+
 /// Mirrors the config's `fallback_pg_load_batch_size` default.
-pub const DEFAULT_MAX_LOAD_BATCH: usize = 100;
+pub const DEFAULT_MAX_LOAD_BATCH: usize = MAX_LOAD_BATCH;
+
+const QUEUE_DEPTH: &str = "personhog_leader_pg_load_queue_depth";
+const QUEUE_WAIT_MS: &str = "personhog_leader_pg_load_queue_wait_ms";
+const DROPPED_TOTAL: &str = "personhog_leader_pg_load_dropped_total";
+const STATEMENT_TIMEOUTS_TOTAL: &str = "personhog_leader_pg_load_statement_timeouts_total";
+const DRIVER_PANICS_TOTAL: &str = "personhog_leader_pg_load_driver_panics_total";
 
 /// A row, or none when the person is absent or tombstoned. The error is
 /// shared because one failed statement answers every load it carried.
@@ -33,7 +45,8 @@ struct Pending {
 struct Queue {
     waiting: VecDeque<Pending>,
     /// Live `drive` tasks. Changed only under the queue lock, together
-    /// with the check that decides it.
+    /// with the check that decides it, so that a waiting load always has
+    /// a driver.
     drivers: usize,
 }
 
@@ -49,9 +62,13 @@ struct Shared {
     /// One driver for each pool connection. A driver beyond that could only
     /// wait on the pool, holding a load that a busy driver could batch.
     max_drivers: usize,
-    /// The pool's acquire timeout. A load waits for a connection in the
-    /// queue instead of on the pool, so the same bound applies to that wait.
-    max_queue_wait: Duration,
+    /// The pool's acquire timeout, which bounds every wait here. A load
+    /// that has waited this long for a statement is refused, a statement
+    /// that has run this long is abandoned, and a caller gives up after
+    /// both. It must exceed the pool's server-side statement timeout, so
+    /// that a slow statement ends with the server's error and this bound
+    /// only ends a statement whose connection has stopped answering.
+    patience: Duration,
     queue: Mutex<Queue>,
 }
 
@@ -60,11 +77,13 @@ struct Shared {
 /// The fallback pool is small, and it also serves the lifecycle mark
 /// checks. With one statement for each person, the pool size caps the
 /// load rate, and a burst of misses queues on the pool in front of those
-/// checks. Loads share statements instead. A load that finds every
-/// connection busy waits in a queue, and the next connection to come free
-/// reads all waiting loads in one statement, up to `max_batch`. A load
-/// that finds a free connection runs alone and immediately, so batching
-/// adds no wait and removes no parallelism while the pool has room.
+/// checks. Loads share statements instead. Each pool connection has one
+/// driver. A load that arrives while a driver is free is claimed by that
+/// driver and normally runs alone. Loads that arrive while every driver
+/// is busy wait in a queue, and the next driver to get a connection reads
+/// all of them in one statement, up to `max_batch`. Batches therefore
+/// form when the pool is saturated, which is when one statement for each
+/// person would hold the load rate down.
 ///
 /// The loader only reads. The caller holds the person lock, has checked
 /// the dirty index and partition ownership before the load, and writes
@@ -77,11 +96,12 @@ pub struct PersonLoader {
 impl PersonLoader {
     /// `table` is interpolated into the statement, so it must be a
     /// configured identifier that passed `validate_table_name`, never
-    /// request data.
+    /// request data. `max_batch` is held between 1 and [`MAX_LOAD_BATCH`].
     pub fn new(pool: PgPool, table: &str, max_batch: usize) -> Self {
+        register_metrics();
         let options = pool.options();
         let max_drivers = (options.get_max_connections() as usize).max(1);
-        let max_queue_wait = options.get_acquire_timeout();
+        let patience = options.get_acquire_timeout();
         // A tombstoned person must not be re-served on a cache miss; not-found
         // is the truthful answer for a deleted person.
         let one_sql = query_tag!(
@@ -92,9 +112,10 @@ impl PersonLoader {
                  WHERE p.team_id = $1 AND p.id = $2 AND p.is_deleted = false",
             )
         );
-        // The join condition gives the planner no team id to prune the
-        // table's hash partitions with. `team_id = ANY($1)` repeats the
-        // team ids as a plain filter so that the planner can.
+        // The join condition gives the database no team id to prune the
+        // table's hash partitions with before the join runs.
+        // `team_id = ANY($1)` repeats the team ids as a plain filter so
+        // that it can.
         let many_sql = query_tag!(
             "load_persons",
             format!(
@@ -110,9 +131,9 @@ impl PersonLoader {
                 one_sql,
                 many_sql,
                 // A statement always carries the load that opened it.
-                max_batch: max_batch.max(1),
+                max_batch: max_batch.clamp(1, MAX_LOAD_BATCH),
                 max_drivers,
-                max_queue_wait,
+                patience,
                 queue: Mutex::default(),
             }),
         }
@@ -135,12 +156,17 @@ impl PersonLoader {
             queued_at: started,
             reply,
         });
-        // A driver answers every load it takes. The sender drops unanswered
-        // only when the statement that carried this load panicked.
-        let row = answer
-            .await
-            .map_err(|_| LoadError::from(sqlx::Error::WorkerCrashed))?
-            .map_err(LoadError::Query)?;
+        // A load that is served gets its answer inside two `patience`
+        // spans: one for its wait and one for its statement. The timer
+        // makes that bound hold when no driver comes back to answer, and
+        // the dropped receiver then marks the load as abandoned.
+        let row = match tokio::time::timeout(self.shared.patience * 2, answer).await {
+            Ok(Ok(answer)) => answer.map_err(LoadError::Query)?,
+            // The driver ended without an answer: it panicked, or the
+            // runtime dropped it.
+            Ok(Err(_)) => return Err(sqlx::Error::WorkerCrashed.into()),
+            Err(_) => return Err(sqlx::Error::PoolTimedOut.into()),
+        };
 
         histogram!("personhog_leader_pg_fallback_duration_ms")
             .record(started.elapsed().as_secs_f64() * 1000.0);
@@ -158,6 +184,17 @@ impl PersonLoader {
     }
 }
 
+/// Registers the rare series at zero, so that `increase()` sees the first
+/// event of each.
+fn register_metrics() {
+    for reason in ["abandoned", "expired"] {
+        counter!(DROPPED_TOTAL, "reason" => reason).increment(0);
+    }
+    counter!(STATEMENT_TIMEOUTS_TOTAL).increment(0);
+    counter!(DRIVER_PANICS_TOTAL).increment(0);
+    gauge!(QUEUE_DEPTH).set(0.0);
+}
+
 impl Shared {
     fn queue(&self) -> MutexGuard<'_, Queue> {
         // Every critical section only moves entries between collections,
@@ -169,6 +206,7 @@ impl Shared {
         let start_driver = {
             let mut queue = self.queue();
             queue.waiting.push_back(pending);
+            gauge!(QUEUE_DEPTH).set(queue.waiting.len() as f64);
             let free_slot = queue.drivers < self.max_drivers;
             if free_slot {
                 queue.drivers += 1;
@@ -186,7 +224,8 @@ impl Shared {
     /// slot and starts a driver of its own.
     fn claim_first(&self) -> Option<Pending> {
         let mut queue = self.queue();
-        let first = pop_live(&mut queue.waiting, Instant::now(), self.max_queue_wait);
+        let first = pop_live(&mut queue.waiting, Instant::now(), self.patience);
+        gauge!(QUEUE_DEPTH).set(queue.waiting.len() as f64);
         if first.is_none() {
             queue.drivers -= 1;
         }
@@ -195,20 +234,62 @@ impl Shared {
 
     fn fill_batch(&self, first: Pending) -> Vec<Pending> {
         let mut queue = self.queue();
-        next_batch(
+        let batch = next_batch(
             first,
             &mut queue.waiting,
             self.max_batch,
             Instant::now(),
-            self.max_queue_wait,
-        )
+            self.patience,
+        );
+        gauge!(QUEUE_DEPTH).set(queue.waiting.len() as f64);
+        batch
+    }
+}
+
+/// A driver's place among the `max_drivers`. A driver that ends without
+/// retiring, by a panic or because the runtime dropped it, would keep its
+/// place, and loads that arrive later would then start no driver. The
+/// drop gives the place to a replacement while loads wait, and frees it
+/// otherwise.
+struct DriverSlot {
+    shared: Arc<Shared>,
+    retired: bool,
+}
+
+impl Drop for DriverSlot {
+    fn drop(&mut self) {
+        if self.retired {
+            return;
+        }
+        if std::thread::panicking() {
+            counter!(DRIVER_PANICS_TOTAL).increment(1);
+            tracing::error!("person load driver panicked; the loads of its statement fail");
+        }
+        let replace = {
+            let mut queue = self.shared.queue();
+            let waiting = !queue.waiting.is_empty();
+            if !waiting {
+                queue.drivers -= 1;
+            }
+            waiting
+        };
+        if replace {
+            match tokio::runtime::Handle::try_current() {
+                Ok(runtime) => drop(runtime.spawn(drive(Arc::clone(&self.shared)))),
+                Err(_) => self.shared.queue().drivers -= 1,
+            }
+        }
     }
 }
 
 /// Serves waiting loads, one connection and one statement for each batch,
 /// until no load waits.
 async fn drive(shared: Arc<Shared>) {
-    // The driver claims a load before it asks for a connection. An idle
+    let mut slot = DriverSlot {
+        shared: Arc::clone(&shared),
+        retired: false,
+    };
+    // The driver claims a load before it asks for a connection. A free
     // driver therefore takes each new load for itself, and loads only
     // accumulate into one statement while every driver is busy.
     while let Some(first) = shared.claim_first() {
@@ -226,20 +307,12 @@ async fn drive(shared: Arc<Shared>) {
             }
         };
         let batch = shared.fill_batch(first);
-        if batch.is_empty() {
-            continue;
-        }
-        // A driver that dies keeps its slot, and once every slot is lost
-        // no waiting load is ever served. A panic therefore fails the
-        // loads of its own statement and nothing more.
-        let ran = AssertUnwindSafe(run_batch(&shared, conn, batch))
-            .catch_unwind()
-            .await;
-        if ran.is_err() {
-            counter!("personhog_leader_pg_load_batch_panics_total").increment(1);
-            tracing::error!("person load statement panicked; its loads fail");
+        if !batch.is_empty() {
+            run_batch(&shared, conn, batch).await;
         }
     }
+    // `claim_first` gave the slot back when it found no load.
+    slot.retired = true;
 }
 
 /// The loads one statement carries: `first`, then the oldest waiting
@@ -265,6 +338,13 @@ fn next_batch(
 /// Pops the oldest waiting load that is still wanted.
 fn pop_live(waiting: &mut VecDeque<Pending>, now: Instant, max_wait: Duration) -> Option<Pending> {
     while let Some(pending) = waiting.pop_front() {
+        // Recorded for every load a driver reaches, served or not, so the
+        // histogram does not hide the loads that waited too long.
+        histogram!(QUEUE_WAIT_MS).record(
+            now.saturating_duration_since(pending.queued_at)
+                .as_secs_f64()
+                * 1000.0,
+        );
         if let Some(live) = still_wanted(pending, now, max_wait) {
             return Some(live);
         }
@@ -278,11 +358,11 @@ fn pop_live(waiting: &mut VecDeque<Pending>, now: Instant, max_wait: Duration) -
 /// that have already failed.
 fn still_wanted(pending: Pending, now: Instant, max_wait: Duration) -> Option<Pending> {
     if pending.reply.is_closed() {
-        counter!("personhog_leader_pg_load_dropped_total", "reason" => "abandoned").increment(1);
+        counter!(DROPPED_TOTAL, "reason" => "abandoned").increment(1);
         return None;
     }
     if now.saturating_duration_since(pending.queued_at) > max_wait {
-        counter!("personhog_leader_pg_load_dropped_total", "reason" => "expired").increment(1);
+        counter!(DROPPED_TOTAL, "reason" => "expired").increment(1);
         drop(pending.reply.send(Err(Arc::new(sqlx::Error::PoolTimedOut))));
         return None;
     }
@@ -292,33 +372,47 @@ fn still_wanted(pending: Pending, now: Instant, max_wait: Duration) -> Option<Pe
 async fn run_batch(shared: &Shared, conn: PoolConnection<Postgres>, batch: Vec<Pending>) {
     let started = Instant::now();
     histogram!("personhog_leader_pg_load_batch_size").record(batch.len() as f64);
-    for pending in &batch {
-        histogram!("personhog_leader_pg_load_queue_wait_ms").record(
-            started
-                .saturating_duration_since(pending.queued_at)
-                .as_secs_f64()
-                * 1000.0,
-        );
-    }
     match <[Pending; 1]>::try_from(batch) {
-        Ok([only]) => load_one(&shared.one_sql, conn, only).await,
-        Err(batch) => load_many(&shared.many_sql, conn, batch).await,
+        Ok([only]) => load_one(shared, conn, only).await,
+        Err(batch) => load_many(shared, conn, batch).await,
     }
     histogram!("personhog_leader_pg_load_batch_duration_ms")
         .record(started.elapsed().as_secs_f64() * 1000.0);
 }
 
-async fn load_one(sql: &str, mut conn: PoolConnection<Postgres>, only: Pending) {
-    let answer = sqlx::query(sql)
+/// The outcome of a statement that had `patience` to finish. The driver
+/// owns the statement, so no caller's deadline ends it, and a connection
+/// that stopped answering would otherwise hold the driver and the loads
+/// of its statement without end. A statement that ran out of time is
+/// still in flight on its connection, so the connection closes instead of
+/// going back to the pool.
+fn settle<T>(
+    patience: Duration,
+    conn: &mut PoolConnection<Postgres>,
+    outcome: Result<Result<T, sqlx::Error>, Elapsed>,
+) -> Result<T, sqlx::Error> {
+    outcome.unwrap_or_else(|_| {
+        conn.close_on_drop();
+        counter!(STATEMENT_TIMEOUTS_TOTAL).increment(1);
+        Err(sqlx::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("person load statement did not finish in {patience:?}"),
+        )))
+    })
+}
+
+async fn load_one(shared: &Shared, mut conn: PoolConnection<Postgres>, only: Pending) {
+    let statement = sqlx::query(&shared.one_sql)
         .bind(only.team_id)
         .bind(only.person_id)
-        .fetch_optional(&mut *conn)
-        .await;
+        .fetch_optional(&mut *conn);
+    let outcome = tokio::time::timeout(shared.patience, statement).await;
+    let answer = settle(shared.patience, &mut conn, outcome);
     drop(conn);
     drop(only.reply.send(answer.map_err(Arc::new)));
 }
 
-async fn load_many(sql: &str, mut conn: PoolConnection<Postgres>, batch: Vec<Pending>) {
+async fn load_many(shared: &Shared, mut conn: PoolConnection<Postgres>, batch: Vec<Pending>) {
     let mut team_ids = Vec::with_capacity(batch.len());
     let mut person_ids = Vec::with_capacity(batch.len());
     // A list for each key: the statement returns one row for each array
@@ -334,7 +428,15 @@ async fn load_many(sql: &str, mut conn: PoolConnection<Postgres>, batch: Vec<Pen
             .push(pending.reply);
     }
 
-    let outcome = deliver_rows(sql, &mut conn, &team_ids, &person_ids, &mut unanswered).await;
+    let statement = deliver_rows(
+        &shared.many_sql,
+        &mut conn,
+        &team_ids,
+        &person_ids,
+        &mut unanswered,
+    );
+    let outcome = tokio::time::timeout(shared.patience, statement).await;
+    let outcome = settle(shared.patience, &mut conn, outcome);
     drop(conn);
     answer_rest(
         unanswered.into_values().flatten(),
@@ -342,9 +444,9 @@ async fn load_many(sql: &str, mut conn: PoolConnection<Postgres>, batch: Vec<Pen
     );
 }
 
-/// Sends each row to its load as the row arrives, so a load does not wait
-/// for the rows after its own, and a statement that fails part way has
-/// still answered the loads whose rows it returned.
+/// Sends each row to its load when the row arrives instead of when the
+/// statement ends, so a statement that fails part way has still answered
+/// the loads whose rows it returned.
 async fn deliver_rows(
     sql: &str,
     conn: &mut PoolConnection<Postgres>,
@@ -366,7 +468,9 @@ async fn deliver_rows(
 }
 
 /// Answers the loads that got no row: not-found when the statement
-/// completed, and its error when it did not.
+/// completed, and its error when it did not. Callers treat not-found as
+/// proof that the person is gone, so a failed statement must never
+/// produce it.
 fn answer_rest(
     replies: impl Iterator<Item = oneshot::Sender<Answer>>,
     outcome: &Result<(), Arc<sqlx::Error>>,
@@ -399,6 +503,23 @@ mod tests {
 
     fn person_ids<'a>(loads: impl IntoIterator<Item = &'a Pending>) -> Vec<i64> {
         loads.into_iter().map(|load| load.person_id).collect()
+    }
+
+    /// A loader on a pool that refuses every acquire at once.
+    async fn loader_without_connections(max_connections: u32) -> PersonLoader {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(max_connections)
+            .connect_lazy("postgres://localhost/unused")
+            .unwrap();
+        pool.close().await;
+        PersonLoader::new(pool, "posthog_person", DEFAULT_MAX_LOAD_BATCH)
+    }
+
+    fn is_query_error(
+        answer: &Result<Option<CachedPerson>, LoadError>,
+        expected: fn(&sqlx::Error) -> bool,
+    ) -> bool {
+        matches!(answer, Err(LoadError::Query(error)) if expected(error))
     }
 
     #[test]
@@ -438,28 +559,62 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_load_that_gets_no_connection_fails_and_frees_its_driver() {
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(2)
-            .connect_lazy("postgres://localhost/unused")
-            .unwrap();
-        pool.close().await;
-        let loader = PersonLoader::new(pool, "posthog_person", DEFAULT_MAX_LOAD_BATCH);
+        let loader = loader_without_connections(2).await;
 
         // More loads than drivers: a driver that kept its slot after the
-        // failure would leave the later loads waiting, and the paused
-        // clock then runs straight to the timeout.
+        // failure would leave the later loads to time out instead.
         for person_id in 0..5 {
             let key = PersonCacheKey {
                 team_id: 1,
                 person_id,
             };
-            let answer = tokio::time::timeout(Duration::from_secs(60), loader.load(&key))
-                .await
-                .expect("the load is answered");
-            assert!(matches!(
-                answer,
-                Err(LoadError::Query(error)) if matches!(*error, sqlx::Error::PoolClosed)
-            ));
+            let answer = loader.load(&key).await;
+            assert!(is_query_error(&answer, |e| matches!(
+                e,
+                sqlx::Error::PoolClosed
+            )));
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_load_that_no_driver_answers_fails_as_a_pool_timeout() {
+        let loader = loader_without_connections(1).await;
+        // Every driver slot is taken and no driver runs, which is what
+        // drivers stuck on unresponsive connections look like to a load.
+        loader.shared.queue().drivers = loader.shared.max_drivers;
+
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id: 1,
+        };
+        let answer = loader.load(&key).await;
+
+        assert!(is_query_error(&answer, |e| matches!(
+            e,
+            sqlx::Error::PoolTimedOut
+        )));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_driver_that_ends_without_retiring_is_replaced_while_loads_wait() {
+        let loader = loader_without_connections(1).await;
+        let (waiting, answer) = pending(1, Instant::now());
+        {
+            let mut queue = loader.shared.queue();
+            queue.waiting.push_back(waiting);
+            queue.drivers = 1;
+        }
+
+        drop(DriverSlot {
+            shared: Arc::clone(&loader.shared),
+            retired: false,
+        });
+
+        // The replacement serves the waiting load. It has no connection
+        // to serve it with, so the load fails, but it is answered.
+        assert!(matches!(
+            answer.await,
+            Ok(Err(error)) if matches!(*error, sqlx::Error::PoolClosed)
+        ));
     }
 }

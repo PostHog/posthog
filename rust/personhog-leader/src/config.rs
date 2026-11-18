@@ -336,13 +336,15 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub fallback_pg_min_connections: u32,
 
-    /// Most persons one cache-miss statement may read. A load that finds
-    /// every fallback connection busy waits, and the next connection to
-    /// come free reads all waiting loads in one statement, up to this
-    /// many. The statement must finish inside the pool's statement
-    /// timeout, so the bound also limits how many loads one slow
-    /// statement can fail. 1 turns batching off: every load runs a
-    /// statement of its own.
+    /// Most persons one cache-miss statement may read. Loads that arrive
+    /// while every fallback connection is busy wait, and the next
+    /// connection to come free reads all waiting loads in one
+    /// statement, up to this many. The statement must finish inside the
+    /// pool's statement timeout, so the bound also limits how many
+    /// loads one slow statement can fail. 1 turns batching off: every
+    /// load runs a statement of its own. Values above 100 act as 100,
+    /// the size up to which the statement keeps one index probe per
+    /// person.
     #[envconfig(default = "100")]
     pub fallback_pg_load_batch_size: usize,
 

@@ -52,6 +52,7 @@ test-support = []
 [dev-dependencies]
 personhog-coordination = { path = "../personhog-coordination", features = ["test-support"] }
 health = { path = "../common/health" }
+metrics-util = { workspace = true }
 personhog-leader = { path = ".", features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"

@@ -9304,6 +9304,7 @@ dependencies = [
  "kube",
  "lifecycle",
  "metrics",
+ "metrics-util",
  "personhog-common",
  "personhog-coordination",
  "personhog-leader",

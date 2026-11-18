@@ -1401,10 +1401,26 @@ async fn pg_fallback_reads_numerics_the_leaders_parser_rejects() {
         .unwrap();
 }
 
-/// Cache misses that find the fallback pool busy share one statement.
-/// Every load must still get the answer for its own person: the row,
-/// not-found for an absent or tombstoned person, and an unreadable row's
-/// error for that row alone.
+/// The persons each cache-miss statement read since the last call, in
+/// statement order.
+fn load_batch_sizes(snapshotter: &metrics_util::debugging::Snapshotter) -> Vec<usize> {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .filter(|(key, ..)| key.key().name() == "personhog_leader_pg_load_batch_size")
+        .flat_map(|(.., value)| match value {
+            metrics_util::debugging::DebugValue::Histogram(samples) => samples,
+            _ => Vec::new(),
+        })
+        .map(|sample| sample.into_inner() as usize)
+        .collect()
+}
+
+/// Cache misses that find the fallback pool busy share statements, up to
+/// the batch size. Every load must still get the answer for its own
+/// person: the row, not-found for an absent or tombstoned person, and an
+/// unreadable row's error for that row alone.
 #[tokio::test]
 async fn loads_sharing_a_statement_each_get_their_own_answer() {
     enum Expected {
@@ -1475,33 +1491,127 @@ async fn loads_sharing_a_statement_each_get_their_own_answer() {
         loads.push((repeated.clone(), expected));
     }
 
-    let loader = PersonLoader::new(pool.clone(), "posthog_person", DEFAULT_MAX_LOAD_BATCH);
-    let held = pool.acquire().await.unwrap();
-    let answers = futures::future::join_all(loads.iter().map(|(key, _)| loader.load(key)));
-    // `join!` polls the loads first, so all of them wait before the only
-    // connection comes free, and one statement carries them all.
-    let (answers, ()) = tokio::join!(answers, async { drop(held) });
+    let recorder = metrics_util::debugging::DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _recording = metrics::set_default_local_recorder(&recorder);
+    assert_eq!(loads.len(), 14);
+    for (max_batch, statements) in [(DEFAULT_MAX_LOAD_BATCH, vec![14]), (4, vec![4, 4, 4, 2])] {
+        let loader = PersonLoader::new(pool.clone(), "posthog_person", max_batch);
+        let held = pool.acquire().await.unwrap();
+        let answers = futures::future::join_all(loads.iter().map(|(key, _)| loader.load(key)));
+        // Every load is queued before the only connection comes free, so
+        // the loads leave the queue a full statement at a time.
+        let (answers, ()) = tokio::join!(answers, async { drop(held) });
 
-    for ((key, expected), answer) in loads.iter().zip(answers) {
-        match expected {
-            Expected::Row { uuid, marker } => {
-                let person = answer.expect("load must not fail").expect("person exists");
-                assert_eq!(person.id, key.person_id);
-                assert_eq!(person.team_id, key.team_id);
-                assert_eq!(&person.uuid, uuid);
-                assert_eq!(&person.parse_properties().unwrap()["marker"], marker);
+        assert_eq!(load_batch_sizes(&snapshotter), statements);
+        for ((key, expected), answer) in loads.iter().zip(answers) {
+            match expected {
+                Expected::Row { uuid, marker } => {
+                    let person = answer.expect("load must not fail").expect("person exists");
+                    assert_eq!(person.id, key.person_id);
+                    assert_eq!(person.team_id, key.team_id);
+                    assert_eq!(&person.uuid, uuid);
+                    assert_eq!(&person.parse_properties().unwrap()["marker"], marker);
+                }
+                Expected::NotFound => assert!(matches!(answer, Ok(None))),
+                Expected::Unprocessable => assert!(matches!(
+                    answer,
+                    Err(LoadError::UnprocessableProperties { .. })
+                )),
             }
-            Expected::NotFound => assert!(matches!(answer, Ok(None))),
-            Expected::Unprocessable => assert!(matches!(
-                answer,
-                Err(LoadError::UnprocessableProperties { .. })
-            )),
         }
     }
 
     sqlx::query("DELETE FROM posthog_person WHERE team_id = ANY($1)")
         .bind(&teams)
         .execute(&pool)
+        .await
+        .unwrap();
+}
+
+/// Callers read not-found as proof that the person is gone, so a
+/// statement that fails must fail its loads, alone or in a batch.
+#[tokio::test]
+async fn loads_of_a_failed_statement_fail_instead_of_reading_as_not_found() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(common::PERSONS_DB_URL)
+        .await
+        .expect("failed to connect to persons DB");
+    // No such table, so the database refuses every statement.
+    let loader = PersonLoader::new(pool.clone(), "no_such_person_table", DEFAULT_MAX_LOAD_BATCH);
+
+    for loads in [1, 5] {
+        let keys: Vec<PersonCacheKey> = (0..loads)
+            .map(|person_id| PersonCacheKey {
+                team_id: 1,
+                person_id,
+            })
+            .collect();
+        let held = pool.acquire().await.unwrap();
+        let answers = futures::future::join_all(keys.iter().map(|key| loader.load(key)));
+        let (answers, ()) = tokio::join!(answers, async { drop(held) });
+
+        assert_eq!(answers.len(), loads as usize);
+        for answer in answers {
+            assert!(matches!(
+                answer,
+                Err(LoadError::Query(error)) if matches!(*error, sqlx::Error::Database(_))
+            ));
+        }
+    }
+}
+
+/// The loader owns its statements, so no caller's deadline ends one. A
+/// connection that stops answering must cost its loads and nothing more:
+/// not the driver, and not the pool's connection slot.
+#[tokio::test]
+async fn a_statement_that_never_answers_is_abandoned_and_its_connection_closed() {
+    let admin = common::create_persons_pool().await;
+    let table = format!("load_stall_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(&format!("CREATE TABLE {table} (LIKE posthog_person)"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    // The lock makes every read of the table wait, as a connection that
+    // stopped answering would.
+    let mut lock = admin.begin().await.unwrap();
+    sqlx::query(&format!("LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"))
+        .execute(&mut *lock)
+        .await
+        .unwrap();
+
+    // The loader's bounds come from the acquire timeout.
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_secs(1))
+        .connect(common::PERSONS_DB_URL)
+        .await
+        .expect("failed to connect to persons DB");
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id: i64::MAX,
+    };
+
+    let stalled = PersonLoader::new(pool.clone(), &table, DEFAULT_MAX_LOAD_BATCH)
+        .load(&key)
+        .await;
+    assert!(matches!(
+        stalled,
+        Err(LoadError::Query(error))
+            if matches!(&*error, sqlx::Error::Io(io) if io.kind() == std::io::ErrorKind::TimedOut)
+    ));
+
+    // The read is still waiting on the lock. The pool has one slot, so a
+    // load of another table is served only if that slot came back.
+    let served = PersonLoader::new(pool.clone(), "posthog_person", DEFAULT_MAX_LOAD_BATCH)
+        .load(&key)
+        .await;
+    assert!(matches!(served, Ok(None)));
+
+    lock.rollback().await.unwrap();
+    sqlx::query(&format!("DROP TABLE {table}"))
+        .execute(&admin)
         .await
         .unwrap();
 }

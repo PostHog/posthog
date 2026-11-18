@@ -29,9 +29,10 @@ use super::{cached_person_into_proto, partition_from_metadata, PersonHogLeaderSe
 /// caller bug, not load.
 const MAX_LIFECYCLE_BATCH_SIZE: usize = 100;
 
-/// Fences or releases of one batch call in flight at once. Above the
-/// fallback pool's size, extra loads only queue for a connection while
-/// the batch holds the partition's handoff drain.
+/// Fences or releases of one batch call in flight at once. The bound
+/// keeps the wait for the fallback pool's connections, which the loads
+/// and the mark checks share, short while the batch holds the
+/// partition's handoff drain.
 const LIFECYCLE_BATCH_CONCURRENCY: usize = 16;
 
 /// The one error a batch answers for: a semantic refusal is the final

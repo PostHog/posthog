@@ -87,12 +87,26 @@ TBD:
 
 A request for a person that is not in the cache loads the person from Postgres, unless the dirty index says the row is behind the changelog.
 The fallback pool is small (`FALLBACK_PG_MAX_CONNECTIONS`) and also serves the lifecycle mark checks.
-A load that finds a free connection runs a single-row lookup immediately.
-A load that finds every connection busy waits, and the next connection to come free reads all waiting loads in one statement, up to `FALLBACK_PG_LOAD_BATCH_SIZE` persons.
-Batches therefore form only while the pool is saturated, which is when one statement per person would cap the pod's load rate at the pool size.
-A load waits for a connection no longer than the pool's acquire timeout, then fails as a pool timeout.
+The loader runs one driver for each pool connection.
+A load that arrives while a driver is free is claimed by that driver and normally runs a single-row lookup of its own.
+Loads that arrive while every driver is busy wait in a queue, and the next driver to get a connection reads all of them in one statement, up to `FALLBACK_PG_LOAD_BATCH_SIZE` persons (default and ceiling 100).
+Batches therefore form while the pool is saturated, which is when one statement per person would cap the pod's load rate at the pool size.
 Set `FALLBACK_PG_LOAD_BATCH_SIZE=1` to turn batching off.
-`personhog_leader_pg_load_batch_size` records how many persons each statement read, and `personhog_leader_pg_load_queue_wait_ms` records how long each load waited for a connection.
+
+One statement that fails or stalls now fails every load it carries that has no row yet, where it used to fail one load.
+Three bounds, all equal to the pool's acquire timeout, keep a load from waiting without end:
+
+- A load that has waited that long when a driver reaches it is refused with a pool timeout. The check runs when a driver takes loads, so the refusal can arrive up to one driver cycle later.
+- A statement that has not finished after that long is abandoned and its connection is closed. Keep the pool's statement timeout below the acquire timeout, so that the server ends a slow statement first.
+- A caller gives up with a pool timeout after twice that long, whatever the drivers do.
+
+Metrics:
+
+- `personhog_leader_pg_load_batch_size`: persons per statement.
+- `personhog_leader_pg_load_queue_depth`: loads waiting for a driver.
+- `personhog_leader_pg_load_queue_wait_ms`: how long each load waited before a driver reached it. This is the saturation signal. `personhog_leader_fallback_pool_acquire_ms{caller="load_person"}` now measures one acquire per statement, so it stays flat while loads queue.
+- `personhog_leader_pg_load_dropped_total{reason}`: loads a driver reached too late (`expired`) or after the caller left (`abandoned`).
+- `personhog_leader_pg_load_statement_timeouts_total` and `personhog_leader_pg_load_driver_panics_total`: statements abandoned on an unresponsive connection, and driver panics.
 
 #### Admission
 
