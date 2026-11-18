@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from posthog.schema import (
     DateRange,
+    EventsQuery,
     HogQLQuery,
     MCPIntentMapBounds,
     MCPIntentMapQuery,
@@ -24,6 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.organization import OrganizationMembership
@@ -188,10 +190,13 @@ class TestIntentResultsAreNeverStored(_Base):
         ]
     )
     def test_user_written_hogql_cannot_read_intent_tables(self, _name: str, table: str) -> None:
-        runner = HogQLQueryRunner(query=HogQLQuery(query=f"SELECT count() FROM posthog.{table}"), team=self.team)
-
-        with self.assertRaises(QueryError):
-            runner.calculate()
+        for runner in (
+            HogQLQueryRunner(query=HogQLQuery(query=f"SELECT count() FROM posthog.{table}"), team=self.team),
+            # Expressions are user HogQL too: a subquery in a column must not reach the table either.
+            EventsQueryRunner(query=EventsQuery(select=[f"(SELECT count() FROM posthog.{table})"]), team=self.team),
+        ):
+            with self.subTest(runner=type(runner).__name__), self.assertRaises(QueryError):
+                runner.calculate()
 
 
 class TestToolIntentProfileQuery(_Base):

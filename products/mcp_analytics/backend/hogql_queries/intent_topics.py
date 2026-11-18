@@ -236,6 +236,8 @@ class _IntentTopicsBase:
     modifiers: Any
     limit_context: Any
 
+    reads_product_internal_tables = True
+
     def run(self, *args: Any, **kwargs: Any) -> Any:
         # Intent results are never stored: an async run would persist its result outside the request,
         # so every run computes inline instead.
