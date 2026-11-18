@@ -104,13 +104,13 @@ class TestCatalogApprovalsHighlight(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("assigned only", 2, 0, ["2 certification suggestions assigned to you wait for review"]),
+            ("assigned only", 2, 0, ["2 certification suggestions assigned to you wait for approval"]),
             (
                 "assigned and unassigned",
                 1,
                 3,
                 [
-                    "1 certification suggestion assigned to you waits for review",
+                    "1 certification suggestion assigned to you waits for approval",
                     "3 certification suggestions wait for approval",
                 ],
             ),
@@ -162,6 +162,8 @@ class TestModelSuggestionsHighlight(BaseTest):
         teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
         self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("orders").id, assignee=self.user)
         self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("sessions").id, assignee=teammate)
+        former_member = User.objects.create(email="former@example.com")
+        self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("legacy").id, assignee=former_member)
         self._suggest(WarehouseSuggestionKind.UNMATERIALIZE, self._view("events_daily").id)
         self._suggest(WarehouseSuggestionKind.DEPRECATE, self._view("old_rollup").id)
         self._suggest(WarehouseSuggestionKind.CERTIFY, self._view("users").id)
@@ -176,7 +178,22 @@ class TestModelSuggestionsHighlight(BaseTest):
 
         assert [(item.title, item.detail, item.url) for item in found.items] == [
             ("1 model suggestion assigned to you waits for review", "Review it in Models.", "/models?tab=models"),
-            ("2 model suggestions wait for review", "Review them in Models.", "/models?tab=models"),
+            ("3 model suggestions wait for review", "Review them in Models.", "/models?tab=models"),
+        ]
+
+    def test_a_view_deprecation_counts_only_in_models(self) -> None:
+        self._suggest(WarehouseSuggestionKind.DEPRECATE, self._view("old_rollup").id, assignee=self.user)
+        self._suggest(WarehouseSuggestionKind.CERTIFY, self._view("users").id, assignee=self.user)
+
+        titles = [
+            item.title
+            for find in (today_highlights.find_catalog_approvals, today_highlights.find_model_suggestions)
+            for item in find(self._context()).items
+        ]
+
+        assert titles == [
+            "1 certification suggestion assigned to you waits for approval",
+            "1 model suggestion assigned to you waits for review",
         ]
 
     @parameterized.expand(

@@ -181,8 +181,10 @@ def actionable_open_counts(
     user: "User",
     kinds: frozenset[WarehouseSuggestionKind],
     subject_kinds: frozenset[WarehouseSuggestionSubjectKind],
+    *,
+    excluded_surface: WarehouseSuggestionSurface | None = None,
 ) -> OpenCounts:
-    """How many surfaced, proposed suggestions of `kinds` on `subject_kinds` `user` can act on, by assignee."""
+    """Counts the open suggestions `user` can act on: assigned to `user`, and with no assignee in the project."""
     if not is_warehouse_suggestions_enabled(team):
         return NO_OPEN_SUGGESTIONS
     visible, access = visible_suggestions(
@@ -191,10 +193,24 @@ def actionable_open_counts(
         status=WarehouseSuggestionStatus.PROPOSED,
         subject_kinds=SubjectKinds(readable=subject_kinds, actionable=subject_kinds),
     )
-    assignee_ids = [
-        suggestion.assignee_id for suggestion in visible.filter(kind__in=kinds) if access.can_act_on(suggestion)
-    ]
-    return OpenCounts(assigned_to_viewer=assignee_ids.count(user.pk), unassigned=assignee_ids.count(None))
+    actionable = visible.filter(access.editable_q(), kind__in=kinds)
+    if excluded_surface is not None:
+        actionable = actionable.exclude(surface_q(excluded_surface))
+    assignee_ids = list(actionable.order_by().values_list("assignee_id", flat=True))
+    other_assignee_ids = {
+        assignee_id for assignee_id in assignee_ids if assignee_id is not None and assignee_id != user.pk
+    }
+    owner_ids = {user.pk, *_project_member_ids(team, other_assignee_ids)}
+    return OpenCounts(
+        assigned_to_viewer=assignee_ids.count(user.pk),
+        unassigned=sum(1 for assignee_id in assignee_ids if assignee_id not in owner_ids),
+    )
+
+
+def _project_member_ids(team: "Team", user_ids: set[int]) -> frozenset[int]:
+    if not user_ids:
+        return frozenset()
+    return frozenset(team.all_users_with_access().filter(id__in=user_ids).values_list("id", flat=True))
 
 
 def subject_access(
