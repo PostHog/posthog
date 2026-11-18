@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import date
 from typing import Any
 
 from django.conf import settings
@@ -111,6 +112,56 @@ def get_wallet(team_id: int) -> Wallet:
         balance=wallet.get("balance"),
         recent=recent,
     )
+
+
+def get_org_spend(organization_id: str, start: date, end: date) -> dict[str, Any]:
+    """The organization's balance, and its AI spend from start up to end, from the gateway's org ledger."""
+    url, token = _config()
+    try:
+        response = httpx.get(
+            f"{url}/internal/accounts/{organization_id}/spend",
+            params={"start": start.isoformat(), "end": end.isoformat()},
+            headers=_auth_headers(token),
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise AIGatewayInternalError(f"spend read failed: {exc}") from exc
+    if not isinstance(data, dict):
+        raise AIGatewayInternalError("spend response was not an object")
+    return data
+
+
+def get_org_spend_limit(organization_id: str) -> dict[str, Any]:
+    """The organization's AI spend limit per billing period. A null `limit_usd` means no limit."""
+    return _org_spend_limit_request("GET", organization_id)
+
+
+def set_org_spend_limit(organization_id: str, limit_usd: str | None) -> dict[str, Any]:
+    """Set the organization's AI spend limit per billing period. None removes the limit."""
+    return _org_spend_limit_request("PUT", organization_id, {"limit_usd": limit_usd})
+
+
+def _org_spend_limit_request(method: str, organization_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    url, token = _config()
+    try:
+        response = httpx.request(
+            method,
+            f"{url}/internal/accounts/{organization_id}/spend-limit",
+            json=body,
+            headers=_auth_headers(token),
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise AIGatewayInternalError(f"spend limit {method} failed: {exc}") from exc
+    if not isinstance(data, dict):
+        raise AIGatewayInternalError("spend limit response was not an object")
+    return data
 
 
 def add_credit(team_id: int, amount_usd: str, reason: str, idempotency_key: str) -> CreditResult:
