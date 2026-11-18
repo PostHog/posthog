@@ -18,6 +18,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.apm.backend.logic.health.contract import (
+    APDEX_THRESHOLD_MS,
     EndpointHealth,
     HealthRow,
     ServiceEdge,
@@ -72,6 +73,19 @@ def environment_expr() -> ast.Expr:
     )
 
 
+def _apdex_score() -> ast.Expr:
+    """1 for a satisfied request, 0.5 for a tolerating one, 0 for a frustrated or failed one."""
+    threshold_nano = APDEX_THRESHOLD_MS * 1_000_000
+    return parse_expr(
+        "multiIf(status_code = 2, 0, duration_nano <= {t}, 1, duration_nano <= {t4}, 0.5, 0)",
+        placeholders={"t": ast.Constant(value=threshold_nano), "t4": ast.Constant(value=4 * threshold_nano)},
+    )
+
+
+def _apdex(points: float | None, span_count: int) -> float | None:
+    return float(points) / span_count if points is not None and span_count else None
+
+
 def _window_where(date_from: datetime, date_to: datetime) -> ast.Expr:
     return parse_expr(
         f"timestamp >= {{date_from}} AND timestamp < {{date_to}} AND {_TIME_BUCKET_DATE_RANGE_WHERE}",
@@ -96,7 +110,10 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str) ->
             if(countIf(kind IN (2, 5)) > 0, countIf(kind IN (2, 5) AND status_code = 2), countIf(is_root_span AND status_code = 2)) AS error_count,
             if(countIf(kind IN (2, 5)) > 0,
                quantileIf(0.95)(duration_nano, kind IN (2, 5)),
-               quantileIf(0.95)(duration_nano, is_root_span)) / 1e6 AS p95_ms
+               quantileIf(0.95)(duration_nano, is_root_span)) / 1e6 AS p95_ms,
+            if(countIf(kind IN (2, 5)) > 0,
+               sumIf({apdex_score}, kind IN (2, 5)),
+               sumIf({apdex_score}, is_root_span)) AS apdex_points
         FROM posthog.trace_spans
         WHERE {where} AND {env_expr} = {environment}
         GROUP BY service_name
@@ -109,6 +126,7 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str) ->
             "env_expr": environment_expr(),
             "environment": ast.Constant(value=environment),
             "limit": ast.Constant(value=SERVICES_LIMIT),
+            "apdex_score": _apdex_score(),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -126,7 +144,8 @@ def _endpoints_query(date_from: datetime, date_to: datetime, environment: str, s
             name,
             count() AS span_count,
             countIf(status_code = 2) AS error_count,
-            quantile(0.95)(duration_nano) / 1e6 AS p95_ms
+            quantile(0.95)(duration_nano) / 1e6 AS p95_ms,
+            sum({apdex_score}) AS apdex_points
         FROM posthog.trace_spans
         WHERE {where} AND {env_expr} = {environment} AND {service_where} AND (is_root_span OR kind IN (2, 5))
         GROUP BY service_name, name
@@ -143,6 +162,7 @@ def _endpoints_query(date_from: datetime, date_to: datetime, environment: str, s
                 else ast.Constant(value=True)
             ),
             "limit": ast.Constant(value=ENDPOINTS_LIMIT),
+            "apdex_score": _apdex_score(),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -272,7 +292,7 @@ def list_services_health(
         if 0 <= bucket < SPARKLINE_POINTS:
             points[bucket] += entry_spans if has_entry.get(service_name) else root_spans
     services = []
-    for service_name, _entry_spans, span_count, error_count, p95_ms in rows:
+    for service_name, _entry_spans, span_count, error_count, p95_ms, apdex_points in rows:
         if not span_count:
             continue
         health = HealthRow(
@@ -281,6 +301,7 @@ def list_services_health(
             p95_ms=float(p95_ms) if p95_ms is not None else None,
             span_count=int(span_count),
             error_count=int(error_count),
+            apdex=_apdex(apdex_points, span_count),
         )
         services.append(
             ServiceHealth(
@@ -309,9 +330,10 @@ def list_endpoints_health(
                 p95_ms=float(p95_ms) if p95_ms is not None else None,
                 span_count=int(span_count),
                 error_count=int(error_count),
+                apdex=_apdex(apdex_points, span_count),
             ),
         )
-        for service_name, name, span_count, error_count, p95_ms in _run(
+        for service_name, name, span_count, error_count, p95_ms, apdex_points in _run(
             team, _endpoints_query(date_from, date_to, environment, service)
         )
     ]

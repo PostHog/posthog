@@ -1,10 +1,10 @@
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import type { HealthRowApi, HealthStatusEnumApi } from './generated/api.schemas'
-import { formatMs, formatPercent, formatRate } from './healthDisplay'
+import { formatApdex, formatMs, formatPercent, formatRate } from './healthDisplay'
 import { HealthStatusTag } from './HealthStatusTag'
 
-/** Status, requests, errors, and p95: the columns every health table shows for a row. */
+/** Status, requests, errors, p95, and Apdex: the columns every health table shows for a row. */
 export function healthColumns<T extends { status: HealthStatusEnumApi; health: HealthRowApi }>(): LemonTableColumns<T> {
     return [
         {
@@ -29,6 +29,14 @@ export function healthColumns<T extends { status: HealthStatusEnumApi; health: H
             key: 'p95_ms',
             align: 'right',
             render: (_, row) => <span className="font-mono">{formatMs(row.health.p95_ms)}</span>,
+        },
+        {
+            title: 'Apdex',
+            key: 'apdex',
+            align: 'right',
+            tooltip:
+                'Share of satisfied requests, from 0 to 1. A request under 500 ms counts in full, one under 2 s counts half, and slower or failed requests count as zero.',
+            render: (_, row) => <span className="font-mono">{formatApdex(row.health.apdex)}</span>,
         },
     ]
 }
