@@ -16,17 +16,19 @@ def content(
     filters: dict[str, Any] | None = None,
     template_id: str | None = None,
     code_modified_from_template: bool | None = None,
+    inputs_schema: list[Any] | None = None,
+    masking: dict[str, Any] | None = None,
 ) -> HogFunctionContent:
     return HogFunctionContent(
         type=function_type,
         template_id=template_id,
         code_modified_from_template=code_modified_from_template,
         hog=hog,
-        inputs_schema=[],
+        inputs_schema=inputs_schema or [],
         inputs=inputs if inputs is not None else {"url": {"value": "https://hooks.example.com/orders"}},
         filters=filters or {},
         mappings=mappings or [],
-        masking=None,
+        masking=masking,
     )
 
 
@@ -338,6 +340,10 @@ class TestAbuseRules(SimpleTestCase):
                         "a_comment_block_in_a_liquid_block",
                         "{% liquid\n  comment\n  note\n  endcomment\n  assign xs = (1..20000)\n%}",
                     ),
+                    (
+                        "a_comment_block_closed_by_a_suffixed_end",
+                        "{% liquid\n  comment\n  note\n  endcomment#done\n  assign xs = (1..20000)\n%}",
+                    ),
                     ("bounds_past_float_precision", "{{ (-1000000000000000000..-999999999999999872) | size }}"),
                     ("html_encoded_quotes", "{{ (&quot;1&quot;..&quot;20000&quot;) | size }}"),
                     ("encoded_spaces", "{{%20(1%20..%2020000)%20|%20size%20}}"),
@@ -376,6 +382,39 @@ class TestAbuseRules(SimpleTestCase):
             ),
             ("huge_hog_range_with_a_start", content(hog="let ids := range(-5000, 5001)"), (Rule.HUGE_RANGE,)),
             ("hog_range_at_the_limit", content(hog="let ids := range(10000)"), ()),
+            (
+                "huge_range_in_a_hog_template_input",
+                content(inputs={"payload": {"value": "{range(1000000)}", "templating": "hog"}}),
+                (Rule.HUGE_RANGE,),
+            ),
+            (
+                "replace_all_in_an_input_with_default_templating",
+                content(inputs={"payload": {"value": {"body": "{replaceAll(event.event, '', 'xx')}"}}}),
+                (Rule.REPLACE_AMPLIFICATION,),
+            ),
+            (
+                "huge_range_in_a_mapping_hog_template_input",
+                content(mappings=[{"inputs": {"ids": {"value": ["{range(-5000, 5001)}"], "templating": "hog"}}}]),
+                (Rule.HUGE_RANGE,),
+            ),
+            (
+                "replace_all_in_the_masking_hash",
+                content(masking={"hash": "{replaceAll(event.distinct_id, '', 'xx')}", "ttl": 1800}),
+                (Rule.REPLACE_AMPLIFICATION,),
+            ),
+            (
+                "range_in_an_input_without_templating",
+                content(inputs={"payload": {"value": "{range(1000000)}", "templating": False}}),
+                (),
+            ),
+            (
+                "range_in_an_input_the_schema_marks_literal",
+                content(
+                    inputs={"payload": {"value": "{range(1000000)}"}},
+                    inputs_schema=[{"key": "payload", "type": "string", "templating": False}],
+                ),
+                (),
+            ),
             ("hog_range_with_a_float_bound", content(hog="print(range(10001.0))"), (Rule.HUGE_RANGE,)),
             ("hog_range_with_a_string_bound", content(hog="print(range('1', '20000'))"), (Rule.HUGE_RANGE,)),
             (

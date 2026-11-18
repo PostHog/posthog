@@ -7,13 +7,13 @@ import re
 import json
 import math
 import ipaddress
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from enum import StrEnum
 from urllib.parse import unquote, urlsplit
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_program
+from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
@@ -68,6 +68,9 @@ INTERNAL_FUNCTIONS = frozenset(
     }
 )
 
+# Source that names none of these cannot match a rule that reads parsed Hog, so it is not parsed.
+_HOG_RULE_NAMES = re.compile("|".join(sorted(INTERNAL_FUNCTIONS | {"range", "replaceAll"})))
+
 # A range runs or allocates every element on each event. Templates loop over a handful of items, and this is far
 # below the Liquid and Hog memory limits, so a larger range probes those limits instead of building a payload.
 MAX_RANGE_SIZE = 10_000
@@ -105,9 +108,12 @@ _LIQUID_STRING_PATTERN = r"""'(?:[^'\\]++|\\.)*+'|"(?:[^"\\]++|\\.)*+\""""
 _LIQUID_STRING = re.compile(_LIQUID_STRING_PATTERN, re.DOTALL)
 # LiquidJS reads the inside of these blocks as text, so no expression in them runs.
 _LIQUID_BLOCK_ENDS = {
-    "comment": re.compile(r"\{%-?\s*endcomment\b"),
-    "raw": re.compile(r"\{%-?\s*endraw\b"),
+    "comment": re.compile(r"\{%-?\s*endcomment(?![\w?-])"),
+    "raw": re.compile(r"\{%-?\s*endraw(?![\w?-])"),
 }
+# A LiquidJS tag name is `#` for an inline comment, or a run of word characters, which include `?`, `-` and any
+# character past ASCII that is not a space.
+_LIQUID_TAG_NAME = re.compile(r"\s*+(#|(?:[\w?-]|[^\x00-\x7f\s])*+)")
 _LIQUID_BOUND = rf"""([+-]?\d++(?:\.(?!\.)\d*+)?|{_LIQUID_STRING_PATTERN})"""
 _LIQUID_RANGE = re.compile(rf"""\(\s*+{_LIQUID_BOUND}\s*+\.\.\s*+{_LIQUID_BOUND}\s*+\)""", re.DOTALL)
 _LIQUID_STRING_OR_PAREN = re.compile(r"['\"(]")
@@ -138,20 +144,45 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
         matched.add(Rule.HUGE_RANGE)
     # Unedited template code is PostHog's, such as the hidden workflow templates that call internal functions.
     if content.code_modified_from_template is not False:
-        matched |= _hog_code_rules(content.hog)
+        matched |= _hog_code_rules(parse_program, content.hog)
+    for template in _hog_templates(content):
+        matched |= _hog_code_rules(parse_string_template, template)
     return tuple(rule for rule in Rule if rule in matched)
 
 
-def _hog_code_rules(hog: str) -> set[Rule]:
+def _hog_code_rules(parse: Callable[[str], ast.AST], hog: str) -> set[Rule]:
     """The rules that need the parsed code, so a name in a string, a comment or a property never counts. Code that
     does not parse matches none of them, and the API refuses to save it."""
-    try:
-        program = parse_program(hog)
-    except Exception:
+    if _HOG_RULE_NAMES.search(hog) is None:
         return set()
     visitor = _HogCodeVisitor()
-    visitor.visit(program)
+    try:
+        visitor.visit(parse(hog))
+    except Exception:
+        # A parse error, or a tree too deep to walk. The compiler refuses both, so they never run.
+        pass
     return visitor.matched
+
+
+def _hog_templates(content: HogFunctionContent) -> Iterator[str]:
+    """The Hog templates that run on every event besides the code: input values and the masking hash."""
+    yield from _hog_template_inputs(content.inputs, content.inputs_schema)
+    for mapping in content.mappings:
+        if isinstance(mapping, dict):
+            yield from _hog_template_inputs(mapping.get("inputs"), mapping.get("inputs_schema"))
+    if isinstance(content.masking, dict) and isinstance(masking_hash := content.masking.get("hash"), str):
+        yield masking_hash
+
+
+def _hog_template_inputs(inputs: JsonValue, inputs_schema: JsonValue) -> Iterator[str]:
+    if not isinstance(inputs, dict):
+        return
+    schema = inputs_schema if isinstance(inputs_schema, list) else []
+    literal_keys = {item.get("key") for item in schema if isinstance(item, dict) and item.get("templating") is False}
+    for key, entry in inputs.items():
+        # The runtime renders an input with Hog unless it is Liquid or the input or its schema turns templating off.
+        if isinstance(entry, dict) and key not in literal_keys and entry.get("templating") not in ("liquid", False):
+            yield from (text for text in _strings(entry.get("value")) if "{" in text)
 
 
 class _HogCodeVisitor(TraversingVisitor):
@@ -347,9 +378,8 @@ def _liquid_tags(template: str) -> Iterator[str]:
             return
         tag = template[opener.end() : end]
         position = end + 2
-        words = tag.strip().strip("-").split(maxsplit=1)
-        name = words[0] if words else ""
-        if name.startswith("#"):
+        name = _liquid_tag_name(tag.removeprefix("-").removesuffix("-"))
+        if name == "#":
             continue
         if not is_output and (block_end := _LIQUID_BLOCK_ENDS.get(name)) is not None:
             closing = block_end.search(template, position)
@@ -364,18 +394,23 @@ def _liquid_tags(template: str) -> Iterator[str]:
         yield tag
 
 
+def _liquid_tag_name(tag: str) -> str:
+    """The tag name as LiquidJS's `readTagName` reads it."""
+    match = _LIQUID_TAG_NAME.match(tag)
+    return "" if match is None else match.group(1)
+
+
 def _liquid_block_statements(tag: str) -> Iterator[str]:
     """Each statement of a `{% liquid %}` block is one line. Comment lines and the inside of comment and raw blocks
     are left out."""
     block_end: str | None = None
     for line in tag.splitlines():
-        words = line.split(maxsplit=1)
-        name = words[0] if words else ""
+        name = _liquid_tag_name(line)
         if block_end is not None:
             block_end = None if name == block_end else block_end
         elif name in _LIQUID_BLOCK_ENDS:
             block_end = f"end{name}"
-        elif not name.startswith("#"):
+        elif name != "#":
             yield line
 
 
