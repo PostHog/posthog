@@ -103,25 +103,6 @@ impl Team {
 
         Ok(row)
     }
-
-    pub async fn from_pg_by_secret_token(
-        client: PostgresReader,
-        token: &str,
-    ) -> Result<Team, FlagError> {
-        let mut conn =
-            get_connection_with_metrics(&client, "non_persons_reader", "fetch_team_by_secret")
-                .await?;
-
-        let query = format!(
-            "SELECT {TEAM_COLUMNS} FROM posthog_team WHERE secret_api_token = $1 OR secret_api_token_backup = $1"
-        );
-        let row = sqlx::query_as::<_, Team>(&query)
-            .bind(token)
-            .fetch_one(&mut *conn)
-            .await?;
-
-        Ok(row)
-    }
 }
 
 #[cfg(test)]

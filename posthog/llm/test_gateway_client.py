@@ -577,15 +577,17 @@ class TestBuildAnthropicClient:
 
 
 class TestBuildAIGatewayAnthropicClient:
+    @pytest.mark.parametrize("privacy_mode", [True, False])
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.Anthropic")
-    def test_builds_the_go_gateway_client_with_attribution(self, mock_anthropic, mock_httpx):
+    def test_builds_the_go_gateway_client_with_attribution(self, mock_anthropic, mock_httpx, privacy_mode):
         result = build_ai_gateway_anthropic_client(
             ai_product="aio_stamphog",
             properties={"source_product": "stamphog_digest"},
             distinct_id="team-42",
             team_id=42,
+            privacy_mode=privacy_mode,
         )
 
         kwargs = mock_anthropic.call_args.kwargs
@@ -600,6 +602,7 @@ class TestBuildAIGatewayAnthropicClient:
             "source_product": "stamphog_digest",
             "team_id": "42",
         }
+        assert headers.get("X-PostHog-Privacy-Mode") == ("true" if privacy_mode else None)
         assert result is mock_anthropic.return_value
 
     @pytest.mark.parametrize(

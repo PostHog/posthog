@@ -19,7 +19,6 @@ function savedFilter(overrides: Record<string, unknown> = {}): SessionRecordingP
             date_from: '-3d',
             date_to: null,
             filter_test_accounts: true,
-            recommended_only: true,
             event_match_scope: 'recording',
             session_ids: ['pinned-session'],
             duration: [{ type: PropertyFilterType.Recording, key: 'active_seconds', value: 5, operator: 'gt' }],
@@ -75,7 +74,6 @@ describe('scannerSavedFilterLogic', () => {
         const query = scannerLogic.values.scanner.query
         expect(query?.events).toEqual([expect.objectContaining({ id: '$pageview' })])
         expect(query?.filter_test_accounts).toBe(true)
-        expect(query?.recommended_only).toBe(true)
         expect(query?.event_match_scope).toBe('recording')
         expect(query?.session_ids).toBeUndefined()
         expect(query?.date_from).toBeUndefined()

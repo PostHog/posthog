@@ -21,6 +21,7 @@ import {
     SignalSourceProduct,
     SignalSourceType,
 } from './types'
+import type { ReportDecision } from './utils/reportDecisions'
 import { rankingPillLifts } from './utils/reportOrdering'
 import { reportPullRequests } from './utils/reportPullRequests'
 
@@ -52,6 +53,8 @@ export const INBOX_EVENTS = {
     REPORT_ACTION: 'Inbox report action',
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
+    // Cloud-only for now.
+    REPORT_DECISION_CHANGED: 'Inbox report decision changed',
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
@@ -147,6 +150,7 @@ export const INBOX_REPORT_LINK_SOURCES = [
     'support',
     'task',
     'today',
+    'note_mention',
 ] as const
 
 /** `other` is a `source` value outside the fixed set, so a typo or a hand-edited link stays countable. */
@@ -254,7 +258,7 @@ export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'fin
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
 
 /** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
-export type InboxWrite = 'claim' | 'note' | 'priority' | 'retire_note' | 'state'
+export type InboxWrite = 'claim' | 'note' | 'priority' | 'repository' | 'retire_note' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -354,7 +358,7 @@ interface RankingPillProperties {
     pill_fix: number | null
 }
 
-/** The lifts the person saw on the report's pill. A list without pills, or a stale or unscored report, shows none. */
+/** The lifts the person saw on the report's pill. A list without pills, or an unscored report, shows none. */
 function rankingPillProperties(report: SignalReport, rankingPill: boolean): RankingPillProperties {
     const lifts = rankingPill ? rankingPillLifts(report) : null
     return {
@@ -698,6 +702,25 @@ export function captureInboxReportAction(params: {
               )
             : {}),
         ...params.extra,
+    })
+}
+
+/** `previous_set_by` tells a correction of the agent apart from a change to a person's own value. */
+export function captureInboxReportDecisionChanged(params: {
+    report: SignalReport
+    decision: ReportDecision
+    previousValue: string | null
+    newValue: string
+    previousSetBy: 'agent' | 'person' | null
+    surface: InboxReportActionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_DECISION_CHANGED, {
+        ...baseReportProperties(params.report),
+        decision: params.decision,
+        previous_value: params.previousValue,
+        new_value: params.newValue,
+        previous_set_by: params.previousSetBy,
+        surface: params.surface,
     })
 }
 

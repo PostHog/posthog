@@ -122,6 +122,38 @@ describe('load', () => {
             'drive.ramp: the ramp steps must add up to drive.for',
         ],
         [
+            'a ramp that returns to a scale it already ran',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '10s' },
+                        { scale: 1, for: '10s' },
+                    ],
+                },
+            },
+            undefined,
+            'drive.ramp: each ramp step must scale higher than the one before',
+        ],
+        [
+            'a ramp that holds a scale for two steps',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '10s' },
+                        { scale: 2, for: '10s' },
+                    ],
+                },
+            },
+            undefined,
+            'drive.ramp: each ramp step must scale higher than the one before',
+        ],
+        [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
             undefined,
@@ -221,16 +253,6 @@ describe('load', () => {
             },
             undefined,
             'convergeWithin: 100s must exceed 107s',
-        ],
-        [
-            'pg.drop_connections scheduled by at',
-            {
-                ...card,
-                valves: [{ valve: 'pg.drop_connections', target: 'postgres', dose: { share: 1 }, at: '5s', for: '1s' }],
-                convergeWithin: '2m',
-            },
-            undefined,
-            'valves.0.at: pg.drop_connections waits for running jobs, so it takes when, not at',
         ],
         [
             'bounced_suppressed without a bounce',
@@ -351,6 +373,12 @@ describe('load', () => {
         ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
         expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
+    })
+
+    it('reports a profile path it cannot read as a problem of the card', () => {
+        expect(() => load(write('card.yaml', card), { definitions, profilePath: dir })).toThrow(
+            expect.objectContaining({ problems: [expect.stringMatching(/^profile: .*EISDIR/)] })
+        )
     })
 
     it('lists every problem in one error', () => {

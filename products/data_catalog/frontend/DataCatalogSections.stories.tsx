@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/react'
 
@@ -9,6 +11,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataCatalogScene } from './DataCatalogScene'
+import { METRICS_INTRO_SEEN_KEY } from './metricsIntroLogic'
 
 const nodes = [
     {
@@ -496,6 +499,46 @@ export const Metrics: Story = {
 
 export const MetricsNarrow: Story = {
     parameters: { pageUrl: urls.dataCatalog('metrics') },
+    decorators: [inMainContent('w-128')],
+}
+
+export const MetricsReturningVisit: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+            // The setup button needs the PostHog AI sandbox runtime.
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+        ],
+        pageUrl: urls.dataCatalog('metrics'),
+        msw: {
+            mocks: {
+                get: {
+                    '/api/users/@me/': [
+                        200,
+                        { ...MOCK_DEFAULT_USER, has_seen_product_intro_for: { [METRICS_INTRO_SEEN_KEY]: true } },
+                    ],
+                },
+            },
+        },
+    },
+}
+
+export const MetricsEmpty: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+            // The setup button needs the PostHog AI sandbox runtime.
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+        ],
+        pageUrl: urls.dataCatalog('metrics'),
+        msw: { mocks: { get: { '/api/projects/:team_id/data_catalog/metrics/': { results: [], count: 0 } } } },
+    },
+}
+
+export const MetricsEmptyNarrow: Story = {
+    ...MetricsEmpty,
     decorators: [inMainContent('w-128')],
 }
 

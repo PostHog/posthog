@@ -1,6 +1,11 @@
 import { createWorker } from 'lib/utils/createWorker'
 
 import {
+    type SqlTableReference,
+    tableReferenceFromAst,
+} from 'products/data_warehouse/frontend/shared/sqlTableReference'
+
+import {
     type AstRange,
     type SelectComparison,
     compareParsedSelects,
@@ -142,6 +147,16 @@ export async function analyzeTablesAndColumns(query: string): Promise<Record<str
     }
     const ast = await parseOnMainThread(query)
     return ast ? tablesAndColumnsFromAst(ast) : {}
+}
+
+export async function analyzeTableReference(query: string, localOffset: number): Promise<SqlTableReference | null> {
+    if (!workerUnavailable) {
+        try {
+            return await ask({ op: 'tableReference', query, localOffset })
+        } catch {}
+    }
+    const ast = await parseOnMainThread(query)
+    return ast ? tableReferenceFromAst(ast, localOffset) : null
 }
 
 const SELECT_COMPARISONS: ReadonlySet<unknown> = new Set<SelectComparison>(['same', 'different', 'unparsable'])

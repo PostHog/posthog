@@ -169,10 +169,17 @@ Good instructions say:
 
 Do not put secrets or personal data in instructions. The model reads them on every check.
 
+### Choosing the model
+
+`model` is optional: `claude-haiku-5-5` (Claude Haiku 5.5) or `gpt-6-luna` (GPT-6 Luna).
+An alert with no `model` uses `claude-haiku-5-5`, and any other value is refused.
+Leave it out unless the user asks for a model.
+Each check is still one model call, so the choice changes the price of each call and the model's reading of the chart, not the number of calls.
+
 ### Reading AI detector results
 
 AI checks have no anomaly scores.
-`posthog:alert-get` returns each check's `triggered_metadata`, which carries the model's `rationale` and a `kind`:
+`posthog:alert-get` returns each check's `triggered_metadata`, which carries the `model` that judged it, the model's `rationale`, and a `kind`:
 `spike`, `drop`, `flatline`, `trend_break`, `level_shift`, `pattern_change`, or `none`.
 Later checks see the points that earlier checks fired on, with their rationale, so instructions can refer to earlier alerts.
 
