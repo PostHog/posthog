@@ -40,7 +40,6 @@ EDIT_WITH_CONDITIONS = dataclasses.replace(
 )
 
 PARAMETERS = ScoreParameters(
-    condition_match=None,
     alpha=0.05,
     weight_level_2=0.9,
     weight_level_4=0.7,
@@ -96,8 +95,8 @@ def _hours(rates: Sequence[float]) -> dict[datetime, HourErrors]:
     }
 
 
-def _baseline(starts: Iterable[datetime]) -> list[BaselineHour]:
-    weeks = tuple(HourErrors(active=PEOPLE, with_errors=round(rate * PEOPLE)) for rate in BASELINE_RATES)
+def _baseline(starts: Iterable[datetime], rates: Sequence[float] = BASELINE_RATES) -> list[BaselineHour]:
+    weeks = tuple(HourErrors(active=PEOPLE, with_errors=round(rate * PEOPLE)) for rate in rates)
     return [BaselineHour(start=start, weeks=weeks) for start in starts]
 
 
@@ -111,9 +110,10 @@ def _score(
     rates: Sequence[float],
     parameters: ScoreParameters = PARAMETERS,
     edit: WatchedEdit = EDIT,
+    condition_match: ConditionMatch | None = None,
 ) -> WindowScore:
     hours = _hours(rates)
-    return score_window(edit, exposure, errors, hours, _baseline(hours), parameters)
+    return score_window(edit, exposure, errors, hours, _baseline(hours), parameters, condition_match=condition_match)
 
 
 class TestScoreWindow(SimpleTestCase):
@@ -147,7 +147,7 @@ class TestScoreWindow(SimpleTestCase):
                 "a_weak_rise_with_the_exposure_rise_and_a_strong_one_later",
                 {0: 0.027, 48: RISE_RATE},
                 PARAMETERS,
-                0.525,
+                0.520,
                 False,
             ),
             (
@@ -170,33 +170,42 @@ class TestScoreWindow(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("traffic_arrives_late", True, [0.0, 0.0, 0.0, 0.5, 0.5, 0.5], 3),
-            ("a_step_after_an_edit_that_doesnt_enable", False, [0.5, 0.5, 0.5, 0.7, 0.7, 0.7], 3),
-            ("small_moves_after_an_edit_that_doesnt_enable", False, [0.5, 0.49, 0.5, 0.52], 0),
+            ("traffic_arrives_late", True, [0.0, 0.0, 0.0, 0.5, 0.5, 0.5], 3, 1.0),
+            ("a_step_after_an_edit_that_doesnt_enable", False, [0.5, 0.5, 0.5, 0.7, 0.7, 0.7], 3, 1.0),
+            ("small_moves_after_an_edit_that_doesnt_enable", False, [0.5, 0.49, 0.5, 0.52], 0, 1.0),
+            ("no_exposure_rise_after_an_edit_mid_hour", False, [0.5, 0.5], 0, 1.0, EDITED_AT + timedelta(minutes=30)),
+            ("errors_rise_an_hour_before_the_exposure_rise", True, [0.0, 0.0, 0.0, 0.5, 0.5, 0.5], 2, 0.0),
         ]
     )
     def test_the_proximity_counts_from_the_hour_in_which_exposure_rises(
-        self, _name: str, enables: bool, shares: list[float], rise_hour: int
+        self,
+        _name: str,
+        enables: bool,
+        shares: list[float],
+        rise_hour: int,
+        proximity: float,
+        edited_at: datetime = EDITED_AT,
     ) -> None:
-        edit = dataclasses.replace(EDIT, enables=enables)
+        edit = dataclasses.replace(EDIT, enables=enables, edited_at=edited_at)
 
         result = _score(_exposure(shares), _errors(40, 40), _rates(len(shares), {rise_hour: RISE_RATE}), edit=edit)
 
-        assert result.proximity == 1.0
-        assert result.suspicious
+        assert result.proximity == proximity
+        assert result.suspicious is (proximity == 1.0)
 
     @parameterized.expand(
         [
-            ("before_the_edit", EDITED_AT - HOUR, HourErrors(active=PEOPLE, with_errors=80), True),
-            ("without_a_baseline", EDITED_AT + 2 * HOUR, HourErrors(active=PEOPLE, with_errors=80), False),
-            ("below_the_minimum_activity", EDITED_AT + HOUR, HourErrors(active=1, with_errors=1), True),
+            ("before_the_edit", EDITED_AT - HOUR, HourErrors(active=PEOPLE, with_errors=80), BASELINE_RATES),
+            ("without_a_baseline", EDITED_AT + HOUR, HourErrors(active=PEOPLE, with_errors=80), ()),
+            ("with_one_earlier_week", EDITED_AT + HOUR, HourErrors(active=PEOPLE, with_errors=80), BASELINE_RATES[:1]),
+            ("below_the_minimum_activity", EDITED_AT + HOUR, HourErrors(active=1, with_errors=1), BASELINE_RATES),
         ]
     )
     def test_an_hour_that_cant_show_an_error_rise_adds_no_strength(
-        self, _name: str, start: datetime, counts: HourErrors, with_baseline: bool
+        self, _name: str, start: datetime, counts: HourErrors, baseline_rates: Sequence[float]
     ) -> None:
         hours = {**_hours([BASELINE_RATE]), start: counts}
-        baseline = _baseline(hours if with_baseline else [EDITED_AT])
+        baseline = _baseline(hours, baseline_rates)
 
         result = score_window(EDIT, _exposure([0.5]), _errors(40, 40), hours, baseline, PARAMETERS)
 
@@ -233,9 +242,7 @@ class TestScoreWindow(SimpleTestCase):
             in_condition={ConditionMatch.REASON: ConditionErrors(exposed_with_errors=40, unexposed_with_errors=5)},
         )
 
-        result = _score(
-            exposure, errors, [BASELINE_RATE], dataclasses.replace(PARAMETERS, condition_match=condition_match), edit
-        )
+        result = _score(exposure, errors, [BASELINE_RATE], edit=edit, condition_match=condition_match)
 
         assert (None if result.level_1 is None else result.level_1.is_significant) is significant
 
@@ -247,9 +254,7 @@ class TestScoreWindow(SimpleTestCase):
             in_condition={ConditionMatch.REASON: ConditionErrors(exposed_with_errors=20, unexposed_with_errors=5)},
         )
 
-        result = _score(
-            exposure, errors, [BASELINE_RATE], dataclasses.replace(PARAMETERS, condition_match=ConditionMatch.REASON)
-        )
+        result = _score(exposure, errors, [BASELINE_RATE], condition_match=ConditionMatch.REASON)
 
         assert result.level_1 is not None and result.level_1.is_significant
         assert not result.suspicious
@@ -283,12 +288,26 @@ class TestScoreWindow(SimpleTestCase):
                 None,
             ),
             ("nobody_exposed", ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10), 0, None),
+            (
+                "an_edit_with_watched_conditions",
+                ErrorsByLastValue(exposed_with_errors=50, unexposed_with_errors=10),
+                PEOPLE,
+                None,
+                EDIT_WITH_CONDITIONS,
+            ),
         ]
     )
     def test_level_2_is_the_share_of_exposed_errors_that_the_flag_explains(
-        self, _name: str, by_last_value: ErrorsByLastValue | None, exposed: int, expected: float | None
+        self,
+        _name: str,
+        by_last_value: ErrorsByLastValue | None,
+        exposed: int,
+        expected: float | None,
+        edit: WatchedEdit = EDIT,
     ) -> None:
-        result = _score(_exposure([0.5], exposed=exposed), _errors(0, 0, by_last_value=by_last_value), [BASELINE_RATE])
+        errors = _errors(0, 0, by_last_value=by_last_value)
+
+        result = _score(_exposure([0.5], exposed=exposed), errors, [BASELINE_RATE], edit=edit)
 
         assert result.level_2 == pytest.approx(expected)
         assert result.score == pytest.approx(PARAMETERS.weight_level_2 * (expected or 0.0))

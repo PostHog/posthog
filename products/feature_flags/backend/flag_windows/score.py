@@ -5,7 +5,8 @@ The evidence goes from strongest to weakest:
 - Level 1 compares the error rate of the exposed people with the rest of the people with the flag. It uses the
   sequential test of experiments, so the window can run it again on every tick. When the exposed people are worse, the
   window is suspicious however much time has passed.
-- Level 2 makes the same comparison by the value that each person had at the error.
+- Level 2 makes the same comparison by the value that each person had at the error, for edits without watched
+  conditions.
 - Level 4 checks that each step up in exposure brings errors up by the same amount.
 - Level 5 checks only that errors rose over the baseline.
 
@@ -34,15 +35,13 @@ from products.feature_flags.backend.flag_windows.query import ConditionMatch, Wa
 
 @frozen
 class ScoreParameters:
-    """`condition_match` picks the people that level 1 compares: only those in the watched conditions that this source
-    finds, or everyone with the flag when None. An hour is an error rise when its excess over the baseline is at least
-    `rise_z` standard deviations, and level 5 has full strength at `full_strength_z`. A rise in exposure share from one
-    hour to the next is a step, for level 4 and the exposure rise, when it is at least `min_share_step`. The proximity
-    falls to 1/e when the error rise is `decay` away from the exposure rise. Variation is noise below `min_exposed` and
-    `min_with_errors`, and in an hour or earlier week with fewer than `min_active` active people. A group flag counts
-    groups, so one large customer can't meet these minimums alone."""
+    """An hour is an error rise when its excess over the baseline is at least `rise_z` standard deviations, and level 5
+    has full strength at `full_strength_z`. A rise in exposure share from one hour to the next is a step, for level 4
+    and the exposure rise, when it is at least `min_share_step`. The proximity falls to 1/e when the error rise is
+    `decay` after the exposure rise. Variation is noise below `min_exposed` and `min_with_errors`, and in an hour or
+    earlier week with fewer than `min_active` active people. A group flag counts groups, so one large customer can't
+    meet these minimums alone."""
 
-    condition_match: ConditionMatch | None
     alpha: float
     weight_level_2: float
     weight_level_4: float
@@ -65,7 +64,6 @@ class ScoreParameters:
 
 # Placeholders until the phase 0 backtest tunes them.
 WEB_PARAMETERS = ScoreParameters(
-    condition_match=None,
     alpha=0.05,
     weight_level_2=0.9,
     weight_level_4=0.7,
@@ -86,8 +84,8 @@ class WindowScore:
     """Levels 2, 4 and 5 and the proximity are in [0, 1]. Level 1 is None when the test can't run: no exposure, nobody
     exposed or everyone with the flag exposed, fewer than 5 people in a group, or a watched condition that this source
     doesn't find. Level 2 is None without exposure, when nobody or everyone with the flag is exposed, without the
-    counts by last value, or below the minimum volume. Level 4 is None without an error rise or with fewer than two
-    exposure steps.
+    counts by last value, below the minimum volume, or for an edit with watched conditions. Level 4 is None without an
+    error rise or with fewer than two exposure steps.
 
     The window is suspicious when level 1 finds the exposed people significantly worse with enough volume, or when the
     volume is enough and `score` reaches the threshold."""
@@ -122,10 +120,14 @@ def score_window(
     hours: Mapping[datetime, HourErrors],
     baseline: Sequence[BaselineHour],
     parameters: ScoreParameters = WEB_PARAMETERS,
+    *,
+    condition_match: ConditionMatch | None = None,
 ) -> WindowScore:
     """Scores the window from the one-hour exposure buckets of the edit so far, oldest first, and the errors from the
     edit to the latest bucket. `hours` holds the errors of the window by the start of each UTC hour, and `baseline` the
-    same hours of earlier weeks."""
+    same hours of earlier weeks. `condition_match` is how the exposure and error queries found the watched conditions,
+    and it picks the people that level 1 compares: only those in the watched conditions, or everyone with the flag
+    when None."""
     for start in [*(bucket.start for bucket in exposure), *hours]:
         # Queries return times in the team's time zone, which can be a half hour off UTC.
         if start != _utc_hour(start):
@@ -137,7 +139,7 @@ def score_window(
 
     level_1: ProportionTestResult | None = None
     level_1_confirms = False
-    split = _level_1_split(edit, exposure_since_edit, errors_since_edit, parameters.condition_match)
+    split = _level_1_split(edit, exposure_since_edit, errors_since_edit, condition_match)
     if split is not None:
         level_1 = sequential_proportion_test(split.exposed, split.unexposed, alpha=parameters.alpha)
         level_1_confirms = (
@@ -146,7 +148,7 @@ def score_window(
             and level_1.difference > 0
             and _split_has_volume(split, parameters)
         )
-    level_2 = _level_2(exposure_since_edit, errors_since_edit, parameters)
+    level_2 = _level_2(edit, exposure_since_edit, errors_since_edit, parameters)
 
     exposure_rise = _exposure_rise(edit, exposure, parameters.min_share_step)
     error_rises = {start: hour_excess for start, hour_excess in excess.items() if hour_excess.z >= parameters.rise_z}
@@ -205,7 +207,10 @@ def _strength(hour_excess: _Excess, parameters: ScoreParameters) -> float:
 
 
 def _proximity(error_rise: datetime, exposure_rise: datetime, parameters: ScoreParameters) -> float:
-    return math.exp(-abs(error_rise - exposure_rise) / parameters.decay)
+    # Errors that rise before more people get the flag can't come from the people that the flag exposes.
+    if error_rise < exposure_rise:
+        return 0.0
+    return math.exp(-(error_rise - exposure_rise) / parameters.decay)
 
 
 def _share(counts: ExposureCounts) -> float:
@@ -244,8 +249,10 @@ def _level_1_split(
     return _split_people(counts.with_flag, counts.exposed, error_counts)
 
 
-def _level_2(exposure: ExposureCounts | None, errors: ErrorCounts | None, parameters: ScoreParameters) -> float | None:
-    if exposure is None or errors is None or errors.by_last_value is None:
+def _level_2(
+    edit: WatchedEdit, exposure: ExposureCounts | None, errors: ErrorCounts | None, parameters: ScoreParameters
+) -> float | None:
+    if edit.conditions or exposure is None or errors is None or errors.by_last_value is None:
         return None
     split = _split_people(exposure.with_flag, exposure.exposed, errors.by_last_value)
     if split is None or not _split_has_volume(split, parameters):
@@ -279,28 +286,28 @@ def _excess_by_hour(
     edit: WatchedEdit, hours: Mapping[datetime, HourErrors], baseline: Sequence[BaselineHour], min_active: int
 ) -> dict[datetime, _Excess]:
     """The excess error rate of each hour from the edit on, oldest first. An hour with fewer than `min_active` active
-    people, or without an earlier week that has `min_active`, has no entry."""
+    people, or without two earlier weeks that have `min_active`, has no entry."""
     earlier = {hour.start: hour.weeks for hour in baseline}
     edit_hour = _utc_hour(edit.edited_at)
     excess: dict[datetime, _Excess] = {}
     for start, counts in sorted(hours.items()):
         # In a small hour, such as one that just started, one error is a rate of 1 with no sampling noise.
         rates = [week.with_errors / week.active for week in earlier.get(start, ()) if week.active >= min_active]
-        if start < edit_hour or counts.active < min_active or not rates:
+        if start < edit_hour or counts.active < min_active or len(rates) < 2:
             continue
         # The two counts are separate `uniq` estimates, so the errors can come out above the active people.
         rate = min(1.0, counts.with_errors / counts.active)
         excess_rate = rate - statistics.fmean(rates)
-        spread = math.hypot(statistics.pstdev(rates), math.sqrt(rate * (1 - rate) / counts.active))
+        spread = math.hypot(statistics.stdev(rates), math.sqrt(rate * (1 - rate) / counts.active))
         z = excess_rate / spread if spread else (math.inf if excess_rate > 0 else 0.0)
         excess[start] = _Excess(rate=excess_rate, z=z)
     return excess
 
 
 def _exposure_rise(edit: WatchedEdit, exposure: Sequence[ExposureBucket], min_share_step: float) -> datetime:
-    """The start of the bucket in which the exposure share rises the most. The edit time when no event carries the flag,
-    or when the share never rises by `min_share_step`."""
-    rise, largest_step = edit.edited_at, 0.0
+    """The start of the bucket in which the exposure share rises the most. The hour of the edit when no event carries
+    the flag, or when the share never rises by `min_share_step`."""
+    rise, largest_step = _utc_hour(edit.edited_at), 0.0
     # Before an edit that enables the flag, nobody is exposed. Before other edits, the share is unknown, so the first
     # bucket has no step.
     previous = 0.0 if edit.enables else None
