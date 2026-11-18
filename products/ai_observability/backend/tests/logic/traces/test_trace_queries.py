@@ -1,4 +1,6 @@
+import re
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person
@@ -13,20 +15,26 @@ from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 
 from products.ai_observability.backend.logic.traces import trace_queries
+from products.ai_observability.backend.logic.traces.events_fallback import FallbackWindow
 from products.ai_observability.backend.logic.traces.trace_queries import (
     GitStampRow,
+    LoadedTrace,
+    PageTraceRows,
     SearchNeedles,
     TraceRootLookup,
-    is_truthy_json,
     load_trace,
     load_trace_feedback_rows,
     load_trace_git_rows,
     load_trace_node,
     load_trace_root,
     load_trace_search,
+    load_traces_rows,
+    rows_per_trace_cap,
 )
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+GENERATION = "00000000-0000-0000-0000-0000000000a1"
+SPAN = "00000000-0000-0000-0000-0000000000a2"
 INGESTED_SOURCE = """(
     SELECT
         toUUID(%(uuid)s) AS uuid,
@@ -40,27 +48,6 @@ INGESTED_SOURCE = """(
         0 AS _offset,
         0 AS _partition
 )"""
-
-
-@parameterized.expand(
-    [
-        ("missing", "", False),
-        ("null", "null", False),
-        ("empty string", '""', False),
-        ("false", "false", False),
-        ("zero", "0", False),
-        ("empty array", "[]", False),
-        ("empty object", "{}", False),
-        ("text", '"boom"', True),
-        ("text that reads null", '"null"', True),
-        ("true", "true", True),
-        ("non-zero number", "-1.5", True),
-        ("array", '["boom"]', True),
-        ("object", '{"message": "boom"}', True),
-    ]
-)
-def test_is_truthy_json(_name: str, raw: str, expected: bool) -> None:
-    assert is_truthy_json(raw) is expected
 
 
 @parameterized.expand(
@@ -98,6 +85,30 @@ class TraceEventsMixin:
             "properties": {"$ai_trace_id": trace_id, **(properties or {})},
         }
 
+    def _list_row_events(self) -> list[dict[str, object]]:
+        generation_properties: dict[str, object] = {
+            "$ai_tools_called": "search, fetch",
+            "$ai_error": {"message": "boom"},
+            "$ai_is_error": True,
+            "ai_support_impersonated": True,
+        }
+        return [
+            self._event(GENERATION, event="$ai_generation", properties=generation_properties),
+            self._event(SPAN, event="$ai_span"),
+        ]
+
+    def _assert_list_row_columns(self, loaded: LoadedTrace) -> None:
+        by_uuid = {row.uuid: row for row in loaded.rows}
+
+        generation, span = by_uuid[GENERATION], by_uuid[SPAN]
+
+        assert (generation.tools_called, generation.error_text, generation.is_support) == (
+            ("search", "fetch"),
+            '{"message": "boom"}',
+            True,
+        )
+        assert (span.tools_called, span.error_text, span.is_support) == ((), None, False)
+
     def _ingest(self, uuid: str, properties: dict[str, object], *, event: str = "$ai_span") -> None:
         # Goes through the materialized view expressions, because bulk_create_ai_events types columns differently.
         mv_select = AI_EVENTS_MV_SQL(kafka_table=INGESTED_SOURCE).split("AS SELECT", 1)[1]
@@ -130,6 +141,11 @@ class TestLoadTrace(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         assert sorted(row.uuid for row in loaded.rows) == uuids
         assert loaded.rows[0].latency == 1.0
         assert [row.uuid for row in loaded.rows if row.error_is_truthy] == [uuids[0]]
+
+    def test_reads_the_columns_a_list_row_needs(self) -> None:
+        bulk_create_ai_events(self._list_row_events())
+
+        self._assert_list_row_columns(load_trace(self.team, None, "trace-1", None))
 
     def test_ingested_values_read_like_the_legacy_view(self) -> None:
         self._ingest(
@@ -390,6 +406,11 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
             ("00000000-0000-0000-0000-000000000002", None, False, 7, False, None),
         ]
 
+    def test_falls_back_to_events_for_the_columns_a_list_row_needs(self) -> None:
+        bulk_create_events(self._list_row_events())
+
+        self._assert_list_row_columns(load_trace(self.team, None, "trace-1", T0))
+
     def test_hint_bounds_the_fallback_window(self) -> None:
         bulk_create_events([self._event("00000000-0000-0000-0000-000000000001")])
 
@@ -452,6 +473,31 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         assert load_trace_search(self.team, None, "trace-1", "invoice", T0).counts == {NODE: 1}
         assert load_trace_search(self.team, None, "trace-1", "invoice", None).rows == ()
 
+    def test_a_page_reads_traces_missing_from_ai_events_from_the_shared_table(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        bulk_create_ai_events([self._event(_uuid(1), trace_id="recent")])
+        bulk_create_events(
+            [
+                self._event(_uuid(2), trace_id="aged", properties={"$ai_span_name": "Fetch invoice"}),
+                self._event(_uuid(3), trace_id="outside", timestamp=WINDOW.end + timedelta(minutes=1)),
+                {**self._event(_uuid(4), trace_id="aged"), "team": other_team},
+            ]
+        )
+
+        loaded = load_traces_rows(self.team, self.user, ["recent", "aged", "outside"], WINDOW)
+
+        assert _page_uuids(loaded) == {"recent": [_uuid(1)], "aged": [_uuid(2)]}
+        assert loaded["aged"].rows[0].span_name == "Fetch invoice"
+
+    def test_a_page_missing_from_ai_events_reads_the_shared_table_once(self) -> None:
+        bulk_create_events([self._event(_uuid(1), trace_id="aged")])
+
+        with self.capture_select_queries() as queries:
+            loaded = load_traces_rows(self.team, self.user, ["aged", "unknown"], WINDOW)
+
+        assert set(loaded) == {"aged"}
+        assert _tables_read(queries) == ["ai_events", "events"]
+
 
 SPAN = "00000000-0000-0000-0000-000000000011"
 GENERATION = "00000000-0000-0000-0000-000000000012"
@@ -506,3 +552,130 @@ class TestLoadTraceSearch(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         self._ingest(NODE, properties, event="$ai_generation")
 
         assert load_trace_search(self.team, None, "trace-1", query, None).counts.get(NODE, 0) == expected
+
+
+WINDOW = FallbackWindow(start=T0 - timedelta(hours=1), end=T0 + timedelta(days=1))
+_EVENTS_TABLE = re.compile(r"FROM\s+(ai_events|events)")
+# Ids with a double quote or a backslash read from a materialized column the test database lacks.
+AWKWARD_TRACE_ID = "a,b'c/d #%"
+
+
+def _uuid(index: int) -> str:
+    return f"00000000-0000-0000-0000-{index:012d}"
+
+
+@parameterized.expand([(1, 2000), (24, 2000), (25, 1999), (50, 999), (100, 499)])
+def test_rows_per_trace_cap_fits_the_page_in_the_row_budget(trace_count: int, cap: int) -> None:
+    assert rows_per_trace_cap(trace_count) == cap
+
+
+def _page_uuids(loaded: dict[str, PageTraceRows]) -> dict[str, list[str]]:
+    return {trace_id: sorted(row.uuid for row in page.rows) for trace_id, page in loaded.items()}
+
+
+def _tables_read(queries: list[str]) -> list[str]:
+    return [match[1] for query in queries if (match := _EVENTS_TABLE.search(query))]
+
+
+class TestLoadTracesRows(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
+    def test_page_rows_come_back_grouped_by_trace(self) -> None:
+        duplicated = self._event(_uuid(1), trace_id="first")
+        bulk_create_ai_events(
+            [
+                duplicated,
+                duplicated,
+                self._event(_uuid(2), trace_id="first", event="$ai_generation", properties={"$ai_model": "gpt-6"}),
+                self._event(_uuid(3), trace_id="second"),
+            ]
+        )
+
+        loaded = load_traces_rows(self.team, self.user, ["first", "second"], WINDOW)
+
+        assert _page_uuids(loaded) == {"first": [_uuid(1), _uuid(2)], "second": [_uuid(3)]}
+        assert [row.model for row in loaded["first"].rows if row.uuid == _uuid(2)] == ["gpt-6"]
+        assert not loaded["first"].truncated and not loaded["second"].truncated
+
+    @parameterized.expand([("over the cap", 5, True), ("at the cap", 2, False)])
+    def test_a_trace_over_the_cap_keeps_its_trace_event_and_is_marked(
+        self, _name: str, spans: int, truncated: bool
+    ) -> None:
+        bulk_create_ai_events(
+            [
+                *(
+                    self._event(_uuid(index), trace_id="big", timestamp=T0 + timedelta(seconds=index))
+                    for index in range(spans)
+                ),
+                self._event(_uuid(99), trace_id="big", event="$ai_trace", timestamp=T0 + timedelta(minutes=5)),
+            ]
+        )
+
+        with patch.object(trace_queries, "PAGE_ROW_CAP_PER_TRACE", 3):
+            loaded = load_traces_rows(self.team, self.user, ["big"], WINDOW)["big"]
+
+        assert loaded.truncated is truncated and len(loaded.rows) == 3
+        assert sorted(row.uuid for row in loaded.rows) == [_uuid(0), _uuid(1), _uuid(99)]
+
+    def test_every_trace_of_a_page_over_the_budget_keeps_its_cap_and_is_marked(self) -> None:
+        trace_ids = ["first", "second", "third"]
+        bulk_create_ai_events(
+            [
+                event
+                for offset, trace_id in enumerate(trace_ids)
+                for event in (
+                    *(
+                        self._event(
+                            _uuid(offset * 10 + index), trace_id=trace_id, timestamp=T0 + timedelta(seconds=index)
+                        )
+                        for index in range(4)
+                    ),
+                    self._event(
+                        _uuid(offset * 10 + 9),
+                        trace_id=trace_id,
+                        event="$ai_trace",
+                        timestamp=T0 + timedelta(minutes=5),
+                    ),
+                )
+            ]
+        )
+
+        with patch.object(trace_queries, "PAGE_ROW_BUDGET", 12):
+            loaded = load_traces_rows(self.team, self.user, trace_ids, WINDOW)
+
+        assert {
+            trace_id: (len(page.rows), page.truncated, sum(row.event == "$ai_trace" for row in page.rows))
+            for trace_id, page in loaded.items()
+        } == dict.fromkeys(trace_ids, (3, True, 1))
+
+    @parameterized.expand([("on ai_events", bulk_create_ai_events), ("on the shared table", bulk_create_events)])
+    def test_an_unknown_id_is_absent_and_awkward_ids_survive(
+        self, _name: str, create_events: Callable[[list[dict[str, object]]], None]
+    ) -> None:
+        create_events([self._event(_uuid(1), trace_id=AWKWARD_TRACE_ID)])
+
+        loaded = load_traces_rows(self.team, self.user, ["missing", AWKWARD_TRACE_ID], WINDOW)
+
+        assert _page_uuids(loaded) == {AWKWARD_TRACE_ID: [_uuid(1)]}
+
+    @parameterized.expand([("on ai_events", bulk_create_ai_events), ("on the shared table", bulk_create_events)])
+    def test_another_teams_rows_never_load(
+        self, _name: str, create_events: Callable[[list[dict[str, object]]], None]
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        create_events([{**self._event(_uuid(1), trace_id="trace-1"), "team": other_team}])
+
+        assert load_traces_rows(self.team, self.user, ["trace-1"], WINDOW) == {}
+
+    def test_the_page_read_is_one_query_when_every_trace_is_on_ai_events(self) -> None:
+        bulk_create_ai_events([self._event(_uuid(1), trace_id="first"), self._event(_uuid(2), trace_id="second")])
+
+        with self.capture_select_queries() as queries:
+            loaded = load_traces_rows(self.team, self.user, ["first", "second"], WINDOW)
+
+        assert set(loaded) == {"first", "second"}
+        assert len(queries) == 1
+
+    def test_an_empty_page_runs_no_query(self) -> None:
+        with self.capture_select_queries() as queries:
+            loaded = load_traces_rows(self.team, self.user, [], WINDOW)
+
+        assert loaded == {} and queries == []

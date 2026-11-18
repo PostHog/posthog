@@ -1,12 +1,16 @@
 from datetime import timedelta
 from typing import Any
 
+from unittest.mock import patch
+
 from parameterized import parameterized
 
 from products.ai_observability.backend.logic.traces.trace import Trace
 from products.ai_observability.backend.logic.traces.trace_queries import PersonRow
 
 from .rows import T0, make_row
+
+SECOND = timedelta(seconds=1)
 
 
 def trace(*rows: dict[str, Any], person: PersonRow | None = None) -> Trace:
@@ -173,3 +177,48 @@ def test_node_ids_by_alias_map_sdk_ids_of_tree_nodes_to_their_uuids() -> None:
     ).node_ids_by_alias
 
     assert aliases == {"span-a": "e0", "gen-a": "e1"}
+
+
+def test_first_error_text_is_the_earliest_errored_events_text() -> None:
+    errored = trace(
+        {"uuid": "a", "timestamp": T0 + SECOND, "is_error": True, "error_text": "late"},
+        {"uuid": "b", "timestamp": T0, "is_error": True, "error_text": "early"},
+    )
+
+    assert errored.first_error_text == "early"
+
+
+@parameterized.expand(
+    [
+        ("no error", {"error_text": None}),
+        ("an error without text", {"is_error": True, "error_text": None}),
+    ]
+)
+def test_first_error_text_is_null(_name: str, row: dict[str, Any]) -> None:
+    assert trace(row).first_error_text is None
+
+
+def test_tools_called_are_distinct_in_first_call_order() -> None:
+    called = trace(
+        {"uuid": "a", "event": "$ai_generation", "timestamp": T0, "tools_called": ("search", "fetch")},
+        {"uuid": "b", "event": "$ai_generation", "timestamp": T0 + SECOND, "tools_called": ("fetch", "write")},
+    )
+
+    assert called.tools_called == ("search", "fetch", "write")
+
+
+@parameterized.expand([("one support event", [False, True], True), ("none", [False, False], False)])
+def test_is_support_trace(_name: str, flags: list[bool], expected: bool) -> None:
+    assert trace(*({"is_support": flag} for flag in flags)).is_support_trace is expected
+
+
+def test_distinct_id_is_the_identified_trace_events() -> None:
+    assert trace({"distinct_id": "late", "timestamp": T0 + SECOND}, {"distinct_id": "early"}).distinct_id == "early"
+
+
+def test_a_trace_builds_no_tree_until_asked() -> None:
+    with patch("products.ai_observability.backend.logic.traces.trace.build_tree") as build_tree:
+        lazy = trace({"event": "$ai_generation", "generation_id": "gen-a"})
+        _ = (lazy.name, lazy.totals, lazy.error_count, lazy.default_node_id)
+
+    build_tree.assert_not_called()

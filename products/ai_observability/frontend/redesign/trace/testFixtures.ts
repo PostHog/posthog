@@ -133,6 +133,7 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
         totals: emptyStats,
         hasError: false,
         errorCount: 0,
+        totalsPartial: false,
         tree: [
             {
                 id: 'trace-1',

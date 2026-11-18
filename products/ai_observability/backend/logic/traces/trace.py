@@ -6,6 +6,7 @@ from .event import TraceEvent
 from .git import GitRef
 from .node_ids import NodeIdResolver, NodeIds
 from .node_labels import number_repeated_names
+from .person import trace_distinct_id
 from .thread import pick_user_visible_generation
 from .timeline import Timeline
 from .trace_queries import PersonRow, TraceEventRow
@@ -16,14 +17,24 @@ BILLED_EVENTS = frozenset({"$ai_generation", "$ai_embedding"})
 
 
 class Trace:
-    def __init__(self, trace_id: str, rows: Sequence[TraceEventRow], person: PersonRow | None) -> None:
+    def __init__(
+        self, trace_id: str, rows: Sequence[TraceEventRow], person: PersonRow | None, *, partial: bool = False
+    ) -> None:
         self.id = trace_id
         self.person = person
+        self.partial = partial
         self.events = tuple(
             sorted((TraceEvent(row=row, trace_id=trace_id) for row in rows), key=lambda event: event.row.timestamp)
         )
-        self.tree = build_tree(self.events, trace_id)
-        self.timeline = Timeline.from_tree(self.tree)
+        self.distinct_id = trace_distinct_id(rows)
+
+    @cached_property
+    def tree(self) -> tuple[TreeNode, ...]:
+        return build_tree(self.events, self.id)
+
+    @cached_property
+    def timeline(self) -> Timeline:
+        return Timeline.from_tree(self.tree)
 
     @property
     def created_at(self) -> datetime:
@@ -57,6 +68,19 @@ class Trace:
     @property
     def has_error(self) -> bool:
         return self.error_count > 0
+
+    @cached_property
+    def first_error_text(self) -> str | None:
+        errored = next((event for event in self.events if event.has_error), None)
+        return errored.row.error_text if errored else None
+
+    @cached_property
+    def tools_called(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(tool for event in self.events for tool in event.row.tools_called))
+
+    @cached_property
+    def is_support_trace(self) -> bool:
+        return any(event.row.is_support for event in self.events)
 
     @cached_property
     def totals(self) -> Usage:
