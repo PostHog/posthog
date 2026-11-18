@@ -279,7 +279,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         assert {"posthog.ai_events", "posthog.trace_spans", "posthog.metrics"}.issubset(names)
         assert "events" in names
         assert "posthog.events" not in names
-        assert not {"cohort_membership", "posthog.cohort_membership"} & names
+        assert "posthog.error_tracking_recent_issue_state" not in names
 
     def test_posthog_namespaced_table_columns_resolve(self):
         # Being listed isn't enough — an agent that discovers `posthog.trace_spans` must then be able to

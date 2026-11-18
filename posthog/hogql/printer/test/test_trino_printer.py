@@ -415,6 +415,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("ceil(-1.234, 2)", "(ceil(-1.234 * power(10, 2)) / power(10, 2))"),
         ("md5(user_id AS TEXT)", 'to_hex(md5(to_utf8(CAST("users"."user_id" AS VARCHAR))))'),
         ("splitByString(',', user_id, 2)", 'ELSE slice(split("users"."user_id", %(hogql_val_0)s), 1, 2) END'),
+        ("splitByString('', user_id)", 'regexp_extract_all("users"."user_id", \'(?s).\')'),
         ("arraySlice([1, 2, 3], -2, -1)", "element_at(transform(ARRAY[ROW(ARRAY[1, 2, 3], -2, -1)]"),
         ("arraySort(x -> -x, [1, 3, 2])", 'transform(array_sort(transform(ARRAY[1, 3, 2], "x" -> ROW('),
         ("toStartOfInterval(created_at, INTERVAL 10 MINUTE)", " / 600e0) AS BIGINT) * 600"),
@@ -609,6 +610,10 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
         (
             "SELECT x FROM (SELECT is_active AS x FROM flagged UNION ALL SELECT 2 AS x) WHERE x",
             'WHERE CAST("x" AS BOOLEAN)',
+        ),
+        (
+            "WITH u AS (SELECT is_active FROM flagged UNION ALL SELECT 2 AS is_active) SELECT u.is_active FROM u",
+            'CAST("flagged"."is_active" AS BIGINT) AS "is_active"',
         ),
     ],
 )
