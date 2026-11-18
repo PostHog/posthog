@@ -103,6 +103,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSetCounts,
     PromptSetDomain,
     PromptSetEngineCounts,
+    PromptSetEngineTopicCounts,
     PromptSetMovers,
     PromptSetOverview,
     PromptSetRankings,
@@ -583,6 +584,28 @@ class AEOPromptSetTopicCountsSerializer(AEOPromptSetCountsSerializer):
         }
 
 
+class AEOPromptSetEngineTopicCountsSerializer(DataclassSerializer):
+    mention_rate = serializers.FloatField(
+        read_only=True, help_text="Share (0-1) of the answers that name the brand: 'mentioned' over 'answers'."
+    )
+
+    class Meta:
+        dataclass = PromptSetEngineTopicCounts
+        ref_name = "AEOPromptSetEngineTopicCounts"
+        extra_kwargs = {
+            "engine": {"help_text": ENGINE_HELP},
+            "topic": {
+                "help_text": "Topic the checks ran with. Empty for prompts that have no topic. Matches 'topic' in 'topics'."
+            },
+            "answers": {
+                "help_text": "Answered checks of this engine with this topic in the window. Failed checks are left out. The sample size behind 'mention_rate'."
+            },
+            "mentioned": {
+                "help_text": "Of those answers, how many name the brand. A cited answer counts as a mention."
+            },
+        }
+
+
 class AEOPromptSetDomainSerializer(DataclassSerializer):
     class Meta:
         dataclass = PromptSetDomain
@@ -643,6 +666,10 @@ class AEOPromptSetOverviewSerializer(DataclassSerializer):
     topics = AEOPromptSetTopicCountsSerializer(
         many=True,
         help_text="The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks.",
+    )
+    engine_topics = AEOPromptSetEngineTopicCountsSerializer(
+        many=True,
+        help_text="The current window split per answer engine and topic, ordered by engine, then topic. An engine and topic pair without an answered check is left out, so a missing pair means no data, not a rate of zero.",
     )
     top_domains = AEOPromptSetDomainSerializer(
         many=True,

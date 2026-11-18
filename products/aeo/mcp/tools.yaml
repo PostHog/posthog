@@ -364,7 +364,9 @@ tools:
             first target URL over cited answers; lower is better). `engines` splits the current window per answer
             engine: Claude (`claude-web-search`), ChatGPT/OpenAI (`openai-web-search`) and Exa (`exa-answer`). `topics`
             splits it per prompt topic with the same counts, rates and the number of active prompts, so you can rank
-            topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all answers,
+            topics by citation or mention rate. `engine_topics` crosses the two: one row per engine and topic with
+            `answers` (answered checks), `mentioned` and `mention_rate`; a pair with no answer has no row, so read a
+            missing pair as no data and not as a rate of zero. `top_domains` lists the sites the engines cite most across all answers,
             with `is_target` marking the project's own domains. `top_searches` lists the web searches the engines ran
             most while answering, ranked by how many prompts triggered them, with how many of those answers cited the
             project and up to five of the prompts. `branded` picks the checks every count covers: `all` (default),
