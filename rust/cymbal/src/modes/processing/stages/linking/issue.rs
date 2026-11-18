@@ -397,7 +397,7 @@ async fn resolve_issue(
             process_event_assignment(&mut txn, &context.team_manager, &issue, event_properties)
                 .await?;
 
-        if context.issue_change_log_team_ids.contains(&team_id) {
+        if !context.config.issue_change_log_disabled {
             record_issue_change(
                 &mut *txn,
                 &issue,
@@ -486,7 +486,7 @@ async fn reopen_and_record(
     };
     let assignment =
         process_event_assignment(&mut txn, &context.team_manager, issue, event_properties).await?;
-    if context.issue_change_log_team_ids.contains(&issue.team_id) {
+    if !context.config.issue_change_log_disabled {
         record_issue_change(
             &mut *txn,
             issue,
