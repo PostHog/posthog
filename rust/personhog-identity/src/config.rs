@@ -171,6 +171,12 @@ pub struct Config {
     #[envconfig(default = "50")]
     pub stub_create_max_batch_distinct_ids: usize,
 
+    /// Calls that wait for a stub-create worker before new calls get
+    /// UNAVAILABLE (0 acts as 1). A queued call also gets UNAVAILABLE once it
+    /// waits longer than `heavy_acquire_timeout_secs`.
+    #[envconfig(default = "1000")]
+    pub stub_create_max_queued_calls: usize,
+
     /// Leader calls in flight per lifecycle saga step (0 acts as 1).
     #[envconfig(default = "8")]
     pub lifecycle_leader_call_concurrency: usize,

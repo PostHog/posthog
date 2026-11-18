@@ -39,7 +39,7 @@ use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::pools::{IdentityPools, Lane};
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::PersonHogIdentityService;
-use personhog_identity::storage::coalesce::CoalescingIdentityStorage;
+use personhog_identity::storage::coalesce::{CoalesceSettings, CoalescingIdentityStorage};
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
 use personhog_identity::storage::IdentityStorage;
 use personhog_identity::warnings;
@@ -331,6 +331,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(
             workers = config.stub_create_workers,
             max_batch_distinct_ids = config.stub_create_max_batch_distinct_ids,
+            max_queued_calls = config.stub_create_max_queued_calls,
             "Coalescing stub-creation transactions"
         );
         if config.stub_create_workers >= config.heavy_max_pg_connections as usize {
@@ -342,8 +343,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Arc::new(CoalescingIdentityStorage::spawn(
             postgres_storage,
-            config.stub_create_workers,
-            config.stub_create_max_batch_distinct_ids,
+            CoalesceSettings {
+                workers: config.stub_create_workers,
+                max_batch_distinct_ids: config.stub_create_max_batch_distinct_ids,
+                max_queued_calls: config.stub_create_max_queued_calls,
+                max_queue_wait: Duration::from_secs(config.heavy_acquire_timeout_secs),
+            },
         ))
     };
     let merge_warnings = warnings::install(&config.ingestion_warnings_settings(), warnings_handle);

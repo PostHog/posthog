@@ -28,9 +28,11 @@ A shared transaction locks the live person rows its inserts conflict with in `(t
 When a shared transaction fails with a query error or a timeout, the worker reruns each call in its own transaction, so the failure reaches only the call that caused it.
 A connection error or an exhausted pool fails every call in the batch, and callers retry as they do for any storage error.
 The worker count also caps the heavy connections that stub creation can hold, so keep it well below `HEAVY_MAX_PG_CONNECTIONS`; startup warns when it is not.
+At most `STUB_CREATE_MAX_QUEUED_CALLS` calls (default 1000) wait for a worker, and a call waits at most `HEAVY_ACQUIRE_TIMEOUT_SECS`.
+A call refused either way gets UNAVAILABLE, the same answer a heavy-pool acquire timeout gives, so the caller retries on another pod.
 The default, `STUB_CREATE_WORKERS=0`, runs each call in its own transaction on the calling task.
 With workers on, pool and query metrics for stub creation carry `client="batched"` and `method="StubCreateBatch"` in place of the caller's labels.
-`personhog_identity_stub_create_callers_per_batch` shows how many calls share each transaction, `personhog_identity_stub_create_queue_wait_ms` shows how long a call waits for a worker, and `personhog_identity_stub_create_batch_reruns_total` counts shared transactions that fell back to one transaction per call.
+`personhog_identity_stub_create_callers_per_batch` shows how many calls share each transaction, `personhog_identity_stub_create_queue_wait_ms` shows how long a call waits for a worker, `personhog_identity_stub_create_batch_reruns_total` counts shared transactions that fell back to one transaction per call, and `personhog_identity_stub_create_rejected_total{reason}` counts calls refused for a full queue or a long wait.
 
 ## Layout
 

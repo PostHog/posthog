@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
-use std::time::Instant;
+use std::time::Duration;
 
 use async_trait::async_trait;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::time::Instant;
 
 use personhog_common::grpc::{CLIENT_NAME, METHOD_NAME};
 
@@ -14,12 +16,13 @@ use crate::storage::IdentityStorage;
 const CALLERS_PER_BATCH: &str = "personhog_identity_stub_create_callers_per_batch";
 const QUEUE_WAIT: &str = "personhog_identity_stub_create_queue_wait_ms";
 const BATCH_RERUNS: &str = "personhog_identity_stub_create_batch_reruns_total";
+const REJECTED: &str = "personhog_identity_stub_create_rejected_total";
 
 static BATCH_CLIENT: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("batched"));
 static BATCH_METHOD: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("StubCreateBatch"));
 
 type Reply = oneshot::Sender<StorageResult<Vec<StubOutcome>>>;
-type Queue = Arc<Mutex<mpsc::UnboundedReceiver<Pending>>>;
+type Queue = Arc<Mutex<mpsc::Receiver<Pending>>>;
 
 struct Pending {
     stubs: Vec<PersonStub>,
@@ -27,31 +30,37 @@ struct Pending {
     reply: Reply,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct CoalesceSettings {
+    pub workers: usize,
+    pub max_batch_distinct_ids: usize,
+    pub max_queued_calls: usize,
+    pub max_queue_wait: Duration,
+}
+
 pub struct CoalescingIdentityStorage {
     inner: Arc<dyn IdentityStorage>,
-    // Unbounded because each caller queues one call and waits for its reply,
-    // so the queue grows only with the requests in flight. A cancelled
-    // caller's call stays queued until a worker discards it.
-    queue: mpsc::UnboundedSender<Pending>,
+    queue: mpsc::Sender<Pending>,
 }
 
 impl CoalescingIdentityStorage {
-    pub fn spawn(
-        inner: Arc<dyn IdentityStorage>,
-        workers: usize,
-        max_batch_distinct_ids: usize,
-    ) -> Self {
-        let (queue, receiver) = mpsc::unbounded_channel();
+    pub fn spawn(inner: Arc<dyn IdentityStorage>, settings: CoalesceSettings) -> Self {
+        let (queue, receiver) = mpsc::channel(settings.max_queued_calls.max(1));
         let receiver: Queue = Arc::new(Mutex::new(receiver));
-        for _ in 0..workers.max(1) {
+        for _ in 0..settings.workers.max(1) {
             tokio::spawn(run_worker(
                 inner.clone(),
                 receiver.clone(),
-                max_batch_distinct_ids.max(1),
+                settings.max_batch_distinct_ids.max(1),
+                settings.max_queue_wait,
             ));
         }
         Self { inner, queue }
     }
+}
+
+fn count_rejected(reason: &'static str) {
+    common_metrics::inc(REJECTED, &[("reason".to_string(), reason.to_string())], 1);
 }
 
 #[async_trait]
@@ -91,10 +100,19 @@ impl IdentityStorage for CoalescingIdentityStorage {
             enqueued_at: Instant::now(),
             reply,
         };
-        if self.queue.send(pending).is_err() {
-            return Err(StorageError::Connection(
-                "stub-create workers have stopped".to_string(),
-            ));
+        match self.queue.try_send(pending) {
+            Ok(()) => {}
+            // The same answer a heavy-pool acquire timeout gives, so the
+            // caller retries on another pod.
+            Err(TrySendError::Full(_)) => {
+                count_rejected("queue_full");
+                return Err(StorageError::PoolExhausted);
+            }
+            Err(TrySendError::Closed(_)) => {
+                return Err(StorageError::Connection(
+                    "stub-create workers have stopped".to_string(),
+                ));
+            }
         }
         outcome.await.unwrap_or_else(|_| {
             Err(StorageError::Query(
@@ -160,7 +178,12 @@ fn distinct_id_keys(stubs: &[PersonStub]) -> Vec<(i64, String)> {
         .collect()
 }
 
-async fn run_worker(inner: Arc<dyn IdentityStorage>, queue: Queue, max_batch_distinct_ids: usize) {
+async fn run_worker(
+    inner: Arc<dyn IdentityStorage>,
+    queue: Queue,
+    max_batch_distinct_ids: usize,
+    max_queue_wait: Duration,
+) {
     let mut carried: Option<Pending> = None;
     loop {
         let batch = match carried.take() {
@@ -186,14 +209,14 @@ async fn run_worker(inner: Arc<dyn IdentityStorage>, queue: Queue, max_batch_dis
         };
         // A separate task, so that a panic fails only this batch's callers
         // and the worker keeps running.
-        if let Err(e) = tokio::spawn(run_batch(inner.clone(), batch)).await {
+        if let Err(e) = tokio::spawn(run_batch(inner.clone(), batch, max_queue_wait)).await {
             tracing::error!(error = %e, "stub-create batch task failed");
         }
     }
 }
 
 fn fill(
-    receiver: &mut mpsc::UnboundedReceiver<Pending>,
+    receiver: &mut mpsc::Receiver<Pending>,
     batch: &mut Batch,
     max_batch_distinct_ids: usize,
 ) -> Option<Pending> {
@@ -211,22 +234,24 @@ fn fill(
     None
 }
 
-async fn run_batch(inner: Arc<dyn IdentityStorage>, batch: Batch) {
+async fn run_batch(inner: Arc<dyn IdentityStorage>, batch: Batch, max_queue_wait: Duration) {
     let started = Instant::now();
-    let callers: Vec<Pending> = batch
-        .pending
-        .into_iter()
-        .filter(|pending| !pending.reply.is_closed())
-        .collect();
+    let mut callers: Vec<Pending> = Vec::with_capacity(batch.pending.len());
+    for pending in batch.pending {
+        if pending.reply.is_closed() {
+            continue;
+        }
+        let waited = started.duration_since(pending.enqueued_at);
+        common_metrics::histogram(QUEUE_WAIT, &[], waited.as_secs_f64() * 1000.0);
+        if waited > max_queue_wait {
+            count_rejected("queue_wait");
+            pending.reply.send(Err(StorageError::PoolExhausted)).ok();
+            continue;
+        }
+        callers.push(pending);
+    }
     if callers.is_empty() {
         return;
-    }
-    for pending in &callers {
-        common_metrics::histogram(
-            QUEUE_WAIT,
-            &[],
-            started.duration_since(pending.enqueued_at).as_secs_f64() * 1000.0,
-        );
     }
     common_metrics::histogram(CALLERS_PER_BATCH, &[], callers.len() as f64);
 
@@ -484,6 +509,15 @@ mod tests {
         }
     }
 
+    fn settings(workers: usize) -> CoalesceSettings {
+        CoalesceSettings {
+            workers,
+            max_batch_distinct_ids: 50,
+            max_queued_calls: 100,
+            max_queue_wait: Duration::from_secs(60),
+        }
+    }
+
     fn uuids(result: &StorageResult<Vec<StubOutcome>>) -> Vec<Uuid> {
         result
             .as_ref()
@@ -518,7 +552,7 @@ mod tests {
     #[tokio::test]
     async fn calls_queued_behind_a_busy_worker_share_one_transaction() {
         let (inner, started_rx, release_tx) = ScriptedStorage::gated(None);
-        let storage = CoalescingIdentityStorage::spawn(inner.clone(), 1, 50);
+        let storage = CoalescingIdentityStorage::spawn(inner.clone(), settings(1));
         let queued = vec![
             vec![stub(1, "b", &[]), stub(1, "b2", &[])],
             vec![stub(1, "c", &[])],
@@ -551,7 +585,7 @@ mod tests {
     async fn a_failed_batch_reruns_each_call_alone() {
         let (inner, started_rx, release_tx) =
             ScriptedStorage::gated(Some(Poison::Error("poisoned")));
-        let storage = CoalescingIdentityStorage::spawn(inner.clone(), 1, 50);
+        let storage = CoalescingIdentityStorage::spawn(inner.clone(), settings(1));
         let queued = vec![
             vec![stub(1, "b", &[])],
             vec![stub(1, "poisoned", &[])],
@@ -585,7 +619,7 @@ mod tests {
     #[tokio::test]
     async fn a_panicking_batch_fails_its_callers_and_the_worker_keeps_running() {
         let inner = ScriptedStorage::new(Some(Poison::Panic("boom")));
-        let storage = CoalescingIdentityStorage::spawn(inner, 1, 50);
+        let storage = CoalescingIdentityStorage::spawn(inner, settings(1));
 
         let panicked = storage.create_person_stubs(&[stub(1, "boom", &[])]).await;
         let after = storage.create_person_stubs(&[stub(1, "a", &[])]).await;
@@ -599,7 +633,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_carried_call_runs_while_another_worker_waits_for_calls() {
         let (inner, started_rx, release_tx) = ScriptedStorage::gated(None);
-        let storage = CoalescingIdentityStorage::spawn(inner.clone(), 2, 50);
+        let storage = CoalescingIdentityStorage::spawn(inner.clone(), settings(2));
         let same_key = vec![stub(1, "a", &[])];
 
         let mut first = storage.create_person_stubs(&same_key);
@@ -616,5 +650,60 @@ mod tests {
         );
         first.await.unwrap();
         assert_eq!(inner.primary_ids_per_call(), vec![vec!["a"], vec!["a"]]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_full_queue_refuses_new_calls_at_once() {
+        let (inner, started_rx, release_tx) = ScriptedStorage::gated(None);
+        let storage = CoalescingIdentityStorage::spawn(
+            inner.clone(),
+            CoalesceSettings {
+                max_queued_calls: 1,
+                ..settings(1)
+            },
+        );
+        let (a, b, c) = (
+            vec![stub(1, "a", &[])],
+            vec![stub(1, "b", &[])],
+            vec![stub(1, "c", &[])],
+        );
+
+        let mut running = storage.create_person_stubs(&a);
+        assert!(futures::poll!(&mut running).is_pending());
+        started_rx.await.unwrap();
+        let mut queued = storage.create_person_stubs(&b);
+        assert!(futures::poll!(&mut queued).is_pending());
+        let refused =
+            tokio::time::timeout(Duration::from_secs(1), storage.create_person_stubs(&c)).await;
+        release_tx.send(()).unwrap();
+
+        assert!(matches!(refused, Ok(Err(StorageError::PoolExhausted))));
+        assert_eq!(uuids(&queued.await), vec![person_uuid(1, "b")]);
+        running.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_call_that_waits_past_the_queue_timeout_is_refused_without_running() {
+        let (inner, started_rx, release_tx) = ScriptedStorage::gated(None);
+        let storage = CoalescingIdentityStorage::spawn(
+            inner.clone(),
+            CoalesceSettings {
+                max_queue_wait: Duration::from_secs(1),
+                ..settings(1)
+            },
+        );
+        let (a, b) = (vec![stub(1, "a", &[])], vec![stub(1, "b", &[])]);
+
+        let mut running = storage.create_person_stubs(&a);
+        assert!(futures::poll!(&mut running).is_pending());
+        started_rx.await.unwrap();
+        let mut expired = storage.create_person_stubs(&b);
+        assert!(futures::poll!(&mut expired).is_pending());
+        tokio::time::advance(Duration::from_secs(2)).await;
+        release_tx.send(()).unwrap();
+
+        assert!(matches!(expired.await, Err(StorageError::PoolExhausted)));
+        running.await.unwrap();
+        assert_eq!(inner.primary_ids_per_call(), vec![vec!["a"]]);
     }
 }

@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use personhog_common::persons::person_uuid;
 use personhog_identity::config::OutboxWrites;
-use personhog_identity::storage::coalesce::CoalescingIdentityStorage;
+use personhog_identity::storage::coalesce::{CoalesceSettings, CoalescingIdentityStorage};
 use personhog_identity::storage::{AttachOutcome, IdentityStorage, PersonStub, StubOutcome};
 
 /// Storage-assertion helpers used only by this test binary.
@@ -361,7 +361,15 @@ async fn batch_mixes_created_existing_and_lost_race_outcomes_per_row() {
 async fn concurrent_creates_for_one_distinct_id_create_exactly_once(#[case] coalesced: bool) {
     let ctx = TestContext::new().await;
     let storage: Arc<dyn IdentityStorage> = if coalesced {
-        Arc::new(CoalescingIdentityStorage::spawn(ctx.storage.clone(), 2, 50))
+        Arc::new(CoalescingIdentityStorage::spawn(
+            ctx.storage.clone(),
+            CoalesceSettings {
+                workers: 2,
+                max_batch_distinct_ids: 50,
+                max_queued_calls: 100,
+                max_queue_wait: Duration::from_secs(60),
+            },
+        ))
     } else {
         ctx.storage.clone()
     };
