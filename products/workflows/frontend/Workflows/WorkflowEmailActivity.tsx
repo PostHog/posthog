@@ -45,16 +45,13 @@ export function WorkflowEmailActivity(props: WorkflowEmailActivityLogicProps): J
         email,
         emailLoading,
         emailFailed,
-        person,
-        personLoading,
-        personFailed,
         activity,
         activityLoading,
         activityFailed,
         beforeExpanded,
         afterExpanded,
     } = useValues(logic)
-    const { loadEmail, loadPerson, loadActivity, showAllBefore, showAllAfter } = useActions(logic)
+    const { loadEmail, loadActivity, showAllBefore, showAllAfter } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
 
     if (emailFailed && !emailLoading) {
@@ -72,31 +69,6 @@ export function WorkflowEmailActivity(props: WorkflowEmailActivityLogicProps): J
     }
     if (email === null) {
         return <NoEngagementEvents enabled={!!currentTeam?.workflows_config?.capture_workflows_engagement_events} />
-    }
-    if (personFailed && !personLoading) {
-        return (
-            <LemonBanner
-                type="error"
-                action={{
-                    children: 'Try again',
-                    onClick: () => loadPerson(email.distinct_id),
-                    'data-attr': 'workflow-email-person-retry',
-                }}
-            >
-                The person behind this email couldn't load. Check your connection and try again.
-            </LemonBanner>
-        )
-    }
-    if (person === undefined || personLoading) {
-        return <ActivitySkeleton />
-    }
-    if (person === null) {
-        return (
-            <p className="text-sm text-secondary m-0">
-                No events from this person yet. Once your app captures events for them, what they did before and after
-                the email shows up here.
-            </p>
-        )
     }
     if (activityFailed && !activityLoading) {
         return (

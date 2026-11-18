@@ -28,11 +28,14 @@ export function EmailViewerModal({
     description,
 }: EmailViewerModalProps): JSX.Element {
     const [tab, setTab] = useState<'email' | 'activity'>('email')
+    // Kept mounted once opened, so switching back doesn't reload the activity.
+    const [activityOpened, setActivityOpened] = useState(false)
     return (
         <LemonModal
             isOpen={isOpen}
             onClose={() => {
                 setTab('email')
+                setActivityOpened(false)
                 onClose()
             }}
             width={720}
@@ -41,7 +44,12 @@ export function EmailViewerModal({
         >
             <LemonTabs
                 activeKey={tab}
-                onChange={setTab}
+                onChange={(key) => {
+                    setTab(key)
+                    if (key === 'activity') {
+                        setActivityOpened(true)
+                    }
+                }}
                 data-attr="workflow-email-viewer-tabs"
                 tabs={[
                     {
@@ -65,6 +73,7 @@ export function EmailViewerModal({
                         key: 'activity',
                         label: 'Activity',
                         tooltip: "The person's events in your product in the week before and after this email",
+                        keepMounted: activityOpened,
                         content: (
                             <div className="h-[60vh] overflow-y-auto">
                                 {invocationId && actionId && (
