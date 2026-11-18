@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { runInThisContext } from 'vm'
 
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
@@ -118,6 +119,38 @@ describe('emailImpactLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.funnelState).toBe('ready')
         expect(logic.values.impact?.sent).toBe(4)
+    })
+
+    it('asks for the last 24 hours, not one calendar day, the day after the clocks change', async () => {
+        // Jest gives each test file its own copy of process.env, so the time zone has to change on Node's process.
+        const nodeProcess = runInThisContext('process') as NodeJS.Process
+        const timezone = nodeProcess.env.TZ
+        nodeProcess.env.TZ = 'Europe/Berlin'
+        jest.useFakeTimers({
+            now: new Date('2026-03-29T12:00:00Z'),
+            doNotFake: [
+                'setTimeout',
+                'clearTimeout',
+                'setInterval',
+                'clearInterval',
+                'setImmediate',
+                'queueMicrotask',
+                'nextTick',
+            ],
+        })
+        try {
+            initKeaTests(true, ENVIRONMENT)
+            logic = emailImpactLogic({ workflowId: 'workflow-1' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setDays(1)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedParams[requestedParams.length - 1].get('date_from')).toBe('2026-03-28T12:00:00.000Z')
+        } finally {
+            jest.useRealTimers()
+            nodeProcess.env.TZ = timezone
+        }
     })
 
     it.each([
