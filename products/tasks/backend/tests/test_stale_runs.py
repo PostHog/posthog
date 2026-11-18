@@ -208,6 +208,22 @@ class TestCollectStaleLiveRuns(TestCase):
         assert (run.status == TaskRun.Status.FAILED) is (swept_profile is not None)
         assert rows == ([SweptRunRow(profile=swept_profile, count=1)] if swept_profile else [])
 
+    def test_sweep_ends_at_most_its_cap_of_runs_in_one_pass(self) -> None:
+        runs = [self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600) for _ in range(3)]
+
+        with (
+            patch("products.tasks.backend.stale_runs.MAX_SWEEPS_PER_PASS", 2),
+            patch(
+                "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+                return_value={USER.key: "enforce"},
+            ),
+        ):
+            rows = tasks_facade.sweep_stale_live_task_runs()
+
+        ended = TaskRun.objects.filter(id__in=[run.id for run in runs], status=TaskRun.Status.FAILED).count()
+        assert ended == 2
+        assert rows == [SweptRunRow(profile=USER.key, count=2)]
+
     def test_sweep_leaves_runs_for_the_next_pass_once_its_flag_budget_is_spent(self) -> None:
         run = self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600)
 

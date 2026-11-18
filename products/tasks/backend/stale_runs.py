@@ -27,6 +27,7 @@ SWEEP_FLAG = "tasks-stale-run-sweep"
 SWEEP_MODE_CACHE_SECONDS = 60
 NO_PROFILE = "none"
 SWEEP_MODE_LOOKUP_BUDGET_SECONDS = 20
+MAX_SWEEPS_PER_PASS = 100
 _LIVE_RUN_STATUSES = (TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _UNRESOLVED_SWEEP_MODE = "unresolved"
 
@@ -245,7 +246,7 @@ def runs_to_sweep() -> list[RunToSweep]:
     if not stale:
         return []
     enforced = _enforced_pairs(stale)
-    return [
+    to_sweep = [
         RunToSweep(
             run_id=run.run_id,
             profile=run.profile or NO_PROFILE,
@@ -256,3 +257,6 @@ def runs_to_sweep() -> list[RunToSweep]:
         for run in stale
         if (run.team_id, run.profile) in enforced
     ]
+    if len(to_sweep) > MAX_SWEEPS_PER_PASS:
+        logger.warning("task_stale_sweep_pass_capped", left_for_next_pass=len(to_sweep) - MAX_SWEEPS_PER_PASS)
+    return to_sweep[:MAX_SWEEPS_PER_PASS]
