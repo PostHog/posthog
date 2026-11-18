@@ -175,10 +175,18 @@ describe('rolloutSegments', () => {
         ])
     })
 
-    it('extends the current step to the visible edge when nothing is scheduled', () => {
-        const segments = rolloutSegments([step('2026-09-01T00:00:00Z', '2026-11-11T12:00:00Z', 50)], scale, today)
+    it.each([
+        ['active', false, 300],
+        ['archived', true, 105],
+    ])('bounds the final step for a %s flag without schedules', (_status, isArchived, width) => {
+        const segments = rolloutSegments(
+            [step('2026-09-01T00:00:00Z', '2026-11-11T12:00:00Z', 50)],
+            scale,
+            today,
+            isArchived
+        )
 
-        expect(segments.map(({ left, width }) => [left, width])).toEqual([[0, 300]])
+        expect(segments.map(({ left, width: segmentWidth }) => [left, segmentWidth])).toEqual([[0, width]])
     })
 
     it('extends the final scheduled step to the visible edge', () => {

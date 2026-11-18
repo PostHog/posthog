@@ -59,19 +59,25 @@ export interface RolloutSegment {
     projected: boolean
 }
 
-export function rolloutSegments(steps: RolloutStep[], scale: Scale, today: dayjs.Dayjs): RolloutSegment[] {
+export function rolloutSegments(
+    steps: RolloutStep[],
+    scale: Scale,
+    today: dayjs.Dayjs,
+    isArchived = false
+): RolloutSegment[] {
     const end = scale.days * scale.day
     const windowEnd = scale.start.add(scale.days, 'day')
     const todayX = x(today.toISOString(), scale) + scale.day / 2
     const past = steps.filter((step) => !step.upcoming)
-    const upcoming = steps.filter((step) => step.upcoming)
+    const upcoming = isArchived ? [] : steps.filter((step) => step.upcoming)
     const current = past[past.length - 1]
-    const currentEnd = upcoming.length ? todayX : end
+    const endsToday = upcoming.length > 0 || isArchived
+    const currentEnd = endsToday ? todayX : end
     const raw = [
         ...past.map((step) => ({
             step,
             from: step.from,
-            to: step === current ? (upcoming.length ? today.toISOString() : windowEnd.toISOString()) : step.to,
+            to: step === current ? (endsToday ? today.toISOString() : windowEnd.toISOString()) : step.to,
             left: x(step.from, scale),
             right: step === current ? currentEnd : x(step.to, scale),
             projected: false,
