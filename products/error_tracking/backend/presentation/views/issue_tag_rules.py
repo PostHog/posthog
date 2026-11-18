@@ -22,8 +22,8 @@ FILTERS_HELP_TEXT = (
     "Property-group filters on event properties, evaluated against the first event of each new issue. "
     "At least one filter is required. Person, cohort, HogQL and other filter types are rejected."
 )
-LABEL_HELP_TEXT = "Label applied to each new issue whose first event matches the filters."
-DESCRIPTION_HELP_TEXT = "What the label means. Shown with the label."
+LABEL_HELP_TEXT = "Display name of the tag the rule applies to each new issue whose first event matches the filters."
+DESCRIPTION_HELP_TEXT = "What the tag means. Shown with the tag."
 
 
 class ErrorTrackingIssueTagRuleFilterGroup(BaseModel):
@@ -67,8 +67,8 @@ class ErrorTrackingIssueTagRuleSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier of the tag rule.")
     key = serializers.CharField(
         read_only=True,
-        help_text="Tag key that issues store for this rule's label. Use it to filter issues by the label, "
-        "or to apply or remove the label on one issue. It changes when an edit changes which properties the "
+        help_text="Tag key that issues store for this rule's tag. Use it to filter issues by the tag, "
+        "or to apply or remove the tag on one issue. It changes when an edit changes which properties the "
         "filters read.",
     )
     label = serializers.CharField(max_length=128, help_text=LABEL_HELP_TEXT)  # type: ignore[assignment]
@@ -79,13 +79,13 @@ class ErrorTrackingIssueTagRuleSerializer(serializers.Serializer):
     )
     order_key = serializers.IntegerField(
         help_text="Position in the list of tag rules. Lower values come first. Every matching rule applies its "
-        "label, whatever its position."
+        "tag, whatever its position."
     )
     disabled_data = ErrorTrackingIssueTagRuleDisabledDataField(
         read_only=True,
         allow_null=True,
         help_text="Why the rule was turned off after it failed on an event, or null when the rule is active. "
-        "A turned-off rule labels no new issues until its filters are saved again.",
+        "A turned-off rule tags no new issues until its filters are saved again.",
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the rule was created.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the rule was last updated.")
@@ -111,7 +111,9 @@ class ErrorTrackingIssueTagRuleCreateRequestSerializer(serializers.Serializer):
 
 class ErrorTrackingIssueTagRuleUpdateRequestSerializer(serializers.Serializer):
     label = serializers.CharField(  # type: ignore[assignment]
-        required=False, max_length=128, help_text="Replacement label. Omit to keep the existing label."
+        required=False,
+        max_length=128,
+        help_text="Replacement display name for the tag. Omit to keep the existing label.",
     )
     description = serializers.CharField(
         required=False,
@@ -121,8 +123,8 @@ class ErrorTrackingIssueTagRuleUpdateRequestSerializer(serializers.Serializer):
     filters = ErrorTrackingIssueTagRuleFiltersField(
         required=False,
         help_text="Replacement event property filters, with at least one filter. Omit to keep the existing filters. "
-        "New filters apply only to issues created after the update. Existing labels stay when the new filters read "
-        "the same properties. When they read different properties, the rule gets a new key and loses its labels.",
+        "New filters apply only to issues created after the update. Existing tags stay when the new filters read "
+        "the same properties. When they read different properties, the rule gets a new key and loses its tags.",
     )
 
 

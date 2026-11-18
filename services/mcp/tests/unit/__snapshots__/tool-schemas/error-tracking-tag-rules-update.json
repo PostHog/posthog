@@ -6,7 +6,7 @@
             "type": "string"
         },
         "filters": {
-            "description": "Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing labels stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its labels.",
+            "description": "Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.",
             "properties": {
                 "type": {
                     "enum": ["AND", "OR"],
@@ -258,7 +258,7 @@
             "type": "string"
         },
         "label": {
-            "description": "Replacement label. Omit to keep the existing label.",
+            "description": "Replacement display name for the tag. Omit to keep the existing label.",
             "maxLength": 128,
             "type": "string"
         }

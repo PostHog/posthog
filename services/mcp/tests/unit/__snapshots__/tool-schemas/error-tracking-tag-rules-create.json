@@ -3,7 +3,7 @@
     "properties": {
         "description": {
             "default": "",
-            "description": "What the label means. Shown with the label. Defaults to empty.",
+            "description": "What the tag means. Shown with the tag. Defaults to empty.",
             "type": "string"
         },
         "filters": {
@@ -256,7 +256,7 @@
             "type": "object"
         },
         "label": {
-            "description": "Label applied to each new issue whose first event matches the filters.",
+            "description": "Display name of the tag the rule applies to each new issue whose first event matches the filters.",
             "maxLength": 128,
             "type": "string"
         },

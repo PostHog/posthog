@@ -103,8 +103,8 @@ def update_issue_tag_rule(
 
     A change to the filters starts a new version. Answers from the old version stay, because an edit does not
     re-answer the issues that already exist. An edit that changes which properties the filters read gives the rule a
-    new key instead, and deletes the old key's tags, as a rule delete does. Label visibility checks only the current
-    filters, so an old label could show a member which issues matched a property they may not read.
+    new key instead, and deletes the old key's tags, as a rule delete does. Tag visibility checks only the current
+    filters, so an old tag could show a member which issues matched a property they may not read.
     """
     require_issue_tags(team_id)
     parsed_id = _parse_rule_id(rule_id)

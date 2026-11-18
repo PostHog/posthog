@@ -2752,7 +2752,7 @@ export interface ErrorTrackingIssueTagRuleFiltersApi {
 }
 
 /**
- * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule labels no new issues until its filters are saved again.
+ * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
  * @nullable
  */
 export type ErrorTrackingIssueTagRuleApiDisabledData = {
@@ -2764,23 +2764,23 @@ export type ErrorTrackingIssueTagRuleApiDisabledData = {
 export interface ErrorTrackingIssueTagRuleApi {
     /** Unique identifier of the tag rule. */
     readonly id: string
-    /** Tag key that issues store for this rule's label. Use it to filter issues by the label, or to apply or remove the label on one issue. It changes when an edit changes which properties the filters read. */
+    /** Tag key that issues store for this rule's tag. Use it to filter issues by the tag, or to apply or remove the tag on one issue. It changes when an edit changes which properties the filters read. */
     readonly key: string
     /**
-     * Label applied to each new issue whose first event matches the filters.
+     * Display name of the tag the rule applies to each new issue whose first event matches the filters.
      * @maxLength 128
      */
     label: string
-    /** What the label means. Shown with the label. */
+    /** What the tag means. Shown with the tag. */
     description: string
     /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
     filters: ErrorTrackingIssueTagRuleFiltersApi
     /** Starts at 1, and goes up by one each time the filters change. */
     readonly version: number
-    /** Position in the list of tag rules. Lower values come first. Every matching rule applies its label, whatever its position. */
+    /** Position in the list of tag rules. Lower values come first. Every matching rule applies its tag, whatever its position. */
     order_key: number
     /**
-     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule labels no new issues until its filters are saved again.
+     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
      * @nullable
      */
     readonly disabled_data: ErrorTrackingIssueTagRuleApiDisabledData
@@ -2797,11 +2797,11 @@ export interface ErrorTrackingIssueTagRuleListResponseApi {
 
 export interface ErrorTrackingIssueTagRuleCreateRequestApi {
     /**
-     * Label applied to each new issue whose first event matches the filters.
+     * Display name of the tag the rule applies to each new issue whose first event matches the filters.
      * @maxLength 128
      */
     label: string
-    /** What the label means. Shown with the label. Defaults to empty. */
+    /** What the tag means. Shown with the tag. Defaults to empty. */
     description?: string
     /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
     filters: ErrorTrackingIssueTagRuleFiltersApi
@@ -2811,25 +2811,25 @@ export interface ErrorTrackingIssueTagRuleCreateRequestApi {
 
 export interface ErrorTrackingIssueTagRuleUpdateRequestApi {
     /**
-     * Replacement label. Omit to keep the existing label.
+     * Replacement display name for the tag. Omit to keep the existing label.
      * @maxLength 128
      */
     label?: string
     /** Replacement description. Omit to keep the existing description. */
     description?: string
-    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing labels stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its labels. */
+    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
     filters?: ErrorTrackingIssueTagRuleFiltersApi
 }
 
 export interface PatchedErrorTrackingIssueTagRuleUpdateRequestApi {
     /**
-     * Replacement label. Omit to keep the existing label.
+     * Replacement display name for the tag. Omit to keep the existing label.
      * @maxLength 128
      */
     label?: string
     /** Replacement description. Omit to keep the existing description. */
     description?: string
-    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing labels stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its labels. */
+    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
     filters?: ErrorTrackingIssueTagRuleFiltersApi
 }
 

@@ -15480,11 +15480,11 @@ export const ErrorTrackingTagRulesCreateBody = () => zod.object({
     label: zod
         .string()
         .max(errorTrackingTagRulesCreateBodyLabelMax)
-        .describe('Label applied to each new issue whose first event matches the filters.'),
+        .describe('Display name of the tag the rule applies to each new issue whose first event matches the filters.'),
     description: zod
         .string()
         .default(errorTrackingTagRulesCreateBodyDescriptionDefault)
-        .describe('What the label means. Shown with the label. Defaults to empty.'),
+        .describe('What the tag means. Shown with the tag. Defaults to empty.'),
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -15658,7 +15658,7 @@ export const ErrorTrackingTagRulesPartialUpdateBody = () => zod.object({
         .string()
         .max(errorTrackingTagRulesPartialUpdateBodyLabelMax)
         .optional()
-        .describe('Replacement label. Omit to keep the existing label.'),
+        .describe('Replacement display name for the tag. Omit to keep the existing label.'),
     description: zod.string().optional().describe('Replacement description. Omit to keep the existing description.'),
     filters: zod
         .object({
@@ -15805,7 +15805,7 @@ export const ErrorTrackingTagRulesPartialUpdateBody = () => zod.object({
         })
         .optional()
         .describe(
-            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing labels stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its labels.'
+            'Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags.'
         ),
 })
 
