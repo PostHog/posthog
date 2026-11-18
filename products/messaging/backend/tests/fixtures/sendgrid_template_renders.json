@@ -830,8 +830,29 @@
         }
       ]
     },
-    "liquid": "{% for item in variables.xs %}{{ forloop.index0 }}:{{ item.name }};{% endfor %}",
+    "liquid": "{% for item in variables.xs %}{% assign item_index = forloop.index0 %}{{ item_index }}:{{ item.name }};{% endfor %}",
     "expected": "0:Hat;1:Shoe;"
+  },
+  {
+    "name": "outer loop index inside a nested loop",
+    "source": "{{#each orders as |order oi|}}{{#each order.items as |item ii|}}{{oi}}:{{item}};{{/each}}{{/each}}",
+    "data": {
+      "orders": [
+        {
+          "items": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "items": [
+            "c"
+          ]
+        }
+      ]
+    },
+    "liquid": "{% for item in variables.orders %}{% assign item_index = forloop.index0 %}{% for item2 in item.items %}{% assign item2_index = forloop.index0 %}{{ item_index }}:{{ item2 }};{% endfor %}{% endfor %}",
+    "expected": "0:a;0:b;1:c;"
   },
   {
     "name": "if literal zero",

@@ -787,12 +787,16 @@ class _Converter:
         value, key = (f"{name}[1]", f"{name}[0]") if over_object else (name, None)
         if block.block_params:
             names[block.block_params[0]] = value
+        # A nested loop has its own forloop, so the index is kept in a variable an inner loop can still read.
+        index = f"{name}_index" if len(block.block_params) == 2 and not over_object else None
         if len(block.block_params) == 2:
-            names[block.block_params[1]] = key or "forloop.index0"
+            names[block.block_params[1]] = key or index or ""
         if over_object:
             self.uses_key = True
         frame = _Frame(prefix=value, names=names, key=key, is_loop=True)
         body = self.nodes(block.body, (*frames, frame))
+        if index:
+            body = f"{{% assign {index} = forloop.index0 %}}{body}"
         otherwise = f"{{% else %}}{self.nodes(block.inverse, frames)}" if block.inverse else ""
         return f"{{% for {name} in {collection} %}}{body}{otherwise}{{% endfor %}}"
 
