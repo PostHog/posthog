@@ -268,7 +268,7 @@ describe('TransactionalEmailsTable', () => {
             expect(
                 container
                     .querySelector('[data-attr=wizard-command-block]')
-                    ?.textContent?.includes('transactional-email') ?? false
+                    ?.textContent?.includes('npx -y @posthog/wizard@latest email') ?? false
             ).toBe(wizardShown)
         })
         expect(screen.queryByText('Or use your own coding agent') !== null).toBe(wizardShown)
