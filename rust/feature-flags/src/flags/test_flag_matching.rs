@@ -13636,15 +13636,17 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case::os_name_from_os("$os", "$os_name")]
-    #[case::initial_os_from_os("$os", "$initial_os")]
-    #[case::initial_browser_from_browser("$browser", "$initial_browser")]
+    #[case::os_name_from_os("$os", "$os", "$os_name")]
+    #[case::initial_os_from_os("$os", "$os", "$initial_os")]
+    #[case::initial_browser_from_browser("$browser", "$browser", "$initial_browser")]
+    #[case::initial_os_from_os_aliased_from_os_name("$os_name", "$os", "$initial_os")]
     #[tokio::test]
     async fn test_known_absent_source_key_does_not_feed_synthesized_values(
+        #[case] stored_key: &str,
         #[case] listed_key: &str,
         #[case] filter_key: &str,
     ) {
-        let subject = KnownAbsentSubject::new(Some(json!({ listed_key: "stored" }))).await;
+        let subject = KnownAbsentSubject::new(Some(json!({ stored_key: "stored" }))).await;
         let flag = person_property_flag(
             1,
             subject.team_id,
@@ -13659,7 +13661,7 @@ mod tests {
 
         assert!(
             !unlisted.flags[&flag.key].enabled,
-            "without the listing, {filter_key} is derived from the stored {listed_key}"
+            "without the listing, {filter_key} is derived from the stored {stored_key}"
         );
         assert!(!listed.errors_while_computing_flags);
         assert!(
