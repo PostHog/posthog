@@ -72,6 +72,7 @@ export interface AttachmentUploadsResponseApi {
 }
 
 /**
+ * * `scheduled` - Scheduled
  * * `queued` - Queued
  * * `failed` - Failed
  * * `sent` - Sent
@@ -79,9 +80,10 @@ export interface AttachmentUploadsResponseApi {
  * * `bounced` - Bounced
  * * `complained` - Complained
  */
-export type EmailDeliveryStatusEnumApi = (typeof EmailDeliveryStatusEnumApi)[keyof typeof EmailDeliveryStatusEnumApi]
+export type EmailSendStatusEnumApi = (typeof EmailSendStatusEnumApi)[keyof typeof EmailSendStatusEnumApi]
 
-export const EmailDeliveryStatusEnumApi = {
+export const EmailSendStatusEnumApi = {
+    Scheduled: 'scheduled',
     Queued: 'queued',
     Failed: 'failed',
     Sent: 'sent',
@@ -93,15 +95,16 @@ export const EmailDeliveryStatusEnumApi = {
 export interface EmailStatusApi {
     /** The `message_id` that the send returned. */
     id: string
-    /** What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+    /** What happened to the email. `scheduled` means it waits for the time it was scheduled for. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
      *
+     * * `scheduled` - Scheduled
      * * `queued` - Queued
      * * `failed` - Failed
      * * `sent` - Sent
      * * `delivered` - Delivered
      * * `bounced` - Bounced
      * * `complained` - Complained */
-    status: EmailDeliveryStatusEnumApi
+    status: EmailSendStatusEnumApi
     /** When the send was queued. */
     created_at: string
     /** When the email reached its current status. */
@@ -1347,6 +1350,25 @@ export interface CodeEmailSourceCandidatesApi {
     /** False when part of the search did not finish, such as a repository GitHub could not search or a file it could not read, so a file may be missing from `candidates`. */
     complete: boolean
 }
+
+/**
+ * * `queued` - Queued
+ * * `failed` - Failed
+ * * `sent` - Sent
+ * * `delivered` - Delivered
+ * * `bounced` - Bounced
+ * * `complained` - Complained
+ */
+export type EmailDeliveryStatusEnumApi = (typeof EmailDeliveryStatusEnumApi)[keyof typeof EmailDeliveryStatusEnumApi]
+
+export const EmailDeliveryStatusEnumApi = {
+    Queued: 'queued',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+} as const
 
 export interface TransactionalEmailLogEntryApi {
     /** The `message_id` that the send returned. */

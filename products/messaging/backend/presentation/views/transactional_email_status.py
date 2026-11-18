@@ -18,7 +18,7 @@ from posthog.event_usage import groups
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.messaging.backend.facade.transactional_email import EmailDeliveryStatus, EmailStatus, get_email_status
+from products.messaging.backend.facade.transactional_email import EmailSendStatus, EmailStatus, get_email_status
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_STATUS_SCOPE,
     require_email_status_read,
@@ -38,10 +38,11 @@ MESSAGE_ID_PARAMETER = OpenApiParameter(
 class EmailStatusSerializer(serializers.Serializer):
     id = serializers.CharField(source="message_id", help_text="The `message_id` that the send returned.")
     status = serializers.ChoiceField(
-        choices=EmailDeliveryStatus.choices,
-        help_text="What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to "
-        "the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's "
-        "mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.",
+        choices=EmailSendStatus.choices,
+        help_text="What happened to the email. `scheduled` means it waits for the time it was scheduled for. "
+        "`queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it "
+        "was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the "
+        "recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.",
     )
     created_at = serializers.DateTimeField(help_text="When the send was queued.")
     status_at = serializers.DateTimeField(help_text="When the email reached its current status.")
