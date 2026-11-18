@@ -128,6 +128,7 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportRepositoryUpdateApi,
     SignalReportSearchResponseApi,
     SignalReportSectionCountsApi,
     SignalReportSourceMetadataRequestApi,
@@ -1126,6 +1127,28 @@ export const signalsReportsReingestCreate = async (
     return apiMutator<SignalReportReingestionStatusApi>(getSignalsReportsReingestCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSignalsReportsRepositoryUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/repository/`
+}
+
+/**
+ * Set the repository the report's work targets. Appends an attributed repo_selection artefact, so the report's work log keeps the previous selection and records who changed it. Later implementation runs use the new repository. A run that already started keeps its repository. Setting the current repository again changes nothing.
+ * @summary Change a report's repository
+ */
+export const signalsReportsRepositoryUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportRepositoryUpdateApi: SignalReportRepositoryUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsRepositoryUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportRepositoryUpdateApi),
     })
 }
 
@@ -3296,6 +3319,27 @@ export const signalsScoutScratchpadRemember = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(rememberRequestApi),
+    })
+}
+
+export const getSignalsScoutScratchpadDiscardUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/discard/`
+}
+
+/**
+ * Delete one scout memory by its exact key, so no scout reads it again. Use this to prune entries a skill change left stale. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents.
+ * @summary Delete a scratchpad entry by key
+ */
+export const signalsScoutScratchpadDiscard = async (
+    projectId: string,
+    forgetRequestApi: ForgetRequestApi,
+    options?: RequestInit
+): Promise<ForgetResponseApi> => {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadDiscardUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(forgetRequestApi),
     })
 }
 

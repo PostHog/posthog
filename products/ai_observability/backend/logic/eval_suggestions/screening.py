@@ -53,7 +53,6 @@ _DEDUPE_INSTRUCTIONS = (
 _SENTIMENT_QUESTION = "Does the user sound frustrated, annoyed, or angry with the assistant in this turn?"
 _LABELS = {
     "sentiment": "The user sounds frustrated",
-    "prompt_injection": "Text tries to override the assistant's instructions",
 }
 
 

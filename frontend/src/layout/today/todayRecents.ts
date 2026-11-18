@@ -1,9 +1,20 @@
 import { TodayMonitorRecent } from './todayMonitor'
 import { TODAY_PEOPLE_RECENT_TYPES, TodayPeopleRecent } from './todayPeople'
 
-export type TodayRecent = TodayPeopleRecent | TodayMonitorRecent
+export interface TodayReleaseRecent {
+    type: 'release'
+    id: string
+    name: string
+    href: string
+}
 
-export type TodayRecentPane = 'people' | 'monitor'
+export interface StoredReleaseRecent extends TodayReleaseRecent {
+    viewedAt: number
+}
+
+export type TodayRecent = TodayPeopleRecent | TodayMonitorRecent | TodayReleaseRecent
+
+export type TodayRecentPane = 'people' | 'monitor' | 'release'
 
 /**
  * A scene logic that opens one record has a selector with this name. It gives the record as a recent, or null until
@@ -18,7 +29,7 @@ export function isPeopleRecent(recent: TodayRecent): recent is TodayPeopleRecent
 }
 
 export function recentPane(recent: TodayRecent): TodayRecentPane {
-    return isPeopleRecent(recent) ? 'people' : 'monitor'
+    return isPeopleRecent(recent) ? 'people' : recent.type === 'release' ? 'release' : 'monitor'
 }
 
 /** Puts a visit first. Reloading the same page changes nothing, so the list stays stable while a page loads. */

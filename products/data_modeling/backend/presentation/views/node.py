@@ -39,6 +39,7 @@ from products.data_modeling.backend.facade.api import (
     get_declared_target,
     is_declared_pin,
     load_node_descriptions,
+    node_lineage,
     node_lineage_counts,
     parse_warehouse_table_id,
     run_related_node_materializations,
@@ -553,8 +554,8 @@ _READ_DENIED = "Reading data models requires data warehouse read access."
 
 # TODO: consolidate graph traversal logic. similar implementations exist in:
 # - products/data_modeling/backend/temporal/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
-# - products/data_modeling/backend/graph.py (Graph) — shared in-memory graph used by list endpoint
-# the temporal workflow and lineage API should migrate to Graph
+# - products/data_modeling/backend/graph.py (Graph) — shared in-memory graph used by the list and lineage endpoints
+# the temporal workflow should migrate to Graph
 
 
 def _get_upstream_nodes(
@@ -938,22 +939,22 @@ class NodeViewSet(
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        hidden_types = self._hidden_node_types()
-        upstream_ids = _get_upstream_nodes(node, include_tables=True, hidden_types=hidden_types)
-        downstream_ids = _get_downstream_nodes(node, hidden_types=hidden_types)
-        all_ids = upstream_ids | downstream_ids | {str(node.id)}
+        lineage = node_lineage(self.team_id, node.id, node.dag_id, hidden_types=self._hidden_node_types())
 
         nodes = self._exclude_hidden_nodes(
-            _node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id)
+            _node_queryset_with_latest_job().filter(id__in=lineage.node_ids, team_id=self.team_id)
         )
         edges = self._exclude_hidden_edges(
             Edge.objects.select_related("source", "target", "dag").filter(
-                team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
+                team_id=self.team_id, source_id__in=lineage.node_ids, target_id__in=lineage.node_ids
             )
         )
 
         return response.Response(
-            LineageResponseSerializer({"nodes": nodes, "edges": edges}, context=self.get_serializer_context()).data
+            LineageResponseSerializer(
+                {"nodes": nodes, "edges": edges},
+                context={**self.get_serializer_context(), "node_counts": lineage.counts},
+            ).data
         )
 
     @extend_schema(responses={200: NodeAttentionCountSerializer})
