@@ -26,13 +26,16 @@ import type { Layout } from 'react-grid-layout'
 
 import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import {
+    dashboardsCachedTilesRetrieve,
     dashboardsCopyGroupCreate,
     dashboardsPartialUpdate,
     dashboardsRetrieve,
 } from '@posthog/products-dashboards/frontend/generated/api'
-import type {
-    DashboardTileGroupApi,
-    DashboardWidgetRunResultApi,
+import {
+    CachedTileStatusEnumApi,
+    type CachedTilesResponseApi,
+    type DashboardTileGroupApi,
+    type DashboardWidgetRunResultApi,
 } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
@@ -290,6 +293,8 @@ const TELEMETRY_TILE_REFRESH_CONCURRENCY = 2
 // With dashboard-v2, a first load queries this many tiles up front, in layout order.
 // The rest load when they scroll near the viewport.
 const EAGER_TILE_LOADS = 12
+// Matches MAX_CACHED_TILES_BATCH_SIZE, the most tiles the backend reads in one cached-tiles request.
+const CACHED_TILES_BATCH_SIZE = 100
 // Matches WORKERS_PER_STREAM in the backend's query sharing stream.
 const QUERY_SHARING_STREAM_WORKERS = 4
 const LAYOUT_UNDO_LIMIT = 20
@@ -499,6 +504,76 @@ async function refreshInsightTile(
     } finally {
         finish()
     }
+}
+
+/** Whether a tile's result is recent enough that a non-forced load would serve it from the cache. */
+function hasFreshCachedResult(insight: InsightModel): boolean {
+    return !!insight.cache_target_age && !dayjs(insight.cache_target_age).isBefore(dayjs())
+}
+
+/**
+ * Reads the cached results of these tiles in one request, and shows each fresh one.
+ * Returns the IDs of the tiles it showed. The rest load through the insight endpoint as before:
+ * misses, stale results, tiles the viewer can't see, and every tile when the read fails.
+ */
+async function showCachedTileResults(
+    tiles: (DashboardTile & { insight: InsightModel })[],
+    { actions, dashboardId, currentTeamId, filters, variables, urlFilters, isAutomatic, signal }: InsightTileRefresh
+): Promise<Set<number>> {
+    const shown = new Set<number>()
+    const tilesById = new Map(tiles.map((tile) => [tile.id, tile]))
+    const startedAt = performance.now()
+    await Promise.all(
+        chunkTileIds([...tilesById.keys()], CACHED_TILES_BATCH_SIZE).map(async (tileIds) => {
+            let response: CachedTilesResponseApi
+            try {
+                response = await dashboardsCachedTilesRetrieve(
+                    String(currentTeamId),
+                    dashboardId,
+                    {
+                        tile_ids: tileIds.join(','),
+                        filters_override: JSON.stringify(filters),
+                        variables_override: JSON.stringify(variables),
+                    },
+                    { signal }
+                )
+            } catch {
+                return
+            }
+            if (signal.aborted) {
+                return
+            }
+            const refreshDurationMs = Math.floor(performance.now() - startedAt)
+            for (const result of response.results) {
+                const tile = tilesById.get(result.id)
+                if (!tile || result.status !== CachedTileStatusEnumApi.Hit || !result.insight) {
+                    continue
+                }
+                // The response carries only the result fields, so the tile keeps its insight's name, query and access.
+                const cachedInsight = { ...tile.insight, ...result.insight } as unknown as InsightModel
+                // A stale result goes through the insight endpoint, which computes it again.
+                if (!hasFreshCachedResult(cachedInsight) || getInsightQueryError(cachedInsight)) {
+                    continue
+                }
+                shown.add(tile.id)
+                dashboardsModel.actions.updateDashboardInsight(cachedInsight, undefined, dashboardId)
+                actions.setRefreshStatus(tile.insight.short_id)
+                reportDashboardTileRefreshed(
+                    dashboardId,
+                    tile,
+                    true,
+                    urlFilters,
+                    variables,
+                    refreshDurationMs,
+                    false,
+                    undefined,
+                    undefined,
+                    isAutomatic
+                )
+            }
+        })
+    )
+    return shown
 }
 
 function abortWidgetLoads(cache: Record<string, any>): void {
@@ -6124,6 +6199,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let tilesRefreshedCachedCount = 0
             let tilesErroredCount = 0
             let tilesAbortedCount = 0
+            let tilesReadFromCacheCount: number | null = null
             const { currentTeamId, dashboardLoadData, dashboard } = values
 
             if (
@@ -6220,14 +6296,36 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 }
 
+                // Under dashboard-v2, a refresh that may serve cached results reads them for every tile in one request.
+                // A load or update skips it, since the dashboard response already carried each tile's cached result.
+                let tilesToLoad = sortedTilesToRefresh
+                if (
+                    values.featureFlags[FEATURE_FLAGS.DASHBOARD_V2] &&
+                    !forceRefresh &&
+                    !isInitialLoadOrUpdate &&
+                    (values.placement === DashboardPlacement.Dashboard ||
+                        values.placement === DashboardPlacement.ProjectHomepage) &&
+                    !isSharedView() &&
+                    currentTeamId &&
+                    sortedTilesToRefresh.length >= 2
+                ) {
+                    const shownFromCache = await showCachedTileResults(sortedTilesToRefresh, tileRefresh)
+                    breakpoint()
+                    tilesReadFromCacheCount = shownFromCache.size
+                    sortedTilesToRefresh
+                        .filter((tile) => shownFromCache.has(tile.id))
+                        .forEach((tile) => settleTile(tile, 'cached'))
+                    tilesToLoad = sortedTilesToRefresh.filter((tile) => !shownFromCache.has(tile.id))
+                }
+
                 const streamedTiles = new Set<number>()
                 if (
                     values.featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true &&
                     values.placement === DashboardPlacement.Dashboard &&
                     !isSharedView() &&
                     currentTeamId &&
-                    sortedTilesToRefresh.length >= 2 &&
-                    sortedTilesToRefresh.length <= 32
+                    tilesToLoad.length >= 2 &&
+                    tilesToLoad.length <= 32
                 ) {
                     const sharingController = cache.abortController
                     const refreshSignal = sharingController.signal
@@ -6236,7 +6334,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         release: releaseBatchTile,
                         finish: finishBatch,
                     } = tileLoads(cache).start(
-                        sortedTilesToRefresh.map((tile) => tile.id),
+                        tilesToLoad.map((tile) => tile.id),
                         refreshSignal,
                         { forceRefresh: !!forceRefresh, settings: settingsToRefresh }
                     )
@@ -6248,10 +6346,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const startRetries = (): void => {
                         while (waitingRetries.length > 0 && !signal.aborted) {
                             const streamWorkers = streamOpen
-                                ? Math.min(
-                                      QUERY_SHARING_STREAM_WORKERS,
-                                      sortedTilesToRefresh.length - streamedTiles.size
-                                  )
+                                ? Math.min(QUERY_SHARING_STREAM_WORKERS, tilesToLoad.length - streamedTiles.size)
                                 : 0
                             if (runningRetries + streamWorkers >= QUERY_SHARING_STREAM_WORKERS) {
                                 return
@@ -6273,7 +6368,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setQuerySharingDebug({
                         batchId: batchQueryId,
                         status: 'running',
-                        tiles: sortedTilesToRefresh.map((tile) => ({
+                        tiles: tilesToLoad.map((tile) => ({
                             id: tile.id,
                             name: getDashboardTileDisplayName(tile),
                         })),
@@ -6293,7 +6388,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             currentTeamId,
                             dashboardId,
                             {
-                                tile_ids: sortedTilesToRefresh.map((tile) => tile.id).join(','),
+                                tile_ids: tilesToLoad.map((tile) => tile.id).join(','),
                                 client_query_id: batchQueryId,
                                 debug: true,
                                 refresh: forceRefresh ? 'force_blocking' : 'blocking',
@@ -6305,7 +6400,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 if (signal.aborted || cache.disposables.isDisposed) {
                                     return
                                 }
-                                const tile = sortedTilesToRefresh.find((candidate) => candidate.id === result.id)
+                                const tile = tilesToLoad.find((candidate) => candidate.id === result.id)
                                 if (!tile || streamedTiles.has(tile.id)) {
                                     return
                                 }
@@ -6376,7 +6471,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (signal.aborted) {
                         // tileLoads stopped the batch, so the tiles it had not delivered wait for their tab to show again.
                         const notStarted = new Set(waitingRetries.splice(0).map((tile) => tile.id))
-                        for (const tile of sortedTilesToRefresh) {
+                        for (const tile of tilesToLoad) {
                             if (!streamedTiles.has(tile.id) || notStarted.has(tile.id)) {
                                 streamedTiles.add(tile.id)
                                 actions.abortQuery({
@@ -6396,7 +6491,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         batchQueryId,
                         signal.aborted
                             ? 'aborted'
-                            : streamedTiles.size === sortedTilesToRefresh.length && capacityRetries.length === 0
+                            : streamedTiles.size === tilesToLoad.length && capacityRetries.length === 0
                               ? 'complete'
                               : 'partial'
                     )
@@ -6406,7 +6501,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 }
 
-                const fetchSyncInsightFunctions = sortedTilesToRefresh
+                const fetchSyncInsightFunctions = tilesToLoad
                     .filter((tile) => !streamedTiles.has(tile.id))
                     .map((tile) => async () => settleTile(tile, await refreshInsightTile(tile, tileRefresh)))
 
@@ -6445,6 +6540,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
+                    ...(tilesReadFromCacheCount !== null
+                        ? { tiles_read_from_cache_count: tilesReadFromCacheCount }
+                        : {}),
                     ...tileGroupProps,
                     ...(filterChangeIsCurrent
                         ? {
