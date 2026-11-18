@@ -122,6 +122,7 @@ vi.mock("@posthog/ui/features/sessions/sessionStore", () => ({
 
 const mockAuthenticatedClient = vi.hoisted(() => ({
   createTaskRun: vi.fn(),
+  heartbeatTaskRun: vi.fn(),
   appendTaskRunLog: vi.fn(),
   getTaskRun: vi.fn(),
   getTask: vi.fn(),
@@ -10864,6 +10865,12 @@ describe("SessionService", () => {
           errorTitle: "Connection lost",
           errorMessage: expect.any(String),
         }),
+      );
+      const beatsAtFailure =
+        mockAuthenticatedClient.heartbeatTaskRun.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(mockAuthenticatedClient.heartbeatTaskRun).toHaveBeenCalledTimes(
+        beatsAtFailure,
       );
 
       vi.useRealTimers();

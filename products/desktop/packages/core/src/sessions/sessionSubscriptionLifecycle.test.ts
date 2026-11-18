@@ -72,9 +72,12 @@ function createHarness(
     },
   } as unknown as SessionServiceDeps;
   const service = new SessionService(deps);
-  (
-    service as unknown as { subscribeToChannel(taskRunId: string): void }
-  ).subscribeToChannel(RUN_ID);
+  const connected = service as unknown as {
+    subscribeToChannel(taskRunId: string): void;
+    startLocalRunHeartbeat(taskRunId: string): void;
+  };
+  connected.subscribeToChannel(RUN_ID);
+  connected.startLocalRunHeartbeat(RUN_ID);
   return { service, events, permissions, log, heartbeatTaskRun };
 }
 
@@ -164,6 +167,23 @@ describe("session subscription lifecycle", () => {
         await vi.advanceTimersByTimeAsync(0);
 
         service.reset();
+        await vi.advanceTimersByTimeAsync(180_000);
+
+        expect(heartbeatTaskRun).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops once the host keeps ending the subscription", async () => {
+      vi.useFakeTimers();
+      try {
+        const { events, heartbeatTaskRun } = createHarness();
+        await vi.advanceTimersByTimeAsync(0);
+
+        for (let i = 0; i < 5; i++) {
+          events.subscriptions.at(-1)?.handlers.onComplete?.();
+        }
         await vi.advanceTimersByTimeAsync(180_000);
 
         expect(heartbeatTaskRun).toHaveBeenCalledTimes(1);

@@ -2455,6 +2455,7 @@ export class SessionService {
           configOptions,
           ...readCapabilities(result),
         });
+        this.startLocalRunHeartbeat(taskRunId);
 
         // Persist the merged config options
         if (configOptions) {
@@ -2589,6 +2590,7 @@ export class SessionService {
     errorMessage: string,
     errorTitle?: string,
   ): void {
+    this.stopLocalRunHeartbeat(taskRunId);
     // Preserve events and logUrl from the existing session so the
     // retry / reset flows can re-hydrate without a fresh log fetch.
     // Note: the error overlay is opaque, so these events aren't visible
@@ -2877,6 +2879,7 @@ export class SessionService {
     this.d.store.setSession(session);
     this.d.store.clearTaskStarting?.(taskId, taskRun.id);
     this.subscribeToChannel(taskRun.id);
+    this.startLocalRunHeartbeat(taskRun.id);
 
     this.d.track(ANALYTICS_EVENTS.TASK_RUN_STARTED, {
       task_id: taskId,
@@ -3295,7 +3298,6 @@ export class SessionService {
       event: eventSubscription,
       permission: permissionSubscription,
     });
-    this.startLocalRunHeartbeat(taskRunId);
   }
 
   private startLocalRunHeartbeat(taskRunId: string): void {
@@ -3358,6 +3360,7 @@ export class SessionService {
         "Session subscription keeps ending without an error, giving up",
         { taskRunId, which, attempts },
       );
+      this.stopLocalRunHeartbeat(taskRunId);
       return;
     }
     this.hostEndedResubscribes.set(taskRunId, attempts);
@@ -3403,6 +3406,9 @@ export class SessionService {
     // Unsubscribe from all active subscriptions
     for (const taskRunId of this.subscriptions.keys()) {
       this.unsubscribeFromChannel(taskRunId);
+    }
+    for (const taskRunId of [...this.localRunHeartbeats.keys()]) {
+      this.stopLocalRunHeartbeat(taskRunId);
     }
 
     // Clean up all cloud task watchers
