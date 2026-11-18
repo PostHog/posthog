@@ -9,6 +9,7 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { createXAxisTickCallback } from '@posthog/quill-charts'
 
 import 'lib/components/Cards/InsightCard/InsightCard.scss'
+import { ChartAxisControls } from 'lib/charts/ChartAxisControls'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { getResultMenuPoint, isResultMenuContextMenu, replayAsClick } from 'lib/components/ResultMenu/resultMenuTrigger'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
@@ -36,7 +37,6 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
-import { BIChartAxisControls } from 'products/business_intelligence/frontend/BIChartAxisControls'
 import { getBIChartDateAxis } from 'products/business_intelligence/frontend/biChartDateAxis'
 import { BIChartYearLabels } from 'products/business_intelligence/frontend/BIChartYearLabels'
 import { BIComparisonSummary } from 'products/business_intelligence/frontend/BIComparisonSummary'
@@ -651,7 +651,7 @@ function DataTableVisualizationContent({
                 >
                     {showYearLabels && <BIChartYearLabels timezone={timezone} />}
                     {query.kind === NodeKind.BIVisualizationNode && props.editMode && props.context?.onEditBIAxis && (
-                        <BIChartAxisControls onEdit={props.context.onEditBIAxis} />
+                        <ChartAxisControls onEdit={props.context.onEditBIAxis} />
                     )}
                 </SqlChart>
             </BindLogic>

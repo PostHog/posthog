@@ -2303,9 +2303,10 @@ export const CodeEnumApi = {
 } as const
 
 /**
- * * `datasets` - datasets
- * * `dataset_items` - dataset_items
- * * `dataset_item_versions` - dataset_item_versions
+ * * `datasets` - Datasets
+ * * `dataset_items` - Dataset Items
+ * * `dataset_item_versions` - Dataset Item Versions
+ * * `project_dataset_item_versions` - Project Dataset Item Versions
  */
 export type DatasetConflictResponseResourceEnumApi =
     (typeof DatasetConflictResponseResourceEnumApi)[keyof typeof DatasetConflictResponseResourceEnumApi]
@@ -2314,6 +2315,7 @@ export const DatasetConflictResponseResourceEnumApi = {
     Datasets: 'datasets',
     DatasetItems: 'dataset_items',
     DatasetItemVersions: 'dataset_item_versions',
+    ProjectDatasetItemVersions: 'project_dataset_item_versions',
 } as const
 
 export interface DatasetConflictResponseApi {
@@ -2341,9 +2343,10 @@ export interface DatasetConflictResponseApi {
     current_item_id?: string | null
     /** Resource whose configured limit was reached.
      *
-     * * `datasets` - datasets
-     * * `dataset_items` - dataset_items
-     * * `dataset_item_versions` - dataset_item_versions */
+     * * `datasets` - Datasets
+     * * `dataset_items` - Dataset Items
+     * * `dataset_item_versions` - Dataset Item Versions
+     * * `project_dataset_item_versions` - Project Dataset Item Versions */
     resource?: DatasetConflictResponseResourceEnumApi
     /** Number of resources that already exist. */
     current_count?: number
@@ -2767,7 +2770,7 @@ export interface EvalSuggestionApi {
     readonly applies: boolean
     /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
     readonly template_key: string
-    /** A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
+    /** A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
     readonly headline: string
     /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
     readonly outcome: string
@@ -4374,10 +4377,17 @@ export interface EvaluationTestOnSampleRequestApi {
 export type ClusteringConfigApiEventFiltersItem = { [key: string]: unknown }
 
 export interface ClusteringConfigApi {
+    /** Whether this project has opted in to automated clustering. */
+    enabled: boolean
     /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
     event_filters: ClusteringConfigApiEventFiltersItem[]
     readonly created_at: string
     readonly updated_at: string
+}
+
+export interface ClusteringConfigSetEnabledApi {
+    /** Enable or disable automated clustering for this project. */
+    enabled: boolean
 }
 
 export type ClusteringConfigSetEventFiltersApiEventFiltersItem = { [key: string]: unknown }
@@ -4392,9 +4402,10 @@ export interface ClusteringConfigSetEventFiltersApi {
  * * `generation` - generation
  * * `evaluation` - evaluation
  */
-export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+export type ClusteringAnalysisLevelEnumApi =
+    (typeof ClusteringAnalysisLevelEnumApi)[keyof typeof ClusteringAnalysisLevelEnumApi]
 
-export const AnalysisLevelEnumApi = {
+export const ClusteringAnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
     Evaluation: 'evaluation',
@@ -4406,7 +4417,7 @@ export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
@@ -4429,7 +4440,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean
