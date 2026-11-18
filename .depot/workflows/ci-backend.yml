@@ -4055,6 +4055,7 @@ jobs:
                   path: ${{ runner.temp }}/trunk-codeowners/CODEOWNERS
                   if-no-files-found: ignore
                   retention-days: 1
+                  overwrite: true # artifacts are immutable per run; a re-run would 409 otherwise
 
     # Read ClickHouse versions for the compat test matrix.
     get_clickhouse_versions:
