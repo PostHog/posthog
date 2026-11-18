@@ -137,7 +137,7 @@ class TestMarketingRecommendations(SimpleTestCase):
         terms = (_term("product analytics", "c1", 99000, 1000), _term("waste", "c1", wasted, 0))
         inputs = replace(_inputs((campaign,), terms), days=15)
 
-        recs = {rec.rule: rec for rec in recommend(inputs)}
+        recs = {rec.rule.value: rec for rec in recommend(inputs)}
 
         assert (recs["spend_without_conversions"].impact, recs["spend_without_conversions"].minor) == (
             wasted * 2,
