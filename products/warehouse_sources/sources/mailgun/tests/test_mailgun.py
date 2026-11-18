@@ -337,6 +337,17 @@ class TestGetRows:
         assert isinstance(result.raised, requests.HTTPError)
         assert "400 Client Error" in str(result.raised)
 
+    def test_ip_pools_400_is_recognized_as_non_retryable(self):
+        # ip_pools takes no parameters we construct, so a 400 here can't be a malformed request on
+        # our side — it's Mailgun rejecting accounts without the Dedicated IP Pools feature, and
+        # every retry would hit the same account-level rejection.
+        result = _driver().run("ip_pools", [ScriptedResponse(status=400, json={})])
+
+        assert isinstance(result.raised, requests.HTTPError)
+        non_retryable_errors = MailgunSource().get_non_retryable_errors()
+        matches = [message for pattern, message in non_retryable_errors.items() if pattern in str(result.raised)]
+        assert len(matches) == 1
+
     def test_domain_scoped_500_still_raises(self):
         # Server errors are transient and retryable — they must not be swallowed as a skip.
         domains_page = {"items": [{"name": "a.com"}]}
@@ -553,6 +564,9 @@ class TestBounceClassificationRows:
         assert {request.path for request in result.requests} == {"/v2/bounce-classification/metrics"}
         assert len(result.requests) == METRICS_LOOKBACK_DAYS + 1
         busy_bodies = [request.json() for request in result.requests if _request_day(request) == busy_day]
+        # `timestamp` isn't a requested dimension: Mailgun rejects this endpoint's request with a
+        # 400 past an undocumented dimension-count cap, and the window is already one bucket wide.
+        assert {tuple(body["dimensions"]) for body in busy_bodies} == {("domain.name", "entity-name", "category")}
         assert [body["pagination"]["skip"] for body in busy_bodies] == [0, BOUNCE_CLASSIFICATION_PAGE_SIZE]
         assert {body["pagination"]["limit"] for body in busy_bodies} == {BOUNCE_CLASSIFICATION_PAGE_SIZE}
         assert len(result.rows) == BOUNCE_CLASSIFICATION_PAGE_SIZE + 1

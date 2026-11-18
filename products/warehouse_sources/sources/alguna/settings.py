@@ -55,7 +55,8 @@ class AlgunaEndpointConfig:
 
 
 # The per-subscription endpoints read the current version; a subscription without one returns
-# no data for it, so a 404 means an empty child rather than a failed sync.
+# no data for it, so a 404 means an empty child rather than a failed sync. The per-customer
+# endpoints 404 for a customer deleted between the parent listing and the child fetch.
 _IGNORE_CHILD_404: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 ALGUNA_ENDPOINTS: dict[str, AlgunaEndpointConfig] = {
@@ -69,6 +70,42 @@ ALGUNA_ENDPOINTS: dict[str, AlgunaEndpointConfig] = {
         query_fanout=AlgunaQueryFanout(parent_name="customers", query_param="customer_id"),
     ),
     "customers": AlgunaEndpointConfig(name="customers", path="/customers"),
+    "customer_connected_accounts": AlgunaEndpointConfig(
+        name="customer_connected_accounts",
+        path="/customers/{customer_id}/connected-accounts",
+        sort=None,
+        primary_keys=["customer_id", "id"],
+        partition_key=None,
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="customers",
+            resolve_param="customer_id",
+            resolve_field="id",
+            # The connected-account payload already carries customer_id.
+            include_from_parent=[],
+            child_response_actions=_IGNORE_CHILD_404,
+        ),
+    ),
+    "customer_entitlements": AlgunaEndpointConfig(
+        name="customer_entitlements",
+        path="/customers/{customer_id}/entitlements",
+        sort=None,
+        # Entitlements have no id. A key is unique within the subscription that grants it;
+        # subscription_id is null for default-profile entitlements. Full refresh only, so the key
+        # is never used to merge.
+        primary_keys=["customer_id", "subscription_id", "key"],
+        partition_key=None,
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="customers",
+            resolve_param="customer_id",
+            resolve_field="id",
+            # The entitlement payload carries no customer id, so copy it down from the parent.
+            include_from_parent=["id"],
+            parent_field_renames={"id": "customer_id"},
+            child_response_actions=_IGNORE_CHILD_404,
+        ),
+    ),
     "invoices": AlgunaEndpointConfig(name="invoices", path="/invoices"),
     "payments": AlgunaEndpointConfig(name="payments", path="/payments", sort=None),
     "plans": AlgunaEndpointConfig(name="plans", path="/plans"),

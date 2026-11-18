@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, combineUrl, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, decodeParams, router, urlToAction } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -15,17 +15,25 @@ import type {
     ServiceUsageApi,
     ServiceUsageResponseApi,
 } from './generated/api.schemas'
+import { matchesSearch } from './healthDisplay'
 import { ServiceGraph, buildServiceGraph, layoutServiceGraph } from './serviceMap'
 
 export const APPLICATION_OBSERVABILITY_PATH = '/application-observability'
 
 export type TimeRange = '-15m' | '-1h' | '-6h' | '-24h' | '-7d'
 
-export type ApplicationObservabilityTab = 'services' | 'endpoints' | 'map' | 'dependencies' | 'usage'
+export type ApplicationObservabilityTab = 'services' | 'endpoints' | 'map' | 'dependencies' | 'deployments' | 'usage'
 
 export type ServiceMapWarning = 'map' | 'layout' | 'health' | null
 
-export const TABS: ApplicationObservabilityTab[] = ['services', 'endpoints', 'map', 'dependencies', 'usage']
+export const TABS: ApplicationObservabilityTab[] = [
+    'services',
+    'endpoints',
+    'map',
+    'dependencies',
+    'deployments',
+    'usage',
+]
 
 export const TIME_RANGE_LABELS: Record<TimeRange, string> = {
     '-15m': 'Last 15 minutes',
@@ -92,9 +100,12 @@ export interface applicationObservabilityLogicValues {
     endpointsService: string | null
     environment: string | null
     environments: (string | null)[]
+    filteredEndpoints: EndpointHealthApi[]
+    filteredServices: ServiceHealthApi[]
     hasLoadError: boolean
     paused: boolean
     refreshing: boolean
+    search: string
     selectedMapService: ServiceHealthApi | null
     selectedMapServiceName: string | null
     serviceMap: ServiceMapResponseApi | null
@@ -207,6 +218,9 @@ export interface applicationObservabilityLogicActions {
     setPaused: (paused: boolean) => {
         paused: boolean
     }
+    setSearch: (search: string) => {
+        search: string
+    }
     setSelectedMapService: (service: string | null) => {
         service: string | null
     }
@@ -227,6 +241,8 @@ export interface applicationObservabilityLogicMeta {
         services: (servicesHealth: ServicesHealthResponseApi | null) => ServiceHealthApi[]
         environments: (servicesHealth: ServicesHealthResponseApi | null) => (string | null)[]
         endpoints: (endpointsHealth: EndpointsHealthResponseApi | null) => EndpointHealthApi[]
+        filteredServices: (services: ServiceHealthApi[], search: string) => ServiceHealthApi[]
+        filteredEndpoints: (endpoints: EndpointHealthApi[], search: string) => EndpointHealthApi[]
         selectedMapService: (
             serviceMapLayout: ServiceGraph | null,
             selectedMapServiceName: string | null
@@ -254,6 +270,27 @@ export type applicationObservabilityLogicType = MakeLogicType<
     applicationObservabilityLogicMeta
 >
 
+// The router turns `?search=01` into the number 1 and `?search=true` into a boolean, and
+// rewrites the URL to match. A search it would change goes into the URL JSON-quoted instead.
+function encodeSearchParam(search: string): string {
+    const roundTripped = decodeParams(`search=${encodeURIComponent(search)}`).search
+    return roundTripped === search && !search.startsWith('"') ? search : JSON.stringify(search)
+}
+
+function decodeSearchParam(value: unknown): string {
+    if (value == null) {
+        return ''
+    }
+    if (typeof value === 'string' && value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        try {
+            return String(JSON.parse(value))
+        } catch {
+            return value
+        }
+    }
+    return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
 export const applicationObservabilityLogic = kea<applicationObservabilityLogicType>([
     path(['products', 'apm', 'frontend', 'applicationObservabilityLogic']),
     connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
@@ -265,6 +302,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         setEndpointsService: (service: string | null) => ({ service }),
         showServiceEndpoints: (service: string) => ({ service }),
         setSelectedMapService: (service: string | null) => ({ service }),
+        setSearch: (search: string) => ({ search }),
         setPaused: (paused: boolean) => ({ paused }),
         refresh: true,
         // Internal: coalesces the picker actions and the initial URL sync into a single reload.
@@ -275,6 +313,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
     reducers({
         environment: [null as string | null, { setEnvironment: (_, { environment }) => environment }],
         timeRange: ['-1h' as TimeRange, { setTimeRange: (_, { timeRange }) => timeRange }],
+        search: ['', { setSearch: (_, { search }) => search }],
         paused: [false, { setPaused: (_, { paused }) => paused }],
         tab: [
             'services' as ApplicationObservabilityTab,
@@ -429,6 +468,17 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             (s) => [s.endpointsHealth],
             (endpointsHealth: EndpointsHealthResponseApi | null): EndpointHealthApi[] => endpointsHealth?.results ?? [],
         ],
+        // Narrows the loaded rows in the browser, so typing never reloads.
+        filteredServices: [
+            (s) => [s.services, s.search],
+            (services: ServiceHealthApi[], search: string): ServiceHealthApi[] =>
+                services.filter((row) => matchesSearch(search, row.service_name)),
+        ],
+        filteredEndpoints: [
+            (s) => [s.endpoints, s.search],
+            (endpoints: EndpointHealthApi[], search: string): EndpointHealthApi[] =>
+                endpoints.filter((row) => matchesSearch(search, row.endpoint, row.service_name)),
+        ],
         selectedMapService: [
             (s) => [s.serviceMapLayout, s.selectedMapServiceName],
             (serviceMapLayout: ServiceGraph | null, selectedMapServiceName: string | null): ServiceHealthApi | null =>
@@ -468,6 +518,7 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
                 ...(values.timeRange !== '-1h' ? { range: values.timeRange } : {}),
                 ...(values.tab !== 'services' ? { tab: values.tab } : {}),
                 ...(values.endpointsService ? { service: values.endpointsService } : {}),
+                ...(values.search ? { search: encodeSearchParam(values.search) } : {}),
                 ...(values.paused ? { paused: 'true' } : {}),
             },
         ]
@@ -477,6 +528,13 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             setTab: toUrl,
             setEndpointsService: toUrl,
             showServiceEndpoints: toUrl,
+            // Replaces the history entry, so Back skips each keystroke. Keeps the table's
+            // `order` param, which LemonTable owns and `toUrl` doesn't know about.
+            setSearch: () => {
+                const [path, params] = toUrl()
+                const order = router.values.searchParams.order
+                return [path, order != null ? { ...params, order } : params, undefined, { replace: true }]
+            },
             setPaused: toUrl,
         }
     }),
@@ -490,6 +548,10 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             const range = isTimeRange(searchParams.range) ? searchParams.range : '-1h'
             const tab = isTab(searchParams.tab) ? searchParams.tab : 'services'
             const service = typeof searchParams.service === 'string' ? searchParams.service : null
+            const search = decodeSearchParam(searchParams.search)
+            if (search !== values.search) {
+                actions.setSearch(search)
+            }
             // The router parses `?paused=true` into a boolean.
             const paused = searchParams.paused === true || searchParams.paused === 'true'
             if (paused !== values.paused) {

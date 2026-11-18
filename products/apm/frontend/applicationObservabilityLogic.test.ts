@@ -12,6 +12,7 @@ import {
     drillDownParams,
     metricsDrillDownUrl,
 } from './applicationObservabilityLogic'
+import { deploymentsLogic } from './deploymentsLogic'
 import type {
     EndpointsHealthResponseApi,
     ServiceMapResponseApi,
@@ -206,6 +207,36 @@ describe('applicationObservabilityLogic', () => {
         expect(url.searchParams.get('dateFrom')).toBe('-24h')
     })
 
+    it('filters services and endpoints by the search without reloading, and keeps it in the URL', async () => {
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'endpoints' })
+        await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
+        // LemonTable writes its sort to `order` when a column header is clicked.
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { tab: 'endpoints', order: '-error_rate' })
+        await expectLogic(logic).toFinishAllListeners()
+        const servicesBefore = requests.length
+        const endpointsBefore = endpointRequests.length
+
+        logic.actions.setSearch('QUE')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filteredServices.map((row) => row.service_name)).toEqual(['queue'])
+        // An endpoint matches on its service name as well as its own name.
+        expect(logic.values.filteredEndpoints.map((row) => row.endpoint)).toEqual(['orders process'])
+        expect(router.values.searchParams).toMatchObject({ tab: 'endpoints', search: 'QUE', order: '-error_rate' })
+        expect(requests.length).toBe(servicesBefore)
+        expect(endpointRequests.length).toBe(endpointsBefore)
+
+        router.actions.push(APPLICATION_OBSERVABILITY_PATH, { search: 'web' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filteredServices.map((row) => row.service_name)).toEqual(['web'])
+        expect(logic.values.filteredEndpoints).toEqual([])
+
+        logic.actions.setSearch('01')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.search).toBe('01')
+    })
+
     it('skips the poll while paused, catches up on resume, and keeps paused in the URL', async () => {
         logic.unmount()
         const setIntervalSpy = jest.spyOn(window, 'setInterval')
@@ -285,6 +316,43 @@ describe('applicationObservabilityLogic', () => {
 
             expect(logic.values.usageLoadError).toBe(true)
             expect(logic.values.usageRows).toHaveLength(2)
+        })
+
+        it('loads deployments once per refresh while the deployments tab is open', async () => {
+            const deploymentRequests: string[] = []
+            useMocks({
+                get: {
+                    // A real services response lands after the deployments request has gone out.
+                    '/api/projects/:team_id/apm/services/': async () => {
+                        await new Promise((resolve) => setTimeout(resolve, 20))
+                        return [200, RESPONSE]
+                    },
+                    '/api/projects/:team_id/apm/deployments/': ({ request }) => {
+                        deploymentRequests.push(new URL(request.url).search)
+                        return [200, { results: [], service: 'queue', environment: 'prod', date_from: '', date_to: '' }]
+                    },
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            logic.actions.setTab('deployments')
+            const deployments = deploymentsLogic()
+            deployments.mount()
+            await expectLogic(deployments).toFinishAllListeners()
+            deploymentRequests.length = 0
+
+            logic.actions.setTimeRange('-24h')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deploymentRequests).toHaveLength(1)
+            expect(deploymentRequests[0]).toContain('service=queue')
+
+            useMocks({ get: { '/api/projects/:team_id/apm/services/': () => [500, { detail: 'boom' }] } })
+            logic.actions.setEnvironment('staging')
+            await expectLogic(logic).toDispatchActions(['loadServicesHealthFailure'])
+            await expectLogic(deployments).toFinishAllListeners()
+            expect(deploymentRequests).toHaveLength(2)
+            expect(deploymentRequests[1]).toContain('environment=staging')
+            deployments.unmount()
         })
 
         it('ignores an unknown tab in the URL', async () => {

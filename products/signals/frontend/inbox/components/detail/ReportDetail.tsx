@@ -254,12 +254,13 @@ export function InboxDetailFrame({
         reportChecks,
         reportChecksError,
         prioritySaving,
+        repositorySaving,
         decisionAttributions,
         reportClaimant,
         isClaimedByMe,
         report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
+    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority, updateRepository } = useActions(
         inboxReportDetailLogic(logicProps)
     )
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
@@ -502,6 +503,8 @@ export function InboxDetailFrame({
                                 updatePriority(priority)
                             }}
                             prioritySaving={prioritySaving}
+                            onRepositoryChange={updateRepository}
+                            repositorySaving={repositorySaving}
                             decisionAttributions={decisionAttributions}
                         />
                         {isMonitoring && <ReportChecksSection report={report} />}

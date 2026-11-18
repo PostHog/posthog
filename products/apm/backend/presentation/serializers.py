@@ -3,7 +3,7 @@
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
-from products.apm.backend.facade.api import DependencyKind, HealthStatus, UsageSignal
+from products.apm.backend.facade.api import DependencyKind, HealthStatus, TimeSpentComponentKind, UsageSignal
 
 
 class WindowRequestSerializer(serializers.Serializer):
@@ -158,6 +158,83 @@ class DependenciesResponseSerializer(serializers.Serializer):
         help_text="The environment filter the edges were computed for: null for every environment, empty for spans with no environment.",
     )
     service = serializers.CharField(allow_null=True, help_text="The service filter applied, if any.")
+    date_from = serializers.DateTimeField(help_text="Start of the window used.")
+    date_to = serializers.DateTimeField(help_text="End of the window used.")
+
+
+class DeploymentsRequestSerializer(ServicesHealthRequestSerializer):
+    service = serializers.CharField(required=True, max_length=400, help_text="The service to list versions for.")
+
+
+class DeploymentVersionSerializer(serializers.Serializer):
+    version = serializers.CharField(help_text="The service.version resource attribute.")
+    first_seen = serializers.DateTimeField(help_text="First span of this version in the window.")
+    last_seen = serializers.DateTimeField(help_text="Last span of this version in the window.")
+    requests = serializers.IntegerField(help_text="Requests counted in the window.")
+    error_count = serializers.IntegerField(help_text="Requests with an error status.")
+    error_rate = serializers.FloatField(allow_null=True, help_text="Share of requests with an error status, 0 to 1.")
+    p95_ms = serializers.FloatField(allow_null=True, help_text="95th percentile request duration in milliseconds.")
+    previous_version = serializers.CharField(
+        allow_null=True, help_text="The version first seen just before this one. Null for the oldest."
+    )
+    error_rate_change = serializers.FloatField(
+        allow_null=True, help_text="Error rate minus the previous version's, as a fraction."
+    )
+    p95_change_pct = serializers.FloatField(
+        allow_null=True, help_text="Change in p95 from the previous version, in percent."
+    )
+    active = serializers.BooleanField(help_text="True for the version first seen most recently.")
+
+
+@extend_schema_serializer(many=False)
+class DeploymentsResponseSerializer(serializers.Serializer):
+    results = DeploymentVersionSerializer(many=True, help_text="One row per version, oldest first.")
+    service = serializers.CharField(help_text="The service the versions belong to.")
+    environment = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        help_text="The environment filter the rows were computed for: null for every environment, empty for spans with no environment.",
+    )
+    date_from = serializers.DateTimeField(help_text="Start of the window used.")
+    date_to = serializers.DateTimeField(help_text="End of the window used.")
+
+
+class EndpointTimeSpentRequestSerializer(ServicesHealthRequestSerializer):
+    service = serializers.CharField(
+        allow_blank=False, max_length=400, help_text="The service that handles the endpoint."
+    )
+    endpoint = serializers.CharField(
+        allow_blank=False, max_length=2000, help_text="The endpoint's entry span name, as listed by apm/endpoints."
+    )
+
+
+class TimeSpentComponentSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        help_text="The service name, the inferred dependency (for example a database system or host), or 'Other'."
+    )
+    kind = serializers.ChoiceField(
+        choices=TimeSpentComponentKind.choices,
+        help_text="service: an instrumented service. inferred: a dependency seen only through client spans. other: the remaining components combined.",
+    )
+    total_ms = serializers.FloatField(help_text="Self-time summed across the sampled requests, in milliseconds.")
+    avg_ms_per_request = serializers.FloatField(help_text="Self-time per sampled request, in milliseconds.")
+    share = serializers.FloatField(help_text="Share of the attributed request time, 0 to 1.")
+
+
+@extend_schema_serializer(many=False)
+class EndpointTimeSpentResponseSerializer(serializers.Serializer):
+    components = TimeSpentComponentSerializer(many=True, help_text="Where the request time goes, largest share first.")
+    request_count = serializers.IntegerField(help_text="Requests sampled to compute the breakdown.")
+    avg_duration_ms = serializers.FloatField(
+        allow_null=True, help_text="Mean duration of the sampled requests, in milliseconds."
+    )
+    service = serializers.CharField(help_text="The service the endpoint belongs to.")
+    endpoint = serializers.CharField(help_text="The endpoint's entry span name.")
+    environment = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        help_text="The environment filter the breakdown was computed for: null for every environment, empty for spans with no environment.",
+    )
     date_from = serializers.DateTimeField(help_text="Start of the window used.")
     date_to = serializers.DateTimeField(help_text="End of the window used.")
 
