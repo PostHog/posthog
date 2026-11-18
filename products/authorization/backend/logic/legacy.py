@@ -20,6 +20,7 @@ from products.access_control.backend.facade.user_access_control import (
 
 from ..facade.contracts import CheckRequest, Context, Resource, Subject
 from ..facade.enums import Action, ResourceType
+from .billing import BILLING_ACTIONS, billing_actions
 from .session import PrincipalKey, Session, current
 
 # MANAGE_ACCESS reads its level through the "can modify access levels" rule, which also lets
@@ -75,6 +76,10 @@ def reuse(access: UserAccessControl, permissions: UserPermissions | None = None)
 
 
 def permissions(resource: Resource, subject: Subject | None, context: Context | None) -> frozenset[Action]:
+    if resource.type == ResourceType.BILLING and resource.organization_id is not None:
+        if context is not None and context != Context():
+            raise NotImplementedError("The current access rules read no request context.")
+        return _billing_permissions(current() or Session(), resource, subject)
     actions = list(MEMBERSHIP_LEVELS.get(resource.type, RESOURCE_LEVELS))
     results = check([CheckRequest(resource=resource, action=action, subject=subject) for action in actions], context)
     return frozenset(action for action, allowed in zip(actions, results, strict=True) if allowed)
@@ -82,6 +87,10 @@ def permissions(resource: Resource, subject: Subject | None, context: Context | 
 
 def _check(session: Session, request: CheckRequest) -> bool:
     resource, action = request.resource, request.action
+    if resource.type == ResourceType.BILLING and resource.organization_id is not None:
+        if action not in BILLING_ACTIONS:
+            raise ValueError(f"{action} does not apply to billing resources.")
+        return action in _billing_permissions(session, resource, request.subject)
     if resource.type in MEMBERSHIP_TYPES and resource.id is None:
         return _check_membership_type(session, request)
     if resource.type in MEMBERSHIP_LEVELS:
@@ -128,6 +137,23 @@ def _check(session: Session, request: CheckRequest) -> bool:
     if action == Action.MANAGE_ACCESS:
         return access.check_can_modify_access_levels_for_ref(ref)
     return access.check_access_level_for_ref(ref, required_level=level)
+
+
+def _billing_permissions(session: Session, resource: Resource, subject: Subject | None) -> frozenset[Action]:
+    if resource.organization_id is None or resource.id is not None or resource.project_id is not None:
+        raise ValueError("A billing check needs organization_id and no id or project_id.")
+    principal = _principal(session, subject)
+    if not isinstance(principal, User):
+        return frozenset()
+    membership = (
+        OrganizationMembership.objects.with_effective_level()
+        .filter(organization_id=resource.organization_id, user=principal)
+        .select_related("organization")
+        .first()
+    )
+    if membership is None:
+        return frozenset()
+    return billing_actions(principal, membership.organization, membership.effective_level)
 
 
 def _check_membership(session: Session, request: CheckRequest) -> bool:

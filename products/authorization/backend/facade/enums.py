@@ -28,6 +28,7 @@ class Action(StrEnum):
     SUPPORT = "support"
     APPROVE = "approve"
     MANAGE_BILLING = "manage_billing"
+    VIEW_USAGE = "view_usage"
 
 
 class Level(StrEnum):

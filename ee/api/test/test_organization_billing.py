@@ -94,18 +94,17 @@ class OrganizationBillingTestMixin(APILicensedTest):
         super().setUp()
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
-        owner_only = patch("ee.billing.grants._owner_only_billing_enabled", return_value=False)
-        member_read = patch("ee.billing.grants._member_billing_usage_spend_read_access_enabled", return_value=False)
+        self.billing_flags = {"owner-only-billing": False, "member-billing-usage-spend-read-access": False}
         # The viewset is behind a feature flag. It is on for the suite, and off in the one test
         # about the gate.
-        api_flag = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
-        self.owner_only = owner_only.start()
-        self.member_read = member_read.start()
+        self.api_enabled = True
+        api_flag = patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            side_effect=lambda key, *args, **kwargs: self.billing_flags.get(key, self.api_enabled),
+        )
         # The patcher as well as the mock: a case that wants the real helper has to stop it.
         self.api_flag_patcher = api_flag
         self.api_flag = api_flag.start()
-        self.addCleanup(owner_only.stop)
-        self.addCleanup(member_read.stop)
         self.addCleanup(api_flag.stop)
 
     def _url(self, path: str) -> str:
@@ -135,7 +134,7 @@ class OrganizationBillingTestMixin(APILicensedTest):
 class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
     @patch("ee.billing.billing_manager.http_session.get")
     def test_endpoints_are_behind_the_feature_flag(self, mock_get):
-        self.api_flag.return_value = False
+        self.api_enabled = False
         response = self.client.get(self._url("subscription/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
@@ -291,10 +290,10 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         response = self.client.get(self._url("usage/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         # The organization total needs full access, so the member read flag does not open it.
-        self.member_read.return_value = True
+        self.billing_flags["member-billing-usage-spend-read-access"] = True
         for path in ("usage/", "spend/"):
             self.assertEqual(self.client.get(self._url(path)).status_code, status.HTTP_403_FORBIDDEN, path)
-        self.member_read.return_value = False
+        self.billing_flags["member-billing-usage-spend-read-access"] = False
         mock_get.assert_not_called()
 
         mock_get.return_value = _response(USAGE_STATUS)
@@ -621,7 +620,7 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
         mock_get.return_value = _response(SERIES)
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self.member_read.return_value = True
+        self.billing_flags["member-billing-usage-spend-read-access"] = True
         with patch("ee.api.organization_billing.visible_team_ids", return_value=[self.team.id]):
             response = self.client.get(self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
@@ -698,7 +697,7 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
         # Below full access the filter is the caller's visible projects, which a deleted one is never in.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self.member_read.return_value = True
+        self.billing_flags["member-billing-usage-spend-read-access"] = True
         with patch("ee.api.organization_billing.visible_team_ids", return_value=[self.team.id]):
             response = self.client.get(
                 self._url("usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14&team_ids=[999999]")
@@ -709,11 +708,11 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
     def test_a_caller_who_can_see_no_project_is_refused_rather_than_given_an_empty_list(self, mock_get):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self.member_read.return_value = True
+        self.billing_flags["member-billing-usage-spend-read-access"] = True
         with patch("ee.api.organization_billing.visible_team_ids", return_value=[]):
             for path in ("projects/", "usage/timeseries/?start_date=2026-09-01&end_date=2026-09-14"):
                 self.assertEqual(self.client.get(self._url(path)).status_code, status.HTTP_403_FORBIDDEN, path)
-        self.member_read.return_value = False
+        self.billing_flags["member-billing-usage-spend-read-access"] = False
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_projects_names_live_projects_and_marks_deleted_ones(self, mock_get):
@@ -736,7 +735,7 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
         # A member's list is the projects they can see, so a deleted project is not offered to them.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        self.member_read.return_value = True
+        self.billing_flags["member-billing-usage-spend-read-access"] = True
         with patch("ee.api.organization_billing.visible_team_ids", return_value=[self.team.id]):
             response = self.client.get(self._url("projects/"))
         self.assertEqual([project["id"] for project in response.json()["results"]], [self.team.id])
@@ -859,7 +858,7 @@ class TestOrganizationBillingInvoicesAndLimits(OrganizationBillingTestMixin, API
     def test_admin_under_owner_only_billing_is_refused_invoices_and_limits(self, mock_get):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        self.owner_only.return_value = True
+        self.billing_flags["owner-only-billing"] = True
         for path in ("invoices/", "limits/", "invoices/in_1/content/"):
             response = self.client.get(self._url(path))
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, path)

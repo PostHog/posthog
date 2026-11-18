@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.apps import apps
 from django.contrib.auth.models import AnonymousUser
@@ -686,3 +687,43 @@ class TestCheckMatchesCurrentRules(BaseTest):
 
         with pytest.raises(error):
             authorization.check(**kwargs)
+
+
+class TestBillingPolicy(BaseTest):
+    @parameterized.expand(
+        [
+            ("owner", OrganizationMembership.Level.OWNER, True, False, {Action.VIEW, Action.EDIT, Action.VIEW_USAGE}),
+            ("admin", OrganizationMembership.Level.ADMIN, False, False, {Action.VIEW, Action.EDIT, Action.VIEW_USAGE}),
+            ("admin_owner_only", OrganizationMembership.Level.ADMIN, True, True, set()),
+            ("admin_unknown", OrganizationMembership.Level.ADMIN, None, True, set()),
+            ("member_usage", OrganizationMembership.Level.MEMBER, False, True, {Action.VIEW_USAGE}),
+            ("member", OrganizationMembership.Level.MEMBER, False, False, set()),
+            ("member_owner_only", OrganizationMembership.Level.MEMBER, True, True, set()),
+        ]
+    )
+    def test_billing_actions_preserve_flag_policy(self, _name, level, owner_only, member_usage, expected):
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        flags = {"owner-only-billing": owner_only, "member-billing-usage-spend-read-access": member_usage}
+        resource = Resource(type=ResourceType.BILLING, organization_id=self.organization.id)
+        subject = Subject(user_id=self.user.pk)
+        with patch("posthog.permissions.posthog_feature_flag_enabled", side_effect=lambda key, *a, **kw: flags[key]):
+            assert authorization.permissions(resource=resource, subject=subject) == expected
+            for action in (Action.VIEW, Action.EDIT, Action.VIEW_USAGE):
+                assert authorization.check(resource=resource, action=action, subject=subject) == (action in expected)
+
+    def test_billing_checks_scope_memberships_and_observe_revocation(self):
+        other = Organization.objects.create(name="Other organization")
+        resource = Resource(type=ResourceType.BILLING, organization_id=self.organization.id)
+        subject = Subject(user_id=self.user.pk)
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        with authorization.authorization_session():
+            assert not authorization.check(
+                resource=Resource(type=ResourceType.BILLING, organization_id=other.id),
+                action=Action.EDIT,
+                subject=subject,
+            )
+            assert authorization.check(resource=resource, action=Action.EDIT, subject=subject)
+            self.organization_membership.delete()
+            assert not authorization.check(resource=resource, action=Action.EDIT, subject=subject)

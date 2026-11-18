@@ -225,7 +225,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
             ("refused_without_enterprise_billing", False, False, 403),
         ]
     )
-    @patch("ee.billing.grants._owner_only_billing_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_create_billing_read_scope_needs_full_billing_access(
         self, _name, owner_only_billing, ee_available, expected_status, mock_owner_only
     ):
@@ -246,7 +246,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
             ("refused_without_full_billing_access", True, 403),
         ]
     )
-    @patch("ee.billing.grants._owner_only_billing_enabled")
+    @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_roll_billing_read_key_needs_full_billing_access(
         self, _name, owner_only_billing, expected_status, mock_owner_only
     ):

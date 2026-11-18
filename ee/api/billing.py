@@ -31,7 +31,6 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
-from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
@@ -39,6 +38,9 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 
 from ee.billing.billing_manager import (
     BillingManager,
@@ -58,12 +60,7 @@ from ee.billing.exports import (  # noqa: F401
     _take_export_stream_slot,
     exportable_team_ids,
 )
-from ee.billing.grants import (
-    BILLING_LIMIT_TODAYS_USAGE_KEYS,
-    _billing_limit_todays_usage_enabled,
-    _member_billing_usage_spend_read_access_enabled,
-    _owner_only_billing_enabled,
-)
+from ee.billing.grants import BILLING_LIMIT_TODAYS_USAGE_KEYS, _billing_limit_todays_usage_enabled
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -202,18 +199,11 @@ BILLING_PROJECT_ACCESS_DENIED_MESSAGE = (
 
 
 def user_has_billing_access(user: User, organization: Organization) -> bool:
-    membership = OrganizationMembership.objects.filter(user=user, organization=organization).only("level").first()
-    if not membership:
-        return False
-
-    if membership.level >= OrganizationMembership.Level.OWNER:
-        return True
-
-    if membership.effective_level < OrganizationMembership.Level.ADMIN:
-        return False
-
-    # Only a confirmed disabled flag lets admins through. Unknown flag state fails closed to owners.
-    return _owner_only_billing_enabled(user, organization) is False
+    return authorization.check(
+        resource=Resource(type=ResourceType.BILLING, organization_id=organization.id),
+        action=Action.VIEW,
+        subject=Subject(user_id=user.pk),
+    )
 
 
 def _todays_usage_value(usage_key: str, usage: dict[str, Any]) -> int:
@@ -246,24 +236,11 @@ def _todays_usage_by_usage_key(organization: Organization) -> dict[str, int]:
 
 
 def user_has_billing_usage_spend_read_access(user: User, organization: Organization) -> bool:
-    membership = OrganizationMembership.objects.filter(user=user, organization=organization).only("level").first()
-    if not membership:
-        return False
-
-    if membership.level >= OrganizationMembership.Level.OWNER:
-        return True
-
-    # Only a confirmed disabled flag lets non-owners through. Unknown flag state fails closed to owners.
-    if _owner_only_billing_enabled(user, organization) is not False:
-        return False
-
-    if membership.effective_level >= OrganizationMembership.Level.ADMIN:
-        return True
-
-    if membership.effective_level < OrganizationMembership.Level.MEMBER:
-        return False
-
-    return _member_billing_usage_spend_read_access_enabled(user, organization)
+    return authorization.check(
+        resource=Resource(type=ResourceType.BILLING, organization_id=organization.id),
+        action=Action.VIEW_USAGE,
+        subject=Subject(user_id=user.pk),
+    )
 
 
 def is_token_auth_request(request: Request) -> bool:
@@ -286,7 +263,11 @@ class HasBillingAccess(permissions.BasePermission):
         if not isinstance(request.user, User):
             return False
 
-        return user_has_billing_access(request.user, org)
+        return authorization.check(
+            resource=Resource(type=ResourceType.BILLING, organization_id=org.id),
+            action=Action.VIEW if request.method in permissions.SAFE_METHODS else Action.EDIT,
+            subject=Subject(user_id=request.user.pk),
+        )
 
 
 class HasBillingUsageSpendReadAccess(permissions.BasePermission):

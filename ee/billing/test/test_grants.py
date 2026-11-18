@@ -40,12 +40,13 @@ class TestEffectiveBillingGrants(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.other_team = Team.objects.create(organization=self.organization, name="second")
-        owner_only = patch("ee.billing.grants._owner_only_billing_enabled", return_value=False)
-        member_read = patch("ee.billing.grants._member_billing_usage_spend_read_access_enabled", return_value=False)
-        self.owner_only = owner_only.start()
-        self.member_read = member_read.start()
-        self.addCleanup(owner_only.stop)
-        self.addCleanup(member_read.stop)
+        self.billing_flags = {"owner-only-billing": False, "member-billing-usage-spend-read-access": False}
+        billing_flags = patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            side_effect=lambda key, *args, **kwargs: self.billing_flags.get(key, False),
+        )
+        billing_flags.start()
+        self.addCleanup(billing_flags.stop)
 
     def _set_level(self, level):
         self.organization_membership.level = level
@@ -75,7 +76,7 @@ class TestEffectiveBillingGrants(APIBaseTest):
     )
     def test_admin_depends_on_owner_only_billing(self, _, flag_state, expected):
         self._set_level(ADMIN)
-        self.owner_only.return_value = flag_state
+        self.billing_flags["owner-only-billing"] = flag_state
         grants = self._grants()
         self.assertEqual(grants.roles, ["admin"])
         self.assertEqual(grants.entitlements, entitlements_for(expected))
@@ -92,8 +93,8 @@ class TestEffectiveBillingGrants(APIBaseTest):
     )
     def test_member_depends_on_both_flags(self, _, owner_only, member_read, expected):
         self._set_level(MEMBER)
-        self.owner_only.return_value = owner_only
-        self.member_read.return_value = member_read
+        self.billing_flags["owner-only-billing"] = owner_only
+        self.billing_flags["member-billing-usage-spend-read-access"] = member_read
         grants = self._grants()
         self.assertEqual(grants.roles, ["member"])
         self.assertEqual(grants.entitlements, entitlements_for(expected))
@@ -150,7 +151,7 @@ class TestEffectiveBillingGrants(APIBaseTest):
         # Visibility is a per-request filter on the series reads. The token carries only what a
         # credential is scoped to, so a member who sees one project of two still gets no list.
         self._set_level(MEMBER)
-        self.member_read.return_value = True
+        self.billing_flags["member-billing-usage-spend-read-access"] = True
         with patch("ee.billing.grants.visible_team_ids", return_value=[self.other_team.id]) as visible:
             grants = self._grants()
         self.assertEqual(
