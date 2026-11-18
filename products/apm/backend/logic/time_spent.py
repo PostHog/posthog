@@ -24,7 +24,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.enums import LabeledStrEnum
 from posthog.models import Team
 
-from products.apm.backend.logic.health.sources import environment_expr, window_where
+from products.apm.backend.logic.health.sources import environment_where, window_where
 from products.tracing.backend.facade.api import annotate_self_time
 
 TIME_SPENT_REQUEST_LIMIT = 200
@@ -96,21 +96,20 @@ def _inferred_dependency_expr() -> ast.Expr:
 
 
 def _entry_spans_query(
-    date_from: datetime, date_to: datetime, environment: str, service: str, endpoint: str
+    date_from: datetime, date_to: datetime, environment: str | None, service: str, endpoint: str
 ) -> ast.SelectQuery:
     # The same entry definition as the endpoints table, so the sample covers the row the user opened.
     query = parse_select(
         """
         SELECT trace_id, span_id, end_time
         FROM posthog.trace_spans
-        WHERE {where} AND {env_expr} = {environment} AND service_name = {service} AND name = {endpoint}
+        WHERE {where} AND {env_where} AND service_name = {service} AND name = {endpoint}
             AND (is_root_span OR kind IN (2, 5))
         LIMIT {limit}
         """,
         placeholders={
             "where": window_where(date_from, date_to),
-            "env_expr": environment_expr(),
-            "environment": ast.Constant(value=environment),
+            "env_where": environment_where(environment),
             "service": ast.Constant(value=service),
             "endpoint": ast.Constant(value=endpoint),
             "limit": ast.Constant(value=TIME_SPENT_REQUEST_LIMIT),
@@ -259,7 +258,7 @@ def attribute_time_spent(spans: list[SpanRecord], entries: list[tuple[str, str]]
 
 
 def get_endpoint_time_spent(
-    *, team: Team, date_from: datetime, date_to: datetime, environment: str, service: str, endpoint: str
+    *, team: Team, date_from: datetime, date_to: datetime, environment: str | None, service: str, endpoint: str
 ) -> EndpointTimeSpentResult:
     entry_rows = _run(team, _entry_spans_query(date_from, date_to, environment, service, endpoint))
     if not entry_rows:

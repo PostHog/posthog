@@ -79,7 +79,7 @@ class EvalSuggestionSerializer(serializers.Serializer):
     headline = serializers.CharField(
         read_only=True,
         help_text=(
-            "A short, stable name for the issue, such as 'Unrecovered tool or model failures'. For fix_eval, the "
+            "A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the "
             "condition observed on the evaluation. It carries no counts; `observation` does."
         ),
     )

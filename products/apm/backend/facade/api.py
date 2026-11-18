@@ -45,6 +45,8 @@ from products.apm.backend.logic.anomaly_detection.types import (
     VerdictType,
 )
 from products.apm.backend.logic.health.contract import (
+    DependencyEdge,
+    DependencyKind,
     EndpointHealth,
     HealthRow,
     HealthStatus,
@@ -52,6 +54,10 @@ from products.apm.backend.logic.health.contract import (
     ServiceHealth,
     rank_services,
     status_of,
+)
+from products.apm.backend.logic.health.dependencies import (
+    DependenciesResult,
+    get_dependencies as _get_dependencies,
 )
 from products.apm.backend.logic.health.sources import (
     ServiceMapResult,
@@ -80,6 +86,10 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 __all__ = [
+    "DependenciesResult",
+    "DependencyEdge",
+    "DependencyKind",
+    "get_dependencies",
     "EndpointHealth",
     "EndpointTimeSpentResult",
     "TimeSpentComponent",
@@ -132,9 +142,9 @@ __all__ = [
 
 
 def list_services_health(
-    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str | None
 ) -> ServicesHealthResult:
-    """One health row per service in the environment and window, worst first.
+    """One health row per service in the environment and window, worst first. None reads every environment.
 
     Pure contracts out: the presentation layer serializes `ServicesHealthResult` without touching logic.
     """
@@ -142,7 +152,7 @@ def list_services_health(
 
 
 def list_endpoints_health(
-    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str, service: str | None = None
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str | None, service: str | None = None
 ) -> list[EndpointHealth]:
     """One health row per (service, entry span name) in the environment and window, worst first."""
     return _list_endpoints_health(
@@ -150,9 +160,18 @@ def list_endpoints_health(
     )
 
 
-def get_service_map(*, team: "Team", date_from: "datetime", date_to: "datetime", environment: str) -> ServiceMapResult:
+def get_service_map(
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str | None
+) -> ServiceMapResult:
     """Service-to-service call edges in the environment and window, from a bounded sample of traces."""
     return _get_service_map(team=team, date_from=date_from, date_to=date_to, environment=environment)
+
+
+def get_dependencies(
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str | None, service: str | None = None
+) -> DependenciesResult:
+    """Caller to callee edges over the whole window, with dependencies inferred from client span attributes."""
+    return _get_dependencies(team=team, date_from=date_from, date_to=date_to, environment=environment, service=service)
 
 
 def list_service_usage(*, team: "Team", date_from: "datetime", date_to: "datetime") -> ServiceUsageResult:
@@ -161,7 +180,13 @@ def list_service_usage(*, team: "Team", date_from: "datetime", date_to: "datetim
 
 
 def get_endpoint_time_spent(
-    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str, service: str, endpoint: str
+    *,
+    team: "Team",
+    date_from: "datetime",
+    date_to: "datetime",
+    environment: str | None,
+    service: str,
+    endpoint: str,
 ) -> EndpointTimeSpentResult:
     """Share of one endpoint's request time spent in each service and inferred dependency, from sampled traces."""
     return _get_endpoint_time_spent(
