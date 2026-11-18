@@ -98,14 +98,13 @@ describe('engagement events banner restricted area event', () => {
             })
             // The panel shows a spinner while the editor loads its templates, which remounts the banner. A
             // person opens a step only after the editor has loaded, so the test lets every load finish first.
-            // Reading the templates starts the lazy load as it does in the editor.
+            // Reading the templates starts the lazy load from a zero-delay timer. A second zero-delay timer
+            // runs after it, so the lazy load is running before the test waits for the listeners.
             const editor = app.workflowLogic({ id: 'new' })
             editor.mount()
-            await app
-                .expectLogic(editor, () => {
-                    void editor.values.hogFunctionTemplatesById
-                })
-                .toFinishAllListeners()
+            void editor.values.hogFunctionTemplatesById
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            await app.expectLogic(editor).toFinishAllListeners()
 
             app.rtl.render(
                 <app.Provider>
