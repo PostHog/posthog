@@ -1129,6 +1129,12 @@ class StaleLiveRunRow:
 
 
 @dataclass(frozen=True)
+class SweptRunRow:
+    profile: str
+    count: int
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 

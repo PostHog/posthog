@@ -252,7 +252,7 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
-from products.tasks.backend.stale_runs import collect_stale_live_runs
+from products.tasks.backend.stale_runs import collect_stale_live_runs, quiet_since_q, runs_to_sweep
 from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
@@ -498,6 +498,7 @@ __all__ = [
     "record_run_failure_cause",
     "record_local_task_run_heartbeat",
     "signal_task_run_client_activity",
+    "sweep_stale_live_task_runs",
     "redispatch_task_run",
     "relay_task_run_message",
     "resolve_slack_thread_context",
@@ -2135,6 +2136,19 @@ def repair_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
     ]
 
 
+def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
+    swept: Counter[str] = Counter()
+    for run in runs_to_sweep():
+        if claim_and_fail_stale_run(
+            run.run_id,
+            "This run stopped responding, so it was ended.",
+            error_type="stale_heartbeat",
+            quiet_since=run.quiet_since,
+        ):
+            swept[run.profile] += 1
+    return [contracts.SweptRunRow(profile=profile, count=count) for profile, count in swept.items()]
+
+
 def collect_stale_live_task_runs() -> list[contracts.StaleLiveRunRow]:
     return [
         contracts.StaleLiveRunRow(
@@ -2746,7 +2760,12 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
 
 
 def claim_and_fail_stale_run(
-    run_id: str | UUID, error: str, error_type: str | None = None, *, not_updated_since: datetime | None = None
+    run_id: str | UUID,
+    error: str,
+    error_type: str | None = None,
+    *,
+    not_updated_since: datetime | None = None,
+    quiet_since: datetime | None = None,
 ) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
 
@@ -2763,6 +2782,8 @@ def claim_and_fail_stale_run(
     )  # nosemgrep: celery-task-team-scope-audit
     if not_updated_since is not None:
         claimable = claimable.filter(updated_at__lt=not_updated_since)
+    if quiet_since is not None:
+        claimable = claimable.filter(quiet_since_q(quiet_since))
     claimed = claimable.update(status=TaskRun.Status.FAILED)
     if not claimed:
         return False

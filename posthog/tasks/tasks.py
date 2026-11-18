@@ -983,6 +983,14 @@ def capture_task_status_shadow_metrics() -> None:
                 stale_runs_gauge.labels(
                     profile=stale.profile, run_environment=stale.run_environment, rule=stale.rule
                 ).set(stale.count)
+            swept_runs_gauge = Gauge(
+                "posthog_tasks_stale_live_runs_swept",
+                "Live task runs the stale sweep ended in the last pass because they went quiet.",
+                registry=registry,
+                labelnames=["profile"],
+            )
+            for swept in tasks_facade.sweep_stale_live_task_runs():
+                swept_runs_gauge.labels(profile=swept.profile).set(swept.count)
     except OperationalError as err:
         logger.warning("capture_task_status_shadow_metrics_transient_db_error", exception=err)
     except Exception as err:
