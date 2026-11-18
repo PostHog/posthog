@@ -241,6 +241,11 @@ describe('addUtmTagsToEmail', () => {
                 '<a data-ph-no-utm href="https://downloads.example.com/f.pdf?ph_workflow_run=old&amp;Signature=abc">x</a>',
         },
         {
+            case: 'leaves a link marked data-ph-no-utm after a value that is only a nonbreaking space',
+            html: '<a x=  data-ph-no-utm href="https://example.com/">x</a>',
+            expected: '<a x=  data-ph-no-utm href="https://example.com/">x</a>',
+        },
+        {
             case: 'leaves an earlier run id on a link marked data-ph-no-utm for a team that turned the tag off',
             runId: null,
             html: '<a data-ph-no-utm href="https://example.com/?ph_workflow_run=old">x</a>',
