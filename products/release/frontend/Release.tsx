@@ -19,6 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { ReleaseDetailsCard } from './ReleaseDetailsCard'
@@ -125,6 +126,12 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={row.name}
+                nameAction={
+                    <SidebarPinButton
+                        target={{ type: 'release', ref: row.id, name: 'Release', href: urls.release(row.id) }}
+                        dataAttr="release-title-pin"
+                    />
+                }
                 description={row.description}
                 descriptionAlwaysVisible
                 resourceType={{ type: 'release', forceIcon: <IconFlag /> }}
