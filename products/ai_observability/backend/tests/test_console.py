@@ -345,6 +345,24 @@ class TestTaggersPanel(BaseTest):
         )
         assert [step.action for step in second_run] == [MigrationAction.SKIP] * 5
 
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.reload_taggers_on_workers")
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.load_recent_tag_counts")
+    def test_ticking_the_cap_option_moves_a_tagger_that_caps_its_tags(
+        self, load_counts: MagicMock, _reload_taggers: MagicMock
+    ) -> None:
+        load_counts.return_value = {str(self.bounded.id): 11}
+
+        preview = self.client.post(self.url, {"reason": "Taggers are deprecated", "move_capped": "on"})
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]})
+
+        evaluation = Evaluation.objects.get(team=self.team)
+        assert (evaluation.name, evaluation.output_type) == ("Bounded", "categorical")
+        assert evaluation.output_config["selection_mode"] == "multiple"
+        assert evaluation.evaluation_config["prompt"].endswith("Select at most 2 categories.")
+        self.bounded.refresh_from_db()
+        assert (self.bounded.enabled, self.bounded.migrated_to_evaluation_id) == (False, evaluation.id)
+
     @parameterized.expand(
         [
             ("tagger_rule_only", ["tagger"], MigrationAction.SKIP),

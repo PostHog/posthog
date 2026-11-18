@@ -2,12 +2,17 @@ import uuid
 import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
 from unittest.mock import patch
 
+import httpx
+from anthropic import BadRequestError
+from fakeredis import FakeAsyncRedis
 from temporalio import activity
+from temporalio.api.testservice.v1 import LockTimeSkippingRequest, UnlockTimeSkippingRequest
 from temporalio.client import WorkflowContinuedAsNewError
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
@@ -25,10 +30,13 @@ from products.signals.backend.temporal.buffer import (
     FlushBufferInput,
     FlushBufferOutput,
     SignalWithStartGroupingV2Input,
+    _is_batch_expired,
     check_signals_quota_limited_activity,
 )
+from products.signals.backend.temporal.grouping import complete_signal_grouping_activity
 from products.signals.backend.temporal.safety_filter import (
     SafetyFilterInput,
+    SafetyFilterJudgeResponse,
     SafetyFilterOutput,
     safety_filter_activity,
 )
@@ -58,10 +66,12 @@ class _Recorder:
         self.safety_failures = safety_failures
         self.mixed_batch = mixed_batch
         self.safety_sources: list[str | None] = []
+        self.safety_scheduled_times: list[datetime] = []
         self.quota_checks = 0
         self.safety_checks = 0
         self.flushes = 0
         self.flushed_sources: list[str] = []
+        self.flush_scheduled_times: list[datetime] = []
         self.grouping_starts = 0
 
 
@@ -75,7 +85,8 @@ async def _drive(recorder: _Recorder, pending_signals: list[EmitSignalInputs] | 
     async def fake_safety(_input: SafetyFilterInput) -> SafetyFilterOutput:
         recorder.safety_checks += 1
         recorder.safety_sources.append(_input.source_id)
-        if _input.source_id == "refused":
+        recorder.safety_scheduled_times.append(activity.info().current_attempt_scheduled_time)
+        if _input.source_id and _input.source_id.startswith("refused"):
             return await safety_filter_activity(_input)
         if _input.source_id == "unsafe":
             return SafetyFilterOutput(safe=False, threat_type="test", explanation=None)
@@ -87,6 +98,7 @@ async def _drive(recorder: _Recorder, pending_signals: list[EmitSignalInputs] | 
     @activity.defn(name="flush_signals_to_s3_activity")
     async def fake_flush(input: FlushBufferInput) -> FlushBufferOutput:
         recorder.flushes += 1
+        recorder.flush_scheduled_times.append(activity.info().current_attempt_scheduled_time)
         recorder.flushed_sources.extend(signal.source_id for signal in input.signals)
         return FlushBufferOutput(object_key="signals/batch/test", signal_count=len(input.signals))
 
@@ -94,7 +106,11 @@ async def _drive(recorder: _Recorder, pending_signals: list[EmitSignalInputs] | 
     async def fake_grouping(_input: SignalWithStartGroupingV2Input) -> None:
         recorder.grouping_starts += 1
 
-    return await _run_buffer_workflow(recorder, [fake_quota, fake_safety, fake_flush, fake_grouping], pending_signals)
+    return await _run_buffer_workflow(
+        recorder,
+        [fake_quota, fake_safety, fake_flush, fake_grouping, complete_signal_grouping_activity],
+        pending_signals,
+    )
 
 
 async def _run_buffer_workflow(
@@ -123,6 +139,7 @@ async def _run_buffer_workflow(
                 ),
                 id=f"buffer-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
+                run_timeout=timedelta(hours=1),
             )
             if pending_signals is None and not recorder.mixed_batch:
                 await handle.signal(BufferSignalsWorkflow.submit_signal, _signal(1))
@@ -131,14 +148,19 @@ async def _run_buffer_workflow(
                 async with asyncio.timeout(30):
                     while True:
                         completed = env.client.get_workflow_handle(handle.id, run_id=run_id)
-                        with pytest.raises(WorkflowContinuedAsNewError):
-                            await completed.result(follow_runs=False)
+                        # Handles retrieved by run ID do not enable automatic time skipping.
+                        await env.client.test_service.unlock_time_skipping(UnlockTimeSkippingRequest())
+                        try:
+                            with pytest.raises(WorkflowContinuedAsNewError):
+                                await completed.result(follow_runs=False)
+                        finally:
+                            await env.client.test_service.lock_time_skipping(LockTimeSkippingRequest())
                         history = await completed.fetch_history()
                         continued = history.events[-1].workflow_execution_continued_as_new_event_attributes
                         [next_input] = await env.client.data_converter.decode(
                             continued.input.payloads, [BufferSignalsInput]
                         )
-                        if recorder.over_quota or recorder.grouping_starts:
+                        if not next_input.pending_signals:
                             return len(next_input.pending_signals)
                         run_id = continued.new_execution_run_id
             finally:
@@ -176,6 +198,99 @@ async def test_safety_failure_requeues_only_failed_signals(mixed_batch: bool):
     assert recorder.safety_sources.count("unsafe") == int(mixed_batch)
     assert recorder.flushes == 1
     assert recorder.grouping_starts == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("batch_size,include_healthy,expires", [(1, False, False), (20, True, False), (20, True, True)])
+async def test_provider_usage_limit_preserves_signals_until_recovery_or_expiry(
+    batch_size: int, include_healthy: bool, expires: bool
+) -> None:
+    signals = [_signal(1) for _ in range(batch_size)]
+    for index, signal in enumerate(signals):
+        signal.source_id = f"refused-{index}"
+        if expires:
+            signal.buffered_at = (datetime.now(UTC) - timedelta(days=6, hours=23, minutes=50)).isoformat()
+    healthy = _signal(1)
+    pending_signals = [*signals, healthy] if include_healthy else signals
+    failure_rounds = 5
+    message = "Request refused: specified API usage limits."
+    error = BadRequestError(
+        message,
+        response=httpx.Response(400, request=httpx.Request("POST", "https://example.com/messages")),
+        body={"error": {"type": "internal_error", "message": message}},
+    )
+    recorder = _Recorder(over_quota=False)
+
+    with (
+        patch(
+            "products.signals.backend.temporal.safety_filter.call_llm",
+            side_effect=[error] * (batch_size * failure_rounds) + [SafetyFilterJudgeResponse(safe=True)] * batch_size,
+        ),
+        patch("posthoganalytics.get_feature_flag", return_value=None),
+        patch("products.signals.backend.temporal.safety_filter.get_async_client", return_value=FakeAsyncRedis()),
+    ):
+        remaining = await _drive(recorder, pending_signals=pending_signals)
+
+    assert remaining == 0
+    assert recorder.flushed_sources == ([healthy.source_id] if include_healthy else []) + (
+        [] if expires else [s.source_id for s in signals]
+    )
+    for signal in signals:
+        scheduled_times = [
+            scheduled
+            for source, scheduled in zip(recorder.safety_sources, recorder.safety_scheduled_times)
+            if source == signal.source_id
+        ]
+        assert len(scheduled_times) == (1 if expires else failure_rounds + 1)
+        assert all(
+            following - previous >= timedelta(minutes=15)
+            for previous, following in zip(scheduled_times, scheduled_times[1:])
+        )
+    if include_healthy:
+        assert recorder.flush_scheduled_times[0] - recorder.safety_scheduled_times[0] < timedelta(minutes=15)
+
+
+@pytest.mark.parametrize(
+    "age,expired",
+    [
+        (None, False),
+        (timedelta(days=6, hours=23, minutes=59), False),
+        (timedelta(days=7), False),
+        (timedelta(days=7, microseconds=1), True),
+    ],
+)
+def test_batch_expiry_uses_oldest_signal(age: timedelta | None, expired: bool) -> None:
+    now = datetime.now(UTC)
+    fresh = _signal(1)
+    fresh.buffered_at = now.isoformat()
+    oldest = _signal(1)
+    if age is not None:
+        oldest.buffered_at = (now - age).isoformat()
+
+    assert _is_batch_expired([fresh, oldest], now) is expired
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_expired_signal_drops_entire_batch_before_safety_filter(ateam: "Team") -> None:
+    fresh = _signal(ateam.id)
+    oldest = _signal(ateam.id)
+    oldest.buffered_at = (datetime.now(UTC) - timedelta(days=7, minutes=1)).isoformat()
+    signal_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    for signal, signal_id in zip([fresh, oldest], signal_ids):
+        signal.signal_id = signal_id
+        await database_sync_to_async(begin_signal_spend)(team_id=ateam.id, signal_id=signal_id)
+    recorder = _Recorder(over_quota=False)
+
+    remaining = await _drive(recorder, pending_signals=[fresh, oldest])
+
+    assert remaining == 0
+    assert recorder.safety_checks == 0
+    assert recorder.flushed_sources == []
+    assert recorder.grouping_starts == 0
+    assert await database_sync_to_async(finalized_signal_ids)(team_id=ateam.id, signal_ids=signal_ids) == set(
+        signal_ids
+    )
 
 
 @pytest.mark.asyncio
