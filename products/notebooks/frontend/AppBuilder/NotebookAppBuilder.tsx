@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonInput, LemonMenu, LemonTabs, Spinner } f
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookRunAllButton } from 'scenes/notebooks/Notebook/NotebookRunAllButton'
 import { urls } from 'scenes/urls'
 
@@ -23,6 +24,9 @@ export function NotebookAppBuilder({
     published?: boolean
 }): JSX.Element {
     const logic = notebookAppLogic({ shortId })
+    const { notebookLoading, localContent } = useValues(notebookLogic({ shortId }))
+    const sourceSavingReason =
+        notebookLoading || localContent !== null ? 'Wait for the notebook to finish saving.' : undefined
     const {
         layout,
         savedNotebook,
@@ -116,7 +120,7 @@ export function NotebookAppBuilder({
                                 size="small"
                                 loading={savedNotebookLoading}
                                 onClick={() => saveApp(false)}
-                                disabledReason={!dirty ? 'No unsaved changes' : undefined}
+                                disabledReason={sourceSavingReason || (!dirty ? 'No unsaved changes' : undefined)}
                                 data-attr="notebook-app-save"
                             >
                                 Save draft
@@ -126,6 +130,7 @@ export function NotebookAppBuilder({
                                 size="small"
                                 loading={savedNotebookLoading}
                                 onClick={() => saveApp(true)}
+                                disabledReason={sourceSavingReason}
                                 data-attr="notebook-app-publish"
                             >
                                 {savedNotebook.app_published ? 'Publish changes' : 'Publish layout'}

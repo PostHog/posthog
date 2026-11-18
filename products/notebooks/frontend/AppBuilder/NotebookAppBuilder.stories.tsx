@@ -228,6 +228,7 @@ export const Builder: Story = {
         fireEvent.change(canvas.getByRole('textbox', { name: 'Component text' }), {
             target: { value: '## Review notes\n\nAdded in the app builder.' },
         })
+        await waitFor(() => expect(canvas.getByRole('button', { name: 'Save draft' })).toBeEnabled())
         fireEvent.click(canvas.getByRole('button', { name: 'Save draft' }))
         await waitFor(() => expect(saved.app_draft.blocks.at(-1)?.text).toContain('Review notes'))
         expect(saved.app_published.blocks).toHaveLength(layout.blocks.length)

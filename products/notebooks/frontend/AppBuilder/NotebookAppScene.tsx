@@ -11,10 +11,14 @@ import { NotebookAppBuilder } from './NotebookAppBuilder'
 
 export function NotebookAppScene({ shortId, children }: { shortId: string; children: ReactNode }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags[FEATURE_FLAGS.NOTEBOOK_APP_BUILDER] ? (
-        <NotebookAppSceneEnabled shortId={shortId}>{children}</NotebookAppSceneEnabled>
-    ) : (
-        <>{children}</>
+    return (
+        <BindLogic logic={notebookLogic} props={{ shortId }}>
+            {featureFlags[FEATURE_FLAGS.NOTEBOOK_APP_BUILDER] ? (
+                <NotebookAppSceneEnabled shortId={shortId}>{children}</NotebookAppSceneEnabled>
+            ) : (
+                children
+            )}
+        </BindLogic>
     )
 }
 
@@ -57,9 +61,5 @@ function NotebookAppSceneEnabled({ shortId, children }: { shortId: string; child
         observer.observe(document.body, { childList: true, subtree: true })
         return () => observer.disconnect()
     }, [view, hashParams.node, markdownEditorValue])
-    return (
-        <BindLogic logic={notebookLogic} props={{ shortId }}>
-            {view === 'notebook' ? children : <NotebookAppBuilder shortId={shortId} published={view === 'app'} />}
-        </BindLogic>
-    )
+    return <>{view === 'notebook' ? children : <NotebookAppBuilder shortId={shortId} published={view === 'app'} />}</>
 }
