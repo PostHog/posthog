@@ -66,21 +66,21 @@ impl PersonHogReplicaService {
     ) -> Result<Option<Person>, Status> {
         let routed = header(metadata, PARTITION_HEADER)?;
         let Some(reads) = &self.follower else {
-            refused("not_following", routed);
+            refused("not_following", None);
             return Err(Status::failed_precondition(
                 "this replica does not follow the changelog",
             ));
         };
         let (partitions, epoch) = reads.changelog.layout();
+        let partition = partition_for_person(team_id, person_id, partitions);
         if header(metadata, EPOCH_HEADER)?.is_some_and(|routed| routed > epoch) {
-            refused("config_behind", routed);
+            refused("config_behind", Some(partition));
             return Err(Status::unavailable(
                 "this follower has not seen the changelog config the request was routed under",
             ));
         }
-        let partition = partition_for_person(team_id, person_id, partitions);
         if routed.is_some_and(|routed| routed != partition as u64) {
-            refused("other_partition", routed);
+            refused("other_partition", Some(partition));
             return Err(Status::failed_precondition(format!(
                 "the request was routed to another partition than {partition}"
             )));
@@ -97,26 +97,27 @@ impl PersonHogReplicaService {
         match read {
             Ok(person) => Ok(person.map(cached_person_into_proto)),
             Err(ReadRefusal::NotCurrent) => {
-                refused("not_current", routed);
+                refused("not_current", Some(partition));
                 Err(Status::unavailable(
                     "this follower is not current for the partition",
                 ))
             }
             Err(ReadRefusal::Recovery(reason)) => {
-                refused("recovery", routed);
+                refused("recovery", Some(partition));
                 Err(Status::unavailable(reason))
             }
             Err(ReadRefusal::Load(reason)) => {
-                refused("load", routed);
+                refused("load", Some(partition));
                 Err(Status::unavailable(reason))
             }
         }
     }
 }
 
-/// `routed` is the partition the router sent the read to.
-fn refused(reason: &'static str, routed: Option<u64>) {
-    let partition = routed.map_or_else(|| "none".to_string(), |routed| routed.to_string());
+/// `partition` is the one this pod computed for the person, never a value a caller sent,
+/// so the label stays within the partition count.
+fn refused(reason: &'static str, partition: Option<u32>) {
+    let partition = partition.map_or_else(|| "none".to_string(), |partition| partition.to_string());
     common_metrics::inc(
         "personhog_follower_read_refusals_total",
         &[

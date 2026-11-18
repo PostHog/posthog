@@ -224,7 +224,7 @@ pub async fn start(
         heartbeat_interval: Duration::from_secs(settings.heartbeat_interval_secs),
         drain_timeout: Duration::from_secs(settings.drain_timeout_secs),
         advertise_address: Some(derive_advertise_address(grpc_address, &settings.pod_ip)?),
-        warm_concurrency: settings.warm_concurrency,
+        warm_concurrency: settings.warm_concurrency.max(1),
         ..PodConfig::default()
     };
     let rebuild = Arc::new(Notify::new());
