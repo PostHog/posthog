@@ -2283,6 +2283,7 @@ export class AgentServer {
       prewarmed: launch.prewarmed,
       executionEnvironment: "cloud",
       sharedPromptCache: launch.sharedPromptCache,
+      runPolicySource: launch.policySource,
     });
 
     // Only that stamped header makes the run id a trace the generations land
