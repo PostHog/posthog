@@ -119,8 +119,11 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
     def test_pr_state_transition_credits_work_owner_as_system_actor(
         self, _name, pr_state, claimer, attacher, task_creator, expected
     ):
-        users = {"claimer": User.objects.create_and_join(self.organization, "claimer@example.com", None), None: None}
-        users["attacher"] = self.user
+        users = {
+            "claimer": User.objects.create_and_join(self.organization, "claimer@example.com", None),
+            "attacher": self.user,
+            None: None,
+        }
         report = self._create_report()
         if claimer:
             SignalReportArtefact.objects.create(
