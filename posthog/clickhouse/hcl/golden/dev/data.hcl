@@ -4200,6 +4200,41 @@ database "posthog" {
     }
   }
 
+  table "series_values_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "series_key" {
+      type = "String"
+    }
+    column "breakdown_value" {
+      type = "Array(String)"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_series_values_preaggregated"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+
   table "session_recording_events" {
     column "uuid" {
       type = "UUID"

@@ -1173,6 +1173,16 @@ CREATE TABLE posthog.raw_sessions_v3 (
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool)
 ) ENGINE = Distributed('sessions', 'posthog', 'raw_sessions_v3', cityHash64(session_id_v7));
+CREATE TABLE posthog.series_values_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  series_key String,
+  breakdown_value Array(String),
+  value Float64,
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_series_values_preaggregated', sipHash64(job_id));
 CREATE TABLE posthog.sessions (
   session_id String,
   team_id Int64,

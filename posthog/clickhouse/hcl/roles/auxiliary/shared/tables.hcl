@@ -452,6 +452,21 @@ database "posthog" {
       replica_name = "{replica}-{shard}"
     }
   }
+  table "sharded_series_values_preaggregated" {
+    order_by     = ["team_id", "job_id", "series_key", "breakdown_value", "time_window_start"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_series_values_preaggregated_columns"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.series_values_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
   table "sharded_usage_report_events_preagg" {
     order_by     = ["date", "team_id", "person_mode", "lib", "event"]
     partition_by = "date"

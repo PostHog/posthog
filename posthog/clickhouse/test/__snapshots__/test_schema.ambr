@@ -7478,6 +7478,23 @@
   
   '''
 # ---
+# name: test_create_table_query[series_values_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS series_values_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      series_key String,
+      breakdown_value Array(String),
+      value Float64,
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_series_values_preaggregated', sipHash64(job_id))
+  
+  '''
+# ---
 # name: test_create_table_query[session_replay_events]
   '''
   
@@ -9144,6 +9161,28 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_series_values_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_series_values_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      series_key String,
+      breakdown_value Array(String),
+      value Float64,
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.series_values_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, series_key, breakdown_value, time_window_start)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -15061,6 +15100,28 @@
       session_id_v7
   )
   SETTINGS parts_to_delay_insert = 250, max_delay_to_insert = 10, parts_to_throw_insert = 1000
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_series_values_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_series_values_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+      time_window_start DateTime64(6, 'UTC'),
+      series_key String,
+      breakdown_value Array(String),
+      value Float64,
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.series_values_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, series_key, breakdown_value, time_window_start)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---

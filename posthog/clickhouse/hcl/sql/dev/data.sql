@@ -865,6 +865,16 @@ CREATE TABLE posthog.query_log_archive (
   exception_name String,
   ProfileEvents Map(String, UInt64)
 ) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive_v3');
+CREATE TABLE posthog.series_values_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  series_key String,
+  breakdown_value Array(String),
+  value Float64,
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_series_values_preaggregated', sipHash64(job_id));
 CREATE TABLE posthog.sharded_app_metrics (
   team_id Int64,
   timestamp DateTime64(6, 'UTC'),
