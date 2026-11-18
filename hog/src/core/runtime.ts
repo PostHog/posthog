@@ -111,7 +111,7 @@ async function loadMcpLibrary<T>(load: () => Promise<T>, code: string, name: str
             throw new HogError(
                 code,
                 `hog couldn't find ${name}.`,
-                'Run `pnpm --filter @posthog/hog build:mcp`, then run the command again.'
+                'Run `pnpm --filter hog build:mcp`, then run the command again.'
             )
         }
         throw error

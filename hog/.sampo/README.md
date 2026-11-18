@@ -5,7 +5,7 @@ This directory stores pending release changesets for `hog`.
 Run from `hog/`:
 
 ```bash
-sampo add --package npm/@posthog/hog --bump patch --message "Describe the change"
+sampo add --package npm/hog --bump patch --message "Describe the change"
 ```
 
 The `Release hog` workflow consumes the files in `hog/.sampo/changesets/`, bumps `hog/package.json` and updates `hog/CHANGELOG.md`, then opens a release pull request with that bump.

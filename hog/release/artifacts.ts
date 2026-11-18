@@ -61,7 +61,7 @@ export function platformPackageJson(target: Target, version: string): PackageJso
     return {
         name: npmPackageName(target),
         version,
-        description: `The ${target.id} binary for hog, the PostHog command line. Install @posthog/hog instead.`,
+        description: `The ${target.id} binary for hog, the PostHog command line. Install the hog package instead.`,
         ...NPM_COMMON,
         os: [target.os],
         cpu: [target.cpu],
@@ -73,7 +73,7 @@ export function platformPackageJson(target: Target, version: string): PackageJso
 
 export function wrapperPackageJson(version: string): PackageJson {
     return {
-        name: '@posthog/hog',
+        name: 'hog',
         version,
         description: 'hog, the PostHog command line',
         ...NPM_COMMON,
