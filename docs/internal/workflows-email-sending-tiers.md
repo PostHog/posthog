@@ -66,14 +66,69 @@ The worker paces each send with the workflow's live rate limit.
 So while a batch that a rate limit raised still has runs in the worker's queue, the API rejects any change to that rate limit. When the worker cannot report the count, the API rejects the change.
 Dispatch records the cap it sent on the batch job (`max_audience_size`) under the workflow's row lock, and the lock reads that record, so a later tier change or step edit does not release it.
 
-## Decision rules the sweep applies
+## Moving down a tier
 
-In order: staff suspension or an AWS-paused tenant drops to tier 0; a dirty 7-day window, a workflow auto-pause, or a HIGH tenant reputation impact demotes one tier (at most once per cooldown, anchored on the last rate demotion); a tier above 0 with zero sends for the decay period drops one step per period; promotion needs the dwell served, real use of the tier (at least the use ratio of the daily cap on the minimum number of separate days, counted only after the tier anchor), a clean 30-day window, and a clean tenant reputation.
-Rates only count on a meaningful denominator; below the complaint floor, the absolute complaint backstop still applies, including in windows with no sends.
-Pinned teams never move automatically.
+Bad sending rates are the main reason a project moves down, and the reason customers ask about most.
+The daily sweep (07:15 UTC) reads the project's workflow email metrics for the last 7 days:
 
-While the tier is enforced, the sweep notifies teams it moved: a rate demotion sends an in-app notification plus an email to project admins, and an earned promotion sends an in-app notification only.
-Decay, suspension drops, admin recomputes, and the backfill stay silent.
+- `email_sent`: every email sent.
+- `email_bounced_hard`: hard bounces only. Soft (transient) bounces never count.
+- `email_blocked`: spam complaints. SES complaint events are recorded under this name.
+
+The rates are bad when either limit is crossed:
+
+| Signal                                   | Bad when                                         | Not checked when                         |
+| ---------------------------------------- | ------------------------------------------------ | ---------------------------------------- |
+| Spam complaint rate (complaints / sends) | Above 0.1%, more than 1 complaint in 1,000 sends | Under 1,000 sends and under 3 complaints |
+| Hard bounce rate (hard bounces / sends)  | Above 2%, more than 1 hard bounce in 50 sends    | Under 200 sends                          |
+
+A small project still moves down when it collects 3 or more complaints, because 3 complaints is always over 0.1% below 1,000 sends.
+A week with no sends at all still counts 3 or more complaints as bad, because complaints arrive hours or days after the send.
+Above 1,000 sends, only the rate counts.
+
+With the default settings:
+
+| Sends in the last 7 days | What went wrong       | Result                                    |
+| ------------------------ | --------------------- | ----------------------------------------- |
+| 5,000                    | 3 complaints (0.06%)  | Stays                                     |
+| 2,000                    | 3 complaints (0.15%)  | Moves down                                |
+| 1,000                    | 1 complaint (0.1%)    | Stays: the limit is above 0.1%, not at it |
+| 400                      | 2 complaints (0.5%)   | Stays: under both complaint floors        |
+| 400                      | 3 complaints (0.75%)  | Moves down                                |
+| 0                        | 3 complaints          | Moves down                                |
+| 500                      | 15 hard bounces (3%)  | Moves down                                |
+| 150                      | 15 hard bounces (10%) | Stays: under the bounce floor             |
+
+Two other signals move a project down one tier the same way:
+
+- AWS reports a `HIGH` reputation impact for the project's SES tenant.
+  AWS divides complaints by mail to feedback-loop domains only, so it can flag a project whose rates look clean here.
+- A workflow auto-pause, but only when `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES` names the metrics to watch.
+  The list is empty by default, so this signal is off.
+
+How far and how often:
+
+- Bad rates, a `HIGH` AWS impact, or an auto-pause move the project down one tier per run.
+- After one of those moves, the project cannot move down for those reasons again for 7 days.
+  By then the week that caused the move has left the window, so a second move needs new bad sends.
+- A staff suspension, or an AWS-paused tenant, drops the project straight to tier 0.
+- A project above tier 0 that sends nothing for 30 days moves down one tier, then one more for every further 30 days.
+- Pinned projects never move automatically.
+
+While the tier is enforced, a move for bad rates, AWS impact or an auto-pause sends an in-app notification and an email to project admins.
+Inactivity moves, suspension drops, admin recomputes and the backfill send nothing.
+
+## Moving up a tier
+
+A project moves up one tier per run when all of these hold:
+
+- The project held its current tier for the dwell time: 3, 3, 3, 5, 5, 7, 7 and 7 days for tiers 0 to 7.
+- The project used its tier: on at least 2 separate days since the tier was set, it sent at least half the tier's daily cap. The day the tier changed does not count.
+- The rates over the last 30 days are clean, by the same limits as above.
+  A bad week therefore blocks promotion for about 30 days, after the 7-day demotion cooldown has ended.
+- AWS reports no reputation impact for the tenant. A `LOW` impact does not move a project down, but it stops it moving up.
+
+A promotion sends an in-app notification only.
 
 ## Transactional email
 
