@@ -1,10 +1,6 @@
-import { useValues } from 'kea'
-
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { teamLogic } from 'scenes/teamLogic'
 
 export function CodeEmailApiExample({ templateKey }: { templateKey: string }): JSX.Element {
-    const { currentTeamIdStrict } = useValues(teamLogic)
     return (
         <div className="flex flex-col gap-2 max-w-200" data-attr="code-email-api-example">
             <p className="m-0">
@@ -17,7 +13,7 @@ export function CodeEmailApiExample({ templateKey }: { templateKey: string }): J
                 email again.
             </p>
             <CodeSnippet language={Language.Bash} thing="code">
-                {`curl -X POST ${window.location.origin}/api/projects/${currentTeamIdStrict}/messaging/send/email/ \\
+                {`curl -X POST ${window.location.origin}/api/messaging/send/email/ \\
   -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: unique-send-id-123" \\

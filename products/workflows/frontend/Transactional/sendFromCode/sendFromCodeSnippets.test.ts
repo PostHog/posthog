@@ -11,7 +11,7 @@ const input = (from: string | null): SendFromCodeSnippetInput => ({
     projectToken: 'phc_test',
     host: 'https://us.i.posthog.com',
     appHost: null,
-    sendUrl: 'https://us.posthog.com/api/projects/1/messaging/send/email/',
+    sendUrl: 'https://us.posthog.com/api/messaging/send/email/',
     from,
 })
 

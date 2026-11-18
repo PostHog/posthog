@@ -30,7 +30,7 @@ export function TransactionalEmailApiExample({
     /** The email's `{{ variables.* }}` names. The snippet shows a sample when the email uses none. */
     variables?: string[]
 }): JSX.Element {
-    const { currentTeam, currentTeamIdStrict } = useValues(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
     const [language, setLanguage] = useState<SnippetLanguage>('api')
 
     const projectToken = currentTeam?.api_token ?? '<ph_project_api_key>'
@@ -93,7 +93,7 @@ print(result.id)`,
         },
         api: {
             language: Language.Bash,
-            code: `curl -X POST ${window.location.origin}/api/projects/${currentTeamIdStrict}/messaging/send/email/ \\
+            code: `curl -X POST ${window.location.origin}/api/messaging/send/email/ \\
   -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: password-reset-123" \\

@@ -22,7 +22,7 @@ export function useSendFromCodeTarget(): SendFromCodeTarget {
         projectToken: currentTeam?.api_token ?? null,
         host,
         appHost: host === appOrigin ? host : null,
-        sendUrl: `${appOrigin}/api/projects/${currentTeamIdStrict}/messaging/send/email/`,
+        sendUrl: `${appOrigin}/api/messaging/send/email/`,
         secretKeysUrl: new URL(
             urls.project(currentTeamIdStrict, urls.settings('environment-secret-api-keys')),
             appOrigin
