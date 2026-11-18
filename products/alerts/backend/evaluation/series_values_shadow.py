@@ -1,0 +1,159 @@
+import time
+from datetime import datetime
+from typing import Any, Literal
+
+from django.conf import settings
+
+import structlog
+import posthoganalytics
+from prometheus_client import Counter, Histogram
+
+from posthog.schema import TrendsQuery
+
+from posthog.caching.insight_result import InsightResult
+from posthog.dataclasses import frozen
+from posthog.event_usage import groups
+from posthog.hogql_queries.apply_dashboard_filters import dashboard_filter_from_dict
+from posthog.models.team import Team
+from posthog.models.user import User
+
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.facade.contracts import ClosedSeriesValues, SeriesValuesUnavailable
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner, closed_trends_series_values
+
+logger = structlog.get_logger(__name__)
+
+SERIES_VALUES_PRECOMPUTE_FLAG = "alerts-series-values-precompute"
+SHADOW_COMPARISON_EVENT = "alert series values shadow compared"
+SHADOW_BUILD_BUDGET_SECONDS = 60
+
+AlertKind = Literal["threshold", "detector"]
+ShadowOutcome = Literal["match", "mismatch", "unavailable", "error"]
+
+_SHADOW_COMPARISON_COUNTER = Counter(
+    "posthog_insight_alerts_series_values_shadow_total",
+    "Trends alert checks whose live values were compared with stored closed-day values, by outcome",
+    labelnames=["outcome"],
+)
+_SHADOW_COMPARISON_DURATION = Histogram(
+    "posthog_insight_alerts_series_values_shadow_duration_seconds",
+    "Wall-clock time of the series values shadow step in a trends alert check, including any inline build",
+    labelnames=["outcome"],
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120),
+)
+
+
+@frozen
+class ShadowComparison:
+    outcome: ShadowOutcome
+    reason: str | None = None
+    buckets_compared: int = 0
+    max_abs_difference: float = 0.0
+    freshly_built: bool = False
+
+
+def is_series_values_precompute_enabled(team: Team) -> bool:
+    try:
+        if team.id in settings.ALERTS_SERIES_VALUES_PRECOMPUTE_TEAM_IDS:
+            return True
+        return bool(
+            posthoganalytics.feature_enabled(
+                SERIES_VALUES_PRECOMPUTE_FLAG,
+                str(team.uuid),
+                groups={
+                    "organization": str(team.organization_id),
+                    "project": str(team.id),
+                },
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("alert_series_values_flag_check_failed", team_id=team.pk)
+        return False
+
+
+def effective_trends_runner(
+    team: Team, query: TrendsQuery, filters_override: dict | None, user: User | None
+) -> TrendsQueryRunner:
+    runner = TrendsQueryRunner(query=query.model_copy(deep=True), team=team, user=user)
+    if filters_override:
+        runner.apply_dashboard_filters(dashboard_filter_from_dict(filters_override))
+    return runner
+
+
+def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, live: Any) -> ShadowComparison:
+    if isinstance(closed, SeriesValuesUnavailable):
+        return ShadowComparison(outcome="unavailable", reason=closed.reason)
+    if not live:
+        return ShadowComparison(outcome="unavailable", reason="no_live_result", freshly_built=closed.freshly_built)
+    series = live[0]
+    live_by_bucket = {datetime.fromisoformat(day): value for day, value in zip(series["days"], series["data"])}
+    differences = [
+        abs(float(live_by_bucket[bucket]) - stored)
+        for bucket, stored in closed.values.items()
+        if bucket in live_by_bucket
+    ]
+    if not differences:
+        return ShadowComparison(
+            outcome="unavailable", reason="no_overlapping_buckets", freshly_built=closed.freshly_built
+        )
+    largest = max(differences)
+    return ShadowComparison(
+        outcome="match" if largest == 0 else "mismatch",
+        buckets_compared=len(differences),
+        max_abs_difference=largest,
+        freshly_built=closed.freshly_built,
+    )
+
+
+def compare_series_values_shadow(
+    alert: AlertConfiguration,
+    query: TrendsQuery,
+    filters_override: dict | None,
+    calculation_result: InsightResult,
+    *,
+    alert_kind: AlertKind,
+) -> None:
+    started = time.monotonic()
+    try:
+        if not is_series_values_precompute_enabled(alert.team):
+            return
+        runner = effective_trends_runner(alert.team, query, filters_override, alert.created_by)
+        closed = closed_trends_series_values(runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
+        comparison = compare_closed_values(closed, calculation_result.result)
+    except Exception as err:
+        logger.exception("alert_series_values_shadow_failed", team_id=alert.team_id, alert_id=str(alert.id))
+        comparison = ShadowComparison(outcome="error", reason=type(err).__name__)
+    _record(alert, alert_kind, comparison, duration_seconds=time.monotonic() - started)
+
+
+def _record(
+    alert: AlertConfiguration, alert_kind: AlertKind, comparison: ShadowComparison, *, duration_seconds: float
+) -> None:
+    try:
+        _SHADOW_COMPARISON_COUNTER.labels(outcome=comparison.outcome).inc()
+        _SHADOW_COMPARISON_DURATION.labels(outcome=comparison.outcome).observe(duration_seconds)
+        team = alert.team
+        posthoganalytics.capture(
+            event=SHADOW_COMPARISON_EVENT,
+            distinct_id=str(team.uuid),
+            properties={
+                "outcome": comparison.outcome,
+                "reason": comparison.reason,
+                "buckets_compared": comparison.buckets_compared,
+                "max_abs_difference": comparison.max_abs_difference,
+                "alert_id": str(alert.id),
+                "calculation_interval": alert.calculation_interval,
+                "alert_kind": alert_kind,
+                "duration_ms": round(duration_seconds * 1000),
+                "freshly_built": comparison.freshly_built,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.exception("alert_series_values_shadow_record_failed", team_id=alert.team_id, alert_id=str(alert.id))

@@ -1588,6 +1588,10 @@ WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS: list[int] = [
     int(team_id) for team_id in get_list(get_from_env("WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS", ""))
 ]
 
+ALERTS_SERIES_VALUES_PRECOMPUTE_TEAM_IDS: list[int] = [
+    int(team_id) for team_id in get_list(get_from_env("ALERTS_SERIES_VALUES_PRECOMPUTE_TEAM_IDS", ""))
+]
+
 # Upper bound on the number of distinct precompute shapes (query cache keys) a single
 # team may have live at once. Any filter combination becomes its own shape, so a
 # pathological team could otherwise mint unbounded namespaces. This is a coarse backstop,
