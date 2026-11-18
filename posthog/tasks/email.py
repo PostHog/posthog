@@ -2186,15 +2186,15 @@ def send_feature_flags_secure_api_key_exposed(team_id: int, mask_value: str, mor
     message = EmailMessage(
         use_http=True,
         campaign_key=f"feature-flags-secure-api-key-exposed-{team.uuid}-{timezone.now().timestamp()}",
-        subject=f"Feature Flags Secure API key has been exposed for {team.name}",
+        subject=f"Legacy feature flags secret key has been revoked for {team.name}",
         template_name="feature_flags_secure_api_key_exposed",
         template_context={
-            # "preheader": "Project secret API key has been exposed",
-            "preheader": "Feature Flags Secure API key has been exposed",
+            "preheader": "Legacy feature flags secret key has been revoked",
             "project_name": team.name,
             "more_info": more_info,
             "mask_value": mask_value,
-            "url": f"{settings.SITE_URL}/project/{team.pk}/settings/project-feature-flags",
+            "url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-secret-api-keys",
+            "conversations_settings_url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-conversations",
             **get_email_team_and_org_context(team=team),
         },
     )
