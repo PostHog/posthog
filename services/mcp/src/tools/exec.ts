@@ -728,7 +728,8 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             ['review-hog-reviews-pr-status', 'code-review-reviews-pr-status'],
             ['review-hog-reviews-trigger', 'code-review-reviews-trigger'],
             ['stamphog-digest-runs-list', 'code-review-approvals-digests-list'],
-            ['stamphog-digest-runs-retrieve', 'code-review-approvals-digests-retrieve'],
+            // The digest retrieve tool is disabled: the list returns every field of each run.
+            ['stamphog-digest-runs-retrieve', 'code-review-approvals-digests-list'],
             ['stamphog-pull-requests-get', 'code-review-approvals-pull-requests-get'],
             ['stamphog-pull-requests-list', 'code-review-approvals-pull-requests-list'],
             ['stamphog-repo-configs-delete', 'code-review-approvals-repositories-delete'],
