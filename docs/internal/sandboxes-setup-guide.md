@@ -312,6 +312,8 @@ since frontend and backend group keys differ.
 The property identifies the active environment: explicitly include every environment that should have
 access. A parent project's flag does not enable its child environments, even though ReviewHog stores
 their settings and reviews under the shared parent project.
+Requests through an environment URL also require membership of the parent project.
+Project-restricted API keys and OAuth tokens must include both the environment and its parent.
 
 Newly enabled projects get every ReviewHog part: manual Full and Flash reviews, automatic Flash reviews,
 the Stamphog handoff, resolution, Inbox reviews, the tiered review models, and the Stamphog
