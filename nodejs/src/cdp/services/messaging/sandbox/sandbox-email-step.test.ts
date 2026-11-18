@@ -247,6 +247,7 @@ describe('SandboxEmailSendStep', () => {
         await claimSandboxCaps(world.limiter('sandbox-email-caps'), caps, {
             organizationId: world.organizationId,
             teamId: world.team.id,
+            storedAddress: member(),
             claimId: 'an earlier send today',
         })
     }

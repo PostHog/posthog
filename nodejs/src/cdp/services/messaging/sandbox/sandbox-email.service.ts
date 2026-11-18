@@ -158,6 +158,7 @@ export class SandboxEmailService {
         const caps = await this.deps.claimCaps({
             organizationId: authorization.organizationId,
             teamId: request.teamId,
+            storedAddress: authorization.storedAddress,
             claimId: request.capClaimId,
             isTest: request.isTest,
         })

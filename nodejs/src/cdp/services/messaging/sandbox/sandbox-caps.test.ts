@@ -1,4 +1,4 @@
-import { randomInt, randomUUID } from 'crypto'
+import { createHash, randomInt, randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { register } from 'prom-client'
 
@@ -18,6 +18,8 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { CLAIM_DEADLINE_MS, RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { SandboxCapClaim, SandboxCaps, claimSandboxCaps } from './sandbox-caps'
 
+const MEMBER = 'member@example.com'
+
 describe('claimSandboxCaps', () => {
     let client: Redis
     let redis: RedisV2
@@ -26,9 +28,9 @@ describe('claimSandboxCaps', () => {
     let teamId: number
 
     const claim = (caps: SandboxCaps, team = teamId) =>
-        claimSandboxCaps(limiter, caps, { organizationId, teamId: team, claimId: randomUUID() })
+        claimSandboxCaps(limiter, caps, { organizationId, teamId: team, storedAddress: MEMBER, claimId: randomUUID() })
 
-    const sameSend = () => ({ organizationId, teamId, claimId: randomUUID() })
+    const sameSend = () => ({ organizationId, teamId, storedAddress: MEMBER, claimId: randomUUID() })
 
     const warnings = async (): Promise<number> =>
         (await register.getSingleMetric('cdp_sandbox_email_team_warning_total')!.get()).values[0]?.value ?? 0
@@ -115,6 +117,26 @@ describe('claimSandboxCaps', () => {
         expect(await warnings()).toBe(before + 2)
     })
 
+    it('honors a claim that a worker on the previous release made for the same send', async () => {
+        const caps = { team: 1, warning: 5 }
+        const send = sameSend()
+        const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
+        const keyPrefix = `@posthog/sandbox-email/{${organizationId}}`
+        const recipientDigest = sha256(MEMBER)
+        const previousRelease = [`${keyPrefix}/recipient/${recipientDigest}`, `${keyPrefix}/project/${teamId}`].map(
+            (key) => ({ key, requested: 1, capacity: 1, refillPerSecond: 1 / 86_400, ttlSeconds: 172_800 })
+        )
+        const previousClaim = {
+            key: `${keyPrefix}/claim/${sha256(`${teamId}\n${recipientDigest}\n${send.claimId}`)}`,
+            attempt: randomUUID(),
+            ttlSeconds: 172_800,
+        }
+        expect(await limiter.claimAllOrNothingAcross(previousRelease, previousClaim)).toBe('granted')
+
+        expect(await claimSandboxCaps(limiter, caps, send)).toMatchObject({ ok: true })
+        expect(await claim(caps)).toEqual({ ok: false, reason: 'daily_cap_reached' })
+    })
+
     it('admits test sends past the project cap without charging it, and counts them toward the warning', async () => {
         const caps = { team: 1, warning: 1 }
         const before = await warnings()
@@ -199,9 +221,16 @@ describe('claimSandboxCaps', () => {
     it('charges a reused claim id again when it names another project', async () => {
         const caps = { team: 1, warning: 5 }
         const claimId = randomUUID()
-        await claimSandboxCaps(limiter, caps, { organizationId, teamId, claimId })
+        await claimSandboxCaps(limiter, caps, { organizationId, teamId, storedAddress: MEMBER, claimId })
 
-        expect(await claimSandboxCaps(limiter, caps, { organizationId, teamId: teamId + 1, claimId })).toMatchObject({
+        expect(
+            await claimSandboxCaps(limiter, caps, {
+                organizationId,
+                teamId: teamId + 1,
+                storedAddress: MEMBER,
+                claimId,
+            })
+        ).toMatchObject({
             ok: true,
         })
         expect(await claim(caps, teamId + 1)).toEqual({ ok: false, reason: 'daily_cap_reached' })
@@ -236,7 +265,11 @@ describe('claimSandboxCaps', () => {
         const broken = new RateLimiterService(unreachable, { name: 'broken' })
 
         expect(
-            await claimSandboxCaps(broken, { team: 5, warning: 5 }, { organizationId, teamId, claimId: randomUUID() })
+            await claimSandboxCaps(
+                broken,
+                { team: 5, warning: 5 },
+                { organizationId, teamId, storedAddress: MEMBER, claimId: randomUUID() }
+            )
         ).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
     })
 

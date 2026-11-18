@@ -105,7 +105,7 @@ They go through a separate SES tenant and configuration set and record none of `
 They never draw from the team bucket either.
 The sandbox has its own controls: recipients limited to verified organization members, a daily cap per project, suppression, the staff organization block in `/admin/workflows/sandboxsenderorganizationblock/`, and the SES tenant pause.
 The daily cap (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`) is a circuit breaker for the shared tenant, and editor test sends never count toward it.
-A project past `WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING` sends in one UTC day (default 100), test sends included, keeps sending. The worker counts each further send attempt in `cdp_sandbox_email_team_warning_total` and logs a warning with the team and organization ids.
+A project past `WORKFLOWS_SANDBOX_DAILY_TEAM_WARNING` sends in one UTC day (default 100), test sends included, keeps sending. The worker counts each further send attempt that passes the daily cap in `cdp_sandbox_email_team_warning_total` and logs a warning with the team and organization ids.
 
 ## Rollout order
 

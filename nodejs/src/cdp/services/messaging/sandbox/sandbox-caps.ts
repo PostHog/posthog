@@ -22,6 +22,7 @@ export type SandboxCapClaim =
 export type SandboxCapClaimRequest = {
     organizationId: string
     teamId: number
+    storedAddress: string
     claimId: string
     isTest?: boolean
 }
@@ -47,9 +48,11 @@ export async function claimSandboxCaps(
     if (!isValidCap(caps.team) || !isValidCap(caps.warning)) {
         return { ok: false, reason: 'cap_storage_unavailable' }
     }
-    const { organizationId, teamId, claimId } = request
+    const { organizationId, teamId, storedAddress, claimId } = request
     const keyPrefix = `@posthog/sandbox-email/{${organizationId}}`
-    const claimDigest = createHash('sha256').update(`${teamId}\n${claimId}`).digest('hex')
+    // The recipient stays in the claim identity, so a retry finds the claim that another worker version made.
+    const recipientDigest = createHash('sha256').update(storedAddress.toLowerCase()).digest('hex')
+    const claimDigest = createHash('sha256').update(`${teamId}\n${recipientDigest}\n${claimId}`).digest('hex')
     if (request.isTest) {
         await warnPastThreshold(limiter, caps.warning, request, keyPrefix, claimDigest, now)
         return UNCAPPED_TEST_SEND
@@ -74,7 +77,6 @@ export async function claimSandboxCaps(
     }
 }
 
-// Test sends skip the project cap but count here, so a test loop still trips the warning.
 // A denied claim stores no key, so a retry past the threshold counts again.
 async function warnPastThreshold(
     limiter: RateLimiterService,

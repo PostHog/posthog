@@ -287,6 +287,7 @@ export function useSandboxWorld(): SandboxWorld {
         const probe = await claimSandboxCaps(world.limiter('sandbox-email-caps'), caps, {
             organizationId: world.organizationId,
             teamId: world.team.id,
+            storedAddress: 'allowance-probe@example.com',
             claimId: 'allowance probe',
         })
         return probe.ok
