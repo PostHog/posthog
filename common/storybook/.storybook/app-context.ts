@@ -2,7 +2,6 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-// A partial AppContext: stories render with the access levels listed here and with no effective access map.
 export type StorybookAppContext = Omit<AppContext, 'effective_resource_access_control' | 'resource_access_control'> & {
     resource_access_control: Partial<Record<AccessControlResourceType, `${AccessControlLevel}`>>
 }

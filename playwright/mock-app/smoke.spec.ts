@@ -16,11 +16,9 @@ const SCENES: { path: string; title: string }[] = [
     { path: 'settings/project', title: 'Settings - General' },
 ]
 
-// Browsers report a resize that takes more than one frame to settle as an error event. It is a
-// notice about layout timing, which a busy machine makes more likely, and not an error in the app.
+// A layout timing notice that browsers report as an error event on a busy machine.
 const BROWSER_NOTICES = /^ResizeObserver loop/
 
-// Collects what the spec must not see: an uncaught error, or a file of the site that fails to load.
 // API requests are left out, because an API request without a fixture gets a 404 on purpose.
 function watchForFailures(page: Page): string[] {
     const failures: string[] = []
@@ -82,7 +80,6 @@ test('the mock app boots signed in and renders the core scenes', async ({ page }
     }
 
     await test.step('debug query loads its web worker', async () => {
-        // The app loads web workers by URL from /static, outside the module graph.
         const editorWorker = page.waitForResponse((response) =>
             new URL(response.url()).pathname.startsWith('/static/monacoEditorWorker')
         )

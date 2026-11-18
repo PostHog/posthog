@@ -4,11 +4,6 @@ import { MOCK_APP_PORT } from '../frontend/bin/mockApp.mjs'
 
 const baseURL = `http://localhost:${MOCK_APP_PORT}`
 
-/**
- * Specs against the mock app: a Vite build of the app with mocked API responses, which needs no
- * backend (`pnpm --filter=@posthog/frontend preview:mock-app`). It shares the plugins and module
- * resolution of the app's Vite build, but not its import map or preload lists.
- */
 export default defineConfig({
     testDir: './mock-app',
     timeout: 3 * 60 * 1000,

@@ -7,11 +7,9 @@ import type { Connect, Plugin } from 'vite'
 const FRONTEND = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 export const MOCK_APP_SHELL = resolve(FRONTEND, 'mock-app.html')
-// The fixed-name web workers, which esbuild builds outside Vite (`pnpm build:mock-app:workers`).
 const WORKERS_DIR = resolve(FRONTEND, 'dist/mock-app-workers')
 
-// Files the app requests by URL rather than by import, which Django serves in production.
-// The first mount that has the file wins.
+// Files the app requests by URL, which Django serves in production. The first mount with the file wins.
 const MOUNTS: { url: string; dir: string }[] = [
     { url: '/static/hedgehog-mode/', dir: resolve(FRONTEND, 'node_modules/@posthog/hedgehog-mode/assets') },
     { url: '/static/emoji/en/', dir: resolve(FRONTEND, 'node_modules/emojibase-data/en') },
@@ -21,7 +19,6 @@ const MOUNTS: { url: string; dir: string }[] = [
 ]
 
 // MSW's service worker must come from the site root, or its scope does not cover the app's URLs.
-// The Storybook wrapper lets static files skip the worker and imports MSW's worker.
 const STORYBOOK_PUBLIC = resolve(FRONTEND, '../common/storybook/.storybook/public')
 const ROOT_FILES = ['storybookServiceWorker.js', 'mockServiceWorker.js']
 
@@ -61,13 +58,6 @@ function isPageRequest(request: IncomingMessage, pathname: string): boolean {
     return request.method === 'GET' && !!request.headers.accept?.includes('text/html') && !extname(pathname)
 }
 
-/**
- * Runs the app as a static site with mocked API responses (src/mocks/mockApp.ts), with no backend.
- *
- * The dev server serves the URL-addressed files from where they live, and answers every page URL
- * with the shell. The build copies the same files into the output and names the shell index.html,
- * so any static host that falls back to index.html can serve it.
- */
 export function mockAppPlugin(): Plugin {
     let outDir = ''
     return {
@@ -107,8 +97,7 @@ export function mockAppPlugin(): Plugin {
             })
         },
         configurePreviewServer(server) {
-            // The preview server answers every unknown URL with index.html and a 200, so a missing
-            // chunk or static file would reach the app as HTML and never show up as a failed request.
+            // Preview answers unknown URLs with index.html and a 200, which would hide a missing file.
             server.middlewares.use((request: Connect.IncomingMessage, response: ServerResponse, next) => {
                 const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname)
                 const ext = extname(pathname)
