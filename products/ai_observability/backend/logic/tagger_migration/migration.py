@@ -19,7 +19,12 @@ from products.access_control.backend.facade.api import access_rules, object_ids_
 from products.ai_observability.backend.api.evaluations import EvaluationSerializer
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
-from products.ai_observability.backend.models.evaluations import EvaluationTarget
+from products.ai_observability.backend.models.evaluations import (
+    EvaluationStatus,
+    EvaluationStatusReason,
+    EvaluationTarget,
+)
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import HogTaggerConfig, LLMTaggerConfig, Tagger, TaggerType
 
 from .evaluation_payload import conditions_payload, hog_payload, llm_judge_payload
@@ -62,6 +67,8 @@ def count_taggers(team: Team) -> TaggerCounts:
 class _Planned:
     step: TaggerMigrationStep
     serializer: EvaluationSerializer | None = None
+    # Set when the evaluation starts switched off for a key problem, so the settings page offers to turn it back on.
+    key_problem: EvaluationStatusReason | None = None
 
 
 def _pending_taggers(team: Team) -> list[Tagger]:
@@ -74,7 +81,8 @@ def _pending_taggers(team: Team) -> list[Tagger]:
 
 def _model_configuration(tagger: Tagger, team: Team) -> dict[str, Any] | None:
     """The tagger's model, or for a tagger without one the provider and default model of the team's active key. The
-    evaluation pins that provider and model but not the key, so it uses whichever key of that provider is active."""
+    evaluation pins that provider and model but not the key, so it uses whichever key of that provider is active.
+    Without an active key it gets the OpenAI default the tagger runtime falls back to, since a judge needs a model."""
     config = tagger.model_configuration
     if config is not None:
         return {
@@ -84,10 +92,26 @@ def _model_configuration(tagger: Tagger, team: Team) -> dict[str, Any] | None:
         }
     evaluation_config = EvaluationConfig.objects.filter(team=team).select_related("active_provider_key").first()
     key = evaluation_config.active_provider_key if evaluation_config else None
-    model = DEFAULT_MODEL_BY_PROVIDER.get(key.provider) if key else None
-    if key is None or model is None:
+    provider = key.provider if key else "openai"
+    model = DEFAULT_MODEL_BY_PROVIDER.get(provider)
+    if model is None:
         return None
-    return {"provider": key.provider, "model": model, "provider_key_id": None}
+    return {"provider": provider, "model": model, "provider_key_id": None}
+
+
+def _key_problem(team: Team, model_configuration: dict[str, Any] | None) -> EvaluationStatusReason:
+    """Why an evaluation can't run on the key it would use: its pinned key, or else the team's active key."""
+    key_id = (model_configuration or {}).get("provider_key_id")
+    if key_id:
+        key = LLMProviderKey.objects.filter(team=team, id=key_id).first()
+    else:
+        config = EvaluationConfig.objects.filter(team=team).select_related("active_provider_key").first()
+        key = config.active_provider_key if config else None
+    if key is None:
+        return EvaluationStatusReason.PROVIDER_KEY_REQUIRED
+    if key.state != LLMProviderKey.State.OK:
+        return EvaluationStatusReason.PROVIDER_KEY_INVALID
+    return EvaluationStatusReason.NO_DEFAULT_MODEL
 
 
 def _error_text(detail: Any) -> str:
@@ -216,7 +240,7 @@ def _plan(
             if model_configuration is None:
                 return _Planned(
                     step=step(
-                        MigrationAction.SKIP, "It has no model, and the team has no active provider key to pick one."
+                        MigrationAction.SKIP, "The team's provider key has no default model, so pick a model first."
                     )
                 )
     except PydanticValidationError as error:
@@ -240,10 +264,12 @@ def _plan(
     keys = tuple(option["key"] for option in payload["output_config"]["options"])
     serializer = evaluation_serializer(enabled=True)
     switched_off = ""
+    key_problem = None
     if not serializer.is_valid() and set(serializer.errors) == {"enabled"}:
         # Only the enabled check failed, so the team has no working key. The tagger can't run without one either,
         # so the evaluation keeps its config switched off until the team fixes the key.
         switched_off = f" It starts switched off: {_error_text(serializer.errors)}"
+        key_problem = _key_problem(team, model_configuration)
         serializer = evaluation_serializer(enabled=False)
     if not serializer.is_valid():
         return _Planned(step=step(MigrationAction.SKIP, _error_text(serializer.errors), keys))
@@ -260,6 +286,7 @@ def _plan(
     return _Planned(
         step=step(MigrationAction.MIGRATE, f"{kind}, {choice}{na}{cap}{sent}.{switched_off}", keys),
         serializer=serializer,
+        key_problem=key_problem,
     )
 
 
@@ -306,7 +333,12 @@ def migrate_taggers(team: Team, *, move_capped: bool = False) -> list[TaggerMigr
                 if step.action == MigrationAction.SKIP:
                     results.append(step)
                     continue
-                evaluation_id = str(planned.serializer.save().id) if planned.serializer is not None else None
+                evaluation_id = None
+                if planned.serializer is not None:
+                    evaluation = planned.serializer.save()
+                    if planned.key_problem is not None:
+                        evaluation.set_status(EvaluationStatus.ERROR, planned.key_problem)
+                    evaluation_id = str(evaluation.id)
                 # A queryset update skips Tagger.save(), which would re-validate and recompile a config that is
                 # about to stop running. So the reload the save signal sends goes out here. Workers also reload
                 # every few minutes, so a failed message must not undo or stop the migration.

@@ -139,7 +139,9 @@ class TestTaggerEvaluationPayload(SimpleTestCase):
 
     def test_hog_tagger_without_a_tag_list_keeps_an_empty_tags_list_and_uses_the_tags_it_sent(self) -> None:
         payload: dict[str, Any] = hog_payload(
-            HogTaggerConfig(source="return [length(tags) == 0 ? 'stage:a' : 'stage:b', true, null, 'stage:new']"),
+            HogTaggerConfig(
+                source="return [length(tags) == 0 ? 'stage:a' : 'stage:b', true, null, 'true', 1, 'stage:new']"
+            ),
             sent_tags=("None", "True", "stage:a", "stage:b"),
         )
 

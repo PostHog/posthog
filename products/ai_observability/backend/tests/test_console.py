@@ -313,7 +313,7 @@ class TestTaggersPanel(BaseTest):
         assert response.status_code == 302
         evaluation = Evaluation.objects.get(team=self.team, evaluation_type="llm_judge", name="User intent")
         broken_key_evaluation = Evaluation.objects.get(team=self.team, name="On a broken key")
-        assert broken_key_evaluation.enabled is False
+        assert (broken_key_evaluation.enabled, broken_key_evaluation.status_reason) == (False, "provider_key_invalid")
         hog_evaluation = Evaluation.objects.get(team=self.team, evaluation_type="hog", name="Long answers")
         free_form_evaluation = Evaluation.objects.get(team=self.team, evaluation_type="hog", name="Free-form Hog")
         assert free_form_evaluation.output_config["options"] == [{"key": "anything", "label": "anything"}]
@@ -374,6 +374,23 @@ class TestTaggersPanel(BaseTest):
         assert evaluation.evaluation_config["prompt"].endswith("Select at most 2 categories.")
         self.bounded.refresh_from_db()
         assert (self.bounded.enabled, self.bounded.migrated_to_evaluation_id) == (False, evaluation.id)
+
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.reload_taggers_on_workers")
+    @patch("products.ai_observability.backend.logic.tagger_migration.migration.load_recent_tag_counts")
+    def test_a_tagger_whose_team_key_was_deleted_moves_to_a_switched_off_evaluation(
+        self, load_counts: MagicMock, _reload_taggers: MagicMock
+    ) -> None:
+        load_counts.return_value = {str(self.active.id): 120}
+        EvaluationConfig.objects.filter(team=self.team).update(active_provider_key=None)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            migrate_taggers(self.team)
+
+        evaluation = Evaluation.objects.get(team=self.team, name="User intent")
+        assert (evaluation.enabled, evaluation.status_reason) == (False, "provider_key_required")
+        assert evaluation.model_configuration is not None and evaluation.model_configuration.provider_key is None
+        self.active.refresh_from_db()
+        assert (self.active.enabled, self.active.migrated_to_evaluation_id) == (False, evaluation.id)
 
     @parameterized.expand(
         [
