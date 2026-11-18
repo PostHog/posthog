@@ -2,6 +2,7 @@ import json
 import time
 import asyncio
 import importlib
+import threading
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
@@ -1969,10 +1970,35 @@ class TestBackgroundHeartbeat:
             recorder = relay_sandbox_events_module._LivenessRecorder(
                 cast(TaskRun, SimpleNamespace(id="run-1", team_id=7))
             )
-            await recorder.heartbeat(busy=lambda: bool(open_tool_calls))
+            recorder.heartbeat(busy=lambda: bool(open_tool_calls))
+            await recorder.drain()
 
         assert len(stored) == 1
         assert stored[0]["run_id"] == "run-1"
         assert stored[0]["team_id"] == 7
         assert stored[0]["heartbeat_at"] is not None
         assert stored[0]["agent_status"] == agent_status
+
+    async def test_liveness_recorder_does_not_wait_for_a_stalled_write(self) -> None:
+        release = threading.Event()
+        stored: list[object] = []
+
+        def stalled(run_id: object, team_id: object, **liveness: object) -> bool:
+            release.wait(timeout=30)
+            stored.append(liveness["heartbeat_at"])
+            return True
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(relay_sandbox_events_module.TaskRunModel, "write_liveness", staticmethod(stalled))
+            recorder = relay_sandbox_events_module._LivenessRecorder(
+                cast(TaskRun, SimpleNamespace(id="run-1", team_id=7))
+            )
+            recorder.heartbeat(busy=lambda: True)
+            recorder.heartbeat(busy=lambda: True)
+            await asyncio.sleep(0)
+            returned_while_stalled = stored == []
+            release.set()
+            await recorder.drain()
+
+        assert returned_while_stalled
+        assert len(stored) == 1

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 from django.conf import settings
@@ -81,6 +81,7 @@ from ee.hogai.sandbox import (
 logger = structlog.get_logger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 30
+LIVENESS_WRITE_TIMEOUT_SECONDS = 10
 TOOL_CALL_ONLY_HEARTBEAT_REPORT_SECONDS = 45 * 60
 SSE_CONNECT_TIMEOUT_SECONDS = 30
 SSE_READ_TIMEOUT_SECONDS = 300  # 5 min per chunk
@@ -353,20 +354,45 @@ class _LivenessRecorder:
     def __init__(self, task_run: TaskRunModel | None) -> None:
         self._task_run = task_run
         self._lock = asyncio.Lock()
+        self._writes: set[asyncio.Task[None]] = set()
+        self._heartbeat_pending = False
 
-    async def heartbeat(self, *, busy: Callable[[], bool]) -> None:
+    def heartbeat(self, *, busy: Callable[[], bool]) -> None:
+        if self._heartbeat_pending:
+            return
+        self._heartbeat_pending = True
+        self._schedule(self._write_heartbeat(busy))
+
+    def status(self, agent_status: TaskRunModel.AgentStatus) -> None:
+        self._schedule(self._write_status(agent_status))
+
+    async def drain(self) -> None:
+        await asyncio.gather(*self._writes, return_exceptions=True)
+
+    def _schedule(self, write: Coroutine[Any, Any, None]) -> None:
+        task = asyncio.create_task(write)
+        self._writes.add(task)
+        task.add_done_callback(self._writes.discard)
+
+    async def _write_heartbeat(self, busy: Callable[[], bool]) -> None:
+        try:
+            async with self._lock:
+                await self._persist(heartbeat=True, agent_status=TaskRunModel.AgentStatus.BUSY if busy() else None)
+        finally:
+            self._heartbeat_pending = False
+
+    async def _write_status(self, agent_status: TaskRunModel.AgentStatus) -> None:
         async with self._lock:
-            await self._write(heartbeat=True, agent_status=TaskRunModel.AgentStatus.BUSY if busy() else None)
+            await self._persist(heartbeat=False, agent_status=agent_status)
 
-    async def status(self, agent_status: TaskRunModel.AgentStatus) -> None:
-        async with self._lock:
-            await self._write(heartbeat=False, agent_status=agent_status)
-
-    async def _write(self, *, heartbeat: bool, agent_status: TaskRunModel.AgentStatus | None) -> None:
+    async def _persist(self, *, heartbeat: bool, agent_status: TaskRunModel.AgentStatus | None) -> None:
         if self._task_run is None:
             return
         try:
-            await asyncio.to_thread(_write_liveness, self._task_run, heartbeat=heartbeat, agent_status=agent_status)
+            await asyncio.wait_for(
+                asyncio.to_thread(_write_liveness, self._task_run, heartbeat=heartbeat, agent_status=agent_status),
+                timeout=LIVENESS_WRITE_TIMEOUT_SECONDS,
+            )
         except Exception as e:
             logger.warning("relay_liveness_write_failed", run_id=str(self._task_run.id), error=str(e))
 
@@ -433,7 +459,7 @@ async def _background_heartbeat(
                 except Exception as e:
                     logger.warning("relay_workflow_heartbeat_signal_failed", error=str(e))
                 if liveness is not None:
-                    await liveness.heartbeat(busy=lambda: _agent_has_work_in_flight(agent_active, open_tool_calls))
+                    liveness.heartbeat(busy=lambda: _agent_has_work_in_flight(agent_active, open_tool_calls))
 
 
 def _agent_has_work_in_flight(agent_active: list[bool] | None, open_tool_calls: set[str] | None) -> bool:
@@ -618,7 +644,7 @@ async def _relay_loop(
                                         )
                                     else:
                                         await _signal_safely(workflow_handle, "agent_state_changed", arg=False)
-                                        await liveness.status(TaskRunModel.AgentStatus.READY)
+                                        liveness.status(TaskRunModel.AgentStatus.READY)
                                         await _signal_safely(
                                             workflow_handle,
                                             "agent_turn_completed",
@@ -664,7 +690,7 @@ async def _relay_loop(
                                 agent_active[0] = True
                                 if workflow_handle is not None:
                                     await _signal_safely(workflow_handle, "agent_state_changed", arg=True)
-                                    await liveness.status(TaskRunModel.AgentStatus.BUSY)
+                                    liveness.status(TaskRunModel.AgentStatus.BUSY)
 
                             # Agent-design signal fan-out: first session/update opens the
                             # child relay; tool_call → step, agent_message_chunk → markdown.
@@ -716,7 +742,7 @@ async def _relay_loop(
                                     logger.warning(
                                         "relay_workflow_heartbeat_signal_failed", run_id=run_id, error=str(e)
                                     )
-                                await liveness.heartbeat(
+                                liveness.heartbeat(
                                     busy=lambda: _agent_has_work_in_flight(agent_active, open_tool_calls)
                                 )
 
