@@ -1,14 +1,35 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, loadConfigFromFile, type UserConfig } from 'vite'
 
 import { URL_PREFIX, VITE_APP_DIR } from './bin/viteAppBuild.mjs'
 import { chunkGraphPlugin, textFilesPlugin, zodEnLocaleOnlyPlugin } from './plugins/vite-app-build'
+import { WORKER_FILES_META } from './workers.config.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // posthog/vite_app.py reads the manifest from this directory.
 const OUT_DIR = `dist/${VITE_APP_DIR}`
+
+/**
+ * The hashed worker file names from the esbuild build, for `createWorker` (src/lib/utils/createWorker.ts).
+ * The esbuild build makes the workers, so it has to run first. Without its file, or for a worker whose
+ * hashed file is gone, the app loads the worker by its fixed name, which a deploy overwrites in place.
+ */
+function hashedWorkerFiles(): Record<string, string> | undefined {
+    const metaPath = resolve(__dirname, WORKER_FILES_META)
+    if (!existsSync(metaPath)) {
+        console.warn(
+            `vite app: ${WORKER_FILES_META} is missing, so workers load by their fixed names. Run \`pnpm build\` first.`
+        )
+        return undefined
+    }
+    const files: Record<string, string> = JSON.parse(readFileSync(metaPath, 'utf8'))
+    return Object.fromEntries(
+        Object.entries(files).filter(([, hashedName]) => existsSync(resolve(__dirname, 'dist', hashedName)))
+    )
+}
 
 export default defineConfig(async (env): Promise<UserConfig> => {
     // The build reuses the dev server config, so a module resolves the same way in both.
@@ -17,6 +38,7 @@ export default defineConfig(async (env): Promise<UserConfig> => {
         throw new Error('vite app: cannot load vite.config.mts')
     }
     const base = devServerConfig.config
+    const workerFiles = hashedWorkerFiles()
 
     return {
         ...base,
@@ -37,6 +59,10 @@ export default defineConfig(async (env): Promise<UserConfig> => {
                 'node:crypto': 'crypto-browserify',
                 stream: 'stream-browserify',
             },
+        },
+        define: {
+            ...base.define,
+            ...(workerFiles ? { __POSTHOG_WORKER_FILES__: JSON.stringify(workerFiles) } : {}),
         },
         assetsInclude: ['**/*.bin'],
         experimental: {

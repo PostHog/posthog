@@ -41,3 +41,7 @@ export const WORKER_ENTRIES = [
         outfileName: 'monacoTsWorker.js',
     },
 ]
+
+// The hashed file name of each worker, as `{ fixedName: hashedName }`. build.mjs writes it after it
+// builds the workers, and vite.app.config.mts reads it, so both app builds load a worker by the same name.
+export const WORKER_FILES_META = 'workers-esbuild-meta.json'

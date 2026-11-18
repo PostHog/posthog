@@ -40,6 +40,9 @@ export function zodEnLocaleOnlyPlugin(): Plugin {
 export function chunkGraphPlugin(): Plugin {
     return {
         name: 'chunk-graph',
+        // Vite removes each chunk that holds only CSS, and gives its stylesheets to the chunks that
+        // import it, in a `generateBundle` hook of its own. `post` puts this hook after that one.
+        enforce: 'post',
         generateBundle(_options, bundle) {
             const chunks = Object.values(bundle).flatMap((output) =>
                 output.type === 'chunk'
