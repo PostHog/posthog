@@ -799,9 +799,18 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         help_text="User UUIDs to set as the skill's owners. Each must be a member of this project. "
         "Defaults to the creating user when omitted; pass an empty list to create with no owners.",
     )
+    version_description = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        help_text="Optional note on where this skill came from, such as written from scratch or ported from "
+        "another skill. Stored on version 1 and shown in the version history.",
+    )
 
     class Meta(LLMSkillSerializer.Meta):
-        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners")]
+        read_only_fields = [
+            f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners", "version_description")
+        ]
         extra_kwargs = {
             **LLMSkillSerializer.Meta.extra_kwargs,
             "name": {
@@ -812,6 +821,9 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
 
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _validate_files(value)
+
+    def validate_version_description(self, value: str) -> str | None:
+        return value.strip() or None
 
     def create(self, validated_data: dict[str, Any]) -> LLMSkill:
         request = self.context["request"]

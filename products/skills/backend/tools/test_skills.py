@@ -189,12 +189,14 @@ class TestCreateLLMSkillTool(BaseTest):
             files=[
                 {"path": "scripts/mandelbrot.py", "content": "print('m')", "content_type": "text/x-python"},
             ],
+            version_description="  Written from scratch.  ",
         )
 
         assert "make-fractals" in result
         assert "v1" in result
         skill = LLMSkill.objects.get(team=self.team, name="make-fractals", is_latest=True)
         assert skill.description == "Render fractals."
+        assert skill.version_description == "Written from scratch."
         assert skill.files.count() == 1
         first_file = skill.files.first()
         assert first_file is not None
