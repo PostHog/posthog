@@ -125,6 +125,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     getDistinctIdsForPerson: () => ({ distinctIds: [] }),
     getDistinctIdsForPersons: () => ({ personDistinctIds: [] }),
     getHashKeyOverrideContext: () => ({ results: [] }),
+    getFlagContext: () => ({ cohortMemberships: [], groups: [], hashKeyOverrides: [] }),
     upsertHashKeyOverrides: () => ({}),
     deleteHashKeyOverridesByTeams: () => ({}),
     checkCohortMembership: () => ({ memberships: [] }),

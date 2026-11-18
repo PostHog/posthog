@@ -21,9 +21,10 @@ use crate::h2_window::Http2Windows;
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
     ConsistencyLevel, FencePersonRequest, FencePersonResponse, FencePersonsRequest,
-    FencePersonsResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest,
-    Person, ReadOptions, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest,
-    ReleaseFencesResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    FencePersonsResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
+    GetFlagContextRequest, GetFlagContextResponse, GetPersonRequest, Person, ReadOptions,
+    ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Routing headers for leader-bound calls through the router.
@@ -233,6 +234,20 @@ impl RouterClient {
         })
         .await
         .map(|response| response.person)
+    }
+
+    /// Everything flag evaluation reads about one visitor. A named person is read from a
+    /// follower of their partition, so the call then carries the routing headers.
+    pub async fn get_flag_context(
+        &self,
+        request: GetFlagContextRequest,
+    ) -> Result<GetFlagContextResponse, Status> {
+        let (team_id, person_id) = (request.team_id, request.person_id);
+        let mut request = self.request(request);
+        if let Some(person_id) = person_id {
+            stamp_person_routing_headers(&mut request, team_id, person_id);
+        }
+        Self::timed("GetFlagContext", self.client().get_flag_context(request)).await
     }
 
     /// Leader-routed lifecycle fence (saga runner only): freeze the person

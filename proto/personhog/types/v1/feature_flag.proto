@@ -1,7 +1,10 @@
 syntax = "proto3";
 package personhog.types.v1;
 
+import "personhog/types/v1/cohort.proto";
 import "personhog/types/v1/common.proto";
+import "personhog/types/v1/group.proto";
+import "personhog/types/v1/person.proto";
 
 // HashKeyOverride represents a feature flag hash key override for a person
 message HashKeyOverride {
@@ -62,4 +65,30 @@ message DeleteHashKeyOverridesByTeamsRequest {
 message DeleteHashKeyOverridesByTeamsResponse {
   // Number of rows deleted. 0 means no more rows to delete.
   int64 deleted_count = 1;
+}
+
+// GetFlagContextRequest asks, in one call, for everything feature flag evaluation reads
+// about one visitor. The person is read from a changelog follower, so it reflects writes
+// the writer has not applied to Postgres yet. The caller resolves the distinct ID to a
+// person ID first and names the person in the `x-team-id` and `x-person-id` headers,
+// which route the call to a follower of that person's partition.
+message GetFlagContextRequest {
+  int64 team_id = 1;
+  // Unset for a visitor with no person. The response then has no person and no cohort
+  // memberships.
+  optional int64 person_id = 2;
+  // Static cohorts to check the person's membership of.
+  repeated int64 static_cohort_ids = 3;
+  repeated GroupIdentifier group_identifiers = 4;
+  // Distinct IDs whose hash key overrides to return, such as the visitor's current and
+  // anonymous IDs.
+  repeated string override_distinct_ids = 5;
+}
+
+message GetFlagContextResponse {
+  // Unset when the person does not exist.
+  Person person = 1;
+  repeated CohortMembership cohort_memberships = 2;
+  repeated Group groups = 3;
+  repeated HashKeyOverrideContext hash_key_overrides = 4;
 }

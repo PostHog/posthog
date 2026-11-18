@@ -4,8 +4,14 @@ import type { Message } from '@bufbuild/protobuf'
 import type { GenFile, GenMessage } from '@bufbuild/protobuf/codegenv2'
 import { fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2'
 
-import type { ReadOptions } from './common_pb'
+import type { CohortMembership } from './cohort_pb'
+import { file_personhog_types_v1_cohort } from './cohort_pb'
+import type { GroupIdentifier, ReadOptions } from './common_pb'
 import { file_personhog_types_v1_common } from './common_pb'
+import type { Group } from './group_pb'
+import { file_personhog_types_v1_group } from './group_pb'
+import type { Person } from './person_pb'
+import { file_personhog_types_v1_person } from './person_pb'
 
 /**
  * Describes the file personhog/types/v1/feature_flag.proto.
@@ -13,8 +19,13 @@ import { file_personhog_types_v1_common } from './common_pb'
 export const file_personhog_types_v1_feature_flag: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiVwZXJzb25ob2cvdHlwZXMvdjEvZmVhdHVyZV9mbGFnLnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEiPQoPSGFzaEtleU92ZXJyaWRlEhgKEGZlYXR1cmVfZmxhZ19rZXkYASABKAkSEAoIaGFzaF9rZXkYAiABKAkinAEKFkhhc2hLZXlPdmVycmlkZUNvbnRleHQSEQoJcGVyc29uX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEjYKCW92ZXJyaWRlcxgDIAMoCzIjLnBlcnNvbmhvZy50eXBlcy52MS5IYXNoS2V5T3ZlcnJpZGUSIgoaZXhpc3RpbmdfZmVhdHVyZV9mbGFnX2tleXMYBCADKAkinQEKIEdldEhhc2hLZXlPdmVycmlkZUNvbnRleHRSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSFAoMZGlzdGluY3RfaWRzGAIgAygJEhsKE2NoZWNrX3BlcnNvbl9leGlzdHMYAyABKAgSNQoMcmVhZF9vcHRpb25zGAQgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zImAKIUdldEhhc2hLZXlPdmVycmlkZUNvbnRleHRSZXNwb25zZRI7CgdyZXN1bHRzGAEgAygLMioucGVyc29uaG9nLnR5cGVzLnYxLkhhc2hLZXlPdmVycmlkZUNvbnRleHQicwodVXBzZXJ0SGFzaEtleU92ZXJyaWRlc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIUCgxkaXN0aW5jdF9pZHMYAiADKAkSEAoIaGFzaF9rZXkYAyABKAkSGQoRZmVhdHVyZV9mbGFnX2tleXMYBCADKAkiOAoeVXBzZXJ0SGFzaEtleU92ZXJyaWRlc1Jlc3BvbnNlEhYKDmluc2VydGVkX2NvdW50GAEgASgDIkwKJERlbGV0ZUhhc2hLZXlPdmVycmlkZXNCeVRlYW1zUmVxdWVzdBIQCgh0ZWFtX2lkcxgBIAMoAxISCgpiYXRjaF9zaXplGAIgASgDIj4KJURlbGV0ZUhhc2hLZXlPdmVycmlkZXNCeVRlYW1zUmVzcG9uc2USFQoNZGVsZXRlZF9jb3VudBgBIAEoA2IGcHJvdG8z',
-        [file_personhog_types_v1_common]
+        'CiVwZXJzb25ob2cvdHlwZXMvdjEvZmVhdHVyZV9mbGFnLnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEiPQoPSGFzaEtleU92ZXJyaWRlEhgKEGZlYXR1cmVfZmxhZ19rZXkYASABKAkSEAoIaGFzaF9rZXkYAiABKAkinAEKFkhhc2hLZXlPdmVycmlkZUNvbnRleHQSEQoJcGVyc29uX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJEjYKCW92ZXJyaWRlcxgDIAMoCzIjLnBlcnNvbmhvZy50eXBlcy52MS5IYXNoS2V5T3ZlcnJpZGUSIgoaZXhpc3RpbmdfZmVhdHVyZV9mbGFnX2tleXMYBCADKAkinQEKIEdldEhhc2hLZXlPdmVycmlkZUNvbnRleHRSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSFAoMZGlzdGluY3RfaWRzGAIgAygJEhsKE2NoZWNrX3BlcnNvbl9leGlzdHMYAyABKAgSNQoMcmVhZF9vcHRpb25zGAQgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zImAKIUdldEhhc2hLZXlPdmVycmlkZUNvbnRleHRSZXNwb25zZRI7CgdyZXN1bHRzGAEgAygLMioucGVyc29uaG9nLnR5cGVzLnYxLkhhc2hLZXlPdmVycmlkZUNvbnRleHQicwodVXBzZXJ0SGFzaEtleU92ZXJyaWRlc1JlcXVlc3QSDwoHdGVhbV9pZBgBIAEoAxIUCgxkaXN0aW5jdF9pZHMYAiADKAkSEAoIaGFzaF9rZXkYAyABKAkSGQoRZmVhdHVyZV9mbGFnX2tleXMYBCADKAkiOAoeVXBzZXJ0SGFzaEtleU92ZXJyaWRlc1Jlc3BvbnNlEhYKDmluc2VydGVkX2NvdW50GAEgASgDIkwKJERlbGV0ZUhhc2hLZXlPdmVycmlkZXNCeVRlYW1zUmVxdWVzdBIQCgh0ZWFtX2lkcxgBIAMoAxISCgpiYXRjaF9zaXplGAIgASgDIj4KJURlbGV0ZUhhc2hLZXlPdmVycmlkZXNCeVRlYW1zUmVzcG9uc2USFQoNZGVsZXRlZF9jb3VudBgBIAEoAyLIAQoVR2V0RmxhZ0NvbnRleHRSZXF1ZXN0Eg8KB3RlYW1faWQYASABKAMSFgoJcGVyc29uX2lkGAIgASgDSACIAQESGQoRc3RhdGljX2NvaG9ydF9pZHMYAyADKAMSPgoRZ3JvdXBfaWRlbnRpZmllcnMYBCADKAsyIy5wZXJzb25ob2cudHlwZXMudjEuR3JvdXBJZGVudGlmaWVyEh0KFW92ZXJyaWRlX2Rpc3RpbmN0X2lkcxgFIAMoCUIMCgpfcGVyc29uX2lkIvkBChZHZXRGbGFnQ29udGV4dFJlc3BvbnNlEioKBnBlcnNvbhgBIAEoCzIaLnBlcnNvbmhvZy50eXBlcy52MS5QZXJzb24SQAoSY29ob3J0X21lbWJlcnNoaXBzGAIgAygLMiQucGVyc29uaG9nLnR5cGVzLnYxLkNvaG9ydE1lbWJlcnNoaXASKQoGZ3JvdXBzGAMgAygLMhkucGVyc29uaG9nLnR5cGVzLnYxLkdyb3VwEkYKEmhhc2hfa2V5X292ZXJyaWRlcxgEIAMoCzIqLnBlcnNvbmhvZy50eXBlcy52MS5IYXNoS2V5T3ZlcnJpZGVDb250ZXh0YgZwcm90bzM',
+        [
+            file_personhog_types_v1_cohort,
+            file_personhog_types_v1_common,
+            file_personhog_types_v1_group,
+            file_personhog_types_v1_person,
+        ]
     )
 
 /**
@@ -245,3 +256,90 @@ export type DeleteHashKeyOverridesByTeamsResponse =
 export const DeleteHashKeyOverridesByTeamsResponseSchema: GenMessage<DeleteHashKeyOverridesByTeamsResponse> =
     /*@__PURE__*/
     messageDesc(file_personhog_types_v1_feature_flag, 7)
+
+/**
+ * GetFlagContextRequest asks, in one call, for everything feature flag evaluation reads
+ * about one visitor. The person is read from a changelog follower, so it reflects writes
+ * the writer has not applied to Postgres yet. The caller resolves the distinct ID to a
+ * person ID first and names the person in the `x-team-id` and `x-person-id` headers,
+ * which route the call to a follower of that person's partition.
+ *
+ * @generated from message personhog.types.v1.GetFlagContextRequest
+ */
+export type GetFlagContextRequest = Message<'personhog.types.v1.GetFlagContextRequest'> & {
+    /**
+     * @generated from field: int64 team_id = 1;
+     */
+    teamId: bigint
+
+    /**
+     * Unset for a visitor with no person. The response then has no person and no cohort
+     * memberships.
+     *
+     * @generated from field: optional int64 person_id = 2;
+     */
+    personId?: bigint
+
+    /**
+     * Static cohorts to check the person's membership of.
+     *
+     * @generated from field: repeated int64 static_cohort_ids = 3;
+     */
+    staticCohortIds: bigint[]
+
+    /**
+     * @generated from field: repeated personhog.types.v1.GroupIdentifier group_identifiers = 4;
+     */
+    groupIdentifiers: GroupIdentifier[]
+
+    /**
+     * Distinct IDs whose hash key overrides to return, such as the visitor's current and
+     * anonymous IDs.
+     *
+     * @generated from field: repeated string override_distinct_ids = 5;
+     */
+    overrideDistinctIds: string[]
+}
+
+/**
+ * Describes the message personhog.types.v1.GetFlagContextRequest.
+ * Use `create(GetFlagContextRequestSchema)` to create a new message.
+ */
+export const GetFlagContextRequestSchema: GenMessage<GetFlagContextRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_feature_flag, 8)
+
+/**
+ * @generated from message personhog.types.v1.GetFlagContextResponse
+ */
+export type GetFlagContextResponse = Message<'personhog.types.v1.GetFlagContextResponse'> & {
+    /**
+     * Unset when the person does not exist.
+     *
+     * @generated from field: personhog.types.v1.Person person = 1;
+     */
+    person?: Person
+
+    /**
+     * @generated from field: repeated personhog.types.v1.CohortMembership cohort_memberships = 2;
+     */
+    cohortMemberships: CohortMembership[]
+
+    /**
+     * @generated from field: repeated personhog.types.v1.Group groups = 3;
+     */
+    groups: Group[]
+
+    /**
+     * @generated from field: repeated personhog.types.v1.HashKeyOverrideContext hash_key_overrides = 4;
+     */
+    hashKeyOverrides: HashKeyOverrideContext[]
+}
+
+/**
+ * Describes the message personhog.types.v1.GetFlagContextResponse.
+ * Use `create(GetFlagContextResponseSchema)` to create a new message.
+ */
+export const GetFlagContextResponseSchema: GenMessage<GetFlagContextResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_feature_flag, 9)

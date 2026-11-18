@@ -125,6 +125,7 @@ function createGrpcClient(): { client: PersonHogClient; handlers: ServiceHandler
             getGroupTypeMappingsByProjectId: () => ({ mappings: [] }),
             getGroupTypeMappingsByProjectIds: () => ({ results: [] }),
             getHashKeyOverrideContext: () => ({ results: [] }),
+            getFlagContext: () => ({ cohortMemberships: [], groups: [], hashKeyOverrides: [] }),
             upsertHashKeyOverrides: () => ({}),
             deleteHashKeyOverridesByTeams: () => ({}),
             checkCohortMembership: () => ({ memberships: [] }),

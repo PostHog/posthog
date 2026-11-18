@@ -273,6 +273,20 @@ impl PersonHogReplica for TestReplicaService {
         }))
     }
 
+    async fn get_flag_context(
+        &self,
+        _request: Request<personhog_proto::personhog::types::v1::GetFlagContextRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::GetFlagContextResponse>, Status>
+    {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(Response::new(
+            personhog_proto::personhog::types::v1::GetFlagContextResponse {
+                person: self.person.clone(),
+                ..Default::default()
+            },
+        ))
+    }
+
     async fn get_hash_key_override_context(
         &self,
         _request: Request<GetHashKeyOverrideContextRequest>,
