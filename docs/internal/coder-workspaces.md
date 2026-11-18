@@ -160,6 +160,7 @@ Logout only deletes the box's copy of the login. If the login may have been copi
 `devbox:claude:login` offers to delete the token secret when it exists. Restart a running box after you delete it, so the box drops the token from its environment.
 
 hogli never turns on Remote Control. It gives another way into the box, so turn it on only when you need it, and don't combine it with skipped permission prompts.
+To use it after `devbox:claude:login`, run `claude rc` in a terminal on the box that stays open, such as a Herdr tab, and start sessions from claude.ai/code or the Claude app. `/rc` connects one running session. See [Remote Control](https://code.claude.com/docs/en/remote-control).
 
 ## Managing devbox configuration
 
@@ -232,7 +233,10 @@ The box keeps them in memory only (`/dev/shm`, readable by your user alone), so 
 They are not in the environment. On the box, run a command that needs them with `devbox-secrets run -- <command>`, the way `op run` works locally.
 The push adds a note to the box's `~/.claude/CLAUDE.md` so agents there know to do the same.
 Anything running as you on the box can read them while they're lent, so lend keys with spending limits.
-Push refuses a box that is shared, and `devbox:share` refuses while secrets are lent.
+Push refuses a box that is shared with any user or group, and `devbox:share` refuses while secrets are lent.
+A command that `devbox-secrets run` started keeps the values after they expire or you clear them, so `devbox:share` also refuses while one runs.
+Unsharing doesn't end a former sharee's shells or processes. Restart the box after `devbox:unshare` and before you lend to it.
+Values must fit on one line. Push refuses a 1Password field with line breaks, such as a certificate.
 
 ## GitHub on a devbox
 

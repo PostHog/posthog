@@ -13,6 +13,12 @@ set -euo pipefail
 DIR="${DEVBOX_SECRETS_DIR:-/dev/shm/devbox-secrets-$(id -u)}"
 ENV_FILE="$DIR/env"
 EXPIRES_FILE="$DIR/expires"
+# store, clear and both expiry paths hold this lock, so an old expiry can't delete a newer lend.
+LOCK_FILE="$DIR.lock"
+# flock is in util-linux on every box. Without it (macOS), the steps run unlocked.
+lock() {
+  if command -v flock >/dev/null; then flock 9; fi
+}
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"
 MD_BEGIN="<!-- BEGIN devbox-secrets (managed by hogli devbox:secrets:push) -->"
 MD_END="<!-- END devbox-secrets -->"
@@ -26,7 +32,7 @@ die() {
 expired() {
   [ -f "$EXPIRES_FILE" ] || return 0
   if [ "$(date +%s)" -ge "$(cat "$EXPIRES_FILE")" ]; then
-    rm -rf "$DIR"
+    (lock && rm -rf "$DIR") 9>"$LOCK_FILE"
     return 0
   fi
   return 1
@@ -62,8 +68,10 @@ schedule_cleanup() {
   # shellcheck disable=SC2016  # the child shell expands its own arguments
   nohup ${detach[@]+"${detach[@]}"} bash -c '
     sleep "$1"
+    exec 9>"$4"
+    if command -v flock >/dev/null; then flock 9; fi
     [ "$(cat "$2/expires" 2>/dev/null)" = "$3" ] && rm -rf "$2"
-  ' _ "$wait" "$DIR" "$expires" >/dev/null 2>&1 &
+  ' _ "$wait" "$DIR" "$expires" "$LOCK_FILE" >/dev/null 2>&1 &
 }
 
 store() {
@@ -87,15 +95,28 @@ store() {
   done
   [ "$count" -gt 0 ] || die "nothing to store"
   echo "$expires" > "$staging/expires"
-  rm -rf "$DIR"
-  mv "$staging" "$DIR"
+  (
+    lock
+    rm -rf "$DIR"
+    mv "$staging" "$DIR"
+  ) 9>"$LOCK_FILE"
   trap - EXIT
   schedule_cleanup "$expires"
   note_for_agents
   echo "Stored $count secret(s) in memory."
 }
 
+# Processes started by `run` keep the secrets in their environment after the files go.
+holders() {
+  { grep -lxz "DEVBOX_SECRETS_LENT=1" /proc/[0-9]*/environ 2>/dev/null || true; } | wc -l | tr -d ' '
+}
+
 status() {
+  local running
+  running=$(holders)
+  if [ "$running" -gt 0 ]; then
+    echo "Still running with lent secrets: $running process(es). Stop them, or restart the box."
+  fi
   if expired || [ ! -f "$ENV_FILE" ]; then
     echo "No secrets lent to this box."
     return 0
@@ -113,13 +134,17 @@ run() {
   fi
   # shellcheck disable=SC1090
   . "$ENV_FILE"
+  export DEVBOX_SECRETS_LENT=1
   exec "$@"
 }
 
 case "${1:-}" in
   run) shift; run "$@" ;;
   status) status ;;
-  clear) rm -rf "$DIR"; echo "Cleared the lent secrets." ;;
+  clear)
+    (lock && rm -rf "$DIR") 9>"$LOCK_FILE"
+    echo "Cleared the lent secrets."
+    ;;
   store) shift; store "$@" ;;
   *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
