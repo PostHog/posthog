@@ -71,6 +71,26 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
                 parent=api,
                 attributes={"db.system.name": "redis", "server.address": "cache.internal"},
             )
+            if trace == 1:
+                # A database client that talks HTTP: the child names only the host, not the database.
+                events = w.span(
+                    "api",
+                    name="SELECT events",
+                    kind=3,
+                    env="prod",
+                    trace=trace,
+                    parent=api,
+                    attributes={"db.system": "clickhouse", "db.namespace": "events"},
+                )
+                w.span(
+                    "api",
+                    name="POST",
+                    kind=3,
+                    env="prod",
+                    trace=trace,
+                    parent=events,
+                    attributes={"server.address": "ch.internal"},
+                )
             if trace <= 2:
                 w.span(
                     "api",
@@ -118,6 +138,8 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
                 ("api", "web"): (False, "service", 4, 0),
                 ("api", "postgresql:orders"): (True, "database", 4, 0),
                 ("api", "redis"): (True, "database", 4, 0),
+                ("api", "clickhouse:events"): (True, "database", 1, 0),
+                ("api", "ch.internal"): (True, "external", 1, 0),
                 ("api", "payments.example.com"): (True, "external", 2, 2),
             },
         )
@@ -137,6 +159,8 @@ class TestDependenciesAPI(ClickhouseTestMixin, APIBaseTest):
                 ("api", "web"),
                 ("api", "postgresql:orders"),
                 ("api", "redis"),
+                ("api", "clickhouse:events"),
+                ("api", "ch.internal"),
                 ("api", "payments.example.com"),
             },
         )
