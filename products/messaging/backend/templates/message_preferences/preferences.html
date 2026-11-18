@@ -83,7 +83,8 @@
                 // Each choice as the newest accepted save sent it. Saves can commit out of order, so the read-back corrects it.
                 const accepted = savedChoices(document)
                 const acceptedBy = {}
-                const clickedBy = {}
+                // A switch with no click in flight or accepted shows its accepted value
+                const lastClickByToggle = {}
                 const saving = new Set()
                 let savesPending = 0
                 let savesStarted = 0
@@ -144,7 +145,7 @@
                 async function savePreferences(changedToggle) {
                     savesPending++
                     const saveNumber = ++savesStarted
-                    clickedBy[changedToggle.name] = saveNumber
+                    lastClickByToggle[changedToggle.name] = saveNumber
                     const choices = {}
                     toggles.forEach((toggle) => {
                         // Only submit the tracking answer when that toggle is the one that changed:
@@ -177,22 +178,22 @@
                             if (!(acceptedBy[name] > saveNumber)) {
                                 accepted[name] = on
                                 acceptedBy[name] = saveNumber
+                                if (!lastClickByToggle[name]) wanted[name] = on
                             }
                         })
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         showToast(error.message || 'Failed to update preferences', true)
-                        // A refused change turns back now, so a click before the read-back cannot resend it.
-                        // A newer click on the same switch stays.
-                        if (clickedBy[changedToggle.name] === saveNumber) {
+                        // A refused change turns back now, so a click before the read-back cannot resend it
+                        if (lastClickByToggle[changedToggle.name] === saveNumber) {
+                            lastClickByToggle[changedToggle.name] = 0
                             wanted[changedToggle.name] = accepted[changedToggle.name]
                             render()
                         }
                     } finally {
                         savesPending--
+                        render()
                         if (savesPending === 0) {
-                            // A choice that only refused saves sent turns back to its newest accepted value
-                            Object.assign(wanted, accepted)
                             const savesBeforeRead = savesStarted
                             // Overlapping saves can answer out of commit order, so read back what the server stored
                             const read = new AbortController()

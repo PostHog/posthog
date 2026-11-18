@@ -504,6 +504,7 @@ test.describe('Message preferences page', () => {
         const tracking = recipientPage.getByRole('checkbox', { name: 'Open and click tracking' })
         const successToast = recipientPage.getByText('Preferences updated successfully')
         const refusals = recipientPage.getByText('Something went wrong')
+        const isPageRead = (url: URL): boolean => url.pathname === path
         const status = (id: string): ReturnType<Page['getByTestId']> => recipientPage.getByTestId(`status-${id}`)
         const refuse = (route: Route): Promise<void> =>
             route.fulfill({ status: 500, json: { error: 'Something went wrong' } })
@@ -556,6 +557,59 @@ test.describe('Message preferences page', () => {
                 })
             })
 
+            await test.step('a refused topic follows a later save that went through', async () => {
+                await eventInvites.click()
+                await expect(status(eventInvitesId)).toHaveText('Subscribed')
+                const [refusal, committed, answer] = [responseGate(), responseGate(), responseGate()]
+                const [read, readAnswer] = [responseGate(), responseGate()]
+                const [savedBefore, refusedBefore] = [await successToast.count(), await refusals.count()]
+                let saves = 0
+                handleSave = async (route) => {
+                    saves++
+                    if (saves === 1) {
+                        await refusal.opened
+                        await refuse(route)
+                    } else if (saves === 2) {
+                        const response = await route.fetch()
+                        committed.open()
+                        await answer.opened
+                        await route.fulfill({ response })
+                    } else {
+                        await route.continue()
+                    }
+                }
+                await recipientPage.route(
+                    isPageRead,
+                    async (route) => {
+                        const response = await route.fetch()
+                        read.open()
+                        await readAnswer.opened
+                        await route.fulfill({ response })
+                    },
+                    { times: 1 }
+                )
+                await eventInvites.click()
+                await tracking.click()
+                await committed.opened
+                refusal.open()
+                await expect(refusals).toHaveCount(refusedBefore + 1)
+                await expect(eventInvites).toBeChecked()
+                answer.open()
+                await read.opened
+                await expect(eventInvites).not.toBeChecked()
+                await tracking.click()
+                await expect(successToast).toHaveCount(savedBefore + 2)
+                readAnswer.open()
+                await expect(status(eventInvitesId)).toHaveText('Not subscribed')
+                await expect(status('$email_tracking')).toHaveText('Tracking allowed')
+                expect(await storedPreferences('event_invites')).toEqual({
+                    $all: 'OPTED_IN',
+                    $email_tracking: 'OPTED_IN',
+                    [productNewsId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_OUT',
+                })
+            })
+
             await test.step('an older refusal does not undo a newer click on the same switch', async () => {
                 const refusal = responseGate()
                 const committed = responseGate()
@@ -575,13 +629,14 @@ test.describe('Message preferences page', () => {
                         await route.continue()
                     }
                 }
+                const [savedBefore, refusedBefore] = [await successToast.count(), await refusals.count()]
                 await allMarketing.click()
                 await allMarketing.click()
-                await expect(successToast).toHaveCount(3)
+                await expect(successToast).toHaveCount(savedBefore + 1)
                 await allMarketing.click()
                 await committed.opened
                 refusal.open()
-                await expect(refusals).toHaveCount(3)
+                await expect(refusals).toHaveCount(refusedBefore + 1)
                 await expect(allMarketing).not.toBeChecked()
                 await tracking.click()
                 answer.open()
