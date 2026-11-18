@@ -12,7 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceListApi } from '../../generated/api.schemas'
-import { makeTraceListItem, makeTraceListPage } from './testFixtures'
+import { makeTraceListItem, makeTraceListPage, makeTracePreview, traceCellsMocks } from './testFixtures'
 import { TracesListHost } from './TracesListHost'
 import { tracesListLogic } from './tracesListLogic'
 
@@ -53,6 +53,7 @@ describe('TracesListHost', () => {
                     return answer
                 },
             },
+            post: traceCellsMocks(),
         })
         initKeaTests()
         localStorage.clear()
@@ -74,13 +75,14 @@ describe('TracesListHost', () => {
         await expectLogic(tracesListLogic()).toFinishAllListeners()
     }
 
-    it('shows the rows of the first page and the counts on the chips', async () => {
+    it('shows the rows of the first page, the counts on the chips and the previews', async () => {
         const view = renderHost()
         await view.findByText('summarize-ticket')
 
         expect(view.getByText('answer-billing-question')).toBeTruthy()
         expect(attr(view, 'ai-observability-traces-list-quick-filter-errors').textContent).toBe('Errors1')
         expect(attr(view, 'ai-observability-traces-list-quick-filter-feedback').textContent).toBe('User feedback3')
+        expect(await view.findAllByText(makeTracePreview('trace-a').input ?? '')).toHaveLength(2)
         expect(requests).toEqual([FIRST_PAGE_PARAMS])
     })
 

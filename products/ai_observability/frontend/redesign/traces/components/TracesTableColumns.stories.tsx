@@ -2,9 +2,10 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 
-import type { TraceListItemApi } from '../../../generated/api.schemas'
-import { makeTraceListItem } from '../testFixtures'
-import { tracesTableColumns } from './TracesTableColumns'
+import type { TraceListItemApi, TracePersonApi, TraceSentimentApi } from '../../../generated/api.schemas'
+import { makeTraceListItem, makeTracePreview, makeUnreadTraceCells, ready } from '../testFixtures'
+import type { TraceCellLoad } from '../types'
+import { TracesTableCells, tracesTableColumns } from './TracesTableColumns'
 
 const ITEMS: TraceListItemApi[] = [
     makeTraceListItem({
@@ -44,10 +45,39 @@ const ITEMS: TraceListItemApi[] = [
     }),
 ]
 
-function SampleTable({ items }: { items: TraceListItemApi[] }): JSX.Element {
+const IDS = ITEMS.map((item) => item.id)
+
+const LOADED_CELLS: TracesTableCells = {
+    previews: new Map([
+        ['trace-1', ready(makeTracePreview('trace-1'))],
+        [
+            'trace-2',
+            ready(
+                makeTracePreview('trace-2', {
+                    input: 'Summarize the attached contract and list every clause that mentions termination, renewal or notice periods, with the page each one is on.',
+                    output: null,
+                    outputMissingReason: 'timed_out',
+                })
+            ),
+        ],
+        ['trace-3', ready(makeTracePreview('trace-3', { input: null, inputMissingReason: 'too_large', output: null }))],
+    ]),
+    people: new Map<string, TraceCellLoad<TracePersonApi | null>>([
+        ['trace-1', ready({ distinctId: 'ana@example.com', label: 'Ana Example' })],
+        ['trace-2', ready({ distinctId: 'f3c9a1d2', label: 'f3c9a1d2' })],
+        ['trace-3', ready(null)],
+    ]),
+    sentiments: new Map<string, TraceCellLoad<TraceSentimentApi | null>>([
+        ['trace-1', ready({ label: 'positive', score: 0.82 })],
+        ['trace-2', ready({ label: 'negative', score: 0.71 })],
+        ['trace-3', ready(null)],
+    ]),
+}
+
+function SampleTable({ items, cells }: { items: TraceListItemApi[]; cells: TracesTableCells }): JSX.Element {
     return (
         <LemonTable<TraceListItemApi>
-            columns={tracesTableColumns({ linkTo: (item) => `/ai-observability/traces/${item.id}` })}
+            columns={tracesTableColumns({ linkTo: (item) => `/ai-observability/traces/${item.id}`, cells })}
             dataSource={items}
             rowKey={(item) => item.id}
         />
@@ -58,13 +88,17 @@ const meta: Meta<typeof SampleTable> = {
     title: 'Scenes-App/AI observability/Traces/Traces table columns',
     component: SampleTable,
     parameters: { testOptions: { snapshotBrowsers: [] } },
-    args: { items: ITEMS },
+    args: { items: ITEMS, cells: LOADED_CELLS },
 }
 export default meta
 
 type Story = StoryObj<typeof SampleTable>
 
 export const Rows: Story = {}
+
+export const SlowCellsLoading: Story = { args: { cells: makeUnreadTraceCells(IDS, 'loading') } }
+
+export const SlowCellsFailed: Story = { args: { cells: makeUnreadTraceCells(IDS, 'error') } }
 
 export const NarrowContainer: Story = {
     decorators: [

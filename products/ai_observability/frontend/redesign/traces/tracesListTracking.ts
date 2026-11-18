@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 // pinned: event names and property keys. Dashboards, insights and usage analysis read them, so a rename breaks them.
 const EVENTS = {
     listLoaded: 'llma traces list loaded',
+    cellsLoaded: 'llma traces list cells loaded',
 } as const
 
 export interface TracesListLoaded {
@@ -16,6 +17,11 @@ export interface TracesListLoaded {
     dateFrom: string | null
     quickFilter: string | null
     searched: boolean
+}
+
+export interface TracesListCellsLoaded {
+    previewsWaitMs: number
+    rowCount: number
 }
 
 export const tracesListTracking = {
@@ -31,6 +37,17 @@ export const tracesListTracking = {
             date_from: dateFrom,
             quick_filter: quickFilter,
             searched,
+        })
+    },
+    /**
+     * Sent each time the previews of a shown page answer. A page whose rows were all read before, such as one the
+     * person steps back to, reads nothing and sends nothing. `previews_wait_ms` is the wait for that read and
+     * `row_count` counts the rows it read, which leaves out the rows of the page read before.
+     */
+    cellsLoaded: ({ previewsWaitMs, rowCount }: TracesListCellsLoaded): void => {
+        posthog.capture(EVENTS.cellsLoaded, {
+            previews_wait_ms: previewsWaitMs,
+            row_count: rowCount,
         })
     },
 }
