@@ -92,6 +92,12 @@ describe('setupExpressApp request body handling', () => {
         expect(res.status).toEqual(405)
     })
 
+    it('passes an encoded request without a body to the route', async () => {
+        const res = await postBytes('/echo', { 'Content-Encoding': 'gzip' }, [])
+
+        expect(res.status).toEqual(200)
+    })
+
     it.each([undefined, '', 'identity'])('accepts a JSON body with content encoding %p', async (encoding) => {
         const req = supertest(app).post('/echo')
         const res = await (encoding === undefined ? req : req.set('Content-Encoding', encoding)).send({ data: 'x' })
@@ -132,5 +138,15 @@ describe('setupExpressApp request body handling', () => {
         expect(res.body).toEqual({ status: 'error', error: 'Unsupported content encoding' })
         const after = await supertest(app).post('/echo').send({ data: 'x' })
         expect(after.status).toEqual(200)
+    })
+
+    it.each([
+        ['a length', { 'Content-Length': String(gzipSync('{"data":"x"}').length) }],
+        ['chunked transfer', {}],
+    ])('answers a compressed body without a content type sent with %s with 415', async (_, headers) => {
+        const res = await postBytes('/echo', { 'Content-Encoding': 'gzip', ...headers }, [gzipSync('{"data":"x"}')])
+
+        expect(res.status).toEqual(415)
+        expect(res.body).toEqual({ status: 'error', error: 'Unsupported content encoding' })
     })
 })

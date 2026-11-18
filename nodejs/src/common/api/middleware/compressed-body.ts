@@ -46,6 +46,10 @@ function isJsonBody(req: Request): boolean {
     return (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase() === 'application/json'
 }
 
+function carriesBody(req: Request): boolean {
+    return Number(req.headers['content-length'] ?? 0) > 0 || req.headers['transfer-encoding'] !== undefined
+}
+
 function tooLarge(): Error {
     return Object.assign(new Error('Request entity too large'), { status: 413 })
 }
@@ -98,7 +102,7 @@ export function createCompressedBodyMiddleware(limitBytes: number): RequestHandl
                         return next(readError)
                     }
                     if (!Buffer.isBuffer(req.body)) {
-                        return next()
+                        return carriesBody(req) ? refuse(res, 415, 'Unsupported content encoding') : next()
                     }
                     const decompress = decompressorFor(encoding)
                     if (!decompress || !isJsonBody(req)) {
