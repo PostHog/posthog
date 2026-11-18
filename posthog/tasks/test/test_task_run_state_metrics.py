@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, ClassVar, Optional
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.db import OperationalError, ProgrammingError
@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import CollectorRegistry
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Organization, Team
 from posthog.tasks.tasks import capture_task_run_state_metrics, capture_task_status_shadow_metrics
@@ -354,7 +355,11 @@ class TestCaptureTaskStatusShadowMetrics(TestCase):
                 "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
                 return_value={"user": "enforce"},
             ),
+            patch("posthog.temporal.common.client.sync_connect") as connect,
         ):
+            connect.return_value.get_workflow_handle.return_value.describe = AsyncMock(
+                side_effect=RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+            )
             capture_task_status_shadow_metrics()
 
         run.refresh_from_db()

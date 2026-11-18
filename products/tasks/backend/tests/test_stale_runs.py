@@ -1,14 +1,17 @@
 import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.db import OperationalError
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Organization, Team
 
@@ -31,8 +34,17 @@ CLOUD = TaskRun.Environment.CLOUD
 LOCAL = TaskRun.Environment.LOCAL
 
 
+_WORKFLOW_NOT_FOUND = RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+
+
 def _ago(**duration: int) -> datetime:
     return NOW - timedelta(**duration)
+
+
+def _raise_or_return(answer: object) -> object:
+    if isinstance(answer, Exception):
+        raise answer
+    return answer
 
 
 class TestStaleRules(SimpleTestCase):
@@ -124,6 +136,10 @@ class TestStaleRules(SimpleTestCase):
 class TestCollectStaleLiveRuns(TestCase):
     def setUp(self) -> None:
         self.team = Team.objects.create(organization=Organization.objects.create(name="Org"), name="Team")
+        connect = patch("posthog.temporal.common.client.sync_connect").start()
+        self.addCleanup(patch.stopall)
+        self.describe_workflow = AsyncMock(side_effect=_WORKFLOW_NOT_FOUND)
+        connect.return_value.get_workflow_handle.return_value.describe = self.describe_workflow
 
     def _run(
         self,
@@ -236,6 +252,44 @@ class TestCollectStaleLiveRuns(TestCase):
         run.refresh_from_db()
         assert (run.status == TaskRun.Status.FAILED) is (swept_profile is not None)
         assert rows == ([SweptRunRow(profile=swept_profile, count=1)] if swept_profile else [])
+
+    @parameterized.expand(
+        [
+            ("still_running", SimpleNamespace(status=WorkflowExecutionStatus.RUNNING), False),
+            ("finished", SimpleNamespace(status=WorkflowExecutionStatus.COMPLETED), True),
+            ("terminated", SimpleNamespace(status=WorkflowExecutionStatus.TERMINATED), True),
+            ("not_found", _WORKFLOW_NOT_FOUND, True),
+            ("unknown_because_temporal_is_down", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), False),
+        ]
+    )
+    def test_sweep_ends_a_quiet_run_only_when_its_workflow_is_gone(
+        self, _name: str, workflow: object, ended: bool
+    ) -> None:
+        runs = [self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600) for _ in range(2)]
+        self.describe_workflow.side_effect = lambda **_: _raise_or_return(workflow)
+
+        with patch(
+            "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+            return_value={USER.key: "enforce"},
+        ):
+            tasks_facade.sweep_stale_live_task_runs()
+
+        statuses = set(TaskRun.objects.filter(id__in=[run.id for run in runs]).values_list("status", flat=True))
+        assert statuses == {TaskRun.Status.FAILED if ended else TaskRun.Status.IN_PROGRESS}
+
+    def test_sweep_ends_a_run_with_no_writes_for_a_day_even_if_its_workflow_runs(self) -> None:
+        run = self._run(profile=USER.key, quiet_for=timedelta(seconds=5), no_write_for=timedelta(hours=25))
+        self.describe_workflow.side_effect = None
+        self.describe_workflow.return_value = SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
+
+        with patch(
+            "products.tasks.backend.stale_runs.posthoganalytics.get_feature_flag_payload",
+            return_value={USER.key: "enforce"},
+        ):
+            tasks_facade.sweep_stale_live_task_runs()
+
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.FAILED
 
     def test_sweep_ends_at_most_its_cap_of_runs_in_one_pass(self) -> None:
         runs = [self._run(profile=USER.key, quiet_for=timedelta(hours=1), idle_timeout_seconds=600) for _ in range(3)]

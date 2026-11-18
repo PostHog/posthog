@@ -1,10 +1,12 @@
 import json
 import time
 import random
+import asyncio
 from collections import Counter
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 from django.core.cache import cache
@@ -29,6 +31,7 @@ SWEEP_MODE_CACHE_SECONDS = 60
 NO_PROFILE = "none"
 SWEEP_MODE_LOOKUP_BUDGET_SECONDS = 20
 MAX_SWEEPS_PER_PASS = 100
+WORKFLOW_LOOKUP_TIMEOUT = timedelta(seconds=10)
 _LIVE_RUN_STATUSES = (TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _UNRESOLVED_SWEEP_MODE = "unresolved"
 
@@ -55,6 +58,7 @@ class StaleRunCount:
 @frozen
 class RunToSweep:
     run_id: UUID
+    workflow_id: str
     profile: str
     rule: StaleRule
     quiet_since: datetime
@@ -64,6 +68,7 @@ class RunToSweep:
 @frozen
 class _LiveRun:
     run_id: UUID
+    workflow_id: str
     team_id: int
     profile: str | None
     environment: str
@@ -172,6 +177,8 @@ def _live_runs(*, sweepable_only: bool = False) -> Iterator[_LiveRun]:
             "state__inactivity_timeout_seconds",
             "state__await_user_message",
             "state__warm_activation_started",
+            "state__workflow_id",
+            "task_id",
             "agent_status",
             "last_heartbeat_at",
             "queued_at",
@@ -190,6 +197,8 @@ def _live_runs(*, sweepable_only: bool = False) -> Iterator[_LiveRun]:
         run_timeout_seconds,
         awaits_first_message,
         warm_activation_started,
+        persisted_workflow_id,
+        task_id,
         agent_status,
         last_heartbeat_at,
         queued_at,
@@ -205,6 +214,7 @@ def _live_runs(*, sweepable_only: bool = False) -> Iterator[_LiveRun]:
             idle_timeout = max(idle_timeout, STARTUP_ALLOWANCE)
         yield _LiveRun(
             run_id=run_id,
+            workflow_id=persisted_workflow_id or TaskRun.get_workflow_id(task_id, run_id),
             team_id=team_id,
             profile=profile_key,
             environment=environment,
@@ -259,6 +269,7 @@ def runs_to_sweep() -> list[RunToSweep]:
     to_sweep = [
         RunToSweep(
             run_id=run.run_id,
+            workflow_id=run.workflow_id,
             profile=run.profile or NO_PROFILE,
             rule=StaleRule.HEARTBEAT if StaleRule.HEARTBEAT in run.rules else StaleRule.NO_WRITES_24H,
             quiet_since=run.quiet_since,
@@ -270,3 +281,32 @@ def runs_to_sweep() -> list[RunToSweep]:
     if len(to_sweep) > MAX_SWEEPS_PER_PASS:
         logger.warning("task_stale_sweep_pass_capped", left_for_next_pass=len(to_sweep) - MAX_SWEEPS_PER_PASS)
     return to_sweep[:MAX_SWEEPS_PER_PASS]
+
+
+class WorkflowLiveness:
+    def __init__(self) -> None:
+        self._client: Any = None
+        self._unknown = False
+
+    def is_running(self, workflow_id: str) -> bool:
+        from temporalio.client import WorkflowExecutionStatus
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from posthog.temporal.common.client import sync_connect
+
+        if self._unknown:
+            return True
+        try:
+            if self._client is None:
+                self._client = sync_connect()
+            handle = self._client.get_workflow_handle(workflow_id)
+            description = asyncio.run(handle.describe(rpc_timeout=WORKFLOW_LOOKUP_TIMEOUT))
+        except RPCError as error:
+            if error.status == RPCStatusCode.NOT_FOUND:
+                return False
+            self._unknown = True
+            raise
+        except Exception:
+            self._unknown = True
+            raise
+        return description.status == WorkflowExecutionStatus.RUNNING
