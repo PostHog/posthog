@@ -21,8 +21,14 @@ export function ImpactLiftLine(): JSX.Element | null {
     if (lift.clicked !== null) {
         return <ClickedLift {...sentence} clicked={lift.clicked} notClicked={lift.notClicked} />
     }
-    return lift.notClicked === null ? null : (
-        <NotClickedLift {...sentence} notClicked={lift.notClicked} clicks={impact.clicked} />
+    if (lift.notClicked !== null) {
+        return <NotClickedLift {...sentence} notClicked={lift.notClicked} clicks={impact.clicked} />
+    }
+    return (
+        <p className="text-sm m-0">
+            PostHog followed none of the sends in this period to see who did <strong>{event}</strong>.
+            <FollowedNote note={followedNote} />
+        </p>
     )
 }
 

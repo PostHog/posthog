@@ -121,6 +121,20 @@ describe('ImpactFunnelCard', () => {
         }
     )
 
+    it('says why no conversion is counted when no send in either group could be followed', async () => {
+        answer = [
+            200,
+            { ...IMPACT, after_click: { sends: 0, converted: 0 }, without_click: { sends: 0, converted: 0 } },
+        ]
+        renderCard()
+        emailImpactLogic({ workflowId: 'workflow-1' }).actions.setEvent('plan upgraded')
+
+        const reason = await screen.findByText(/^PostHog followed none of the sends in this period/)
+        expect(reason.closest('p')).toHaveTextContent(
+            'PostHog followed none of the sends in this period to see who did plan upgraded. Counted over 0 of 2 clicked sends and 0 of 7 delivered sends with no recorded click: PostHog follows the sends that name a person, and only the most recent ones on a busy email.'
+        )
+    })
+
     it('shows a failed load once, in the card, and loads the funnel on Try again', async () => {
         answer = [500, { detail: 'Server error' }]
         renderCard()
