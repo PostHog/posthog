@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.amazon_ads._config import AmazonAdsSourceConfig
 from products.warehouse_sources.sources.amazon_ads.amazon_ads import (
+    AMAZON_ADS_HOSTS,
     AmazonAdsResumeConfig,
     amazon_ads_source,
     validate_credentials as validate_amazon_ads_credentials,
@@ -46,10 +47,23 @@ class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConf
         return ExternalDataSourceType.AMAZONADS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # The unified Ads API rejects the targets query with a 400 rather than an empty page when
+        # the profile has no Sponsored Brands or Sponsored Display campaigns to scope it to, so a
+        # retry gets the same rejection every time. sb_targets and sd_targets share this path and
+        # can't be told apart from the URL alone.
+        targets_query_bad_request_message = (
+            "Amazon Ads rejected the Sponsored Brands/Sponsored Display targets request for this "
+            "profile with a 400 error, so PostHog stopped retrying it. This can happen when the "
+            "profile has no Sponsored Brands or Sponsored Display campaigns."
+        )
         return {
             "400 Client Error: Bad Request for url: https://api.amazon.com/auth/o2/token": "Amazon Ads authentication failed. Your refresh token may be invalid or revoked — please check your Login with Amazon credentials.",
             "401 Client Error: Unauthorized for url: https://api.amazon.com/auth/o2/token": "Amazon Ads authentication failed. Please check your Login with Amazon client ID and secret.",
             "403 Client Error: Forbidden for url: https://advertising-api": "Amazon Ads denied access. Please check that your Login with Amazon application has Advertising API access and the right region.",
+            **{
+                f"Bad Request for url: {host}/adsApi/v1/query/targets": targets_query_bad_request_message
+                for host in AMAZON_ADS_HOSTS.values()
+            },
         }
 
     @property
