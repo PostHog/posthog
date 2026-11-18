@@ -66,18 +66,21 @@ interface RecipientView {
     status: (id: string) => ReturnType<Page['getByTestId']>
 }
 
-// An empty token makes the endpoint refuse the save with its own error, and the test never reads the token
+// The next save reaches the endpoint without its form fields, so the endpoint refuses it with its own error
 async function refuseNextSave(recipientPage: Page, save: () => Promise<void>): Promise<void> {
-    const token = recipientPage.locator('input[name="token"]')
-    await token.evaluate((input: HTMLInputElement) => {
-        input.dataset.heldToken = input.value
-        input.value = ''
-    })
+    await recipientPage.route(
+        UPDATE_URL,
+        (route) => {
+            const { 'content-length': _length, 'content-type': _type, ...headers } = route.request().headers()
+            return route.continue({
+                headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded' },
+                postData: 'refused=true',
+            })
+        },
+        { times: 1 }
+    )
     await save()
     await expect(recipientPage.getByText('Missing token')).toBeVisible()
-    await token.evaluate((input: HTMLInputElement) => {
-        input.value = input.dataset.heldToken ?? ''
-    })
 }
 
 async function openAsRecipient(browser: Browser, path: string): Promise<RecipientView> {
