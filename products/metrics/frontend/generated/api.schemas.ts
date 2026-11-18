@@ -1022,6 +1022,12 @@ export interface _MetricClauseApi {
      * @nullable
      */
     quantile?: number | null
+    /**
+     * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+     * @minimum 0.001
+     * @nullable
+     */
+    apdexThresholdMs?: number | null
     /** Label predicates ANDed together for this clause. */
     filters?: _MetricFilterApi[]
     /** Labels to split this clause into separate series by. */
@@ -1078,6 +1084,12 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     quantile?: number | null
+    /**
+     * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+     * @minimum 0.001
+     * @nullable
+     */
+    apdexThresholdMs?: number | null
     /** Label predicates ANDed together. Rows must satisfy every filter. */
     filters?: _MetricFilterApi[]
     /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
