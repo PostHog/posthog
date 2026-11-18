@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.query_log_archive import (
@@ -43,7 +45,7 @@ WRITE_ROLES = [
 
 
 def add_column(table: str) -> str:
-    return f"ALTER TABLE posthog.{table} ADD COLUMN IF NOT EXISTS {COLUMN} {AFTER}"
+    return f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{table} ADD COLUMN IF NOT EXISTS {COLUMN} {AFTER}"
 
 
 operations = [
@@ -62,7 +64,7 @@ operations = [
         )
     ),
     run_sql_with_exceptions(
-        f"ALTER TABLE posthog.{QUERY_LOG_ARCHIVE_V3_MV} MODIFY QUERY {MV_SELECT_SQL_V3}",
+        f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{QUERY_LOG_ARCHIVE_V3_MV} MODIFY QUERY {MV_SELECT_SQL_V3}",
         node_roles=WRITE_ROLES,
         sharded=False,
         is_alter_on_replicated_table=False,
