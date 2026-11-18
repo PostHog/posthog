@@ -10706,18 +10706,26 @@ snapshots:
         hash: v1.k794b7964.efca59e3aced4442cd6b30690d23c3d0536f8a1024f88b5518bab4ce5e0e1e69.P7ky29-kT4vjWoxWAFW1gj8v1VJU0GUShescxKxciWo
     scenes-app-application-observability-endpoint-time-spent--no-sampled-requests--light:
         hash: v1.k794b7964.afb1f3de27bb41a36eff7b04239fac21f789106c3a22004c83e4fa7b91071c78.51NrJz2iYCKh19-09PX6smg9xEAqBe_r8Lq-3yMpNzo
+    scenes-app-application-observability-health-tables--endpoints-filtered-by-search--dark:
+        hash: v1.k794b7964.59d0374622d9240843d1ede3b0aa6f6e6992db3bf2c3b79e9409dd0ba720eaeb.qWjjGxpeqySZl9lpiLbAX2q_SMychNLqZlXFjlOfLPU
+    scenes-app-application-observability-health-tables--endpoints-filtered-by-search--light:
+        hash: v1.k794b7964.5bd3f419154e47fed4221b76a856947e8806e8438df1b54fb14e439dce15aeb1.7VAR_wxPXADqH6v-5gO9IisbWH2j81QjRjy-c65lwhI
+    scenes-app-application-observability-health-tables--services-with-error-rate-bars--dark:
+        hash: v1.k794b7964.7f424f047fac26e09fa04b6524f846c6ca3f30ca236942b704abc09355120636.nLociw-D_9VV9W5MX5CfFDJdWAdwYmzGH45bycBv6ik
+    scenes-app-application-observability-health-tables--services-with-error-rate-bars--light:
+        hash: v1.k794b7964.3597963d8f2e9d38c4b69a9e2b9635c30799e32178a64592a148db2299426c36.eHyRmrsbdB3GJr0yUO4Gwl9v1z1qWgvm4TwRX6-ldGc
     scenes-app-application-observability-live-refresh--live--dark:
-        hash: v1.k794b7964.567d49fdbd951ab19b8f689a2fef4362331dd6f8fd1360b59f44b70425095275.n4oOHvwuLeAKOekLk13ujeOoFD_aVQk2vUWLy8cj0-M
+        hash: v1.k794b7964.0fe2006d1feab3bf61c9d01fd63f232e798e00f7f6761a5afeb69e706ebc209c.MLCdgCcfvTS-15S0uhqWTHQToSLhxG8SkPiIY1pnqVs
     scenes-app-application-observability-live-refresh--live--light:
-        hash: v1.k794b7964.6b8adfe4d1a4345941149044fa0fd3efe87d8f555728ffa9c408adb2146fa40a.Ed3qJ6f73SAedUDtnWbeJZQyUs9KcUTKH11rBRNcVzA
+        hash: v1.k794b7964.156fd7f1a62d97daa833d7bbf62251b6d7a41b7626dc17cce8346ebc7b62b956.mnWhSeta5nIpdSAFcoMbmttNZ5qcBx-Ldm83Xij1_Qc
     scenes-app-application-observability-live-refresh--paused--dark:
-        hash: v1.k794b7964.185f637de265d20962ab88e344c3247791588258e9ab49ea0519335c925b1aaf.AHgtgi2KtJ3uAOnveFVsSaldyULPpCf0JjvqbWxu6-w
+        hash: v1.k794b7964.adcbd373c3dbe3fbeab0a152873f5fcc3c968cbd591c23cb43231e5315df231b.VGXnIyH70zdDGmlR3SbTaxZf23IID6fgnBX2tkMSTN0
     scenes-app-application-observability-live-refresh--paused--light:
-        hash: v1.k794b7964.db1bc7054739237f6782b3a7dfaa034d3f993ab4d3779ab32705ae15e122dbef.76Q1QmoOxeB1SKGmxQY2Yndya8WeRpODMU0o46tkCeU
+        hash: v1.k794b7964.0e34ef18a022690a35c0318b25fb06c5da28fbfef7f17bc2596711e69cbc9a64.x0X0t3ElZJcgKbsPgaY6X4qm-2MVinzuje16fDVFkUw
     scenes-app-application-observability-service--service-page--dark:
-        hash: v1.k794b7964.8fd2438cf95f2f4f63f1625fcdaaf953140d11faef0794b7fab8b38e045509af.fXOsTxrbqaRJm1ceO0AWPbpacaOM-kEUxua_6HP-6ik
+        hash: v1.k794b7964.f141e9fb803a5f4c6b81ba7331abfd8743c1b1773d8460d5aba8812eebccd4f7.1U39MgZ0Pz5OIdxqXf12RAfgd6aEMCgWy-PrEgU4A2w
     scenes-app-application-observability-service--service-page--light:
-        hash: v1.k794b7964.82737cdf5b76fecadaca07a44f48cc3d4b3cc841438f0755782b15b6a0ea46cb.mGV5jp9TACkqjNKiE1XWflmZcpmCVld9DU6P3AEqPvI
+        hash: v1.k794b7964.9065bd04a7ec266e3f54a162a49bfed5ce8d9403e3228ff9fb57f8389b4206dc.GfVP_6N4S0z3OAQ9AeogUgVUBjbPnalLlVt8yQQ_hgU
     scenes-app-batchexports--backfills-empty--dark:
         hash: v1.k794b7964.8addbab5dc9322002703f43982a0f950666fd19066808134206cf88a4d3fca23.rQn27PGaf9lf989r2DJBj1BYEWNECVUB8h3wcMgQo5c
     scenes-app-batchexports--backfills-empty--light:
@@ -11170,6 +11178,10 @@ snapshots:
         hash: v1.k794b7964.1aed4f182db96074e86ac3ccc68ce6f2aa5542d731bd01ae6888f4c044d50c06.7c-6yEky1tN7l87W_v2JLRUcecJxd5VBu8FM-fnrxMU
     scenes-app-customer-analytics-track-rules--preview--light:
         hash: v1.k794b7964.283aaee2fee72892b918c583c603b95d15444ee8007ff272e3261f1e397c72e8.YDGJHALZf_iyRSZ_yUc5EM4kEgLddY1yet3W8QlD0UI
+    scenes-app-dashboards-visible-tiles--offscreen-tiles-wait-to-load--dark:
+        hash: v1.k794b7964.6841ed7873801c4d2a2a0144bbb9ab779d3147ef65643dc37f7f65f8a028979e.0ULKITHCuAtNKBT6L48irJvn59fjdXA4XLKIqupbSxA
+    scenes-app-dashboards-visible-tiles--offscreen-tiles-wait-to-load--light:
+        hash: v1.k794b7964.48a2ffa5da96b98b83db4c53a141145980163f4372dc4e8405fc5ba83827826a.iL2g5Ot3mBOVIAtR8hZeob3qbv59vwSuv02mjdB59BU
     scenes-app-data-management--data-warehouse-managed-viewsets--dark:
         hash: v1.k794b7964.c8b8c112665a993ec00602d6f00602775548a3aa782ae541e4738e879b5a1107.KTg2KYEs4UHmHOuVj0Py_3WERNbAjQ1UQHf5n6yxhSc
     scenes-app-data-management--data-warehouse-managed-viewsets--light:
