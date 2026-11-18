@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.api.oauth.provisioning_review import append_run_log
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import CIMDProvisioningReview, ProvisioningReviewStatus
@@ -120,3 +121,19 @@ class TestOAuthApplicationsTool(BaseTest):
 
         shown = {name for name in ALL_APPS if name in content}
         assert shown == expected
+
+    @parameterized.expand(
+        [
+            ("linked_through_the_issuer", "https://us.posthog.com", "provisioning=on"),
+            ("not_linked", "", "provisioning=off"),
+        ]
+    )
+    def test_requiring_a_link_holds_back_only_unlinked_partners(self, _name, link_issuer, query) -> None:
+        self.app._provisioning_config = ProvisioningConfig(active=True).model_dump(mode="json")
+        self.app.organization_link_issuer = link_issuer
+        self.app.save()
+
+        with override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", True):
+            content = self.client.get(f"{TOOL_URL}?{query}").content.decode()
+
+        assert "Waiting Partner" in content

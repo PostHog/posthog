@@ -1147,6 +1147,7 @@ export enum SavedInsightsTabs {
     Home = 'home',
     All = 'all',
     Yours = 'yours',
+    Anomalies = 'anomalies',
     History = 'history',
     Alerts = 'alerts',
     Notifications = 'notifications',
@@ -4827,6 +4828,8 @@ export interface PreflightStatus {
     cohort_csv_upload_max_bytes?: number
     /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
     webmcp_available?: boolean
+    /** Origin of the PostHog instance that issues CIMD verification tokens. Empty when this instance issues them. */
+    cimd_verification_token_issuer_url?: string
     object_storage: boolean
     wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]

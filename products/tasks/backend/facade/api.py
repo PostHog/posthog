@@ -268,6 +268,7 @@ from products.tasks.backend.task_run_sync import (
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
+    public_slack_thread_q,
     readable_without_channel,
     scout_trial_visibility_q,
     task_control_q,
@@ -3562,28 +3563,6 @@ def task_run_matches_current_ownership(run_id: str | UUID, task_id: str | UUID, 
     return run is not None and run.matches_task_ownership()
 
 
-def _shared_slack_thread_q() -> Q:
-    """Slack tasks whose thread is not a direct message.
-
-    Phrased as "not private" rather than "is a channel" so a mapping we never classified — a
-    row predating the column, or a lookup Slack refused — keeps the team-wide read access it
-    has today instead of silently narrowing to the thread starter.
-
-    The ``origin_product`` test leads so the subquery is only reached for Slack tasks; every
-    other task short-circuits on an indexed column before touching the mapping table.
-    """
-    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
-        PRIVATE_CONVERSATION_TYPES,
-        SlackThreadTaskMapping,
-    )
-
-    private_thread = SlackThreadTaskMapping.objects.filter(
-        task_id=OuterRef("pk"),
-        conversation_type__in=sorted(PRIVATE_CONVERSATION_TYPES),
-    )
-    return Q(origin_product=Task.OriginProduct.SLACK) & Q(~Exists(private_thread))
-
-
 def task_accessible_for_run_view(
     task_id: str | UUID,
     team_id: int,
@@ -3605,22 +3584,17 @@ def task_accessible_for_run_view(
     Task-bound sandbox callers set ``bypass_visibility`` only after the view verifies that
     the OAuth token's ``sandbox_task_id`` matches this task.
 
-    Tasks from a shared Slack conversation are readable by the whole team. Such a thread is
-    multiplayer: every member of the conversation already sees the agent's replies and follows
-    the links in them, so gating those links on the one person who opened the thread makes the
-    reply unusable for everyone else. The task itself is filed in its creator's personal space,
-    so ``task_visibility_q`` alone would hide it. Read-only on purpose — driving the run stays
-    with the creator, whose credentials the sandbox runs under.
-
-    Threads from a direct message are excluded: a DM has no audience beyond its author, so
-    there is nobody the widened read is for. See ``PRIVATE_CONVERSATION_TYPES``.
+    Tasks from a public Slack channel are readable by the whole team, see ``public_slack_thread_q``.
+    Everyone in the workspace already sees the agent's replies there and follows the links in them.
+    Read-only on purpose — driving the run stays with the creator, whose credentials the sandbox
+    runs under.
     """
     trial_visibility = scout_trial_visibility_q(user_id)
     if sandbox_request or sandbox_task_id is not None:
         trial_visibility = ~Task.scout_experiment_q() | Q(id=sandbox_task_id)
     visibility = trial_visibility & Q(deleted=False)
     if not bypass_visibility:
-        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
+        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id) | public_slack_thread_q()
         visibility &= scope_q
     # Classify the same row used for authorization, including denied reads whose errors stay private.
     task = (
@@ -7454,7 +7428,7 @@ def _visible_task_qs(
     """Team-scoped live tasks, gated by read visibility — or by the narrower
     control predicate when ``for_control`` (mutations, runs, agent commands).
 
-    The read branch ORs in ``_shared_slack_thread_q()`` so a task shared in a Slack channel
+    The read branch ORs in ``public_slack_thread_q()`` so a task from a public Slack channel
     is readable team-wide, matching ``task_accessible_for_run_view``. Without it the run
     endpoint admits a channel collaborator while task detail returns 404 for the same task.
     """
@@ -7464,7 +7438,7 @@ def _visible_task_qs(
         qs = qs.filter(
             task_control_q(user_id, channel_team_id)
             if for_control
-            else task_visibility_q(user_id, channel_team_id) | _shared_slack_thread_q()
+            else task_visibility_q(user_id, channel_team_id) | public_slack_thread_q()
         )
         # Another product may hide tasks it owns from this user, for example the copies of chats a
         # user cannot continue as tasks yet.

@@ -130,7 +130,7 @@ def _access_rules(team: Team) -> _AccessRules:
     )
 
 
-def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules) -> _Planned:
+def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules, move_capped: bool) -> _Planned:
     def step(action: MigrationAction, reason: str, keys: tuple[str, ...] = ()) -> TaggerMigrationStep:
         return TaggerMigrationStep(
             tagger_id=str(tagger.id),
@@ -158,6 +158,7 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules) -> 
         )
 
     model_configuration: dict[str, Any] | None = None
+    capped = False
     try:
         if tagger.tagger_type == TaggerType.HOG:
             hog_config = HogTaggerConfig.model_validate(tagger.tagger_config)
@@ -166,11 +167,13 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules) -> 
             payload = hog_payload(hog_config)
         else:
             llm_config = LLMTaggerConfig.model_validate(tagger.tagger_config)
-            if llm_config.max_tags is not None and 1 < llm_config.max_tags < len(llm_config.tags):
+            capped = llm_config.max_tags is not None and 1 < llm_config.max_tags < len(llm_config.tags)
+            if capped and not move_capped:
                 return _Planned(
                     step=step(
                         MigrationAction.SKIP,
-                        f"It allows at most {llm_config.max_tags} tags, a cap a categorical evaluation can't enforce.",
+                        f"It allows at most {llm_config.max_tags} tags, and an evaluation can only ask for that in "
+                        "its prompt.",
                     )
                 )
             payload = llm_judge_payload(llm_config)
@@ -204,21 +207,23 @@ def _plan(tagger: Tagger, team: Team, recent_tags: int, rules: _AccessRules) -> 
     kind = "Hog code" if tagger.tagger_type == TaggerType.HOG else "LLM judge"
     choice = "single choice" if output["selection_mode"] == "single" else "multiple choice"
     na = ", N/A when no tag fits" if output["allows_na"] else ""
-    return _Planned(step=step(MigrationAction.MIGRATE, f"{kind}, {choice}{na}.", keys), serializer=serializer)
+    cap = f", the prompt asks for at most {llm_config.max_tags} tags" if capped else ""
+    return _Planned(step=step(MigrationAction.MIGRATE, f"{kind}, {choice}{na}{cap}.", keys), serializer=serializer)
 
 
-def plan_tagger_migration(team: Team) -> list[TaggerMigrationStep]:
+def plan_tagger_migration(team: Team, *, move_capped: bool = False) -> list[TaggerMigrationStep]:
     """What `migrate_taggers` would do to each switched-on tagger of the team. Writes nothing."""
     taggers = _pending_taggers(team)
     counts = load_recent_tag_counts(team, [str(tagger.id) for tagger in taggers])
     rules = _access_rules(team)
-    return [_plan(tagger, team, counts.get(str(tagger.id), 0), rules).step for tagger in taggers]
+    return [_plan(tagger, team, counts.get(str(tagger.id), 0), rules, move_capped).step for tagger in taggers]
 
 
-def migrate_taggers(team: Team) -> list[TaggerMigrationStep]:
+def migrate_taggers(team: Team, *, move_capped: bool = False) -> list[TaggerMigrationStep]:
     """Replaces each switched-on tagger with an enabled categorical evaluation and switches the tagger off, or only
     switches it off when it sent no tags recently. Each tagger moves in its own transaction, so one refusal does not
-    undo the others, and a second run skips taggers that already moved."""
+    undo the others, and a second run skips taggers that already moved. An LLM tagger that caps its tags below its
+    tag count moves only with `move_capped`, because the evaluation can ask for the cap but not enforce it."""
     taggers = _pending_taggers(team)
     counts = load_recent_tag_counts(team, [str(tagger.id) for tagger in taggers])
     results: list[TaggerMigrationStep] = []
@@ -235,7 +240,7 @@ def migrate_taggers(team: Team) -> list[TaggerMigrationStep]:
                 if tagger is None:
                     continue
                 # Access rules are read under the lock too, so a restriction added during the run still holds.
-                planned = _plan(tagger, team, recent_tags, _access_rules(team))
+                planned = _plan(tagger, team, recent_tags, _access_rules(team), move_capped)
                 step = planned.step
                 if step.action == MigrationAction.SKIP:
                     results.append(step)

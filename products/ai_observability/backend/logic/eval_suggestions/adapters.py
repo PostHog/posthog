@@ -170,7 +170,7 @@ print('No unrecovered errors')
 return true"""
     return AdaptedCheck(
         key=UNRECOVERED_ERRORS,
-        name="Turns that end on a failed call",
+        name="Tool or model calls that never succeed",
         description="Finds traces where a tool or model call failed and was never retried successfully",
         source=source,
         template_key="",
@@ -221,7 +221,7 @@ print('No repeated identical tool calls')
 return true"""
     return AdaptedCheck(
         key=REPEATED_TOOL_CALLS,
-        name="Identical tool calls repeated",
+        name=f"Same tool call repeated {REPEAT_THRESHOLD} or more times",
         description=f"Finds traces where the agent calls one tool with the same arguments {REPEAT_THRESHOLD} or more times",
         source=source,
         template_key=REPEATED_TOOL_CALLS,
@@ -250,7 +250,7 @@ print('No refusal in the final message')
 return true"""
     return AdaptedCheck(
         key=REFUSALS,
-        name="Answers that refuse",
+        name="Refused requests",
         description="Finds traces whose final answer refuses or says it can't help",
         source=source,
         template_key=REFUSALS,

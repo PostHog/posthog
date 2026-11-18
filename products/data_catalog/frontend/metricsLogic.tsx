@@ -102,6 +102,7 @@ export interface metricsLogicValues {
     allMetricsLoading: boolean
     approvedMetrics: DataCatalogMetricApi[]
     bulkActionInFlight: BulkMetricAction | null
+    catalogEmpty: boolean
     creatingMetricAs: MetricSaveAction | null
     creatorFilterOptions: MetricCreatorOption[]
     filters: MetricsFilters
@@ -224,6 +225,7 @@ export interface metricsLogicMeta {
         showApproved: (filters: MetricsFilters) => boolean
         ownerFilterOptions: (allMetrics: DataCatalogMetricApi[]) => string[]
         creatorFilterOptions: (allMetrics: DataCatalogMetricApi[]) => MetricCreatorOption[]
+        catalogEmpty: (metricsLoadState: MetricsLoadState, allMetrics: DataCatalogMetricApi[]) => boolean
         proposedCount: (allMetrics: DataCatalogMetricApi[]) => number
         stageCounts: (allMetrics: DataCatalogMetricApi[]) => MetricStageCounts
     }
@@ -402,6 +404,12 @@ export const metricsLogic = kea<metricsLogicType>([
                     .map(([uuid, label]) => ({ uuid, label }))
                     .sort((a, b) => a.label.localeCompare(b.label))
             },
+        ],
+        // A boolean, so a component that only branches on emptiness does not re-render on each metrics reload.
+        catalogEmpty: [
+            (s) => [s.metricsLoadState, s.allMetrics],
+            (metricsLoadState: MetricsLoadState, allMetrics: DataCatalogMetricApi[]): boolean =>
+                metricsLoadState === 'loaded' && allMetrics.length === 0,
         ],
         proposedCount: [
             (s) => [s.allMetrics],
