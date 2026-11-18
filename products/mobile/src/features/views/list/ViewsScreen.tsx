@@ -837,8 +837,11 @@ function ViewsBody(): ReactElement {
     const loading = list.pins.data === undefined && !list.pins.isError
     const status = loading ? 'Loading…' : null
     useTabHeader('views', {
-        scrollToTop: () =>
-            (editScrollRef.current ?? listRef.current?.getScrollResponder())?.scrollTo({ y: 0, animated: true }),
+        scrollToTop: () => {
+            cancelAnchorRestore()
+            const scroll = editScrollRef.current ?? listRef.current?.getScrollResponder()
+            scroll?.scrollTo({ y: 0, animated: true })
+        },
         refreshing: !loading && refresh.busy,
         hint: loading ? null : refresh.hint,
         status: editing ? 'Changes save as you go' : status,
