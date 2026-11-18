@@ -18,32 +18,50 @@ jest.mock('../../browser/extensionBrowser', () => ({
 }))
 
 const UI_HOST = 'https://us.posthog.com'
+const APP_PAGE = '<!doctype html><title>PostHog</title>'
+
+// What the app does with `GET /project/<id>`. It answers a switch it allows and a switch it refuses alike, with its
+// HTML page and a 200, and an expired session follows a redirect to the login page, which also answers with a 200.
+type SwitchOutcome = 'switches' | 'refuses' | 'signs out' | 'fails' | 'network error'
 
 describe('extensionPanelLogic', () => {
     let logic: ReturnType<typeof extensionPanelLogic.build>
     let capture: jest.SpyInstance
     let currentTeamId: number
-    let switchResponse: () => Response
+    let signedIn: boolean
+    let switchOutcome: SwitchOutcome
 
     beforeEach(async () => {
         initKeaTests()
         currentTeamId = 1
-        // The app answers the project switch with its HTML page and moves the session's project.
-        switchResponse = () => HttpResponse.html('<!doctype html><title>PostHog</title>')
+        signedIn = true
+        switchOutcome = 'switches'
         useMocks({
             get: {
                 [`${UI_HOST}/project/:teamId`]: ({ params }) => {
-                    const response = switchResponse()
-                    if (response.ok) {
-                        currentTeamId = Number(params.teamId)
+                    switch (switchOutcome) {
+                        case 'switches':
+                            currentTeamId = Number(params.teamId)
+                            return HttpResponse.html(APP_PAGE)
+                        case 'refuses':
+                            return HttpResponse.html(APP_PAGE)
+                        case 'signs out':
+                            signedIn = false
+                            return HttpResponse.html(APP_PAGE)
+                        case 'fails':
+                            return new HttpResponse(null, { status: 500 })
+                        case 'network error':
+                            return HttpResponse.error()
                     }
-                    return response
                 },
-                [`${UI_HOST}/api/users/@me/`]: () => ({
-                    distinct_id: 'user-distinct-id',
-                    organization: { id: 'organization-id' },
-                    team: { id: currentTeamId, project_id: currentTeamId },
-                }),
+                [`${UI_HOST}/api/users/@me/`]: () =>
+                    signedIn
+                        ? {
+                              distinct_id: 'user-distinct-id',
+                              organization: { id: 'organization-id' },
+                              team: { id: currentTeamId, project_id: currentTeamId },
+                          }
+                        : [401, { detail: 'Authentication credentials were not provided.' }],
                 [`${UI_HOST}/api/user/toolbar_entitlements`]: { entitlements: {} },
             },
         })
@@ -61,7 +79,7 @@ describe('extensionPanelLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('reports a successful switch when the app answers with its HTML page', async () => {
+    it('reports a successful switch when the session moves to the project', async () => {
         await expectLogic(logic, () => {
             logic.actions.switchProject(2)
         })
@@ -73,13 +91,13 @@ describe('extensionPanelLogic', () => {
         expect(capture).toHaveBeenCalledWith('toolbar extension project switched')
     })
 
-    it.each([
-        ['the session expired', () => new HttpResponse(null, { status: 401 })],
-        ['the user has no access to the project', () => new HttpResponse(null, { status: 403 })],
-        ['the server fails', () => new HttpResponse(null, { status: 500 })],
-        ['the network fails', () => HttpResponse.error()],
-    ])('reports a failed switch when %s', async (_, response) => {
-        switchResponse = response
+    it.each<[string, SwitchOutcome]>([
+        ['the app refuses the switch', 'refuses'],
+        ['the session expired', 'signs out'],
+        ['the server fails', 'fails'],
+        ['the network fails', 'network error'],
+    ])('reports a failed switch when %s', async (_, outcome) => {
+        switchOutcome = outcome
 
         await expectLogic(logic, () => {
             logic.actions.switchProject(2)
@@ -87,18 +105,18 @@ describe('extensionPanelLogic', () => {
             .toDispatchActions(['switchProject', 'setProjectSwitchFailed', 'loadSessionUserSuccess'])
             .toMatchValues({ projectSwitchFailed: true, settingsNeeded: true })
 
-        expect(logic.values.user?.team.id).toBe(1)
+        expect(logic.values.user?.team.id).not.toBe(2)
         expect(capture).not.toHaveBeenCalledWith('toolbar extension project switched')
     })
 
     it('clears the error when the user switches again and the switch succeeds', async () => {
-        switchResponse = () => new HttpResponse(null, { status: 500 })
+        switchOutcome = 'refuses'
         await expectLogic(logic, () => {
             logic.actions.switchProject(2)
         }).toDispatchActions(['setProjectSwitchFailed', 'loadSessionUserSuccess'])
         expect(logic.values.projectSwitchFailed).toBe(true)
 
-        switchResponse = () => HttpResponse.html('<!doctype html><title>PostHog</title>')
+        switchOutcome = 'switches'
         await expectLogic(logic, () => {
             logic.actions.switchProject(2)
         })

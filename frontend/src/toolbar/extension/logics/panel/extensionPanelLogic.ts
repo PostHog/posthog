@@ -66,12 +66,12 @@ async function fetchWithSession(uiHost: string, path: string): Promise<{ status:
     return await readResponse(requestWithSession(uiHost, path))
 }
 
-/** For a path that answers with an app page, not JSON, so only the status says whether it worked. */
-async function fetchStatusWithSession(uiHost: string, path: string): Promise<number> {
+/** For a request whose answer the panel doesn't read, such as the app page that a project switch returns. */
+async function sendWithSession(uiHost: string, path: string): Promise<void> {
     try {
-        return (await requestWithSession(uiHost, path)).status
+        await requestWithSession(uiHost, path)
     } catch {
-        return 0
+        // The caller checks the outcome with a request of its own, so a network failure needs no handling here.
     }
 }
 
@@ -449,10 +449,17 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
             actions.loadAuthorizedUrls({ organizationId: user.organization.id, projectId: user.team.project_id })
         },
         switchProject: async ({ teamId }) => {
+            const uiHost = values.uiHost
             // The app's project-switch path moves the session's current project, which is the project
-            // toolbar authentication uses.
-            const status = await fetchStatusWithSession(values.uiHost, `/project/${teamId}`)
-            if (status >= 200 && status < 300) {
+            // toolbar authentication uses. Its answer can't tell success from failure: it returns the app's HTML
+            // page with a 200 also when it refuses the switch, and a signed-out request ends on the login page.
+            // So the session's current project, read after the switch, decides.
+            await sendWithSession(uiHost, `/project/${teamId}`)
+            const { status, data } = await fetchWithSession(uiHost, getUsersRetrieveUrl('@me'))
+            if (values.uiHost !== uiHost) {
+                return
+            }
+            if (status === 200 && (data as UserApi | null)?.team?.id === teamId) {
                 toolbarPosthogJS.capture('toolbar extension project switched')
             } else {
                 actions.setProjectSwitchFailed(true)
