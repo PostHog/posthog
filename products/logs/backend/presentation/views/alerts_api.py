@@ -233,6 +233,17 @@ class LogsAlertDestinationResponseSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(child=serializers.UUIDField())
 
 
+class LogsAlertCreatedDestinationResponseSerializer(LogsAlertDestinationResponseSerializer):
+    id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "The new destination's ID on the alerts platform, the `id` that listing the alert's destinations "
+            "shows. Delete the destination by passing it in `destination_ids`. Null when the alert is not on "
+            "the alerts platform, in which case `hog_function_ids` identifies the destination."
+        ),
+    )
+
+
 class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -1842,8 +1853,25 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             row.id: row for row in rows.filter(id__in=[alert_id for _, alert_id, native in listed if not native])
         }
         native_ids = [alert_id for _, alert_id, native in listed if native]
+        copies_without_team_rows = [
+            alert_id
+            for _, alert_id, native in listed
+            if not native and alert_id in owned_ids and alert_id not in loaded
+        ]
+        rows_on_other_teams = (
+            set(LogsAlertConfiguration.objects.filter(id__in=copies_without_team_rows).values_list("id", flat=True))
+            if copies_without_team_rows
+            else set()
+        )
+        rowless_copy_ids = [alert_id for alert_id in copies_without_team_rows if alert_id not in rows_on_other_teams]
         for alert in _with_creators(
-            [_platform_alert(view, team_id=self.team_id) for view in native_alert_views(self.team_id, native_ids)]
+            [
+                _platform_alert(view, team_id=self.team_id)
+                for view in (
+                    *native_alert_views(self.team_id, native_ids),
+                    *owned_copy_views(self.team_id, rowless_copy_ids).values(),
+                )
+            ]
         ):
             loaded[alert.id] = alert
         # An alert deleted since its key was read drops out of the page rather than failing it.
@@ -1890,7 +1918,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=LogsAlertCreateDestinationSerializer,
-        responses={201: LogsAlertDestinationResponseSerializer},
+        responses={201: LogsAlertCreatedDestinationResponseSerializer},
         description=(
             "Create a notification destination for this alert. One HogFunction is created per alert event kind "
             "(firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed "
@@ -1917,7 +1945,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     allowed_event_ids=LOGS_ALERT_EVENT_IDS,
                 )
                 # The HogFunctions send while they exist. Rollback to the logs stack reads only them.
-                record_source_destination(
+                stored = record_source_destination(
                     team_id=alert.team_id,
                     public_id=alert.id,
                     data=data,
@@ -1936,7 +1964,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {"alert_id": str(alert.id), "type": data["type"], "event_kinds": event_kinds},
             request=request,
         )
-        response = LogsAlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
+        response = LogsAlertCreatedDestinationResponseSerializer(
+            {"id": stored.id if stored else None, "hog_function_ids": list(hog_function_ids)}
+        )
         return Response(response.data, status=201)
 
     @extend_schema(

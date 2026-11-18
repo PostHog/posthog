@@ -478,7 +478,9 @@ class TestEmail(BaseTest):
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
                 POSTHOG_HOST="https://us.posthog.com",
             ),
-            patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"password_reset": "tmpl-1"}),
+            patch.dict(
+                "posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"password_reset": "0b5f6c2e-8d4a-4f1e-9c3b-7a2d1e6f4c58"}
+            ),
         ):
             self.assertTrue(is_email_available())
             message = EmailMessage(
@@ -500,14 +502,13 @@ class TestEmail(BaseTest):
 
         mock_post.assert_called_once()
         workflows_call = mock_post.call_args
-        self.assertEqual(
-            workflows_call.args[0], "https://us.posthog.com/api/projects/@current/messaging_templates/tmpl-1/send/"
-        )
+        self.assertEqual(workflows_call.args[0], "https://us.posthog.com/api/messaging/send/email/")
         self.assertEqual(workflows_call.kwargs["headers"]["Authorization"], "Bearer phs_test")
         self.assertIn("Idempotency-Key", workflows_call.kwargs["headers"])
         self.assertFalse(workflows_call.kwargs["allow_redirects"])
         payload = workflows_call.kwargs["json"]
-        self.assertEqual(payload["identifiers"], {"distinct_id": "user-1"})
+        self.assertEqual(payload["template_id"], "0b5f6c2e-8d4a-4f1e-9c3b-7a2d1e6f4c58")
+        self.assertEqual(payload["distinct_id"], "user-1")
         # Workflows escapes Liquid output itself, so values must arrive unescaped or they render as &amp;amp;
         self.assertEqual(payload["message_data"]["team_name"], "O'Brien & Co")
         self.assertEqual(payload["message_data"]["url"], "https://app.posthog.com/r?a=1&b=2")
