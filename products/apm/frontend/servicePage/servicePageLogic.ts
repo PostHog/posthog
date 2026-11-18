@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -307,6 +308,33 @@ export interface servicePageLogicMeta {
     }
 }
 
+/**
+ * A signal for a loader's request that aborts when the same loader starts again or the logic
+ * unmounts, so a superseded query stops using the database instead of running to completion.
+ */
+function replaceRequest(cache: Record<string, any>, key: string): AbortSignal {
+    const controller = new AbortController()
+    // Hiding the tab would otherwise abort requests the page still waits for.
+    cache.disposables.add(() => () => controller.abort(), `request-${key}`, { pauseOnPageHidden: false })
+    return controller.signal
+}
+
+/** Turns an abort caused by a newer call into a breakpoint, so it doesn't count as a failed load. */
+async function unlessSuperseded<T>(
+    request: Promise<T>,
+    signal: AbortSignal,
+    breakpoint: BreakPointFunction
+): Promise<T> {
+    try {
+        return await request
+    } catch (error) {
+        if (signal.aborted) {
+            breakpoint()
+        }
+        throw error
+    }
+}
+
 export type servicePageLogicType = MakeLogicType<
     servicePageLogicValues,
     servicePageLogicActions,
@@ -341,26 +369,32 @@ export const servicePageLogic = kea<servicePageLogicType>([
         ],
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         scopeOptions: [
             { environmentKeys: [], versions: [] } as ServiceScopeOptions,
             {
                 fetchScopeOptions: async (_: void, breakpoint) => {
                     await breakpoint(10)
+                    const signal = replaceRequest(cache, 'scopeOptions')
                     const projectId = String(values.currentTeamId)
                     const breakdown = (breakdownKey: string): Promise<_TracingAttributeBreakdownRowApi[]> =>
-                        tracingSpansAttributeBreakdownCreate(projectId, {
-                            query: {
-                                breakdownKey,
-                                breakdownType: 'span_resource_attribute',
-                                dateRange: values.dateRange,
-                                serviceNames: [props.serviceName],
+                        tracingSpansAttributeBreakdownCreate(
+                            projectId,
+                            {
+                                query: {
+                                    breakdownKey,
+                                    breakdownType: 'span_resource_attribute',
+                                    dateRange: values.dateRange,
+                                    serviceNames: [props.serviceName],
+                                },
                             },
-                        }).then((response) => response.results)
-                    const [versionRows, ...environmentRows] = await Promise.all([
-                        breakdown(VERSION_KEY),
-                        ...ENVIRONMENT_KEYS.map(breakdown),
-                    ])
+                            { signal }
+                        ).then((response) => response.results)
+                    const [versionRows, ...environmentRows] = await unlessSuperseded(
+                        Promise.all([breakdown(VERSION_KEY), ...ENVIRONMENT_KEYS.map(breakdown)]),
+                        signal,
+                        breakpoint
+                    )
                     breakpoint()
                     return {
                         environmentKeys: ENVIRONMENT_KEYS.map((envKey, index) => ({
@@ -377,10 +411,19 @@ export const servicePageLogic = kea<servicePageLogicType>([
             {
                 fetchServicesHealth: async (_: void, breakpoint) => {
                     await breakpoint(10)
-                    const response = await apmServicesList(String(values.currentTeamId), {
-                        ...healthWindow(values.timeRange),
-                        ...(values.scope.environment ? { environment: values.scope.environment } : {}),
-                    })
+                    const signal = replaceRequest(cache, 'servicesHealth')
+                    const response = await unlessSuperseded(
+                        apmServicesList(
+                            String(values.currentTeamId),
+                            {
+                                ...healthWindow(values.timeRange),
+                                ...(values.scope.environment ? { environment: values.scope.environment } : {}),
+                            },
+                            { signal }
+                        ),
+                        signal,
+                        breakpoint
+                    )
                     breakpoint()
                     return response
                 },
@@ -391,11 +434,20 @@ export const servicePageLogic = kea<servicePageLogicType>([
             {
                 fetchEndpointsHealth: async (_: void, breakpoint) => {
                     await breakpoint(10)
-                    const response = await apmEndpointsList(String(values.currentTeamId), {
-                        ...healthWindow(values.timeRange),
-                        ...(values.scope.environment ? { environment: values.scope.environment } : {}),
-                        service: props.serviceName,
-                    })
+                    const signal = replaceRequest(cache, 'endpointsHealth')
+                    const response = await unlessSuperseded(
+                        apmEndpointsList(
+                            String(values.currentTeamId),
+                            {
+                                ...healthWindow(values.timeRange),
+                                ...(values.scope.environment ? { environment: values.scope.environment } : {}),
+                                service: props.serviceName,
+                            },
+                            { signal }
+                        ),
+                        signal,
+                        breakpoint
+                    )
                     breakpoint()
                     return response
                 },
@@ -411,10 +463,15 @@ export const servicePageLogic = kea<servicePageLogicType>([
                         serviceNames: [props.serviceName],
                         filterGroup: toPropertyGroupFilter(values.scopeFilters),
                     }
-                    const [all, errors] = await Promise.all([
-                        api.tracing.sparkline(query),
-                        api.tracing.sparkline({ ...query, statusCodes: [2] }),
-                    ])
+                    const signal = replaceRequest(cache, 'requestsSeries')
+                    const [all, errors] = await unlessSuperseded(
+                        Promise.all([
+                            api.tracing.sparkline(query, signal),
+                            api.tracing.sparkline({ ...query, statusCodes: [2] }, signal),
+                        ]),
+                        signal,
+                        breakpoint
+                    )
                     breakpoint()
                     return mergeRequestsSeries(all.results as SparklineRow[], errors.results as SparklineRow[])
                 },
@@ -425,13 +482,21 @@ export const servicePageLogic = kea<servicePageLogicType>([
             {
                 fetchLatencyHeatmap: async (_: void, breakpoint) => {
                     await breakpoint(10)
-                    const response = await api.tracing.latencyHeatmap({
-                        dateRange: values.dateRange,
-                        serviceNames: [props.serviceName],
-                        filterGroup: toPropertyGroupFilter(values.scopeFilters),
-                        // Every span, matching the requests chart.
-                        rootSpans: false,
-                    })
+                    const signal = replaceRequest(cache, 'latencyHeatmap')
+                    const response = await unlessSuperseded(
+                        api.tracing.latencyHeatmap(
+                            {
+                                dateRange: values.dateRange,
+                                serviceNames: [props.serviceName],
+                                filterGroup: toPropertyGroupFilter(values.scopeFilters),
+                                // Every span, matching the requests chart.
+                                rootSpans: false,
+                            },
+                            signal
+                        ),
+                        signal,
+                        breakpoint
+                    )
                     breakpoint()
                     return response.results
                 },
@@ -442,24 +507,33 @@ export const servicePageLogic = kea<servicePageLogicType>([
             {
                 fetchStatusCodeErrors: async (_: void, breakpoint) => {
                     await breakpoint(10)
+                    const signal = replaceRequest(cache, 'statusCodeErrors')
                     const projectId = String(values.currentTeamId)
-                    const breakdowns = await Promise.all(
-                        HTTP_STATUS_KEYS.map((breakdownKey, index) =>
-                            tracingSpansAttributeBreakdownCreate(projectId, {
-                                query: {
-                                    breakdownKey,
-                                    breakdownType: 'span_attribute',
-                                    orderBy: 'error_count',
-                                    dateRange: values.dateRange,
-                                    serviceNames: [props.serviceName],
-                                    filterGroup: [
-                                        ...values.scopeFilters,
-                                        ERROR_STATUS_FILTER,
-                                        ...(index > 0 ? [LEGACY_HTTP_STATUS_ONLY_FILTER] : []),
-                                    ],
-                                },
-                            }).then((response) => response.results)
-                        )
+                    const breakdowns = await unlessSuperseded(
+                        Promise.all(
+                            HTTP_STATUS_KEYS.map((breakdownKey, index) =>
+                                tracingSpansAttributeBreakdownCreate(
+                                    projectId,
+                                    {
+                                        query: {
+                                            breakdownKey,
+                                            breakdownType: 'span_attribute',
+                                            orderBy: 'error_count',
+                                            dateRange: values.dateRange,
+                                            serviceNames: [props.serviceName],
+                                            filterGroup: [
+                                                ...values.scopeFilters,
+                                                ERROR_STATUS_FILTER,
+                                                ...(index > 0 ? [LEGACY_HTTP_STATUS_ONLY_FILTER] : []),
+                                            ],
+                                        },
+                                    },
+                                    { signal }
+                                ).then((response) => response.results)
+                            )
+                        ),
+                        signal,
+                        breakpoint
                     )
                     breakpoint()
                     return mergeStatusCodeErrors(breakdowns)
@@ -471,16 +545,24 @@ export const servicePageLogic = kea<servicePageLogicType>([
             {
                 fetchErrorSpans: async (_: void, breakpoint) => {
                     await breakpoint(10)
-                    const response = await api.tracing.listSpans({
-                        dateRange: values.dateRange,
-                        serviceNames: [props.serviceName],
-                        statusCodes: [2],
-                        filterGroup: toPropertyGroupFilter(values.scopeFilters),
-                        orderBy: 'timestamp',
-                        orderDirection: 'DESC',
-                        flatSpans: true,
-                        limit: ERROR_SAMPLE_LIMIT,
-                    })
+                    const signal = replaceRequest(cache, 'errorSpans')
+                    const response = await unlessSuperseded(
+                        api.tracing.listSpans(
+                            {
+                                dateRange: values.dateRange,
+                                serviceNames: [props.serviceName],
+                                statusCodes: [2],
+                                filterGroup: toPropertyGroupFilter(values.scopeFilters),
+                                orderBy: 'timestamp',
+                                orderDirection: 'DESC',
+                                flatSpans: true,
+                                limit: ERROR_SAMPLE_LIMIT,
+                            },
+                            signal
+                        ),
+                        signal,
+                        breakpoint
+                    )
                     breakpoint()
                     return response.results as Span[]
                 },

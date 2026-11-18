@@ -112,6 +112,30 @@ describe('servicePageLogic', () => {
         expect(servicesRequestCount).toBe(servicesRequestsBefore)
     })
 
+    it('aborts a superseded error-span request without reporting it as a failed load', async () => {
+        logic = servicePageLogic({ serviceName: 'checkout' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const signals: AbortSignal[] = []
+        jest.spyOn(api.tracing, 'listSpans').mockImplementation((_, signal) => {
+            signals.push(signal!)
+            if (signals.length > 1) {
+                return Promise.resolve({ results: [], hasMore: false })
+            }
+            return new Promise((_resolve, reject) =>
+                signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+            )
+        })
+
+        const first = logic.asyncActions.fetchErrorSpans()
+        await expectLogic(logic).delay(20)
+        await logic.asyncActions.fetchErrorSpans()
+        await first
+
+        expect(signals.map((signal) => signal.aborted)).toEqual([true, false])
+        expect(logic.values.errorSpansFailed).toBe(false)
+    })
+
     it('marks a failed health load instead of showing the previous response as current', async () => {
         logic = servicePageLogic({ serviceName: 'checkout' })
         logic.mount()
@@ -156,7 +180,8 @@ describe('servicePageLogic', () => {
                         },
                     ],
                 },
-            })
+            }),
+            expect.any(AbortSignal)
         )
         // Every endpoint of the service, whatever operation is picked for the charts.
         const lastEndpoints = endpointsRequests[endpointsRequests.length - 1]
