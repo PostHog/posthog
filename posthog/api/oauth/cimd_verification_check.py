@@ -12,8 +12,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from posthog.api.oauth.cimd import _token_is_bound_to_url
-from posthog.models.oauth import find_cimd_verification_token
+from posthog.api.oauth.cimd import VERIFICATION_TOKEN_MAX_LENGTH
+from posthog.models.oauth import find_cimd_verification_token, normalize_cimd_url
 from posthog.rate_limit import IPThrottle
 
 # Room for EU's refreshes of every partner document, which all come from a few addresses.
@@ -26,7 +26,9 @@ class CIMDVerificationCheckThrottle(IPThrottle):
 
 
 class CIMDVerificationCheckRequestSerializer(serializers.Serializer):
-    token = serializers.CharField(max_length=256, help_text="The phvt_ token published in the metadata document.")
+    token = serializers.CharField(
+        max_length=VERIFICATION_TOKEN_MAX_LENGTH, help_text="The phvt_ token published in the metadata document."
+    )
     cimd_url = serializers.CharField(max_length=2048, help_text="The URL of the metadata document the token is in.")
 
 
@@ -40,5 +42,11 @@ class CIMDVerificationCheckView(APIView):
         serializer = CIMDVerificationCheckRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         token = find_cimd_verification_token(serializer.validated_data["token"])
-        valid = token is not None and _token_is_bound_to_url(token, serializer.validated_data["cimd_url"])
+        # Compared here rather than through `_token_is_bound_to_url`, because anyone can call this with any URL,
+        # and a mismatch from a stranger must not raise or mute the alert that spots copied tokens.
+        valid = (
+            token is not None
+            and bool(token.cimd_url)
+            and token.cimd_url == normalize_cimd_url(serializer.validated_data["cimd_url"])
+        )
         return Response({"valid": valid})

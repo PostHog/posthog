@@ -132,7 +132,12 @@ def _provisioning_filter(state: str) -> Q:
     if not get_instance_setting("CIMD_PROVISIONING_REQUIRES_ORGANIZATION"):
         return PROVISIONING_FILTERS[state]
     # The gates also refuse an active self-registered partner with no organization behind it.
-    held_back = Q(is_cimd_client=True, organization__isnull=True, _provisioning_config__active=True)
+    held_back = Q(
+        is_cimd_client=True,
+        organization__isnull=True,
+        organization_link_issuer="",
+        _provisioning_config__active=True,
+    )
     if state == "on":
         return PROVISIONING_FILTERS["on"] & ~held_back
     if state == "off":

@@ -1,7 +1,10 @@
 from posthog.test.base import APIBaseTest
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 
+from posthog.api.oauth.cimd import _verification_rejected_capture_key
 from posthog.models.oauth import create_cimd_verification_token
 
 CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
@@ -17,7 +20,7 @@ class TestCIMDVerificationCheck(APIBaseTest):
         ]
     )
     def test_answers_whether_the_token_is_valid_for_the_url(self, _name, token, cimd_url, expected):
-        _, plaintext = create_cimd_verification_token(
+        issued, plaintext = create_cimd_verification_token(
             organization=self.organization, label="Partner", cimd_url=CIMD_URL, created_by=self.user
         )
         self.client.logout()
@@ -26,3 +29,4 @@ class TestCIMDVerificationCheck(APIBaseTest):
 
         assert response.status_code == 200, response.content
         assert response.json() == {"valid": expected}
+        assert cache.get(_verification_rejected_capture_key(issued, cimd_url, "url_mismatch")) is None

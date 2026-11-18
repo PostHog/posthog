@@ -623,6 +623,7 @@ def _is_json_media_type(content_type: str | None) -> bool:
 
 VERIFICATION_CHECK_PATH = "/oauth/cimd/verification-token-check/"
 VERIFICATION_CHECK_TIMEOUT_SECONDS = 3
+VERIFICATION_TOKEN_MAX_LENGTH = 256
 
 
 def _verifies_tokens_elsewhere() -> bool:
@@ -643,7 +644,9 @@ def _published_verification_tokens(metadata: CIMDMetadataDocument) -> list[str]:
 def _organization_link_issuer(metadata: CIMDMetadataDocument, url: str) -> str | None:
     """The issuer's URL when it confirms one of the document's tokens for this URL, an empty string when it
     confirms none, and None when it could not answer, so the caller keeps what it knew before."""
-    tokens = _published_verification_tokens(metadata)
+    tokens = [
+        token for token in _published_verification_tokens(metadata) if len(token) <= VERIFICATION_TOKEN_MAX_LENGTH
+    ]
     if not tokens:
         return ""
     issuer_url = settings.CIMD_VERIFICATION_TOKEN_ISSUER_URL
@@ -654,11 +657,16 @@ def _organization_link_issuer(metadata: CIMDMetadataDocument, url: str) -> str |
                 json={"token": token, "cimd_url": url},
                 timeout=VERIFICATION_CHECK_TIMEOUT_SECONDS,
             )
+            # The issuer refusing the request is its answer about this token, not a failure to answer, so
+            # a partner cannot keep an old link alive by publishing a token the issuer will not read.
+            if response.status_code == 400:
+                continue
             response.raise_for_status()
             if response.json().get("valid") is True:
                 return issuer_url
     except (requests.RequestException, ValueError) as error:
         logger.warning("cimd_verification_check_failed", url=url, error=str(error))
+        cache.set(_cache_key(url), True, timeout=CIMD_CACHE_MIN_TTL)
         return None
     return ""
 
@@ -1024,6 +1032,7 @@ def _update_cimd_application(
     else:
         verification = _resolve_verification_token(metadata, app.client_id, capture_ph_event=capture_ph_event)
         new_org = verification.organization if verification else None
+        linked_issuer = ""
     update_fields = [
         "name",
         "redirect_uris",
