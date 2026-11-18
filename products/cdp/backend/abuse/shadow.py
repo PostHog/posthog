@@ -20,7 +20,7 @@ from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import absolute_uri, get_instance_region
 
-from products.cdp.backend.abuse import metrics
+from products.cdp.backend.abuse import metrics, rules
 from products.cdp.backend.abuse.classifier import (
     AbuseVerdict,
     ClassificationFailed,
@@ -65,6 +65,24 @@ class ScoredHogFunction:
     code_modified_from_template: bool | None
     verdict: AbuseVerdict | None
     failure: FailureReason | None
+    rule_hits: tuple[rules.Rule, ...]
+
+    @property
+    def would_alert(self) -> bool:
+        return bool(self.rule_hits) or (self.verdict is not None and self.verdict.would_alert)
+
+    @property
+    def would_block(self) -> bool:
+        blocked_by_rule = any(rule in rules.BLOCKING_RULES for rule in self.rule_hits)
+        return blocked_by_rule or (self.verdict is not None and self.verdict.would_block)
+
+    @property
+    def label(self) -> str:
+        if self.would_block:
+            return "would_block"
+        if self.would_alert:
+            return "alert"
+        return "clean" if self.verdict is not None else "none"
 
 
 def content_of(hog_function: HogFunction, template: HogFunctionTemplate | None = None) -> HogFunctionContent:
@@ -266,6 +284,7 @@ def _score(hog_function: HogFunction, content: HogFunctionContent) -> ScoredHogF
         code_modified_from_template=content.code_modified_from_template,
         verdict=verdict,
         failure=failure,
+        rule_hits=rules.matched_rules(content),
     )
 
 
@@ -274,15 +293,20 @@ def report(
 ) -> None:
     function_type = hog_function.type or ""
     run = {"trigger": trigger.value} | ({"backfill_run_id": backfill_run_id} if backfill_run_id else {})
+    for rule in scored.rule_hits:
+        metrics.RULE_HITS.labels(rule.value).inc()
+    rule_hits = [rule.value for rule in scored.rule_hits]
     if scored.verdict is None:
         reason = scored.failure or FailureReason.GATEWAY_ERROR
         metrics.ERRORS.labels(reason.value).inc()
-        metrics.CLASSIFICATIONS.labels(function_type, "none", "error").inc()
-        _capture(hog_function, scored, {**run, "error": reason.value})
+        metrics.CLASSIFICATIONS.labels(function_type, scored.label, "error").inc()
+        # Without a model verdict, a function no rule matched is unknown rather than clean.
+        rule_verdict = {"would_alert": scored.would_alert, "would_block": scored.would_block} if rule_hits else {}
+        _capture(hog_function, scored, {**run, "error": reason.value, "rule_hits": rule_hits, **rule_verdict})
         return
 
     verdict = scored.verdict
-    metrics.CLASSIFICATIONS.labels(function_type, verdict.label, "ok").inc()
+    metrics.CLASSIFICATIONS.labels(function_type, scored.label, "ok").inc()
     metrics.RISK_SCORE.labels(function_type).observe(verdict.risk_score)
     metrics.LATENCY.observe(verdict.latency_ms / 1000)
     metrics.INPUT_TOKENS.labels(function_type).inc(verdict.input_tokens)
@@ -293,8 +317,9 @@ def report(
             **run,
             **{f"score_{question}": probability for question, probability in verdict.scores.items()},
             "risk_score": verdict.risk_score,
-            "would_alert": verdict.would_alert,
-            "would_block": verdict.would_block,
+            "rule_hits": rule_hits,
+            "would_alert": scored.would_alert,
+            "would_block": scored.would_block,
             "state_truncated": verdict.state_truncated,
             "model": verdict.model,
             "latency_ms": verdict.latency_ms,
