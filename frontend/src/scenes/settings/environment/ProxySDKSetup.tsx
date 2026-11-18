@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKKey } from '~/types'
 
-import { QuillProxySDKSetup } from './QuillProxySDKSetup'
+import { QuillSDKSetupInstructions } from './QuillSDKSetupInstructions'
 import { buildSDKSelectOptions, filterRequiredSteps, SDK_CONFIGS } from './SDKSetupInstructions'
 
 const PROXY_SDK_OPTIONS = buildSDKSelectOptions(['web', 'mobile'])
@@ -35,7 +35,7 @@ export function ProxySDKSetup(): JSX.Element {
 
     if (todayRailNav) {
         return (
-            <QuillProxySDKSetup
+            <QuillSDKSetupInstructions
                 loading={currentTeamLoading && !currentTeam}
                 config={config}
                 options={PROXY_SDK_OPTIONS}
@@ -43,6 +43,8 @@ export function ProxySDKSetup(): JSX.Element {
                 onSelectSDK={handleSelectSDK}
                 showFullSetup={showFullSetup}
                 setShowFullSetup={setShowFullSetup}
+                useReverseProxy
+                filterRequiredSteps={filterRequiredSteps}
             />
         )
     }

@@ -1,12 +1,17 @@
 import clsx from 'clsx'
-import React, { useState } from 'react'
+import React, { Suspense, lazy, useState } from 'react'
 
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { backendAssetUrl } from 'lib/utils/apiHost'
+import { retryImport } from 'lib/utils/retryImport'
 
 import { LemonSkeleton } from '../LemonSkeleton'
 import { Lettermark } from '../Lettermark'
-import { QuillUploadedLogo } from './QuillUploadedLogo'
+
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillUploadedLogo = lazy(() =>
+    retryImport(() => import('./QuillUploadedLogo')).then((m) => ({ default: m.QuillUploadedLogo }))
+)
 
 export interface UploadedLogoProps {
     name: string
@@ -37,13 +42,15 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
 
     if (quillSurface) {
         return (
-            <QuillUploadedLogo
-                name={name}
-                entityId={entityId}
-                imageSrc={imageSrc}
-                size={size}
-                outlinedLettermark={outlinedLettermark}
-            />
+            <Suspense fallback={null}>
+                <QuillUploadedLogo
+                    name={name}
+                    entityId={entityId}
+                    imageSrc={imageSrc}
+                    size={size}
+                    outlinedLettermark={outlinedLettermark}
+                />
+            </Suspense>
         )
     }
 

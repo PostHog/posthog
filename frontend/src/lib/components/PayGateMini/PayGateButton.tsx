@@ -1,16 +1,20 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { Suspense, lazy } from 'react'
 
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
 
-import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import { retryImport } from 'lib/utils/retryImport'
 
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 import type { payGateMiniLogicType } from './payGateMiniLogic'
+
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillPayGateButton = lazy(() =>
+    retryImport(() => import('./QuillPayGateButton')).then((m) => ({ default: m.QuillPayGateButton }))
+)
 
 type UsePayGateButtonReturn = Pick<
     payGateMiniLogicType['values'],
@@ -60,16 +64,17 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
 
     if (quillSurface) {
         return (
-            <Button
-                variant={quillButtonVariant(buttonProps.type ?? 'primary')}
-                onClick={clickHandlerProps.onClick ?? buttonProps.onClick}
-                nativeButton={!clickHandlerProps.to}
-                render={clickHandlerProps.to ? <LinkPrimitive to={clickHandlerProps.to} /> : undefined}
-                disabledReason={ctaDisabledReason || buttonProps.disabledReason}
-                data-attr={buttonProps['data-attr']}
-            >
-                {ctaLabel}
-            </Button>
+            <Suspense fallback={null}>
+                <QuillPayGateButton
+                    type={buttonProps.type}
+                    to={clickHandlerProps.to}
+                    onClick={clickHandlerProps.onClick ?? buttonProps.onClick}
+                    disabledReason={ctaDisabledReason || buttonProps.disabledReason}
+                    dataAttr={buttonProps['data-attr']}
+                >
+                    {ctaLabel}
+                </QuillPayGateButton>
+            </Suspense>
         )
     }
 
