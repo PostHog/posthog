@@ -11,6 +11,7 @@ from posthoganalytics.ai.utils import _capture_ai_event
 
 from llm_gateway.auth.models import AuthenticatedUser, resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
+from llm_gateway.config import POSTHOG_AI_CAPTURE_TIMEOUT_SECONDS, POSTHOG_SYNC_SEND_MAX_RETRIES
 from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import (
@@ -459,10 +460,12 @@ class PostHogCallback(InstrumentedCallback):
             api_key,
             host=host,
             sync_mode=True,
+            max_retries=POSTHOG_SYNC_SEND_MAX_RETRIES,
+            capture_ai_timeout=POSTHOG_AI_CAPTURE_TIMEOUT_SECONDS,
             enable_local_evaluation=False,
-            # Multimodal capture implies the AI lane, so one setting governs both.
-            _use_ai_lane=self._ai_lane_capture,
-            _enable_multimodal_capture=self._ai_lane_capture,
+            # AI events always go to /i/v1/ai/events; this only controls whether
+            # content is sent in full or truncated with media redacted.
+            enable_full_ai_capture=self._ai_lane_capture,
         )
         try:
             _capture_ai_event(client, **capture_kwargs)

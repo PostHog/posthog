@@ -296,18 +296,18 @@ def _write_python_root(root: Path, django_major: int, gateway_major: int) -> Non
 @pytest.mark.parametrize(
     "django_major,gateway_major,problems",
     [
-        (8, 7, []),
+        (8, 8, []),
         (
             8,
-            8,
+            7,
             [
-                "services/llm-gateway/pyproject.toml: posthoganalytics declares 'posthoganalytics==8.0.1', expected major 7",
-                "services/llm-gateway/uv.lock resolves posthoganalytics outside major 7",
+                "services/llm-gateway/pyproject.toml: posthoganalytics declares 'posthoganalytics==7.0.1', expected major 8",
+                "services/llm-gateway/uv.lock resolves posthoganalytics outside major 8",
             ],
         ),
         (
             7,
-            7,
+            8,
             [
                 "pyproject.toml: posthoganalytics declares 'posthoganalytics==7.0.1', expected major 8",
                 "uv.lock resolves posthoganalytics outside major 8",
@@ -316,7 +316,7 @@ def _write_python_root(root: Path, django_major: int, gateway_major: int) -> Non
         ),
     ],
 )
-def test_check_python_holds_the_llm_gateway_on_its_own_major(
+def test_check_python_holds_every_project_to_the_expected_major(
     tmp_path: Path, django_major: int, gateway_major: int, problems: list[str]
 ) -> None:
     _write_python_root(tmp_path, django_major, gateway_major)

@@ -68,8 +68,6 @@ PYTHON_PINS = (
     ("common/ingestion/acceptance_tests/requirements.txt", "posthoganalytics", None),
     ("tools/infra-scripts/clitools/requirements.txt", "posthog", None),
 )
-# The LLM gateway is its own uv project and deploy, so it moves to posthoganalytics 8 in a separate migration PR.
-PYTHON_EXPECTED_MAJOR_OVERRIDES = {"services/llm-gateway/pyproject.toml": 7}
 
 # (manifest, TOML path to the dependency table, lockfile). The guard holds only the major.
 RUST_PINS = (
@@ -294,7 +292,7 @@ def check_python(root: Path) -> list[str]:
     problems = []
     for manifest, package, lock in PYTHON_PINS:
         text = (root / manifest).read_text(encoding="utf-8")
-        expected = PYTHON_EXPECTED_MAJOR_OVERRIDES.get(manifest, EXPECTED_MAJORS[package])
+        expected = EXPECTED_MAJORS[package]
         if manifest.endswith("pyproject.toml"):
             data = tomllib.loads(text)
             spec = next((d for d in data["project"]["dependencies"] if _named(package).match(d)), None)
