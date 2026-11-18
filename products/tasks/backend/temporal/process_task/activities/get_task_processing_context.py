@@ -2,6 +2,7 @@ import json
 import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 from typing import Any, Literal
 
 from django.conf import settings
@@ -51,6 +52,7 @@ from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.agent_egress_probe import AgentEgressProbeConfig
 from products.tasks.backend.logic.services.agent_instructions import (
     agent_instructions_state_update,
     receives_agent_memory,
@@ -79,7 +81,7 @@ from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.metrics import StepTimer, sandbox_runtime_label
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
-from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
+from products.tasks.backend.temporal.observability import emit_agent_log, get_bound_logger, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
     get_actor_distinct_id,
@@ -158,6 +160,7 @@ class TaskProcessingContext:
     # Captured at workflow start so the warmup decision stays stable across retries.
     desktop_workspace_warm_enabled: bool = False
     agent_shadow_enabled: bool = False
+    agent_egress_observation_config: str | None = None
     agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
@@ -933,6 +936,34 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
     )
 
 
+def _agent_egress_observation_config(context: TaskProcessingContext, *, resumed: bool) -> str | None:
+    path = settings.AGENT_EGRESS_OBSERVATION_CONFIG
+    if (
+        not path
+        or not settings.DEBUG
+        or settings.SANDBOX_PROVIDER != "MODAL_DOCKER"
+        or resumed
+        or context.is_snapshot_resume
+        or context.environment != "cloud"
+        or context.mode == "interactive"
+        or context.sandbox_backend != "modal"
+        or not context.use_modal_vm_sandbox
+        or context.allowed_domains is not None
+    ):
+        return None
+    try:
+        config = AgentEgressProbeConfig.load(Path(path))
+    except ValueError:
+        get_bound_logger(run_id=context.run_id, team_id=context.team_id).warning(
+            "agent_egress_observation_disabled",
+            reason="invalid_configuration",
+        )
+        return None
+    if config.team_id != context.team_id or str(config.run_id) != context.run_id:
+        return None
+    return path
+
+
 @activity.defn
 @asyncify
 @close_db_connections
@@ -1351,7 +1382,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
 
-    return TaskProcessingContext(
+    context = TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
         startup_requested_at=task_run.startup_requested_at,
@@ -1421,3 +1452,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         and not state.get("agent_memory_locked")
         and _flag_enabled(flags, PERSIST_AGENT_MEMORY_FEATURE_FLAG),
     )
+    if input.launches_agent:
+        context.agent_egress_observation_config = _agent_egress_observation_config(
+            context, resumed=input.resumed_sandbox_id is not None
+        )
+    return context
