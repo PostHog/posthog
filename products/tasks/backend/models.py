@@ -2752,6 +2752,10 @@ class TaskRun(models.Model):
         LOCAL = "local", "Local"
         CLOUD = "cloud", "Cloud"
 
+    class LogFormat(models.TextChoices):
+        SINGLE = "single", "Single"
+        CHUNKED = "chunked", "Chunked"
+
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
@@ -2832,6 +2836,11 @@ class TaskRun(models.Model):
         default=None,
         help_text="Names of desktop-only MCP servers the creating client relays into this run (docs/cloud-mcp-relay.md). Names only — configuration never crosses the wire.",
     )
+
+    log_format = models.CharField(
+        max_length=16, choices=LogFormat.choices, default=LogFormat.SINGLE, db_default=LogFormat.SINGLE
+    )
+    log_chunk_count = models.PositiveIntegerField(default=0, db_default=0)
 
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
