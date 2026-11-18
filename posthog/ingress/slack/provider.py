@@ -15,7 +15,7 @@ from typing import Any
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
-from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
+from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.providers import InvalidPayload, WebhookProvider, decode_json, require_known_app
 from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
 
@@ -43,9 +43,19 @@ SLACK_INTERACTIVITY_TYPES = frozenset(
     }
 )
 
+# PostHog's own staff bot for provisioning partner reviews: a separate Slack app registration with its
+# own signing secret, posting only to PostHog's workspace.
+PROVISIONING_REVIEW_INTERACTIVITY_APP = "provisioning_review_interactivity"
+PROVISIONING_REVIEW_INTERACTIVITY_TYPES = frozenset({"block_actions", "view_submission"})
+
 SPECS = (
     ProviderSpec(provider="slack", app="supporthog", event_types=SLACK_EVENT_TYPES),
     ProviderSpec(provider="slack", app=SLACK_INTERACTIVITY_APP, event_types=SLACK_INTERACTIVITY_TYPES),
+    ProviderSpec(
+        provider="slack",
+        app=PROVISIONING_REVIEW_INTERACTIVITY_APP,
+        event_types=PROVISIONING_REVIEW_INTERACTIVITY_TYPES,
+    ),
 )
 
 
@@ -176,6 +186,37 @@ def build_slack_provider(*, secret_getter: Callable[[], str | None], app: str = 
     return SlackProvider(app=app, secret_getter=secret_getter)
 
 
-def build_slack_interactivity_provider(*, secret_getter: Callable[[], str | None]) -> SlackInteractivityProvider:
-    """The interactivity endpoint runs on the same signing secret as the events endpoint."""
-    return SlackInteractivityProvider(app=SLACK_INTERACTIVITY_APP, secret_getter=secret_getter)
+def build_slack_interactivity_provider(
+    *, secret_getter: Callable[[], str | None], app: str = SLACK_INTERACTIVITY_APP
+) -> SlackInteractivityProvider:
+    """An interactivity endpoint runs on the signing secret of the Slack app it belongs to."""
+    return SlackInteractivityProvider(app=app, secret_getter=secret_getter)
+
+
+def _run_provisioning_review_interaction(delivery: WebhookDelivery) -> None:
+    from posthog.api.oauth.provisioning_review_slack import (
+        handle_interaction,  # noqa: PLC0415 - keeps the OAuth models off the incarnation's import path
+    )
+
+    handle_interaction(delivery.payload)
+
+
+def _provisioning_review_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    from posthog.api.oauth.provisioning_review_slack import (
+        interaction_ownership,  # noqa: PLC0415 - keeps the OAuth models off the incarnation's import path
+    )
+
+    return interaction_ownership(delivery.payload)
+
+
+# Core owns provisioning partner reviews, so it consumes the staff bot's clicks itself.
+CORE_CONSUMERS = (
+    WebhookConsumer(
+        name="provisioning_review_actions",
+        provider="slack",
+        app=PROVISIONING_REVIEW_INTERACTIVITY_APP,
+        event_types=PROVISIONING_REVIEW_INTERACTIVITY_TYPES,
+        handler=_run_provisioning_review_interaction,
+        ownership=_provisioning_review_ownership,
+    ),
+)
