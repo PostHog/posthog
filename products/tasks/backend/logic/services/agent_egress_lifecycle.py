@@ -239,6 +239,7 @@ class AgentEgressLifecycle:
             actor_id=actor.id,
             authority=urlsplit(config.endpoint).netloc,
             relay_key_sha256=issued.relay_key_sha256,
+            sandbox_id=probe.sandbox.id,
             previous_execution_id=state.previous_execution_id,
         )
         self._check_provisioning_deadline()

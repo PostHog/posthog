@@ -10329,7 +10329,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10417,7 +10417,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10527,7 +10527,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -10742,7 +10742,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": {
@@ -10888,7 +10888,7 @@
             "stripNulls": false,
             "enrich": {
                 "kind": "list",
-                "baseUrl": "/stamphog"
+                "baseUrl": "/code-review"
             },
             "agentNote": null,
             "informational": null,
@@ -18628,6 +18628,10 @@
                 {
                     "param": "ingestion_enabled",
                     "key": "ingestion_enabled"
+                },
+                {
+                    "param": "ai_issue_summaries_enabled",
+                    "key": "ai_issue_summaries_enabled"
                 }
             ],
             "injectBody": {},
@@ -29890,6 +29894,43 @@
             "validators": []
         }
     },
+    "llma-clustering-config-set-enabled": {
+        "name": "llma-clustering-config-set-enabled",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/llm_analytics/clustering_config/set_enabled/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "enabled",
+                    "key": "enabled"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "llma-clustering-config-set-event-filters": {
         "name": "llma-clustering-config-set-event-filters",
         "kind": "http",
@@ -40714,6 +40755,14 @@
                 {
                     "param": "insight_ids",
                     "key": "insight_ids"
+                },
+                {
+                    "param": "metric_insight_ids",
+                    "key": "metric_insight_ids"
+                },
+                {
+                    "param": "metric_goals",
+                    "key": "metric_goals"
                 }
             ],
             "injectBody": {},
@@ -40904,6 +40953,14 @@
                 {
                     "param": "insight_ids",
                     "key": "insight_ids"
+                },
+                {
+                    "param": "metric_insight_ids",
+                    "key": "metric_insight_ids"
+                },
+                {
+                    "param": "metric_goals",
+                    "key": "metric_goals"
                 }
             ],
             "injectBody": {},
@@ -43734,6 +43791,43 @@
             "fallbacks": [],
             "query": null,
             "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "scout-scratchpad-discard": {
+        "name": "scout-scratchpad-discard",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/scout/scratchpad/discard/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "key",
+                    "key": "key"
+                }
+            ],
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
