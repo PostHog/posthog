@@ -10754,7 +10754,7 @@ Note: Official API examples and the API overview were fetched with curl and thei
 
 ## Semantic Scholar (Allen Institute for AI) — gaps
 
-Today (3): `citations`, `papers`, `references`
+Today (4): `citations`, `paper_authors`, `papers`, `references`
 
 Diffed against: <https://api.semanticscholar.org/graph/v1/swagger.json>
 
