@@ -10,6 +10,35 @@
         "valid": true
     },
     {
+        "name": "quoted system accounts external ID",
+        "query": "SELECT * FROM `system.accounts` WHERE external_id = {account_external_id}",
+        "valid": true
+    },
+    {
+        "name": "quoted system accounts unrelated column",
+        "query": "SELECT * FROM `system.accounts` WHERE name = {account_external_id}",
+        "error": "SQL queries on system.accounts must filter external_id by {account_external_id}.",
+        "valid": false
+    },
+    {
+        "name": "system accounts remapped external ID",
+        "query": "SELECT * FROM system.accounts AS a (id, actual_external_id, external_id) WHERE a.external_id = {account_external_id}",
+        "error": "SQL account widgets do not support table column aliases.",
+        "valid": false
+    },
+    {
+        "name": "quoted system accounts remapped external ID",
+        "query": "SELECT * FROM `system.accounts` AS a (id, actual_external_id, external_id) WHERE a.external_id = {account_external_id}",
+        "error": "SQL account widgets do not support table column aliases.",
+        "valid": false
+    },
+    {
+        "name": "subquery remapped account column",
+        "query": "SELECT * FROM (SELECT * FROM system.accounts WHERE external_id = {account_external_id}) AS a (id, actual_external_id, external_id) WHERE a.external_id = {account_external_id}",
+        "error": "SQL account widgets do not support table column aliases.",
+        "valid": false
+    },
+    {
         "name": "system accounts unrelated column",
         "query": "SELECT * FROM system.accounts WHERE name = {account_external_id}",
         "error": "SQL queries on system.accounts must filter external_id by {account_external_id}.",

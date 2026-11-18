@@ -74,17 +74,16 @@ function isAccountSqlQueryAstScoped(value: unknown, aliases: Set<string>): boole
     }
     if (
         node.node === 'JoinExpr' &&
-        (!['Field', 'SelectQuery', 'SelectSetQuery'].includes(node.table?.node) || node.table_args?.length)
+        (!['Field', 'SelectQuery', 'SelectSetQuery'].includes(node.table?.node) ||
+            node.table_args?.length ||
+            node.column_aliases?.length)
     ) {
         return false
     }
     if (node.node === 'SelectQuery') {
         const source = node.select_from
         const allowedFields: (string | number)[][] | undefined =
-            source?.table?.node === 'Field' &&
-            source.table.chain.length === 2 &&
-            source.table.chain[0] === 'system' &&
-            source.table.chain[1] === 'accounts'
+            source?.table?.node === 'Field' && source.table.chain.join('.') === 'system.accounts'
                 ? [
                       ['external_id'],
                       ['accounts', 'external_id'],

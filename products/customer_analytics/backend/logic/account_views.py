@@ -126,7 +126,7 @@ class AccountSqlQueryScopeValidator(TraversingVisitor):
         if (
             node.select_from
             and isinstance(node.select_from.table, ast.Field)
-            and node.select_from.table.chain == ["system", "accounts"]
+            and ".".join(str(part) for part in node.select_from.table.chain) == "system.accounts"
         ):
             allowed_fields = {("external_id",), ("accounts", "external_id"), ("system", "accounts", "external_id")}
             if node.select_from.alias:
@@ -144,6 +144,8 @@ class AccountSqlQueryScopeValidator(TraversingVisitor):
             raise InvalidAccountViewContent(["SQL account widgets only support the {account_external_id} placeholder."])
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if node.column_aliases:
+            raise InvalidAccountViewContent(["SQL account widgets do not support table column aliases."])
         if not isinstance(node.table, ast.Field | ast.SelectQuery | ast.SelectSetQuery) or node.table_args:
             raise InvalidAccountViewContent(["SQL account widgets require a table name or scoped subquery in FROM."])
         super().visit_join_expr(node)
