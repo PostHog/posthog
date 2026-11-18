@@ -33,6 +33,18 @@ function runWithState(state: Record<string, unknown>): TaskRun {
   return createTaskRun({ state: taskRunStateSchema.parse(state) });
 }
 
+function serverPolicy(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    finish_tool: true,
+    finish_report_required: false,
+    report_activity_tool: false,
+    expects_system_prompt: false,
+    thread_link: true,
+    default_client_provenance: null,
+    ...overrides,
+  });
+}
+
 describe("run launch", () => {
   describe("readRunLaunch", () => {
     it.each<[string, string, Record<string, unknown>, boolean]>([
@@ -63,6 +75,29 @@ describe("run launch", () => {
         expect(launch.policy.finishTool).toBe(expected);
       },
     );
+    it.each<[string, string | undefined, boolean, string]>([
+      ["the server", serverPolicy({ finish_tool: false }), false, "server"],
+      ["the origin without a server policy", undefined, true, "origin"],
+      [
+        "the origin after a malformed server policy",
+        "{",
+        true,
+        "invalid_server",
+      ],
+    ])("takes the run policy from %s", (_, policy, finishTool, source) => {
+      const launch = readRunLaunch(
+        sources({
+          task: createTask({ origin_product: "user_created" }),
+          env: policy ? { POSTHOG_TASK_RUN_POLICY: policy } : {},
+        }),
+      );
+
+      expect([launch.policy.finishTool, launch.policySource]).toEqual([
+        finishTool,
+        source,
+      ]);
+    });
+
     it.each<[string, TaskRun | null, string | null]>([
       ["the recorded kind", runWithState({ snapshot_kind: "warm" }), "warm"],
       ["absent when the run has none", runWithState({}), "absent"],
@@ -217,6 +252,19 @@ describe("run launch", () => {
       );
 
       expect(launch.source?.url).toBe(expected);
+    });
+
+    it("drops the thread link when the server policy has none", () => {
+      const launch = readProductLaunch(
+        sources({
+          task: createTask({ origin_product: "posthog_ai" }),
+          env: {
+            POSTHOG_TASK_RUN_POLICY: serverPolicy({ thread_link: false }),
+          },
+        }),
+      );
+
+      expect(launch.source).toBeUndefined();
     });
 
     it("gives products a copy of the run state", () => {
