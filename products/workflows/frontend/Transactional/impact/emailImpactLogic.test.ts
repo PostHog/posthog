@@ -27,6 +27,7 @@ const IMPACT: TransactionalEmailImpactApi = {
     after_click: { sends: 1, converted: 0 },
     without_click: { sends: 7, converted: 1 },
 }
+const WITHOUT_EVENT: TransactionalEmailImpactApi = { ...IMPACT, after_click: null, without_click: null }
 
 describe('emailImpactLogic', () => {
     let logic: ReturnType<typeof emailImpactLogic.build>
@@ -39,7 +40,7 @@ describe('emailImpactLogic', () => {
         localStorage.clear()
         requestedFrom = []
         requestedParams = []
-        answer = [200, IMPACT]
+        answer = [200, WITHOUT_EVENT]
         onRequest = () => {}
         useMocks({
             get: {
@@ -55,7 +56,7 @@ describe('emailImpactLogic', () => {
 
     afterEach(() => logic.unmount())
 
-    it('asks the environment the email belongs to, and says which sends it could follow', async () => {
+    it('asks the environment the email belongs to, and says which sends it could follow once an event is picked', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         initKeaTests(true, ENVIRONMENT)
         logic = emailImpactLogic({ workflowId: 'workflow-1' })
@@ -63,10 +64,17 @@ describe('emailImpactLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(requestedFrom).toEqual([String(ENVIRONMENT.id)])
-        expect(logic.values.impact).toEqual(IMPACT)
+        expect(logic.values.impact).toEqual(WITHOUT_EVENT)
+        expect(logic.values.followedNote).toBeNull()
+
+        answer = [200, IMPACT]
+        logic.actions.setEvent('plan upgraded')
+        await expectLogic(logic).toFinishAllListeners()
+
         expect(logic.values.followedNote).toMatch(/^Counted over 1 of 2 clicked sends:/)
         expect(capture.mock.calls.filter(([name]) => name === 'transactional email impact loaded')).toEqual([
             ['transactional email impact loaded', { has_event: false, days: 30, has_untracked_sends: false }],
+            ['transactional email impact loaded', { has_event: true, days: 30, has_untracked_sends: false }],
         ])
     })
 
@@ -79,7 +87,7 @@ describe('emailImpactLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(requestedFrom).toEqual([String(teamLogic.values.currentTeamId)])
-        expect(logic.values.impact).toEqual(IMPACT)
+        expect(logic.values.impact).toEqual(WITHOUT_EVENT)
     })
 
     it.each([
@@ -92,7 +100,7 @@ describe('emailImpactLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         let answerNewSends: () => void = () => {}
         answer = new Promise((resolve) => {
-            answerNewSends = () => resolve([200, { ...IMPACT, sent: 4 }])
+            answerNewSends = () => resolve([200, { ...(event ? IMPACT : WITHOUT_EVENT), sent: 4 }])
         })
 
         const requested = new Promise<void>((resolve) => (onRequest = resolve))
@@ -144,7 +152,7 @@ describe('emailImpactLogic', () => {
         expect(logic.values.funnelState).toBe('error')
         expect(capture).not.toHaveBeenCalledWith('transactional email impact loaded', expect.anything())
 
-        answer = [200, IMPACT]
+        answer = [200, WITHOUT_EVENT]
         logic.actions.loadImpact()
         await expectLogic(logic).toFinishAllListeners()
 
