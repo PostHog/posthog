@@ -1,6 +1,6 @@
 import { PlaywrightSetup } from '@playwright-utils/playwright-setup'
 import { expect, test } from '@playwright-utils/workspace-test-base'
-import { Page } from '@playwright/test'
+import { Page, Route } from '@playwright/test'
 
 const RECIPIENT = 'reader@example.com'
 const UPDATE_URL = '**/messaging-preferences/update*'
@@ -151,14 +151,13 @@ test.describe('Message preferences page', () => {
 
             await test.step('all marketing off during a pending topic save keeps the new topic choice', async () => {
                 const heldSaves: (() => void)[] = []
-                await recipientPage.route(
-                    UPDATE_URL,
-                    async (route) => {
-                        await new Promise<void>((release) => heldSaves.push(release))
-                        await route.continue()
-                    },
-                    { times: 2 }
-                )
+                const holdSave = async (route: Route): Promise<void> => {
+                    await new Promise<void>((release) => heldSaves.push(release))
+                    await route.continue()
+                }
+                // No `times` limit: once a limited handler runs out, Playwright turns interception off,
+                // which lets the other held save through before the test releases it
+                await recipientPage.route(UPDATE_URL, holdSave)
                 await productNews.click()
                 await expect.poll(() => heldSaves.length).toBe(1)
                 await expect(status(productNewsId)).toHaveText('Saving…')
@@ -173,6 +172,7 @@ test.describe('Message preferences page', () => {
                 const allOffSaved = recipientPage.waitForResponse(UPDATE_URL)
                 heldSaves[1]()
                 await allOffSaved
+                await recipientPage.unroute(UPDATE_URL, holdSave)
 
                 await expect(status('$all')).toHaveText('Not subscribed')
                 await expect(status(productNewsId)).toHaveText('Not subscribed')
