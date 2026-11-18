@@ -59,15 +59,30 @@ class TestDetectTestType:
 
     @parameterized.expand(
         [
-            ("services/llm-gateway/tests/test_anthropic.py", "tests/test_anthropic.py"),
-            ("services/llm-gateway/tests/test_anthropic.py::test_x", "tests/test_anthropic.py::test_x"),
-            ("services/llm-gateway/tests", "tests"),
+            ("services/llm-gateway/tests/test_anthropic.py", "services/llm-gateway", "tests/test_anthropic.py"),
+            (
+                "services/llm-gateway/tests/test_anthropic.py::test_x",
+                "services/llm-gateway",
+                "tests/test_anthropic.py::test_x",
+            ),
+            ("services/llm-gateway/tests", "services/llm-gateway", "tests"),
+            ("services/stripe-mock/tests", "services/stripe-mock", "tests"),
         ]
     )
-    def test_standalone_uv_project_runs_in_its_own_environment(self, path: str, target: str) -> None:
+    def test_standalone_uv_project_runs_in_its_own_environment(self, path: str, project: str, target: str) -> None:
         config = detect_test_type(path)
-        assert config.command == ["uv", "run", "--project", ".", "--all-groups", "pytest", "-s", target]
-        assert config.cwd == REPO_ROOT / "services/llm-gateway"
+        assert config.command == [
+            "uv",
+            "run",
+            "--project",
+            ".",
+            "--all-groups",
+            "--all-extras",
+            "pytest",
+            "-s",
+            target,
+        ]
+        assert config.cwd == REPO_ROOT / project
         assert config.env == {"UV_PROJECT_ENVIRONMENT": ""}
 
     def test_python_with_node_id(self) -> None:
@@ -135,6 +150,7 @@ class TestDetectTestType:
                 ["--config", "vitest.integration.config.mts", "tests/tools/actions.integration.test.ts"],
             ),
             ("services/mcp/tests", ["tests"]),
+            ("services/mcp/tests/hono", ["--config", "vitest.hono.config.mts", "tests/hono"]),
         ]
     )
     def test_mcp_routes_to_vitest_with_the_suite_config(self, path: str, args: list[str]) -> None:

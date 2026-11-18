@@ -28,8 +28,8 @@ _AGENT_WORKSPACE_ROOT = "packages/agent"
 _NESTED_VITEST_ROOTS = (_DESKTOP_ROOT, _AGENT_WORKSPACE_ROOT)
 _MCP_ROOT = "services/mcp"
 _MCP_VITEST_CONFIGS_BY_DIR = (
-    ("tests/hono/", "vitest.hono.config.mts"),
-    ("tests/live/", "vitest.live.config.mts"),
+    ("tests/hono", "vitest.hono.config.mts"),
+    ("tests/live", "vitest.live.config.mts"),
 )
 _MCP_INTEGRATION_CONFIG = "vitest.integration.config.mts"
 
@@ -489,7 +489,7 @@ def _is_under(path: str, root: str) -> bool:
 
 def _mcp_vitest_config(rel: str) -> str | None:
     for directory, config in _MCP_VITEST_CONFIGS_BY_DIR:
-        if rel.startswith(directory):
+        if _is_under(rel, directory):
             return config
     if rel.endswith(".integration.test.ts"):
         return _MCP_INTEGRATION_CONFIG
@@ -527,7 +527,7 @@ def _detect_uv_project_test(path: str, project_dir: str, node_id: str | None = N
         target = f"{target}::{node_id}"
     return TestRunConfig(
         test_type="uv-project",
-        command=["uv", "run", "--project", ".", "--all-groups", "pytest", "-s", target],
+        command=["uv", "run", "--project", ".", "--all-groups", "--all-extras", "pytest", "-s", target],
         description=f"pytest in the {project_dir} uv project",
         env={"UV_PROJECT_ENVIRONMENT": ""},
         cwd=REPO_ROOT / project_dir,
