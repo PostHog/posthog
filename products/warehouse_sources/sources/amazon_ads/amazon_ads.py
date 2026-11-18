@@ -2,6 +2,7 @@ import io
 import gzip
 import json
 import time
+import hashlib
 import datetime as dt
 from collections.abc import Iterator
 from itertools import batched
@@ -14,6 +15,8 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait
 
 from products.warehouse_sources.sources.amazon_ads.settings import (
     AMAZON_ADS_ENDPOINTS,
+    HISTORY_EVENT_TYPES,
+    HISTORY_RETENTION_DAYS,
     AmazonAdsEndpointConfig,
     AmazonAdsReportConfig,
 )
@@ -256,8 +259,9 @@ class AmazonAdsClient:
         headers: dict[str, str] = {"Authorization": f"Bearer {self.token}"}
         if profile_id is not None:
             headers["Amazon-Advertising-API-Scope"] = profile_id
-        if self.config.media_type is not None and method == "POST":
-            headers["Content-Type"] = self.config.media_type
+        if self.config.media_type is not None:
+            if method == "POST":
+                headers["Content-Type"] = self.config.media_type
             headers["Accept"] = self.config.media_type
         if self.config.ads_api:
             # The unified Ads API reads the client id from its own header rather than the
@@ -275,6 +279,7 @@ class AmazonAdsClient:
         body: Optional[dict[str, Any]],
         extra_headers: Optional[dict[str, str]],
         http: Optional[requests.Session],
+        params: Optional[dict[str, Any]],
     ) -> requests.Response:
         url = f"{self.base_url}{path}"
         client = http if http is not None else self.session
@@ -283,7 +288,7 @@ class AmazonAdsClient:
             headers = self._headers(method, profile_id, extra_headers)
             if method == "POST":
                 return client.post(url, json=body or {}, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-            return client.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+            return client.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
         response = _do()
         # Access tokens last ~1h; re-mint once if the sync outlives one.
@@ -309,9 +314,10 @@ class AmazonAdsClient:
         body: Optional[dict[str, Any]] = None,
         extra_headers: Optional[dict[str, str]] = None,
         http: Optional[requests.Session] = None,
+        params: Optional[dict[str, Any]] = None,
     ) -> requests.Response:
         with request_deadline():
-            return self._retrying(self._send, method, path, profile_id, body, extra_headers, http)
+            return self._retrying(self._send, method, path, profile_id, body, extra_headers, http, params)
 
     def list_profiles(self) -> list[dict[str, Any]]:
         body = self.request("GET", "/v2/profiles").json()
@@ -429,26 +435,105 @@ def _report_rows(
         resumable_source_manager.clear_state()
 
 
+def _list_page(
+    client: AmazonAdsClient, profile_id: Optional[str], query: dict[str, Any], next_token: Optional[str]
+) -> dict[str, Any]:
+    config = client.config
+    query = dict(query)
+    if next_token:
+        query[config.next_token_key] = next_token
+    if config.method == "GET":
+        # `/invoices` refuses a page size next to a cursor, so only the first page sends one.
+        if next_token:
+            query.pop(config.page_size_key, None)
+        response = client.request("GET", config.path, profile_id=profile_id, params=query)
+    else:
+        response = client.request("POST", config.path, profile_id=profile_id, body=query)
+
+    data = response.json()
+    if not isinstance(data, dict):
+        return {}
+    # The billing guide shows the invoice list wrapped in a `payload` object, the spec shows it bare.
+    payload = data.get("payload")
+    return payload if isinstance(payload, dict) else data
+
+
+def _paged_rows(
+    client: AmazonAdsClient, profile_id: Optional[str], query: dict[str, Any]
+) -> Iterator[list[dict[str, Any]]]:
+    config = client.config
+    next_token_key = config.next_token_response_key or config.next_token_key
+    next_token: Optional[str] = None
+    while True:
+        data = _list_page(client, profile_id, query, next_token)
+        items = [item for item in (data.get(config.data_key) or []) if isinstance(item, dict)]
+        if profile_id is not None:
+            items = [{**item, "_profile_id": profile_id} for item in items]
+
+        if items:
+            yield items
+
+        next_token = data.get(next_token_key)
+        if not next_token or not items:
+            break
+
+
+def _list_query(config: AmazonAdsEndpointConfig) -> dict[str, Any]:
+    query: dict[str, Any] = dict(config.filters or {})
+    if config.page_size is not None:
+        query[config.page_size_key] = config.page_size
+    return query
+
+
 def _entity_rows(client: AmazonAdsClient, profile_ids: list[str]) -> Iterator[list[dict[str, Any]]]:
     """Entity list endpoints, fanned out per profile."""
-    config = client.config
     for profile_id in profile_ids:
-        next_token: Optional[str] = None
-        while True:
-            body: dict[str, Any] = dict(config.filters or {})
-            if config.page_size is not None:
-                body["maxResults"] = config.page_size
-            if next_token:
-                body["nextToken"] = next_token
-            data = client.request("POST", config.path, profile_id=profile_id, body=body).json()
-            items = [{**item, "_profile_id": profile_id} for item in (data.get(config.data_key, []) or [])]
+        yield from _paged_rows(client, profile_id, _list_query(client.config))
 
-            if items:
-                yield items
 
-            next_token = data.get("nextToken")
-            if not next_token or not items:
-                break
+def _history_event_id(event: dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(event, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _history_query(config: AmazonAdsEndpointConfig, from_ms: int, to_ms: int) -> dict[str, Any]:
+    return {
+        **_list_query(config),
+        # `useProfileIdAdvertiser` asks for every event of the advertiser behind the scoped profile,
+        # rather than the events of named campaigns or ad groups.
+        "eventTypes": {
+            event_type: {"parents": [{"useProfileIdAdvertiser": True}]} for event_type in HISTORY_EVENT_TYPES
+        },
+        "fromDate": from_ms,
+        "toDate": to_ms,
+        "sort": {"key": "DATE", "direction": "ASC"},
+    }
+
+
+def _history_from_ms(
+    now: dt.datetime, should_use_incremental_field: bool, db_incremental_field_last_value: Optional[Any]
+) -> int:
+    earliest = int((now - dt.timedelta(days=HISTORY_RETENTION_DAYS)).timestamp() * 1000)
+    if not should_use_incremental_field or db_incremental_field_last_value is None:
+        return earliest
+    try:
+        cursor = int(db_incremental_field_last_value)
+    except (TypeError, ValueError):
+        return earliest
+    return max(cursor, earliest)
+
+
+def _history_rows(
+    client: AmazonAdsClient,
+    profile_ids: list[str],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[list[dict[str, Any]]]:
+    now = dt.datetime.now(dt.UTC)
+    from_ms = _history_from_ms(now, should_use_incremental_field, db_incremental_field_last_value)
+    query = _history_query(client.config, from_ms, int(now.timestamp() * 1000))
+    for profile_id in profile_ids:
+        for page in _paged_rows(client, profile_id, query):
+            yield [{**event, "_event_id": _history_event_id(event)} for event in page]
 
 
 def get_rows(
@@ -471,7 +556,15 @@ def get_rows(
             yield profiles
         return
 
+    if not config.profile_scoped:
+        yield from _paged_rows(client, None, _list_query(config))
+        return
+
     profile_ids = [str(profile["profileId"]) for profile in client.list_profiles()]
+
+    if config.history:
+        yield from _history_rows(client, profile_ids, should_use_incremental_field, db_incremental_field_last_value)
+        return
 
     if config.report is not None:
         yield from _report_rows(

@@ -26,6 +26,9 @@ from products.warehouse_sources.sources.amazon_ads.amazon_ads import (
 from products.warehouse_sources.sources.amazon_ads.settings import (
     AMAZON_ADS_ENDPOINTS,
     ENDPOINTS,
+    HISTORY_EVENT_TYPES,
+    HISTORY_PAGE_SIZE,
+    HISTORY_RETENTION_DAYS,
     PAGE_SIZE,
     SP_CAMPAIGN_REPORT,
 )
@@ -42,6 +45,8 @@ from products.warehouse_sources.sources.sdk.testing import (
 
 _REPORT_URL = "https://offline-report-storage.s3.amazonaws.com/report.json.gz"
 _TODAY = "2026-06-30"
+_NOW_MS = int(dt.datetime(2026, 6, 30, tzinfo=dt.UTC).timestamp() * 1000)
+_HISTORY_EARLIEST_MS = _NOW_MS - HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000
 
 
 def _driver() -> SourceDriver:
@@ -365,11 +370,126 @@ class TestReportRows:
         assert not any(request.origin == "https://attacker.example.com" for request in result.requests)
 
 
+class TestAccountAndBillingRows:
+    def test_ads_accounts_are_listed_once_without_a_profile_scope(self) -> None:
+        config = AMAZON_ADS_ENDPOINTS["ads_accounts"]
+        result = _driver().run(
+            "ads_accounts",
+            [
+                _token(),
+                ScriptedResponse(json={"adsAccounts": [{"adsAccountId": "a1"}], "nextToken": "tok"}),
+                ScriptedResponse(json={"adsAccounts": [{"adsAccountId": "a2"}]}),
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == [{"adsAccountId": "a1"}, {"adsAccountId": "a2"}]
+        assert result.paths[1:] == ["/adsAccounts/list", "/adsAccounts/list"]
+        assert "amazon-advertising-api-scope" not in result.requests[1].headers
+        assert result.requests[1].headers["content-type"] == config.media_type
+        assert result.requests[1].headers["accept"] == config.media_type
+        assert result.requests[1].json() == {"maxResults": 100}
+        assert result.requests[2].json() == {"maxResults": 100, "nextToken": "tok"}
+
+    @pytest.mark.parametrize("wrapped", [False, True])
+    def test_invoices_page_with_a_query_cursor(self, wrapped: bool) -> None:
+        def page(body: dict[str, Any]) -> ScriptedResponse:
+            return ScriptedResponse(json={"status": "success", "payload": body} if wrapped else body)
+
+        result = _driver().run(
+            "invoices",
+            [
+                _token(),
+                _profiles([{"profileId": 1}]),
+                page({"invoiceSummaries": [{"id": "inv-1"}], "nextCursor": "cur"}),
+                page({"invoiceSummaries": [{"id": "inv-2"}], "nextCursor": None}),
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": "inv-1", "_profile_id": "1"}, {"id": "inv-2", "_profile_id": "1"}]
+        first, second = result.requests[2:]
+        assert (first.method, first.path, second.method, second.path) == ("GET", "/invoices", "GET", "/invoices")
+        # Amazon refuses `count` next to `cursor`.
+        assert first.query == {"count": ("100",)}
+        assert second.query == {"cursor": ("cur",)}
+        assert first.headers["amazon-advertising-api-scope"] == "1"
+        assert first.headers["accept"] == AMAZON_ADS_ENDPOINTS["invoices"].media_type
+
+
+class TestChangeHistoryRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel(_TODAY, tick=False):
+            yield
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field, last_value, expected_from",
+        [
+            (False, None, _HISTORY_EARLIEST_MS),
+            (True, None, _HISTORY_EARLIEST_MS),
+            (True, _NOW_MS - 3_600_000, _NOW_MS - 3_600_000),
+            (True, str(_NOW_MS - 3_600_000), _NOW_MS - 3_600_000),
+            # A cursor older than Amazon's retention would be refused, so it is clamped.
+            (True, _HISTORY_EARLIEST_MS - 86_400_000, _HISTORY_EARLIEST_MS),
+        ],
+    )
+    def test_history_query_window(
+        self, should_use_incremental_field: bool, last_value: Any, expected_from: int
+    ) -> None:
+        result = _driver().run(
+            "change_history",
+            [_token(), _profiles([{"profileId": 1}]), ScriptedResponse(json={"events": []})],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+        assert result.raised is None
+        request = result.requests[2]
+        assert (request.method, request.path) == ("POST", "/history")
+        assert request.headers["amazon-advertising-api-scope"] == "1"
+        assert request.json() == {
+            "count": HISTORY_PAGE_SIZE,
+            "eventTypes": {
+                event_type: {"parents": [{"useProfileIdAdvertiser": True}]} for event_type in HISTORY_EVENT_TYPES
+            },
+            "fromDate": expected_from,
+            "toDate": _NOW_MS,
+            "sort": {"key": "DATE", "direction": "ASC"},
+        }
+
+    def test_history_pages_and_keys_events_that_share_a_timestamp(self) -> None:
+        shared = {"entityType": "CAMPAIGN", "entityId": "c1", "changeType": "PLACEMENT_GROUP", "timestamp": 5}
+        events = [
+            {**shared, "newValue": "10", "metadata": {"placementGroupPosition": "TOP_OF_SEARCH"}},
+            {**shared, "newValue": "10", "metadata": {"placementGroupPosition": "DETAIL_PAGE"}},
+        ]
+        script = [
+            _token(),
+            _profiles([{"profileId": 1}]),
+            ScriptedResponse(json={"events": events, "nextToken": "tok"}),
+            ScriptedResponse(json={"events": [{**shared, "changeType": "STATUS", "newValue": "PAUSED"}]}),
+        ]
+
+        first = _driver().run("change_history", script)
+        second = _driver().run("change_history", script)
+
+        assert first.raised is None
+        assert len(first.rows) == 3
+        assert len({row["_event_id"] for row in first.rows}) == 3
+        assert [row["_event_id"] for row in first.rows] == [row["_event_id"] for row in second.rows]
+        assert all(row["_profile_id"] == "1" for row in first.rows)
+        assert first.requests[3].json() == {**first.requests[2].json(), "nextToken": "tok"}
+
+
 class TestAmazonAdsSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = AMAZON_ADS_ENDPOINTS[endpoint]
-        result = _driver().run(endpoint, [_token(), _profiles([])])
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.url == LWA_TOKEN_URL:
+                return _token()
+            return _profiles([]) if request.path == "/v2/profiles" else ScriptedResponse(json={})
+
+        result = _driver().run(endpoint, respond)
         assert result.raised is None
         assert result.response is not None
         assert result.response.name == endpoint
