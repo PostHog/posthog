@@ -253,7 +253,7 @@ export function getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(): KafkaWarp
 }
 
 // The cyclotron producer's settings, apart from the ones a route's answer waits on. Its brokers can be an agent group
-// that flushes sooner, and it sends without lingering, because a route's produce holds a request open. The intake
+// that flushes sooner, and it barely lingers, because a route's produce holds a request open. The intake
 // consumer's dead letters share the producer, so they take the same brokers and linger.
 export const WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_CONFIG_MAP = {
     ...WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP,
@@ -274,7 +274,8 @@ export function getDefaultKafkaWarpstreamCyclotronIntakeProducerEnvConfig(): Kaf
     return {
         // Empty uses the cyclotron producer's brokers.
         KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_METADATA_BROKER_LIST: '',
-        KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_LINGER_MS: '0',
+        // Long enough to batch a burst of sends, short enough not to show in a route's answer.
+        KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_LINGER_MS: '5',
         // The intake topics' max.message.bytes, above the encoder's cap, so every message it accepts can be produced.
         KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_MAX_BYTES: '2000000',
         // The routes' ack deadline, so a run answered with a 503 stops retrying instead of landing minutes later.
