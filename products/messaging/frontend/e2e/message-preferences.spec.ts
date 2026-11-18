@@ -66,6 +66,20 @@ interface RecipientView {
     status: (id: string) => ReturnType<Page['getByTestId']>
 }
 
+// An empty token makes the endpoint refuse the save with its own error, and the test never reads the token
+async function refuseNextSave(recipientPage: Page, save: () => Promise<void>): Promise<void> {
+    const token = recipientPage.locator('input[name="token"]')
+    await token.evaluate((input: HTMLInputElement) => {
+        input.dataset.heldToken = input.value
+        input.value = ''
+    })
+    await save()
+    await expect(recipientPage.getByText('Missing token')).toBeVisible()
+    await token.evaluate((input: HTMLInputElement) => {
+        input.value = input.dataset.heldToken ?? ''
+    })
+}
+
 async function openAsRecipient(browser: Browser, path: string): Promise<RecipientView> {
     const context = await browser.newContext({ storageState: { cookies: [], origins: [] } })
     const recipientPage = await context.newPage()
@@ -163,13 +177,7 @@ test.describe('Message preferences page', () => {
             await eventInvites.click()
             await expect(status(eventInvitesId)).toHaveText('Not subscribed')
 
-            await recipientPage.route(
-                UPDATE_URL,
-                (route) => route.fulfill({ status: 400, json: { error: 'All marketing save refused' } }),
-                { times: 1 }
-            )
-            await allMarketing.click()
-            await expect(recipientPage.getByText('All marketing save refused')).toBeVisible()
+            await refuseNextSave(recipientPage, () => allMarketing.click())
             await expect(allMarketing).toBeChecked()
             await expect(status('$all')).toHaveText('Subscribed')
             await expect(offNote).toBeHidden()
@@ -277,13 +285,7 @@ test.describe('Message preferences page', () => {
                     .poll(() => storedPreferences())
                     .toEqual({ $all: 'OPTED_IN', [productNewsId]: storedProductNews, [eventInvitesId]: 'OPTED_OUT' })
 
-                await recipientPage.route(
-                    UPDATE_URL,
-                    (route) => route.fulfill({ status: 400, json: { error: 'Topic save refused' } }),
-                    { times: 1 }
-                )
-                await productNews.click()
-                await expect(recipientPage.getByText('Topic save refused')).toBeVisible()
+                await refuseNextSave(recipientPage, () => productNews.click())
                 await expect(productNews).toBeChecked({ checked: startsChecked })
                 await expect(productNews).toBeEnabled()
                 await expect(status(productNewsId)).toHaveText(savedText)
