@@ -301,11 +301,11 @@ class TestAgentProxyCallback(TestCase):
         metric = "posthog_tasks_ended_run_credential_used_total"
         counted_before = REGISTRY.get_sample_value(metric, labels) or 0
 
-        with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
+        with patch.object(TaskRun, "heartbeat_workflow"):
             response = self._post(self._body(kind="heartbeat", agent_active=True), token=self._token())
 
         self.assertEqual(response.status_code, 200)
-        heartbeat.assert_called_once()
+        self.assertTrue(response.json()["dispatched"])
         self.assertEqual((REGISTRY.get_sample_value(metric, labels) or 0) - counted_before, expected_count)
 
     def test_heartbeat_not_dispatched_when_inactive(self) -> None:
