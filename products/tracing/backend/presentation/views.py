@@ -1544,7 +1544,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             flatSpans=flat_spans,
             prefetchSpans=prefetch_spans,
             excludeAttributes=query_data.get("excludeAttributes", False),
-            includeEvents=query_data.get("includeEvents", False),
+            includeEvents=self._parse_bool(query_data.get("includeEvents")),
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)
