@@ -1,5 +1,7 @@
 """Temporal workflows and activities this product registers on the alerts platform's queues."""
 
+from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
+
 from products.alerts.backend.temporal.platform_evaluate import (
     PLATFORM_AI_QUEUE_ACTIVITIES,
     PLATFORM_EVALUATION_ACTIVITIES as _EVALUATION_ACTIVITIES,
@@ -17,3 +19,14 @@ __all__ = [
     "PLATFORM_EVALUATION_ACTIVITIES",
     "PLATFORM_EVALUATION_WORKFLOWS",
 ]
+
+TEMPORAL = TemporalRegistration(
+    queues=(
+        QueueBinding(queue_setting="MAX_AI_TASK_QUEUE", activities=tuple(PLATFORM_AI_QUEUE_ACTIVITIES)),
+        QueueBinding(
+            queue_setting="ALERTS_PLATFORM_EVALUATION_TASK_QUEUE",
+            workflows=tuple(PLATFORM_EVALUATION_WORKFLOWS),
+            activities=tuple(PLATFORM_EVALUATION_ACTIVITIES),
+        ),
+    ),
+)
