@@ -147,7 +147,9 @@
 
 .MCPWrapped__header-button {
     color: white;
-    background: linear-gradient(110deg, var(--wrapped-from), var(--wrapped-to));
+
+    // Painted from the border edge, or the gradient repeats under the transparent border at both ends.
+    background: linear-gradient(110deg, var(--wrapped-from), var(--wrapped-to)) border-box;
     border-color: transparent;
     transition: filter 150ms ease;
 
