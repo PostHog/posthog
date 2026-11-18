@@ -63,24 +63,18 @@ export function formatMonth(month: string, style: 'long' | 'short' = 'long'): st
     return new Date(Date.UTC(year, monthNumber - 1, 1)).toLocaleString('en-US', { month: style, timeZone: 'UTC' })
 }
 
-export interface ChartMonth {
-    month: string
-    // null for months before tracking started, so the chart can draw them apart from quiet months.
-    calls: number | null
-}
-
-/** Every month from January to the last month with data, so the chart shows when tracking started. */
-export function yearMonths(months: readonly MCPWrappedMonthApi[]): ChartMonth[] {
+/** The tracked months in order, with any month in between that had no calls filled in as zero. */
+export function chartMonths(months: readonly MCPWrappedMonthApi[]): MCPWrappedMonthApi[] {
     if (months.length === 0) {
         return []
     }
     const sorted = [...months].sort((a, b) => a.month.localeCompare(b.month))
-    const [year, firstMonth] = sorted[0].month.split('-').map(Number)
-    const lastMonth = Number(sorted[sorted.length - 1].month.split('-')[1])
+    const [year, first] = sorted[0].month.split('-').map(Number)
+    const last = Number(sorted[sorted.length - 1].month.split('-')[1])
     const calls = new Map(sorted.map((month) => [month.month, month.calls]))
-    return Array.from({ length: lastMonth }, (_, index) => {
-        const key = `${year}-${String(index + 1).padStart(2, '0')}`
-        return { month: key, calls: index + 1 < firstMonth ? null : (calls.get(key) ?? 0) }
+    return Array.from({ length: last - first + 1 }, (_, index) => {
+        const key = `${year}-${String(first + index).padStart(2, '0')}`
+        return { month: key, calls: calls.get(key) ?? 0 }
     })
 }
 
@@ -88,6 +82,11 @@ const COMPACT = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFra
 
 export function formatCompact(value: number): string {
     return COMPACT.format(value)
+}
+
+/** Text size for a headline number, so the longest totals still fit on one line. */
+export function headlineNumberSize(formatted: string): string {
+    return formatted.length <= 7 ? 'text-6xl' : formatted.length <= 10 ? 'text-5xl' : 'text-4xl'
 }
 
 export function formatPercent(share: number): string {
