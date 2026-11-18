@@ -1,4 +1,4 @@
-import { FetchCandidate } from './collected-urls-record'
+import { FetchCandidate, normalizeWriteDays } from './collected-urls-record'
 
 export interface FetchCandidateLease {
     candidate: FetchCandidate
@@ -416,5 +416,8 @@ export function mergeDuplicateFetchCandidates(left: FetchCandidate, right: Fetch
         republishCount: Math.max(left.republishCount, right.republishCount),
         lastRepublishReason: latestState.lastRepublishReason,
         sourcePartitions: sourcePartitions.length > 0 ? sourcePartitions : undefined,
+        // A job with no days needs the image where a reader finds it whatever the day, so the merge keeps none.
+        writeDays:
+            left.writeDays && right.writeDays ? normalizeWriteDays([...left.writeDays, ...right.writeDays]) : undefined,
     }
 }

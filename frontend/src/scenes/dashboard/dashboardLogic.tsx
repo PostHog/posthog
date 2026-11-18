@@ -245,6 +245,7 @@ function tileGroupLoadProperties(
 function reportDashboardTileRefreshed(
     dashboardId: number,
     tile: DashboardTile,
+    servedFromCache: boolean | undefined,
     filters: Record<string, any>,
     variables: Record<string, any>,
     refreshDurationMs: number,
@@ -261,7 +262,9 @@ function reportDashboardTileRefreshed(
         dashboard_id: dashboardId,
         insight_id: insight?.id,
         insight_short_id: insight?.short_id,
-        was_cached: tile.is_cached,
+        was_cached: servedFromCache,
+        // Mostly true, since a load only refreshes tiles whose cached result is stale
+        was_cached_before_refresh: tile.is_cached,
         last_refreshed: insight?.last_refresh?.toString(),
         refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
         filters: filtersForAnalytics(filters),
@@ -397,6 +400,7 @@ async function refreshInsightTile(
         reportDashboardTileRefreshed(
             dashboardId,
             tile,
+            refreshedInsight.is_cached,
             urlFilters,
             variables,
             Math.floor(performance.now() - queryStartTime),
@@ -4300,7 +4304,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         /**
          * The group each tile opens and closes with. Tiles outside any group share one key, so tiles that waited in a
-         * closed "Overview" tab still load once it shows, also after the dashboard switches to sections or loses its
+         * closed tab of their own still load once it shows, also after the dashboard switches to sections or loses its
          * last group.
          */
         tileGroupKeys: [
@@ -5872,6 +5876,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 reportDashboardTileRefreshed(
                     dashboardId,
                     tile,
+                    refreshedInsight?.is_cached,
                     urlFilters,
                     urlVariables,
                     Math.floor(performance.now() - refreshStartTime),
@@ -6178,6 +6183,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 reportDashboardTileRefreshed(
                                     dashboardId,
                                     tile,
+                                    refreshedInsight.is_cached,
                                     urlFilters,
                                     urlVariables,
                                     Math.floor(performance.now() - startedAt),

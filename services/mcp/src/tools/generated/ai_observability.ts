@@ -39,6 +39,33 @@ const llmaClusteringConfigGet = (): ToolBase<
     },
 })
 
+const LlmaClusteringConfigSetEnabledSchema = () => {
+    const LlmAnalyticsClusteringConfigSetEnabledCreateBody =
+        orvalSchemas.LlmAnalyticsClusteringConfigSetEnabledCreateBody()
+    return LlmAnalyticsClusteringConfigSetEnabledCreateBody
+}
+
+const llmaClusteringConfigSetEnabled = (): ToolBase<
+    ReturnType<typeof LlmaClusteringConfigSetEnabledSchema>,
+    Schemas.ClusteringConfig
+> => ({
+    name: 'llma-clustering-config-set-enabled',
+    schema: LlmaClusteringConfigSetEnabledSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaClusteringConfigSetEnabledSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.ClusteringConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/set_enabled/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LlmaClusteringConfigSetEventFiltersSchema = () => {
     const LlmAnalyticsClusteringConfigSetEventFiltersCreateBody =
         orvalSchemas.LlmAnalyticsClusteringConfigSetEventFiltersCreateBody()
@@ -3043,6 +3070,7 @@ const llmaTaggerList = (): ToolBase<
                 enabled: params.enabled,
                 id__in: Array.isArray(params.id__in) ? params.id__in.join(',') || undefined : params.id__in,
                 limit: params.limit,
+                migrated_to_evaluation_id: params.migrated_to_evaluation_id,
                 offset: params.offset,
                 order_by: Array.isArray(params.order_by) ? params.order_by.join(',') || undefined : params.order_by,
                 search: params.search,
@@ -3570,6 +3598,7 @@ const AssistantTraceQuery = z.object({
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-clustering-config-get': llmaClusteringConfigGet,
+    'llma-clustering-config-set-enabled': llmaClusteringConfigSetEnabled,
     'llma-clustering-config-set-event-filters': llmaClusteringConfigSetEventFilters,
     'llma-clustering-job-create': llmaClusteringJobCreate,
     'llma-clustering-job-delete': llmaClusteringJobDelete,

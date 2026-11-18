@@ -83,8 +83,15 @@ class TestAttachmentUploads(APIBaseTest):
             if call.kwargs.get("event") == "transactional email attachments upload"
         ]
 
-    def test_answers_each_file_as_present_or_with_where_to_put_it(self, mock_post, _flag, capture):
+    @parameterized.expand(
+        [
+            ("project_path", "/api/environments/{team_id}/messaging/attachments/uploads/"),
+            ("key_scoped_path", "/api/messaging/attachments/uploads/"),
+        ]
+    )
+    def test_answers_each_file_as_present_or_with_where_to_put_it(self, mock_post, _flag, capture, _name, path):
         mock_post.configure_mock(**_cdp_answers(200, {"files": [UPLOAD_INVOICE, PRESENT_LOGO]}))
+        self.url = path.format(team_id=self.team.id)
 
         response = self._upload(TWO_FILES)
 
