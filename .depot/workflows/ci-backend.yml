@@ -249,6 +249,7 @@ jobs:
             repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
             sdk_manifests: ${{ steps.filter.outputs.sdk_manifests || 'true' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
+            reused: ${{ steps.filter.outputs.reused }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -277,9 +278,37 @@ jobs:
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
               # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
+                  reuse-checks: |
+                      Backend CI on Depot / Django Tests Pass on Depot
+                      Backend CI on Depot / Validate product.yaml owners (depot-ubuntu-24.04)
+                  reuse-filters: |
+                      backend
+                      product_skills_read_at_runtime
+                      legacy
+                      schema
+                      timing_scripts
+                      tasks_temporal
+                      repo_invariants
+                      sdk_manifests
+                      product_yamls
+                      openapi_types
+                      reuse_only_inputs
+                  reuse-blocking-labels: |
+                      run-ci-backend
+                      test-new-events-schema
+                      ci-no-reuse
+                  reuse-proof-checks: Backend CI on Depot / Detect snapshot mode
+                  reuse-check-apps: |
+                      depot-checks
+                      depot-checks-2
+                      depot-code-access
+                  reuse-filter-source: .depot/workflows/ci-backend.yml
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       backend:
                         # Avoid running backend tests for irrelevant changes
@@ -382,7 +411,9 @@ jobs:
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
                         - .github/new-events-schema-targets.txt
-                        - .depot/actions/setup-uv/**
+                        # Every local action this workflow runs, paths-filter included, since it decides what reuse
+                        # skips. Depot resolves ./.github/actions/<x> from .depot/actions/<x>.
+                        - .depot/actions/**
                         - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
@@ -403,6 +434,12 @@ jobs:
                         # files from `backend_files`.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                      reuse_only_inputs:
+                        - manage.py
+                        - .nvmrc
+                        - turbo.json
+                        - bin/download-mmdb
+                        - bin/hogli
                       product_skills_read_at_runtime:
                         - 'products/signals/skills/**'
                         - 'products/review_hog/skills/**'
@@ -1613,15 +1650,15 @@ jobs:
               run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
-            - name: Lint product structure
-              env:
-                  CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
-              run: ./bin/hogli product:lint --all
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
             # secrets — fork PRs get validated too (the --live slug check runs in
             # the fork-gated validate-product-yamls job instead).
             - parallel:
+                  - name: Lint product structure
+                    env:
+                        CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+                    run: ./bin/hogli product:lint --all
                   - name: Lint owners.yaml files
                     run: ./bin/hogli owners:lint
                   - name: Check version specifiers
@@ -1653,7 +1690,7 @@ jobs:
                   - name: Run repo invariants (whole-repo pytest guards)
                     run: |
                         if [ -d posthog/test/repo_invariants ]; then
-                            pytest -p no:cacheprovider posthog/test/repo_invariants
+                            pytest -n 2 --dist=loadfile -p no:cacheprovider posthog/test/repo_invariants
                         else
                             pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
                         fi
@@ -1801,7 +1838,7 @@ jobs:
         # products/db_routing.yaml is neither Python nor under a backend/ directory, and
         # a migration in a future top-level app matches none of them. Without it the
         # replay gate could be on while the job that runs it never starts.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.migration_replay == 'true') && github.event_name != 'schedule'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.migration_replay == 'true' || needs.changes.outputs.migrations_any == 'true') && github.event_name != 'schedule'
         # On master this job replays the full migration history from scratch to
         # produce the schema dump every PR job restores, and a merge queue batch that
         # changes a Django migration replays it a second time onto an empty database.
@@ -4752,6 +4789,7 @@ jobs:
                   github.event_name == 'pull_request' &&
                   github.event.pull_request.draft == false &&
                   needs.changes.outputs.backend == 'false' &&
+                  needs.changes.outputs.reused != 'true' &&
                   needs.django.result == 'skipped' &&
                   needs.turbo-tests.result == 'skipped' &&
                   needs.django_tests.result == 'success'
