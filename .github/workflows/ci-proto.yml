@@ -51,6 +51,7 @@ jobs:
                       core.info(safe ? 'Compare the complete push range.' : 'Full checks: push baseline is not green.');
                       return safe;
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: github.event_name == 'pull_request' || (steps.baseline.outcome == 'success' && steps.baseline.outputs.result == 'true')
               with:
                   clean: false
                   sparse-checkout: .github/actions/paths-filter
