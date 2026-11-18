@@ -6962,8 +6962,8 @@ Diffed against: <https://docs.knock.app/llms.txt>
 - [x] `objects/{collection}/{id}/subscriptions and users/{id}/subscriptions` — membership table mapping recipients to the objects they subscribe to; drives audience sizing (medium)
 - [x] `audiences/{key}/members` — audience membership, a straightforward analytical join for targeting analysis (medium)
 - [x] `users/{id}/preferences and objects preferences` — per-recipient notification preference sets — needed to explain why recipients were skipped (medium)
-- [ ] `users/{id}/feeds (list feed items)` — in-app feed items per user, for in-app channel engagement analysis (medium)
-- [ ] `bulk_operations (get bulk operation)` — status of bulk identify/subscribe jobs, useful for sync auditing (low)
+- [x] `users/{id}/feeds (list feed items)` — in-app feed items per user, for in-app channel engagement analysis (medium)
+- [ ] `bulk_operations (get bulk operation)` — status of bulk identify/subscribe jobs, useful for sync auditing (low) Skipped: the API only reads one bulk operation by the ID that a bulk call returned; there is no list endpoint.
 
 Note: Knock has no publicly downloadable OpenAPI file (docs.knock.app/openapi.json returns the docs SPA), but llms.txt enumerates every api-reference page and is authoritative. Caveat for whoever implements `objects`: there is no global list-all-objects endpoint — listing requires a collection key per request, so the table would need collection names as config or dynamic discovery. The message sub-resources (events, delivery_logs, activities) likewise require iterating message IDs, which is expensive but is where the deliverability data lives. The subscriptions and preferences tables (`user_subscriptions`, `user_preferences`) fan out over users only; the object-side endpoints would need a two-level walk over configured collections and their objects. Audiences cannot be listed either, so `audience_members` reads the audience keys configured on the source.
 

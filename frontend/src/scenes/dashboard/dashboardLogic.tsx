@@ -7806,12 +7806,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setTextTileId(parsedTileId)
                 actions.setButtonTileId(parsedTileId)
             },
-            // The product analytics page shows a full dashboard at its own URL.
-            [urls.analyticsProductHome()]: (_params, searchParams, _hashParams, { method }) => {
-                if (method === 'POP' && values.dashboard && values.placement === DashboardPlacement.Dashboard) {
-                    restoreSettingsFromHistory(searchParams)
-                }
-            },
         }
     }),
 ])
