@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -257,5 +258,35 @@ describe('traceCellsLogic', () => {
         expect(logic.values.previews.get('trace-a')).toEqual(
             ready(makeTracePreview('trace-a', { output: 'A refreshed answer.' }))
         )
+    })
+
+    it('keeps the newer values when an older read of the same rows answers last', async () => {
+        await mountList()
+        const olderAnswer = deferred()
+        let refreshes = 0
+        answer = async (read, body) => {
+            if (read !== 'previews') {
+                return answerFor(read, body.trace_ids)
+            }
+            refreshes += 1
+            const isOlder = refreshes === 1
+            if (isOlder) {
+                await olderAnswer.promise
+            }
+            const output = isOlder ? 'An older answer.' : 'A newer answer.'
+            return [200, { items: body.trace_ids.map((id) => makeTracePreview(id, { output })) }]
+        }
+
+        const newer = ready(makeTracePreview('trace-a', { output: 'A newer answer.' }))
+
+        tracesListLogic.actions.reload()
+        await waitFor(() => expect(requestedIds('previews')).toHaveLength(2))
+        tracesListLogic.actions.reload()
+        await waitFor(() => expect(logic.values.previews.get('trace-a')).toEqual(newer))
+        olderAnswer.resolve()
+        await settle()
+
+        expect(requestedIds('previews')).toEqual([FIRST_PAGE_IDS, FIRST_PAGE_IDS, FIRST_PAGE_IDS])
+        expect(logic.values.previews.get('trace-a')).toEqual(newer)
     })
 })

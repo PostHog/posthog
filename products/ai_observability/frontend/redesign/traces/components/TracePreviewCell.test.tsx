@@ -21,6 +21,7 @@ describe('TracePreviewCell', () => {
 
         expect(container.textContent).toBe(shown)
         expect(container.querySelector('[title]')?.getAttribute('title') ?? null).toBe(title)
+        expect(container.querySelector('.ph-no-capture')?.textContent ?? null).toBe(title)
         expect(!!container.querySelector('[role="img"][aria-label^="Couldn\'t load"]')).toBe(status === 'error')
     })
 })
