@@ -193,8 +193,15 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         claimed_events = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_report_claimed"]
         # Re-claiming under the same claim is not a new claim, so it records nothing.
         assert len(claimed_events) == 1
+        assert claimed_events[0].kwargs["distinct_id"] == str(self.team.uuid)
         properties = claimed_events[0].kwargs["properties"]
-        assert properties["actor_kind"] == actor
+        assert {key: value for key, value in properties.items() if key.startswith("actor_")} == {
+            "actor_kind": actor,
+            "actor_user_uuid": None if actor == "task" else str(self.user.uuid),
+            "actor_distinct_id": None if actor == "task" else self.user.distinct_id,
+            "actor_agent": "codex" if actor == "agent" else None,
+            "actor_task_id": headers["X-PostHog-Task-Id"] if actor == "task" else None,
+        }
         if notes_written is None:
             assert "claimant_was_suggested" not in properties
         else:

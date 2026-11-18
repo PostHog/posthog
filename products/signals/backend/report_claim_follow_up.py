@@ -15,6 +15,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
 
+from products.signals.backend.actor_telemetry import actor_properties
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.reviewer_correction_notes import (
     ReviewerClaim,
@@ -86,14 +87,22 @@ def record_report_claimed(
                 claim_notes_written=len(forwarded.note_ids) if forwarded else 0,
                 claim_note_targets=forwarded.targets_resolved if forwarded else 0,
             )
-        _capture_report_claimed(team=team, report_id=report_id, actor=actor, takeover=takeover, claimant=claimant)
+        _capture_report_claimed(
+            team=team, report_id=report_id, actor=actor, actor_user=user, takeover=takeover, claimant=claimant
+        )
     except Exception:
         # The claim and its activity row already committed. Nothing here may turn it into a 5xx.
         logger.exception("Failed to record a report claim", extra={"team_id": team_id, "report_id": report_id})
 
 
 def _capture_report_claimed(
-    *, team: Team, report_id: str, actor: ArtefactAttribution, takeover: bool, claimant: ClaimantOutcome | None
+    *,
+    team: Team,
+    report_id: str,
+    actor: ArtefactAttribution,
+    actor_user: User | None,
+    takeover: bool,
+    claimant: ClaimantOutcome | None,
 ) -> None:
     # For a person or their agent, the share of claims with `claimant_was_suggested` is the routing hit
     # rate the claim notes try to raise. Compare it by `claim_notes_enabled`.
@@ -103,7 +112,7 @@ def _capture_report_claimed(
         properties={
             "team_id": team.id,
             "report_id": report_id,
-            "actor_kind": actor.kind,
+            **actor_properties(actor, actor_user),
             "takeover": takeover,
             **(dataclasses.asdict(claimant) if claimant else {}),
         },
