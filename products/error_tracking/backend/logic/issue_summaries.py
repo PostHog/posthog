@@ -424,7 +424,6 @@ def _generate_claimed(
         with timings.stage("model"):
             raw = _call_model(team_id, issue_id, inputs.prompt)
     except Exception as error:
-        # The gate's credit check fails open, so the gateway's refusal is the backstop.
         if _is_gateway_credit_refusal(error):
             return IssueSummaryResult(outcome=IssueSummaryOutcome.OUT_OF_CREDITS, summary=None)
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})

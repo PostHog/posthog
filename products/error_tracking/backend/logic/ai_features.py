@@ -57,7 +57,6 @@ def _is_over_ai_credit_budget(team_id: int, api_token: str) -> bool:
     try:
         return is_team_over_ai_credit_budget(api_token)
     except Exception:
-        # The quota cache reads Redis. An outage must not stop a team that has credits, and the gateway still refuses
-        # a team that is really out of them.
+        # The quota cache reads Redis, and an outage must not stop summaries for a team that has credits.
         logger.warning("error_tracking_ai_credit_check_failed", team_id=team_id, exc_info=True)
         return False
