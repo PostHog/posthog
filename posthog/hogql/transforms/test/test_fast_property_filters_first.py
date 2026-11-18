@@ -11,7 +11,7 @@ from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.transforms.property_types import PropertySwapper
 from posthog.hogql.visitor import TraversingVisitor
 
-MARKERS = {"deep": "deep", "fast": "fast", "other": "other", 7: "seven"}
+MARKERS = {"deep": "deep", "fast": "fast", "other": "other", 7: "seven", "7": "seven"}
 
 
 class _MarkerOrder(TraversingVisitor):
@@ -20,15 +20,19 @@ class _MarkerOrder(TraversingVisitor):
         self.markers: list[str] = []
 
     def visit_constant(self, node: ast.Constant) -> None:
-        if isinstance(node.value, (str, int)) and not isinstance(node.value, bool) and node.value in MARKERS:
+        if node.value is True:
+            self.markers.append("true")
+        elif isinstance(node.value, (str, int)) and not isinstance(node.value, bool) and node.value in MARKERS:
             self.markers.append(MARKERS[node.value])
 
 
 class TestFastPropertyFiltersFirst(SimpleTestCase):
     def _filter_order(
-        self, where: str, *, native: bool = True, table: str = "events", numeric_properties: tuple[str, ...] = ()
+        self, where: str, *, native: bool = True, table: str = "events", property_types: dict[str, str] | None = None
     ) -> list[str]:
-        metadata = PropertyMetadata(event_properties={name: {"type": "Numeric"} for name in numeric_properties})
+        metadata = PropertyMetadata(
+            event_properties={name: {"type": property_type} for name, property_type in (property_types or {}).items()}
+        )
         context = HogQLContext(
             use_new_events_schema=native,
             property_metadata=metadata,
@@ -67,16 +71,40 @@ class TestFastPropertyFiltersFirst(SimpleTestCase):
                 "properties.query.kind = 'deep' AND properties.plan = concat('fast', event)",
                 ["deep", "fast"],
             ),
+            (
+                "call_with_an_argument_that_can_throw_stays",
+                "properties.query.kind = 'deep' AND transform(properties.plan, ['fast'], [1], event::int) > 7",
+                ["deep", "fast", "seven"],
+            ),
+            (
+                "constant_of_another_type_stays",
+                "properties.query.kind = 'deep' AND properties.plan = 7",
+                ["deep", "seven"],
+            ),
+            (
+                "list_compared_for_equality_stays",
+                "properties.query.kind = 'deep' AND properties.plan = ['fast']",
+                ["deep", "fast"],
+            ),
         ]
     )
     def test_filter_order_on_the_native_table(self, _name: str, where: str, expected: list[str]) -> None:
         assert self._filter_order(where) == expected
 
-    def test_a_comparison_of_a_typed_property_is_fast(self) -> None:
+    @parameterized.expand(
+        [
+            ("number_moves", "properties.duration > 7", ["seven", "deep"]),
+            ("number_written_as_text_moves", "properties.duration > '7'", ["seven", "deep"]),
+            ("text_that_is_not_a_number_stays", "properties.duration > 'fast'", ["deep", "fast"]),
+            ("boolean_moves", "properties.active = true", ["true", "deep"]),
+        ]
+    )
+    def test_a_comparison_of_a_typed_property(self, _name: str, comparison: str, expected: list[str]) -> None:
         order = self._filter_order(
-            "properties.query.kind = 'deep' AND properties.duration > 7", numeric_properties=("duration",)
+            f"properties.query.kind = 'deep' AND {comparison}",
+            property_types={"duration": "Numeric", "active": "Boolean"},
         )
-        assert order == ["seven", "deep"]
+        assert order == expected
 
     @parameterized.expand(
         [
