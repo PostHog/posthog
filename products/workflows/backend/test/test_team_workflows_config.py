@@ -58,6 +58,7 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "marketing_frequency_cap_hold_hours": None,
             "email_utm_tags_enabled": False,
             "email_utm_params": {},
+            "email_workflow_run_link_tag_enabled": True,
         }
 
     def test_patch_enables_capture(self) -> None:
@@ -87,11 +88,17 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         assert response.json()["workflows_config"]["capture_workflows_engagement_events"] is True
         assert TeamWorkflowsConfig.objects.get(team=self.team).capture_workflows_engagement_events is True
 
-    def test_patch_sets_email_tracking_consent_mode(self) -> None:
-        response = self.client.patch(self.url, {"workflows_config": {"email_tracking_consent_mode": "opt_in"}})
+    @parameterized.expand(
+        [
+            ("email_tracking_consent_mode", "opt_in"),
+            ("email_workflow_run_link_tag_enabled", False),
+        ]
+    )
+    def test_patch_sets_email_setting(self, field: str, value: str | bool) -> None:
+        response = self.client.patch(self.url, {"workflows_config": {field: value}})
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["workflows_config"]["email_tracking_consent_mode"] == "opt_in"
-        assert TeamWorkflowsConfig.objects.get(team=self.team).email_tracking_consent_mode == "opt_in"
+        assert response.json()["workflows_config"][field] == value
+        assert getattr(TeamWorkflowsConfig.objects.get(team=self.team), field) == value
 
     def test_patch_rejects_unknown_email_tracking_consent_mode(self) -> None:
         response = self.client.patch(self.url, {"workflows_config": {"email_tracking_consent_mode": "sometimes"}})
@@ -154,6 +161,7 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "marketing_frequency_cap_hold_hours": None,
             "email_utm_tags_enabled": False,
             "email_utm_params": {},
+            "email_workflow_run_link_tag_enabled": True,
         }
 
     @parameterized.expand(

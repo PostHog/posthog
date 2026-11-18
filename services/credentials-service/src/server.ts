@@ -324,7 +324,7 @@ export class CredentialsServer {
     private startAuditMaintenance(pool: Pool): void {
         const { auditExport } = this.config
         if (auditExport) {
-            const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize)
+            const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize, this.config.env)
             this.cancelTimers.push(every(auditExport.intervalSeconds * 1000, async () => void (await exporter.tick())))
             this.cancelTimers.push(() => exporter.stop())
         }
