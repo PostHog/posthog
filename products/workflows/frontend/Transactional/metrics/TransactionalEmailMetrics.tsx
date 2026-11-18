@@ -2,25 +2,18 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
-import { TransactionalEmailMetricsDateRange } from './TransactionalEmailMetricsDateRange'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailMetricTiles } from './TransactionalEmailMetricTiles'
 import { TransactionalEmailResults } from './TransactionalEmailResults'
 import { TransactionalEmailStatsTable } from './TransactionalEmailStatsTable'
-import { TransactionalPushMetrics } from './TransactionalPushMetrics'
 
-export function TransactionalEmailMetrics(): JSX.Element {
+export function TransactionalEmailMetrics({ actions }: { actions: JSX.Element }): JSX.Element {
     const { templateStats, templateStatsLinks, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
         useValues(transactionalEmailMetricsLogic)
     const { loadTemplateStats, loadDomainStats, loadStatsOverTime } = useActions(transactionalEmailMetricsLogic)
-    const { sendablePushTemplates } = useValues(transactionalTemplatesLogic)
-    const showPush = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_PUSH_API') && sendablePushTemplates.length > 0
     const emptyState = statsFailed ? "The numbers couldn't load" : 'No transactional emails were sent in this period'
 
     return (
@@ -41,7 +34,7 @@ export function TransactionalEmailMetrics(): JSX.Element {
                     The numbers couldn't load. Check your connection and try again.
                 </LemonBanner>
             )}
-            <SceneSection title="All transactional emails" actions={<TransactionalEmailMetricsDateRange />}>
+            <SceneSection title="All transactional emails" actions={actions}>
                 <TransactionalEmailMetricTiles />
             </SceneSection>
             <SceneDivider />
@@ -77,12 +70,6 @@ export function TransactionalEmailMetrics(): JSX.Element {
             >
                 <TransactionalEmailResults />
             </SceneSection>
-            {showPush ? (
-                <>
-                    <SceneDivider />
-                    <TransactionalPushMetrics />
-                </>
-            ) : null}
         </div>
     )
 }

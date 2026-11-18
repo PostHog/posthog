@@ -4,14 +4,17 @@ import { IconRefresh, IconSearch } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
 import type { TransactionalPushLogEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { TransactionalChannelSelect } from '../TransactionalChannelSelect'
 import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { PUSH_STATUS_DESCRIPTION, PUSH_STATUS_LABEL, PUSH_STATUS_TAG } from './pushLogStatus'
+import { QuillTransactionalPushLogFilters } from './QuillTransactionalPushLogFilters'
 import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
 import { transactionalPushLogLogic } from './transactionalPushLogLogic'
 
@@ -24,6 +27,7 @@ export function TransactionalPushLog(): JSX.Element {
     const { pushes, pageLoading, pageFailed, filters, isFiltered, pagination } = useValues(transactionalPushLogLogic)
     const { setFilters, setPage, refresh, loadPushes } = useActions(transactionalPushLogLogic)
     const { sendablePushTemplates } = useValues(transactionalTemplatesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const pushOptions = sendablePushTemplates.map((template) => ({
         value: template.transactional_hog_flow_id as string,
@@ -32,50 +36,55 @@ export function TransactionalPushLog(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2 justify-between">
-                <div className="flex items-center gap-2 flex-1 min-w-60">
-                    <LemonInput
-                        type="search"
-                        size="small"
-                        placeholder="Search by distinct ID"
-                        fullWidth
-                        value={filters.search}
-                        onChange={(search) => setFilters({ search })}
-                        prefix={<IconSearch />}
-                        allowClear
-                        data-attr="transactional-push-log-search"
-                    />
+            {todayRailNav ? (
+                <QuillTransactionalPushLogFilters pushOptions={pushOptions} statusOptions={STATUS_OPTIONS} />
+            ) : (
+                <div className="flex flex-wrap items-center gap-2 justify-between">
+                    <div className="flex items-center gap-2 flex-1 min-w-60">
+                        <LemonInput
+                            type="search"
+                            size="small"
+                            placeholder="Search by distinct ID"
+                            fullWidth
+                            value={filters.search}
+                            onChange={(search) => setFilters({ search })}
+                            prefix={<IconSearch />}
+                            allowClear
+                            data-attr="transactional-push-log-search"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <TransactionalChannelSelect dataAttr="transactional-log-channel-filter" />
+                        <LemonSelect
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            value={filters.workflowId}
+                            onChange={(workflowId) => setFilters({ workflowId })}
+                            options={[{ value: null, label: 'All push notifications' }, ...pushOptions]}
+                            data-attr="transactional-push-log-push-filter"
+                        />
+                        <LemonSelect
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            value={filters.status}
+                            onChange={(status) => setFilters({ status })}
+                            options={[{ value: null, label: 'Any status' }, ...STATUS_OPTIONS]}
+                            data-attr="transactional-push-log-status-filter"
+                        />
+                        <TransactionalEmailLogDateFilter />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            loading={pageLoading}
+                            onClick={() => refresh()}
+                            data-attr="transactional-push-log-refresh"
+                        >
+                            Refresh
+                        </LemonButton>
+                    </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                    <LemonSelect
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        value={filters.workflowId}
-                        onChange={(workflowId) => setFilters({ workflowId })}
-                        options={[{ value: null, label: 'All push notifications' }, ...pushOptions]}
-                        data-attr="transactional-push-log-push-filter"
-                    />
-                    <LemonSelect
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        value={filters.status}
-                        onChange={(status) => setFilters({ status })}
-                        options={[{ value: null, label: 'Any status' }, ...STATUS_OPTIONS]}
-                        data-attr="transactional-push-log-status-filter"
-                    />
-                    <TransactionalEmailLogDateFilter />
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconRefresh />}
-                        loading={pageLoading}
-                        onClick={() => refresh()}
-                        data-attr="transactional-push-log-refresh"
-                    >
-                        Refresh
-                    </LemonButton>
-                </div>
-            </div>
+            )}
             {pageFailed && (
                 <LemonBanner
                     type="error"

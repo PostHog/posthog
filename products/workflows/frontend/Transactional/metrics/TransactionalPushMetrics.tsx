@@ -17,7 +17,7 @@ function Count({ value }: { value: number }): JSX.Element {
     return <span className="tabular-nums">{humanFriendlyNumber(value)}</span>
 }
 
-export function TransactionalPushMetrics(): JSX.Element {
+export function TransactionalPushMetrics({ actions }: { actions: JSX.Element }): JSX.Element {
     const { pushStats, pushStatsLoading, pushStatsFailed } = useValues(transactionalPushMetricsLogic)
     const { loadPushStats } = useActions(transactionalPushMetricsLogic)
 
@@ -33,6 +33,7 @@ export function TransactionalPushMetrics(): JSX.Element {
     return (
         <SceneSection
             title="Push notifications"
+            actions={actions}
             description="Sent reached at least one of the person's devices. Not sent reached none, for example because the person has no device registered."
         >
             {pushStatsFailed && !pushStatsLoading && (
