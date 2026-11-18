@@ -446,11 +446,23 @@ class TestBytecodeExecute:
         with pytest.raises(HogVMException, match="Cannot use % on a string"):
             execute_bytecode(bytecode, {})
 
-    def test_replace_all_is_refused_before_it_builds_a_result_past_the_limit(self):
-        bytecode = create_bytecode(parse_expr("replaceAll('" + "x" * 1000 + "', 'x', '" + "y" * 100 + "')")).bytecode
-        with patch.object(STL["replaceAll"], "fn", side_effect=AssertionError("Built the result")):
+    @parameterized.expand(
+        [
+            ("replaceAll", "replaceAll('" + "x" * 1000 + "', 'x', '" + "y" * 100 + "')"),
+            ("arrayStringConcat", "arrayStringConcat(range(200), '" + "x" * 1000 + "')"),
+        ]
+    )
+    def test_a_growing_stl_call_is_refused_before_it_builds_a_result_past_the_limit(
+        self, name: str, expression: str
+    ) -> None:
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        with patch.object(STL[name], "fn", side_effect=AssertionError("Built the result")):
             with pytest.raises(HogVMMemoryExceededException):
                 execute_bytecode(bytecode, memory_limit=50_000)
+
+    def test_json_stringify_caps_the_indent_like_javascript(self):
+        response = execute_bytecode(create_bytecode(parse_expr("jsonStringify([1], 1000000)")).bytecode, {})
+        assert len(response.result) == len(json.dumps([1], indent=10))
 
     def test_multiplying_integers_past_the_bit_cap_is_refused(self):
         big = 2 ** (MAX_INT_BITS // 2)
