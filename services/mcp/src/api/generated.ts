@@ -14341,6 +14341,8 @@ export namespace Schemas {
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
+      /** Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results. */
+      entry_span_count?: number | null;
       error_count: number;
       /** Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`. */
       health_reason?: string | null;
