@@ -289,6 +289,77 @@ test.describe('Message preferences page', () => {
                 await expect(eventInvites).toBeEnabled()
                 await expect(eventInvites).toBeChecked()
             })
+
+            await test.step('an edit made while a failed save reads back does not resend the refused choice', async () => {
+                const read = responseGate()
+                const answer = responseGate()
+                await recipientPage.route(
+                    UPDATE_URL,
+                    (route) => route.fulfill({ status: 500, json: { error: 'Something went wrong' } }),
+                    { times: 1 }
+                )
+                await recipientPage.route(
+                    isPageRead,
+                    async (route) => {
+                        const response = await route.fetch()
+                        read.open()
+                        await answer.opened
+                        await route.fulfill({ response })
+                    },
+                    { times: 1 }
+                )
+                await productNews.click()
+                await read.opened
+                await eventInvites.click()
+                await expect(status(eventInvitesId)).toHaveText('Not subscribed')
+                await expect(status(productNewsId)).toHaveText('Not subscribed')
+                expect(await storedPreferences('product_news')).toEqual({
+                    $all: 'OPTED_IN',
+                    [productNewsId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_OUT',
+                })
+                answer.open()
+            })
+
+            await test.step('a failed read-back after out-of-order answers keeps the last choice for the next save', async () => {
+                const committed = responseGate()
+                const answer = responseGate()
+                await recipientPage.route(
+                    UPDATE_URL,
+                    async (route) => {
+                        const response = await route.fetch()
+                        committed.open()
+                        await answer.opened
+                        await route.fulfill({ response })
+                    },
+                    { times: 1 }
+                )
+                await recipientPage.route(
+                    isPageRead,
+                    (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<p>Another page</p>' }),
+                    { times: 1 }
+                )
+                const unconfirmed = recipientPage.getByText("Couldn't confirm your preferences.", { exact: false })
+                const warningsBefore = await unconfirmed.count()
+                await allMarketing.click()
+                await committed.opened
+                const laterSave = recipientPage.waitForResponse((response) =>
+                    response.url().includes('/messaging-preferences/update')
+                )
+                await allMarketing.click()
+                await laterSave
+                answer.open()
+                await expect(unconfirmed).toHaveCount(warningsBefore + 1)
+                await expect(status('$all')).toHaveText('Subscribed')
+                await expect(allMarketing).toBeChecked()
+                await eventInvites.click()
+                await expect(status(eventInvitesId)).toHaveText('Subscribed')
+                expect(await storedPreferences('product_news')).toEqual({
+                    $all: 'OPTED_IN',
+                    [productNewsId]: 'OPTED_OUT',
+                    [eventInvitesId]: 'OPTED_IN',
+                })
+            })
         } finally {
             await recipientContext.close()
         }

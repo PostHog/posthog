@@ -79,7 +79,6 @@
                     return choices
                 }
                 const wanted = savedChoices(document)
-                const stored = { ...wanted }
                 const saving = new Set()
                 let savesPending = 0
                 let savesStarted = 0
@@ -168,10 +167,13 @@
                             throw new Error(data.error)
                         }
 
-                        Object.assign(stored, choices)
                         showToast('Preferences updated successfully', false)
                     } catch (error) {
                         showToast(error.message || 'Failed to update preferences', true)
+                        // A refused change turns back now, so a save started before the read-back cannot resend it
+                        if (wanted[changedToggle.name] === choices[changedToggle.name]) {
+                            wanted[changedToggle.name] = !choices[changedToggle.name]
+                        }
                     } finally {
                         savesPending--
                         if (savesPending === 0) {
@@ -186,12 +188,10 @@
                             // A save that started during the read makes it stale, and that save reads back when it ends
                             if (savesStarted === savesBeforeRead) {
                                 if (storedForm) {
-                                    Object.assign(stored, savedChoices(storedForm))
+                                    Object.assign(wanted, savedChoices(storedForm))
                                 } else {
                                     showToast("Couldn't confirm your preferences. Reload the page to check them.", true)
                                 }
-                                // Show what the server stored, which also undoes a failed change
-                                Object.assign(wanted, stored)
                                 saving.clear()
                             }
                         }
