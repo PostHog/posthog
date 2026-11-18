@@ -40,6 +40,7 @@ import { MetricRetryDetails } from './MetricRetryState'
 import { MetricTitle } from './MetricTitle'
 import { MetricTypeTag } from './MetricTypeTag'
 import { QuillMetricHeaderActions } from './QuillMetricHeaderActions'
+import { QuillMetricHeaderLayout } from './QuillMetricHeaderLayout'
 
 const MAX_BREAKDOWNS = 3
 
@@ -341,6 +342,19 @@ export const MetricHeader = ({
         onEdit: openEditModal,
     }
 
+    if (todayRailNav && resultsRedesign) {
+        return (
+            <QuillMetricHeaderLayout
+                dragHandle={dragHandle}
+                metric={metric}
+                experiment={experiment}
+                showRecalculatingTag={showRecalculatingTag}
+                metricRetry={metricRetry}
+                actions={readOnly ? null : <QuillMetricHeaderActions {...actionsProps} />}
+            />
+        )
+    }
+
     return (
         // The handle and the order number are their own columns, so the title and the tags below it
         // share one left edge instead of the tags starting back at the cell edge.
@@ -354,12 +368,7 @@ export const MetricHeader = ({
                             <MetricTitle metric={metric} />
                         </div>
                     </div>
-                    {!readOnly &&
-                        (todayRailNav && resultsRedesign ? (
-                            <QuillMetricHeaderActions {...actionsProps} />
-                        ) : (
-                            <MetricHeaderActions {...actionsProps} />
-                        ))}
+                    {!readOnly && <MetricHeaderActions {...actionsProps} />}
                 </div>
                 <div className="flex flex-wrap items-center gap-1">
                     {(showRecalculatingTag || metricRetry) &&

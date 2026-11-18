@@ -21,6 +21,7 @@ import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/Experiment
 import { HowToReadTooltip } from './HowToReadTooltip'
 import { MetricsTable } from './MetricsTable'
 import { QuillMetricsEmptyState } from './QuillMetricsEmptyState'
+import { QuillMetricsTable } from './QuillMetricsTable'
 import { ResultDetails } from './ResultDetails'
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element | null {
@@ -114,7 +115,25 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                     {recalculationRejectionMessage}
                 </LemonBanner>
             )}
-            {metrics.length > 0 ? (
+            {metrics.length > 0 && quill ? (
+                <QuillMetricsTable
+                    metrics={metrics}
+                    results={results}
+                    errors={errors}
+                    isSecondary={!!isSecondary}
+                    showDetailsModal={!detailResult}
+                    footer={
+                        detailResult ? (
+                            <ResultDetails
+                                metric={metrics[0] as ExperimentMetric}
+                                result={detailResult}
+                                experiment={experiment}
+                                embedded
+                            />
+                        ) : undefined
+                    }
+                />
+            ) : metrics.length > 0 ? (
                 detailResult ? (
                     <div className="rounded-md border bg-surface-primary overflow-hidden divide-y divide-border">
                         <MetricsTable

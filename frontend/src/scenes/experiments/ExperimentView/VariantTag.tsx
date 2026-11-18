@@ -8,6 +8,8 @@ import { getExperimentVariants, getVariantColor } from '~/scenes/experiments/uti
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 
+import { MULTIPLE_VARIANT_HELP } from '../MetricsView/new/metricsTableCopy'
+
 export function VariantTag({
     variantKey,
     fontSize,
@@ -21,7 +23,7 @@ export function VariantTag({
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
-            <Tooltip title="Some users were exposed to more than one variant. If this percentage is high, there may be an implementation issue causing inconsistent variant assignment.">
+            <Tooltip title={MULTIPLE_VARIANT_HELP}>
                 <LemonTag type="danger">{variantKey}</LemonTag>
             </Tooltip>
         )

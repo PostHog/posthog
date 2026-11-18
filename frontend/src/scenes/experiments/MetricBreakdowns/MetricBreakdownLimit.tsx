@@ -5,14 +5,14 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
-const DEFAULT_BREAKDOWN_LIMIT = 25
+export const DEFAULT_BREAKDOWN_LIMIT = 25
 /**
  * The backend has no unlimited option, so "Show all" is just a large top-N that covers any
  * realistic breakdown cardinality.
  */
 const SHOW_ALL_BREAKDOWN_LIMIT = 1000
 
-const BREAKDOWN_LIMIT_OPTIONS = [
+export const BREAKDOWN_LIMIT_OPTIONS = [
     { value: 5, label: '5' },
     { value: 10, label: '10' },
     { value: 15, label: '15' },
@@ -21,13 +21,13 @@ const BREAKDOWN_LIMIT_OPTIONS = [
     { value: SHOW_ALL_BREAKDOWN_LIMIT, label: 'Show all' },
 ]
 
-export function MetricBreakdownLimit({
-    metric,
-    onChange,
-}: {
-    metric: ExperimentMetric
-    onChange: (breakdownLimit: number) => void
-}): JSX.Element {
+export const BREAKDOWN_LIMIT_HELP =
+    'Keeps only the top breakdown values by frequency. The remaining values are grouped together under "Other". This caps how many breakdown rows the results show. "Show all" raises the cap high enough to cover any realistic number of values.'
+
+export function breakdownLimitOptions(metric: ExperimentMetric): {
+    breakdownLimit: number
+    options: { value: number; label: string }[]
+} {
     const breakdownLimit = metric.breakdownFilter?.breakdown_limit ?? DEFAULT_BREAKDOWN_LIMIT
 
     /**
@@ -37,19 +37,22 @@ export function MetricBreakdownLimit({
     const options = BREAKDOWN_LIMIT_OPTIONS.some(({ value }) => value === breakdownLimit)
         ? BREAKDOWN_LIMIT_OPTIONS
         : [{ value: breakdownLimit, label: String(breakdownLimit) }, ...BREAKDOWN_LIMIT_OPTIONS]
+    return { breakdownLimit, options }
+}
+
+export function MetricBreakdownLimit({
+    metric,
+    onChange,
+}: {
+    metric: ExperimentMetric
+    onChange: (breakdownLimit: number) => void
+}): JSX.Element {
+    const { breakdownLimit, options } = breakdownLimitOptions(metric)
 
     return (
         <div className="flex items-center gap-1">
             <span className="text-muted">Limit</span>
-            <Tooltip
-                title={
-                    <>
-                        Keeps only the top breakdown values by frequency. The remaining values are grouped together
-                        under "Other". This caps how many breakdown rows the results show. "Show all" raises the cap
-                        high enough to cover any realistic number of values.
-                    </>
-                }
-            >
+            <Tooltip title={BREAKDOWN_LIMIT_HELP}>
                 <IconInfo className="text-secondary text-base shrink-0" />
             </Tooltip>
             <LemonSelect

@@ -11,7 +11,7 @@ export function QuillSectionHeading({ children }: { children: ReactNode }): JSX.
     )
 }
 
-export function QuillHelpTooltip({ label, help }: { label: string; help: string }): JSX.Element {
+export function QuillHelpTooltip({ label, help }: { label: string; help: ReactNode }): JSX.Element {
     return (
         <Tooltip>
             <TooltipTrigger delay={0} render={<Button size="icon-xs" aria-label={`About ${label}`} />}>

@@ -22,6 +22,11 @@ type MetricErrorStateProps = {
     height?: number
 }
 
+export const METRIC_TIMEOUT_TITLE = 'Experiment results timed out'
+export const METRIC_ERROR_TITLE = 'Error loading metric results'
+export const METRIC_TIMEOUT_MESSAGE =
+    'This may occur when the experiment has a large amount of data or is particularly complex. We are actively working on fixing this. In the meantime, please click try again to refresh the results.'
+
 export const MetricErrorState = ({
     error,
     query,
@@ -42,13 +47,11 @@ export const MetricErrorState = ({
             <div className="flex items-center justify-center">
                 <IconErrorOutline className="text-sm text-danger" />
                 <h4 className="text-sm text-danger font-semibold m-0 ml-2">
-                    {isTimeout ? 'Experiment results timed out' : 'Error loading metric results'}
+                    {isTimeout ? METRIC_TIMEOUT_TITLE : METRIC_ERROR_TITLE}
                 </h4>
             </div>
             <p className="text-xs text-muted max-w-80 text-center m-0">
-                {isTimeout
-                    ? 'This may occur when the experiment has a large amount of data or is particularly complex. We are actively working on fixing this. In the meantime, please click try again to refresh the results.'
-                    : message}
+                {isTimeout ? METRIC_TIMEOUT_MESSAGE : message}
             </p>
 
             <div className="flex gap-1.5 mt-1">
