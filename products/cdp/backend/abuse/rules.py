@@ -42,9 +42,8 @@ BLOCKING_RULES = frozenset({Rule.INTERNAL_HOST})
 # Jev reads at most this much state, so an input longer than that can never be shown to it whole.
 OVERSIZED_INPUT_CHARS = MAX_STATE_CHARS
 
-# The async functions that the Node worker registers in `nodejs/src/cdp/async-functions/`, except `fetch`. The registry
-# is global, so any hog code can call them. Each one backs a hidden template for a workflow action or a warehouse source
-# webhook, so code a customer wrote rarely has a reason to call one. Add a name here when a new one is registered there.
+# Every async function registered in `nodejs/src/cdp/async-functions/` except `fetch`, so keep the two in sync. Each one
+# backs a hidden workflow or warehouse-webhook template, so code a customer wrote rarely has a reason to call one.
 INTERNAL_FUNCTIONS = frozenset(
     {
         "postHogAddToStaticCohort",
@@ -102,13 +101,11 @@ _LIQUID_OPENER = re.compile(r"\{[{%]")
 _QUOTE = re.compile(r"['\"]")
 _LIQUID_STRING_PATTERN = r"""'(?:[^'\\]++|\\.)*+'|"(?:[^"\\]++|\\.)*+\""""
 _LIQUID_STRING = re.compile(_LIQUID_STRING_PATTERN, re.DOTALL)
-# LiquidJS reads the inside of these blocks as text, so no expression in them runs. It ignores words after the name
-# of the end tag.
+# LiquidJS reads the inside of these blocks as text, so no expression in them runs.
 _LIQUID_BLOCK_ENDS = {
     "comment": re.compile(r"\{%-?\s*endcomment\b"),
     "raw": re.compile(r"\{%-?\s*endraw\b"),
 }
-# A LiquidJS range bound is a number, or a quoted string that it converts to a number as JavaScript's `Number` does.
 _LIQUID_BOUND = rf"""([+-]?\d++(?:\.(?!\.)\d*+)?|{_LIQUID_STRING_PATTERN})"""
 # A quoted string is matched first so that a range written inside one is skipped as text.
 _LIQUID_STRING_OR_RANGE = re.compile(
@@ -133,8 +130,7 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
         matched.add(Rule.OVERSIZED_INPUT)
     if any(_has_huge_liquid_range(text) for text in _liquid_templates(content)):
         matched.add(Rule.HUGE_RANGE)
-    # Template code the customer did not edit is PostHog's code, such as a hidden workflow action template that calls
-    # an internal function.
+    # Unedited template code is PostHog's, such as the hidden workflow templates that call internal functions.
     if content.code_modified_from_template is not False:
         matched |= _hog_code_rules(content.hog)
     return tuple(rule for rule in Rule if rule in matched)
