@@ -63,7 +63,8 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert response.json()["attr"] == "filters"
-            assert f"Cannot depend on flag 'dependency' (ID: {dependency.id})" in response.json()["detail"]
+            assert f"Cannot depend on flag (ID: {dependency.id})" in response.json()["detail"]
+            assert "'dependency'" not in response.json()["detail"]
 
     @parameterized.expand([("keeping_the_dependency", True), ("removing_the_dependency", False)])
     def test_changing_runtime_checks_the_flags_own_dependencies(self, _name: str, keep_dependency: bool) -> None:
@@ -95,7 +96,7 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
         self, _name: str, new_runtime: str, dependent_active: bool, allowed: bool
     ) -> None:
         dependency = self._flag("dependency", "all")
-        dependent = self._flag("dependent", "server", filters=_depends_on(dependency.id), active=dependent_active)
+        self._flag("dependent", "server", filters=_depends_on(dependency.id), active=dependent_active)
 
         response = self._patch(dependency, {"evaluation_runtime": new_runtime})
 
@@ -104,7 +105,8 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert response.json()["attr"] == "evaluation_runtime"
-            assert f"dependent (ID: {dependent.id})" in response.json()["detail"]
+            assert "dependent" not in response.json()["detail"]
+            assert "1 flag(s)" in response.json()["detail"]
 
     @parameterized.expand(
         [
@@ -154,4 +156,5 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
         response = self._patch(dependent, {"filters": _depends_on(old_dependency.id, new_dependency.id)})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert f"'new_dependency' (ID: {new_dependency.id})" in response.json()["detail"]
+        assert f"Cannot depend on flag (ID: {new_dependency.id})" in response.json()["detail"]
+        assert "new_dependency" not in response.json()["detail"]

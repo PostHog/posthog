@@ -1946,8 +1946,8 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError(
                     {
                         "evaluation_runtime": ErrorDetail(
-                            f"Cannot make this flag evaluate {_describe_runtime(runtime)} because flags that "
-                            f"evaluate elsewhere depend on it: {_describe_flags(broken_dependents)}. Remove the "
+                            f"Cannot make this flag evaluate {_describe_runtime(runtime)} because "
+                            f"{len(broken_dependents)} flag(s) that evaluate elsewhere depend on it. Remove the "
                             f"dependency from those flags, or set this flag to evaluate {_RUNTIME_DESCRIPTIONS['all']}.",
                             code=DEPENDENCY_RUNTIME_MISMATCH,
                         )
@@ -1974,9 +1974,9 @@ class FeatureFlagSerializer(
             # A dependency the flag already stores fails only because this write changes the runtime.
             attr = "evaluation_runtime" if dependency.id in stored_dependency_ids else "filters"
             message = (
-                f"Cannot depend on flag '{dependency.key}' (ID: {dependency.id}) because it evaluates "
-                f"{dependency_runtime} and this flag evaluates {_describe_runtime(runtime)}. Where "
-                f"'{dependency.key}' doesn't evaluate, this flag reads it as false. Set '{dependency.key}' "
+                f"Cannot depend on flag (ID: {dependency.id}) because it evaluates "
+                f"{dependency_runtime} and this flag evaluates {_describe_runtime(runtime)}. Where flag "
+                f"{dependency.id} doesn't evaluate, this flag reads it as false. Set flag {dependency.id} "
                 f"to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set this flag to evaluate {dependency_runtime}."
             )
             raise serializers.ValidationError({attr: ErrorDetail(message, code=DEPENDENCY_RUNTIME_MISMATCH)})
