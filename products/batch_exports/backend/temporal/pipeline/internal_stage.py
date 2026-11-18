@@ -21,8 +21,8 @@ from posthog.clickhouse.query_tagging import Product
 from posthog.clickhouse.workload import Workload
 from posthog.credentials import AWSKeyPair
 from posthog.dataclasses import frozen
-from posthog.models.event.new_events_schema import use_new_events_schema
 
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
 if typing.TYPE_CHECKING:
@@ -653,7 +653,7 @@ async def _get_query(
         native_source = query_template in (
             EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
             EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
-        ) and await database_sync_to_async(use_new_events_schema)(team_id)
+        ) and await database_sync_to_async(batch_exports_read_new_events_table)(team_id)
 
         filters_str = ""
         if filters is not None and len(filters) > 0:

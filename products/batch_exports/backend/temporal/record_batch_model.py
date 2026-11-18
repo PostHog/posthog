@@ -16,12 +16,12 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.custom_events_schema import recompile_stored_schema
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.hogql_source import (
     DATA_INTERVAL_END_PLACEHOLDER,
     UnsupportedHogQLQueryError,
@@ -401,11 +401,12 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         team = await Team.objects.aget(id=self.team_id)
         user = await User.objects.filter(pk=self.user_id).afirst()
         await database_sync_to_async(validate_hogql_batch_export_user)(team, user)
+        modifiers = await database_sync_to_async(apply_hogql_batch_export_modifier_defaults)(team, self.hogql_modifiers)
         context = await database_sync_to_async(create_hogql_context_for_batch_export)(
             team,
             user=user,
             values={"log_comment": self.get_log_comment()},
-            modifiers=apply_hogql_batch_export_modifier_defaults(team, self.hogql_modifiers),
+            modifiers=modifiers,
         )
         # Pinned here rather than resolved in `get_clickhouse_request_settings`, which is sync and runs on
         # the event loop where a database read is not allowed.
@@ -479,7 +480,7 @@ def resolve_batch_exports_model(
                 hogql_modifiers=model.modifiers,
             )
 
-    if schema is not None and (query := schema.get("hogql_query")) and use_new_events_schema(team_id):
+    if schema is not None and (query := schema.get("hogql_query")) and batch_exports_read_new_events_table(team_id):
         fields, extra_query_parameters = recompile_stored_schema(team_id, schema, query)
 
     return model, record_batch_model, model_name, fields, filters, extra_query_parameters
