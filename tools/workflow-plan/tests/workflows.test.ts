@@ -184,6 +184,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'test-selection-verdict',
             ],
         }
@@ -229,6 +230,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build-product-test-matrix',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'prime-schema-cache',
                 'test-selection-verdict',
                 'capture-test-selection',
@@ -306,6 +308,7 @@ const EXPECTATIONS: Expectation[] = [
                 'django',
                 'get_clickhouse_versions',
                 'build_django_matrix',
+                'build-hogql-parser-rs',
                 'sdk-major-guard',
                 'backend-coverage-report',
             ],
