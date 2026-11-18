@@ -610,6 +610,10 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             "SELECT x FROM (SELECT is_active AS x FROM flagged UNION ALL SELECT 2 AS x) WHERE x",
             'WHERE CAST("x" AS BOOLEAN)',
         ),
+        (
+            "WITH u AS (SELECT is_active FROM flagged UNION ALL SELECT 2 AS is_active) SELECT u.is_active FROM u",
+            'CAST("flagged"."is_active" AS BIGINT) AS "is_active"',
+        ),
     ],
 )
 def test_derived_column_types_reach_type_dependent_lowerings(query: str, expected: str) -> None:
