@@ -60,6 +60,12 @@ from products.apm.backend.logic.health.sources import (
     list_endpoints_health as _list_endpoints_health,
     list_services_health as _list_services_health,
 )
+from products.apm.backend.logic.time_spent import (
+    EndpointTimeSpentResult,
+    TimeSpentComponent,
+    TimeSpentComponentKind,
+    get_endpoint_time_spent as _get_endpoint_time_spent,
+)
 from products.apm.backend.logic.usage import (
     ServiceUsage,
     ServiceUsageResult,
@@ -75,6 +81,10 @@ if TYPE_CHECKING:
 
 __all__ = [
     "EndpointHealth",
+    "EndpointTimeSpentResult",
+    "TimeSpentComponent",
+    "TimeSpentComponentKind",
+    "get_endpoint_time_spent",
     "HealthRow",
     "HealthStatus",
     "ServiceEdge",
@@ -148,3 +158,12 @@ def get_service_map(*, team: "Team", date_from: "datetime", date_to: "datetime",
 def list_service_usage(*, team: "Team", date_from: "datetime", date_to: "datetime") -> ServiceUsageResult:
     """One usage row per service across logs, traces, and metrics in the window, largest logs size first."""
     return _list_service_usage(team=team, date_from=date_from, date_to=date_to)
+
+
+def get_endpoint_time_spent(
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str, service: str, endpoint: str
+) -> EndpointTimeSpentResult:
+    """Share of one endpoint's request time spent in each service and inferred dependency, from sampled traces."""
+    return _get_endpoint_time_spent(
+        team=team, date_from=date_from, date_to=date_to, environment=environment, service=service, endpoint=endpoint
+    )

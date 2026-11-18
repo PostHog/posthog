@@ -34,7 +34,7 @@ export const TIME_RANGE_LABELS: Record<TimeRange, string> = {
     '-7d': 'Last 7 days',
 }
 
-const TIME_RANGE_MS: Record<TimeRange, number> = {
+export const TIME_RANGE_MS: Record<TimeRange, number> = {
     '-1h': 60 * 60 * 1000,
     '-6h': 6 * 60 * 60 * 1000,
     '-24h': 24 * 60 * 60 * 1000,

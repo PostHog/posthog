@@ -3,7 +3,7 @@
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
-from products.apm.backend.facade.api import HealthStatus, UsageSignal
+from products.apm.backend.facade.api import HealthStatus, TimeSpentComponentKind, UsageSignal
 
 
 class WindowRequestSerializer(serializers.Serializer):
@@ -85,6 +85,42 @@ class ServiceMapResponseSerializer(serializers.Serializer):
     edges = ServiceEdgeSerializer(many=True, help_text="One edge per calling and called service, most calls first.")
     trace_count = serializers.IntegerField(help_text="Traces sampled to build the map.")
     environment = serializers.CharField(help_text="The environment the map was built for.")
+    date_from = serializers.DateTimeField(help_text="Start of the window used.")
+    date_to = serializers.DateTimeField(help_text="End of the window used.")
+
+
+class EndpointTimeSpentRequestSerializer(ServicesHealthRequestSerializer):
+    service = serializers.CharField(
+        allow_blank=False, max_length=400, help_text="The service that handles the endpoint."
+    )
+    endpoint = serializers.CharField(
+        allow_blank=False, max_length=2000, help_text="The endpoint's entry span name, as listed by apm/endpoints."
+    )
+
+
+class TimeSpentComponentSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        help_text="The service name, the inferred dependency (for example a database system or host), or 'Other'."
+    )
+    kind = serializers.ChoiceField(
+        choices=TimeSpentComponentKind.choices,
+        help_text="service: an instrumented service. inferred: a dependency seen only through client spans. other: the remaining components combined.",
+    )
+    total_ms = serializers.FloatField(help_text="Self-time summed across the sampled requests, in milliseconds.")
+    avg_ms_per_request = serializers.FloatField(help_text="Self-time per sampled request, in milliseconds.")
+    share = serializers.FloatField(help_text="Share of the attributed request time, 0 to 1.")
+
+
+@extend_schema_serializer(many=False)
+class EndpointTimeSpentResponseSerializer(serializers.Serializer):
+    components = TimeSpentComponentSerializer(many=True, help_text="Where the request time goes, largest share first.")
+    request_count = serializers.IntegerField(help_text="Requests sampled to compute the breakdown.")
+    avg_duration_ms = serializers.FloatField(
+        allow_null=True, help_text="Mean duration of the sampled requests, in milliseconds."
+    )
+    service = serializers.CharField(help_text="The service the endpoint belongs to.")
+    endpoint = serializers.CharField(help_text="The endpoint's entry span name.")
+    environment = serializers.CharField(help_text="The environment the breakdown was computed for.")
     date_from = serializers.DateTimeField(help_text="Start of the window used.")
     date_to = serializers.DateTimeField(help_text="End of the window used.")
 
