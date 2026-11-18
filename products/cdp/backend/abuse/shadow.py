@@ -11,7 +11,6 @@ from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from django.utils.crypto import salted_hmac
 
 import structlog
 import posthoganalytics
@@ -52,7 +51,6 @@ CLASSIFIED_TYPES = frozenset({HogFunctionType.DESTINATION, HogFunctionType.TRANS
 # runs. Its inputs are still evaluated first.
 _LEGACY_PLUGIN_PREFIX = "plugin-"
 _HASH_TTL_SECONDS = 30 * 24 * 60 * 60
-_SCORED_DIGEST_SALT = "cdp.abuse.scored_digest"
 _BACKFILL_RUN_TTL_SECONDS = 14 * 24 * 60 * 60
 
 
@@ -65,8 +63,6 @@ class Trigger(StrEnum):
 @frozen
 class ScoredHogFunction:
     content_hash: str
-    # What the hash cache keeps. It covers secret inputs too, so changing one alone scores the function again.
-    scored_digest: str
     code_modified_from_template: bool | None
     verdict: AbuseVerdict | None
     failure: FailureReason | None
@@ -256,11 +252,11 @@ def classify_if_due(hog_function: HogFunction) -> None:
     if not is_scorable(hog_function) or not runs_customer_code(hog_function) or not shadow_enabled(hog_function.team):
         return
     content = content_of(hog_function, hog_function.template)
-    rules_content = _with_secret_inputs(hog_function, content)
-    if cache.get(_hash_key(str(hog_function.id))) == _scored_digest(rules_content):
+    rule_hits = rules.matched_rules(_with_secret_inputs(hog_function, content))
+    if cache.get(_hash_key(str(hog_function.id))) == _cache_entry(content_hash(content), rule_hits):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
-    report(hog_function, _score(hog_function, content, rules_content), trigger=Trigger.SAVE)
+    report(hog_function, _score(hog_function, content, rule_hits), trigger=Trigger.SAVE)
 
 
 def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
@@ -276,11 +272,11 @@ def classify_for_backfill(hog_function: HogFunction, run_id: str) -> None:
 
 def score(hog_function: HogFunction) -> ScoredHogFunction:
     content = content_of(hog_function, hog_function.template)
-    return _score(hog_function, content, _with_secret_inputs(hog_function, content))
+    return _score(hog_function, content, rules.matched_rules(_with_secret_inputs(hog_function, content)))
 
 
 def _score(
-    hog_function: HogFunction, content: HogFunctionContent, rules_content: HogFunctionContent
+    hog_function: HogFunction, content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...]
 ) -> ScoredHogFunction:
     verdict: AbuseVerdict | None = None
     failure: FailureReason | None = None
@@ -290,11 +286,10 @@ def _score(
         failure = error.reason
     return ScoredHogFunction(
         content_hash=content_hash(content),
-        scored_digest=_scored_digest(rules_content),
         code_modified_from_template=content.code_modified_from_template,
         verdict=verdict,
         failure=failure,
-        rule_hits=rules.matched_rules(rules_content),
+        rule_hits=rule_hits,
     )
 
 
@@ -311,15 +306,17 @@ def _with_secret_inputs(hog_function: HogFunction, content: HogFunctionContent) 
 
 
 def _decrypted_secret_inputs(hog_function: HogFunction) -> dict[str, Any]:
-    # The field returns the ciphertext as a string when its key is unavailable, and the public inputs still score.
+    """Empty when the field returns the ciphertext as a string because its key is unavailable, so the public inputs
+    still score."""
     secret_inputs = hog_function.encrypted_inputs
     return secret_inputs if isinstance(secret_inputs, dict) else {}
 
 
-def _scored_digest(rules_content: HogFunctionContent) -> str:
-    """Keyed with the secret key, so the cache never holds a hash that a guessed secret value could be tested
-    against."""
-    return salted_hmac(_SCORED_DIGEST_SALT, content_hash(rules_content), algorithm="sha256").hexdigest()
+def _cache_entry(public_content_hash: str, rule_hits: tuple[rules.Rule, ...]) -> str:
+    """The model sees only the public content, and secret inputs change only the rule hits. Keeping both means a
+    secret change that matches a rule scores the function again, while the cache holds nothing derived from a
+    secret value."""
+    return f"{public_content_hash}:{','.join(rule_hits)}"
 
 
 def report(
@@ -361,7 +358,7 @@ def report(
         },
     )
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
-    cache.set(_hash_key(str(hog_function.id)), scored.scored_digest, _HASH_TTL_SECONDS)
+    cache.set(_hash_key(str(hog_function.id)), _cache_entry(scored.content_hash, scored.rule_hits), _HASH_TTL_SECONDS)
 
 
 def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object]) -> None:

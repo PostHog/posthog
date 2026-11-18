@@ -219,7 +219,18 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             ("name_only", {"name": "Renamed"}, 1),
             ("code", {"hog": "print('changed')"}, 2),
             (
-                "secret_input_only",
+                "secret_rotated_to_a_benign_value",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": "sk-live-rotated"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                1,
+            ),
+            (
+                "secret_input_that_matches_a_rule",
                 {
                     "inputs": {
                         "url": {"value": "https://hooks.example.com/orders"},
@@ -302,7 +313,9 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
     def test_an_undecryptable_secret_input_still_scores_the_public_config(self) -> None:
         hog_function = self.create_destination(hog=RULE_FREE_HOG)
-        HogFunction.objects.filter(pk=hog_function.pk).update(encrypted_inputs="ciphertext without its key")
+        HogFunction.objects.filter(pk=hog_function.pk).update(
+            hog="print(event.event)", encrypted_inputs="ciphertext without its key"
+        )
 
         classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id))
 

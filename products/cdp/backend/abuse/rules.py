@@ -151,9 +151,9 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
     return tuple(rule for rule in Rule if rule in matched)
 
 
-# The default parser mode samples a shadow parse and sends a diverging statement to error tracking, and a template here
-# can be the decrypted value of a secret input.
 def _parse_code(hog: str) -> ast.AST:
+    """Parsed without the shadow parser, as is every template here. A shadow parse sends a diverging statement to
+    error tracking, and a template can be the decrypted value of a secret input."""
     return parse_program(hog, parser_mode=ParserMode.RUST_PY_ONLY)
 
 
