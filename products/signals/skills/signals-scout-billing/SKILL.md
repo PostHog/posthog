@@ -34,8 +34,11 @@ scout-precheck-query: |
         AND timestamp < toStartOfDay({now}) - INTERVAL 7 DAY
       )
     )
-  HAVING weekly_run_due
-    OR (events_same_day_last_week >= 1000 AND events_yesterday >= 2 * events_same_day_last_week)
+  HAVING events_yesterday + events_same_day_last_week > 0
+    AND (
+      weekly_run_due
+      OR (events_same_day_last_week >= 1000 AND events_yesterday >= 2 * events_same_day_last_week)
+    )
 ---
 
 # Signals scout: billing (your own PostHog bill)
@@ -86,6 +89,7 @@ Run it, but frame it as the organization's bill rather than this project's, and 
 ## Cadence
 
 A scheduled run starts about once a week, and sooner when yesterday's event volume on this project was at least double the same weekday a week before.
+A project that sent no events on either of those days gets no scheduled run, so on a project that only sends logs or syncs warehouse rows this scout runs when a person starts it.
 A run started that way carries a `<precheck_result>` block with one row: `events_yesterday`, `events_same_day_last_week`, and `weekly_run_due`.
 When `weekly_run_due` is false, the run exists because events jumped: score the Events family first, and still score the rest.
 The row is a trigger, not a finding. It counts every event, billed or not, so the gates below decide what is reported.
@@ -191,6 +195,7 @@ Apply the gates cheapest-first; most candidates die on the second:
    ```
 
    Compare `persons` on the stepped days against the same-weekday median before the step. **People up roughly in proportion to usage** is traffic growth or onboarding: write memory and stop. **People within ±20% while usage stepped** means each person now generates several times the usage they did, which no amount of growth does: treat what moved as one candidate, price each paid meter in it, and sum the impact for the materiality gate. When the project sends no events at all (a logs-only or warehouse-only project), the check cannot run: carry the group forward only if the step is at least 3× and has held for 2 or more complete days.
+   The people check is for usage that rose. A meter going dark skips this gate: no amount of traffic explains a paid meter falling to zero and staying there.
 
 2. **Material?** Price the move as it projects to the end of the period: `price(projected period usage with the step persisting) − price(projected period usage without it)` across the tier schedule, with the spending cap applied to each side before subtracting and the discount after — never as `delta × marginal rate`, and never as a single day's delta when the report says "if this holds". A $10/day step with 20 days left is a ~$200 finding, not a $10 one. A delta that crosses a tier boundary, sits behind a full discount, or is already cut off by a limit adds far less to the invoice than the raw multiplication suggests, and can be $0. The tiers and limit live under the meter's **product** key rather than its usage type, so map it through the vocabulary table in [`references/usage-types.md`](references/usage-types.md) first — the same table governs reading a `billing-spend-get` `type` breakdown, which is also keyed by product.
    When you cannot price it — the overview was truncated, the product has no `tiers`, or the usage type is not in the vocabulary table — fall back in order: the meter's own `billing-spend-get` series within the current period; then `free_allocation` / `usage_limit` as the threshold; then volume-only mode for that meter, with the report saying the dollar impact is unknown rather than estimating one.
