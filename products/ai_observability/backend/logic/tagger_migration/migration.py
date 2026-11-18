@@ -222,20 +222,29 @@ def _plan(
     except PydanticValidationError as error:
         return _Planned(step=step(MigrationAction.SKIP, f"Its saved config is no longer valid: {error}"))
 
-    serializer = EvaluationSerializer(
-        data={
-            "name": tagger.name,
-            "description": tagger.description,
-            "enabled": True,
-            "target": EvaluationTarget.GENERATION.value,
-            "conditions": conditions_payload(tagger.conditions or []),
-            "model_configuration": model_configuration,
-            **payload,
-        },
-        # The evaluation belongs to whoever made the tagger, never to the staff member who migrates it.
-        context={"request": SimpleNamespace(user=tagger.created_by), "get_team": lambda: team},
-    )
+    def evaluation_serializer(enabled: bool) -> EvaluationSerializer:
+        return EvaluationSerializer(
+            data={
+                "name": tagger.name,
+                "description": tagger.description,
+                "enabled": enabled,
+                "target": EvaluationTarget.GENERATION.value,
+                "conditions": conditions_payload(tagger.conditions or []),
+                "model_configuration": model_configuration,
+                **payload,
+            },
+            # The evaluation belongs to whoever made the tagger, never to the staff member who migrates it.
+            context={"request": SimpleNamespace(user=tagger.created_by), "get_team": lambda: team},
+        )
+
     keys = tuple(option["key"] for option in payload["output_config"]["options"])
+    serializer = evaluation_serializer(enabled=True)
+    switched_off = ""
+    if not serializer.is_valid() and set(serializer.errors) == {"enabled"}:
+        # Only the enabled check failed, so the team has no working key. The tagger can't run without one either,
+        # so the evaluation keeps its config switched off until the team fixes the key.
+        switched_off = f" It starts switched off: {_error_text(serializer.errors)}"
+        serializer = evaluation_serializer(enabled=False)
     if not serializer.is_valid():
         return _Planned(step=step(MigrationAction.SKIP, _error_text(serializer.errors), keys))
     output = payload["output_config"]
@@ -249,7 +258,8 @@ def _plan(
         else ""
     )
     return _Planned(
-        step=step(MigrationAction.MIGRATE, f"{kind}, {choice}{na}{cap}{sent}.", keys), serializer=serializer
+        step=step(MigrationAction.MIGRATE, f"{kind}, {choice}{na}{cap}{sent}.{switched_off}", keys),
+        serializer=serializer,
     )
 
 
@@ -270,7 +280,8 @@ def migrate_taggers(team: Team, *, move_capped: bool = False) -> list[TaggerMigr
     switches it off when it sent no tags recently. Each tagger moves in its own transaction, so one refusal does not
     undo the others, and a second run skips taggers that already moved. An LLM tagger that caps its tags below its
     tag count moves only with `move_capped`, because the evaluation can ask for the cap but not enforce it. A Hog
-    tagger without a tag list moves with the tags it sent recently as its categories."""
+    tagger without a tag list moves with the tags it sent recently as its categories. When the team has no working
+    provider key, the evaluation is created switched off."""
     taggers = _pending_taggers(team)
     counts = load_recent_tag_counts(team, [str(tagger.id) for tagger in taggers])
     sent = _sent_tags(team, taggers, counts)

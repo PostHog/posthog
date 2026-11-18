@@ -311,7 +311,9 @@ class TestTaggersPanel(BaseTest):
             second_run = migrate_taggers(self.team)
 
         assert response.status_code == 302
-        evaluation = Evaluation.objects.get(team=self.team, evaluation_type="llm_judge")
+        evaluation = Evaluation.objects.get(team=self.team, evaluation_type="llm_judge", name="User intent")
+        broken_key_evaluation = Evaluation.objects.get(team=self.team, name="On a broken key")
+        assert broken_key_evaluation.enabled is False
         hog_evaluation = Evaluation.objects.get(team=self.team, evaluation_type="hog", name="Long answers")
         free_form_evaluation = Evaluation.objects.get(team=self.team, evaluation_type="hog", name="Free-form Hog")
         assert free_form_evaluation.output_config["options"] == [{"key": "anything", "label": "anything"}]
@@ -340,14 +342,20 @@ class TestTaggersPanel(BaseTest):
             "Free-form Hog": (False, free_form_evaluation.id),
             "Long answers": (False, hog_evaluation.id),
             "Legacy": (True, None),
-            "On a broken key": (True, None),
+            "On a broken key": (False, broken_key_evaluation.id),
             "Private": (True, None),
             "Bounded": (True, None),
         }
         assert sorted(call.kwargs["tagger_ids"][0] for call in reload_taggers.call_args_list) == sorted(
-            [str(self.active.id), str(self.silent.id), str(self.untagged_hog.id), str(self.hog.id)]
+            [
+                str(self.active.id),
+                str(self.silent.id),
+                str(self.untagged_hog.id),
+                str(self.hog.id),
+                str(self.broken_key.id),
+            ]
         )
-        assert [step.action for step in second_run] == [MigrationAction.SKIP] * 4
+        assert [step.action for step in second_run] == [MigrationAction.SKIP] * 3
 
     @patch("products.ai_observability.backend.logic.tagger_migration.migration.reload_taggers_on_workers")
     @patch("products.ai_observability.backend.logic.tagger_migration.migration.load_recent_tag_counts")
