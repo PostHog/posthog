@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 import datetime as dt
 from collections import Counter, defaultdict
 from urllib.parse import urlparse
@@ -107,20 +108,28 @@ def recompute_own_citations(team_id: int) -> int:
     for _ in range(RECOMPUTE_MAX_PASSES):
         recomputed = _recompute_with(team_id, domains)
         changed += recomputed.changed
-        # A failed check has no citations to recompute, so the pass above leaves its key alone. It
-        # still shows a change of the own domains when no answered check does.
-        failed_on_another_key = (
-            AEOCitationCheck.objects.for_team(team_id, canonical=True)
-            .filter(check_failed=True)
-            .exclude(own_domains_key=own_domains_key(domains))
+        key = own_domains_key(domains)
+        failed_on_another_key = _failed_checks_on_another_key(team_id, key)
+        _recompute_branded_prompts(team_id, domains, whole_history=recomputed.rekeyed or bool(failed_on_another_key))
+        # Only the checks read before the prompt pass get the key. A failed check that a run records
+        # meanwhile keeps its own, so the next reconcile still sees it.
+        AEOCitationCheck.objects.for_team(team_id, canonical=True).filter(id__in=failed_on_another_key).update(
+            own_domains_key=key
         )
-        _recompute_branded_prompts(team_id, domains, whole_history=recomputed.rekeyed or failed_on_another_key.exists())
-        failed_on_another_key.update(own_domains_key=own_domains_key(domains))
         current = own_domains(team_id)
         if current == domains:
             break
         domains = current
     return changed
+
+
+def _failed_checks_on_another_key(team_id: int, key: str) -> list[uuid.UUID]:
+    """Failed checks keyed for other own domains. A failed check has no citations to recompute, so the
+    citation pass leaves its key alone, and it still shows a change of the own domains when no answered
+    check does. The failed checks are found in the window index first, so only their rows are loaded."""
+    checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
+    failed = list(checks.filter(check_failed=True).values_list("id", flat=True))
+    return list(checks.filter(id__in=failed).exclude(own_domains_key=key).values_list("id", flat=True))
 
 
 @frozen
