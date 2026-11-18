@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::DefaultBodyLimit;
-use axum::http::Method;
+use axum::http::{Method, StatusCode};
 use axum::Extension;
 use axum::{
     routing::{get, post},
@@ -425,7 +425,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // `$ai_*` events still reach capture-analytics — on `/batch`, from SDKs that
     // send everything to one endpoint. Those divert to the AI lane by event
     // name; that is unrelated to which paths are registered here.
-    let mut router = match capture_mode {
+    let router = match capture_mode {
         CaptureMode::Events => Router::new()
             .merge(batch_router)
             .merge(event_router)
@@ -447,6 +447,10 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
             .merge(test_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
+
+    // `Router::merge` keeps the merged-in router's default fallback, so without
+    // this the v1 router (merged last) would serve every unmatched request.
+    let mut router = router.fallback(|| async { StatusCode::NOT_FOUND });
 
     if let Some(limit) = concurrency_limit {
         router = router.layer(ConcurrencyLimitLayer::new(limit));
