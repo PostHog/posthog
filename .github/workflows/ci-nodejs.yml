@@ -82,6 +82,7 @@ jobs:
             # full history here measured 75s (median of 12 runs) of an 80s job, and every job in
             # this workflow waits on it.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   clean: false
                   filter: blob:none
@@ -101,10 +102,18 @@ jobs:
               # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
               # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
+              env:
+                  PATHS_FILTER_REUSE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   # node_src_files feeds jest --findRelatedTests in the select step below.
                   list-files: 'escape'
+                  reuse-checks: Node.js Tests Pass
+                  reuse-proof-checks: |
+                      Node.js Build (depot-ubuntu-24.04)
+                      Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
+                  reuse-blocking-labels: ci-no-reuse
+                  reuse-disabled: ${{ vars.DISABLE_CI_REUSE }}
                   filters: |
                       nodejs:
                         - '.github/scripts/jest-retries.cjs'
@@ -118,6 +127,8 @@ jobs:
                         # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
                         - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
+                        # liquid.test.ts reads the importers' template fixtures with readFileSync.
+                        - 'products/messaging/backend/tests/fixtures/*render*.json'
                         # The Jest shared-fixtures suite pins the native replay anonymizer against
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
@@ -134,6 +145,8 @@ jobs:
                         # admits ingestion-consumer, which does not depend on the fixture's crate, so
                         # a capture-side envelope change would skip the test that pins the consumer.
                         - 'rust/common/ingestion_warnings/*.json'
+                        # The schema-check manifest test reads the shared deploy requirements examples.
+                        - 'tools/deploy-requirements/examples/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
@@ -141,6 +154,13 @@ jobs:
                         # A migration change makes the test job build Postgres from the Django
                         # models, and the Jest integration tests read product tables too.
                         - 'products/*/backend/migrations/**'
+                        # The schema-check test reads every Django app's migrations and the routing
+                        # file to prove that each table Node SQL reads has a migration the check covers.
+                        - 'posthog/*/migrations/**'
+                        - 'products/db_routing.yaml'
+                        - 'rust/persons_migrations/**'
+                        - 'rust/cyclotron-node-migrations/**'
+                        - 'rust/behavioral_cohorts_migrations/**'
                         - 'posthog/plugins/**'
                         # Django reads this to decide which filter globals it accepts, and the only
                         # check that it still matches the runtime type is a jest test.
@@ -175,11 +195,15 @@ jobs:
                       node_full:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'products/cdp/backend/filter_globals.json'
+                        - 'products/messaging/backend/tests/fixtures/*render*.json'
+                        - 'tools/deploy-requirements/examples/**'
                         - 'common/hogvm/typescript/src/**'
                         - '**/crosslang/**'
                         - '.github/scripts/jest-retries.cjs'
                         - 'patches/jest-junit@16.0.0.patch'
                         - 'nodejs/jest*.config.js'
+                        - 'nodejs/jest.config.shared.js'
+                        - 'nodejs/src/common/utils/seal-intrinsics.ts'
                         - 'nodejs/jest.serial.sequencer.js'
                         - 'nodejs/jest.serial.durations.json'
                         - 'nodejs/package.json'
@@ -336,6 +360,9 @@ jobs:
                   count=$(printf '%s\n' $NODE_SRC_FILES | grep -c . || true)
                   [ "$count" -le 200 ] || full over_ceiling
                   [ -n "${files// /}" ] || full empty_file_list
+                  # This test reads Node SQL and the migrations from disk, so no import connects it to the
+                  # changed files and --findRelatedTests would never select it.
+                  files="$files src/schema-check/derive-requirements.test.ts"
 
                   echo "::notice::selective jest over $count changed Node source file(s)"
                   {
@@ -346,8 +373,8 @@ jobs:
                   } >> "$GITHUB_OUTPUT"
 
     lint:
-        # Not on master push — master coverage comes from the hourly run (see `schedule`).
-        if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
+        # The merge queue already checks formatting, lint and boundaries before each commit lands.
+        if: needs.changes.outputs.nodejs == 'true' && github.event_name == 'pull_request'
         name: Node.js Code quality (depot-ubuntu-24.04)
         needs: changes
         runs-on: depot-ubuntu-24.04
@@ -394,9 +421,18 @@ jobs:
             - name: Prepare Node.js workspace
               run: bin/turbo --filter=@posthog/nodejs prepare
 
+            - name: Restore Prettier cache
+              id: prettier-cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with: &nodejs-prettier-cache
+                  path: nodejs/node_modules/.cache/prettier-ci
+                  # Prettier does not include plugin versions in its cache key.
+                  key: nodejs-prettier-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.nvmrc', '.editorconfig', '.prettierignore', 'nodejs/.prettierrc', 'nodejs/.prettierignore', 'nodejs/.editorconfig') }}-${{ github.sha }}
+                  restore-keys: nodejs-prettier-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.nvmrc', '.editorconfig', '.prettierignore', 'nodejs/.prettierrc', 'nodejs/.prettierignore', 'nodejs/.editorconfig') }}-
+
             - parallel:
                   - name: Check formatting with prettier
-                    run: pnpm --filter=@posthog/nodejs format:check
+                    run: pnpm --filter=@posthog/nodejs format:check --cache --cache-strategy content --cache-location node_modules/.cache/prettier-ci
 
                   - name: Lint with Oxlint
                     run: pnpm --filter=@posthog/nodejs lint
@@ -460,8 +496,16 @@ jobs:
             - name: Prepare Node.js workspace
               run: bin/turbo --filter=@posthog/nodejs prepare
 
+            - name: Restore Prettier cache
+              if: github.event_name == 'schedule'
+              id: prettier-cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with: *nodejs-prettier-cache
+
             - name: Check builds correctly
               run: pnpm --filter=@posthog/nodejs build
+              env:
+                  NODE_OPTIONS: '--max_old_space_size=4096'
 
             - name: Sanity check output
               run: |
@@ -474,12 +518,23 @@ jobs:
                       echo "✅ Build is valid - failed as expected without module errors"
                   fi
 
+            - name: Check formatting with prettier
+              if: github.event_name == 'schedule'
+              run: pnpm --filter=@posthog/nodejs format:check --cache --cache-strategy content --cache-location node_modules/.cache/prettier-ci
+
+            - name: Save Prettier cache
+              if: github.event_name == 'schedule' && github.ref == 'refs/heads/master' && steps.prettier-cache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: nodejs/node_modules/.cache/prettier-ci
+                  key: ${{ steps.prettier-cache.outputs.cache-primary-key }}
+
     tests:
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
-        name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (depot-ubuntu-24.04-4)
+        name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ${{ matrix.runner }}
         # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
         # replay-anonymizer addon's whole dependency tree first (no rust caching in this job yet).
         timeout-minutes: 45
@@ -490,15 +545,19 @@ jobs:
                     - lane: parallel
                       shard: 1
                       shard_count: 1
+                      runner: depot-ubuntu-24.04-4
                     - lane: serial
                       shard: 1
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
                     - lane: serial
                       shard: 2
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
                     - lane: serial
                       shard: 3
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

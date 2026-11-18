@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ProductTab } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { HogQLQuery, TrendsQuery } from '~/queries/schema/schema-general'
@@ -287,6 +288,27 @@ describe('liveWebAnalyticsMetricsLogic', () => {
         openGate()
 
         await expectLogic(logic).toDispatchActions(['scheduleReload', 'loadInitialData'])
+    })
+
+    it.each([
+        [
+            'the Bots tab with only the AI visibility flag',
+            ProductTab.BOT_ANALYTICS,
+            FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+            true,
+        ],
+        [
+            'the Live tab with only the AI visibility flag',
+            ProductTab.LIVE,
+            FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+            false,
+        ],
+        ['the Live tab with the old bot flag', ProductTab.LIVE, FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS, true],
+    ])('loads bot data on %s', (_name, productTab, flag, expected) => {
+        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+        webAnalyticsLogic.actions.setProductTab(productTab)
+
+        expect(logic.values.shouldLoadBots).toBe(expected)
     })
 
     it('does not run the expensive bot query while bot analysis is disabled', async () => {

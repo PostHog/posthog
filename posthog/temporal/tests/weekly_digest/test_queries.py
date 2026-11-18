@@ -8,7 +8,12 @@ from posthog.schema import ErrorTrackingIssueStatus
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.temporal.weekly_digest.queries import query_new_error_issues, query_teams_for_digest
+from posthog.models.user import User
+from posthog.session_recordings.models.session_recording_playlist import (
+    SessionRecordingPlaylist,
+    SessionRecordingPlaylistViewed,
+)
+from posthog.temporal.weekly_digest.queries import query_new_error_issues, query_saved_filters, query_teams_for_digest
 
 from products.error_tracking.backend.facade.testing import create_issue
 
@@ -43,6 +48,36 @@ def test_query_new_error_issues_window_boundaries_and_status(team):
     # Only active issues created within the window, newest first
     assert [r["id"] for r in results] == [at_period_end, in_window]
     assert all(r["team_id"] == team.id for r in results)
+
+
+def test_query_saved_filters_counts_only_views_inside_the_period(team):
+    period_end = datetime(2024, 1, 8, tzinfo=UTC)
+    period_start = period_end - timedelta(days=7)
+    user = User.objects.create(email="viewer@example.com")
+    busy = SessionRecordingPlaylist.objects.create(team=team, name="Busy filter", type="filters")
+    quiet = SessionRecordingPlaylist.objects.create(team=team, name="Quiet filter", type="filters")
+    unviewed = SessionRecordingPlaylist.objects.create(team=team, name="Unviewed filter", type="filters")
+
+    def view(playlist: SessionRecordingPlaylist, viewed_at: datetime) -> None:
+        # viewed_at is auto_now_add, so the timestamp has to be set after the insert.
+        created = SessionRecordingPlaylistViewed.objects.create(user=user, playlist=playlist, team=team)
+        SessionRecordingPlaylistViewed.objects.filter(id=created.id).update(viewed_at=viewed_at)
+
+    view(busy, period_start + timedelta(days=1))
+    view(busy, period_end)
+    view(busy, period_start)  # excluded: window is exclusive at the start
+    view(quiet, period_start + timedelta(days=2))
+    for days_before in range(1, 4):
+        view(quiet, period_start - timedelta(days=days_before))
+    view(quiet, period_end + timedelta(seconds=1))
+
+    results = list(query_saved_filters(period_start, period_end))
+
+    assert [(r["short_id"], r["view_count"]) for r in results] == [
+        (busy.short_id, 2),
+        (quiet.short_id, 1),
+        (unviewed.short_id, 0),
+    ]
 
 
 @pytest.mark.parametrize("with_organization", [False, True])

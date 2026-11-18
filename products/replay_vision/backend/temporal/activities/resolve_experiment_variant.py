@@ -35,6 +35,10 @@ _MAX_DESCRIPTION_CHARS = 2_000
 @activity.defn
 @track_activity()
 async def resolve_experiment_variant_activity(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariantOutput:
+    return await resolve_experiment_variant(inputs)
+
+
+async def resolve_experiment_variant(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariantOutput:
     return await database_sync_to_async(_resolve, thread_sensitive=False)(inputs)
 
 
@@ -64,8 +68,8 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
             kind=FailureKind.INTERNAL_ERROR,
         )
     snapshot = ScannerSnapshot.load_for(inputs.observation_id, observation.scanner_snapshot)
-    scope = snapshot.experiment_scope()
-    experiment_id = (scope or {}).get("experiment_id")
+    experiment_scope = snapshot.experiment_scope()
+    experiment_id = (experiment_scope or {}).get("experiment_id")
     if experiment_id is None:
         return ResolveExperimentVariantOutput(applicable=False)
 
@@ -77,8 +81,8 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
         linkage = resolve_exposure_linkage(
             team,
             experiment_id=experiment_id,
-            variant=scope.get("variant") if scope else None,
-            variants=scope.get("variants") if scope else None,
+            variant=experiment_scope.get("variant") if experiment_scope else None,
+            variants=experiment_scope.get("variants") if experiment_scope else None,
         )
     except UserAccessControlError as exc:
         raise IneligibleSessionError(

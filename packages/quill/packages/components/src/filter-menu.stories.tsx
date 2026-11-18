@@ -73,3 +73,28 @@ export const Default: Story = {
         )
     },
 }
+
+const MANY_TAGS = Array.from({ length: 1000 }, (_, index) => ({ value: `tag-${index}`, label: `tag-${index}` }))
+
+export const ManySearchOptions: Story = {
+    render: function Render() {
+        const [tags, setTags] = React.useState<string[]>([])
+        return (
+            <DropdownMenu>
+                <FilterMenuTrigger active={tags.length > 0} />
+                <DropdownMenuContent align="start" className="min-w-64">
+                    <FilterSearchSubMenu
+                        label="Tags"
+                        allLabel="Any tag"
+                        pluralNoun="tags"
+                        options={MANY_TAGS}
+                        selected={tags}
+                        onChange={setTags}
+                        searchPlaceholder="Search tags"
+                        emptyText="No tag matches"
+                    />
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+    },
+}

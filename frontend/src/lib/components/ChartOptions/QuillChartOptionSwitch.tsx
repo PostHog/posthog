@@ -8,6 +8,7 @@ import { QuillChartOptionLabel } from './QuillChartOptionLabel'
 export function QuillChartOptionSwitch({
     label,
     info,
+    infoLink,
     checked,
     onChange,
     disabledReason,
@@ -16,8 +17,7 @@ export function QuillChartOptionSwitch({
     const id = useId()
 
     return (
-        <Field orientation="horizontal" className="min-h-6 justify-between">
-            <QuillChartOptionLabel htmlFor={id} label={label} info={info} />
+        <Field orientation="horizontal" className="min-h-6">
             <Switch
                 id={id}
                 size="sm"
@@ -26,6 +26,7 @@ export function QuillChartOptionSwitch({
                 disabledReason={disabledReason || undefined}
                 data-attr={dataAttr}
             />
+            <QuillChartOptionLabel htmlFor={id} label={label} info={info} infoLink={infoLink} />
         </Field>
     )
 }

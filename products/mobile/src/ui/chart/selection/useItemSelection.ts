@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import type { View } from 'react-native'
+import type { ViewInstance } from 'react-native'
 
 import { track } from '@/lib/analytics'
 import { chartHaptic } from '@/lib/haptics'
@@ -18,7 +18,7 @@ export interface ItemSelection {
     toggle: (index: number) => void
     select: (index: number, method: SelectMethod) => void
     clear: (reason: ChartDismissReason) => void
-    viewRef: RefObject<View | null>
+    viewRef: RefObject<ViewInstance | null>
     /** Put on the chart container: marks touches as inside this chart. */
     onTouchStart: () => void
 }
@@ -42,7 +42,7 @@ export function useItemSelection(options: ItemSelectionOptions): ItemSelection {
     const scope = useChartSelectionScope()
     const [selected, setSelected] = useState(-1)
     const selectedRef = useRef(-1)
-    const viewRef = useRef<View>(null)
+    const viewRef = useRef<ViewInstance>(null)
     const latest = useRef(options)
     latest.current = options
 

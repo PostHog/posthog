@@ -1,19 +1,13 @@
 import uuid
-from typing import Any, Literal, Self
+from typing import Any, Literal
 
-from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from posthog.schema import ArtifactContentType, ArtifactSource, AssistantTool, AssistantToolCallMessage
 
-from posthog.models import Team, User
-from posthog.sync import database_sync_to_async
-
-from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded, NotebookContentEditNotAllowed
 from products.notebooks.backend.facade.widget_catalog import format_notebook_widget_catalog_for_agents
 
-from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.notebook.prompts import cell_guidance_prompt
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tools.create_notebook.helpers import (
@@ -23,20 +17,12 @@ from ee.hogai.tools.create_notebook.helpers import (
     notebook_exists_for_artifact,
     save_notebook_to_db,
 )
-from ee.hogai.utils.types.base import AssistantState, NodePath
 
 NOTEBOOK_WIDGET_CATALOG_PROMPT = format_notebook_widget_catalog_for_agents()
 
 
-def create_notebook_prompt(*, sql_v2_enabled: bool) -> str:
-    """Build the tool description for one user.
-
-    `sql_v2_enabled` follows the same flag the notebook run endpoint enforces. Without it the
-    endpoint rejects a run, and the editor still renders the cell with a working-looking Run
-    button, so an authored SQLV2 or PythonV2 cell gives the user a dead control and no
-    explanation. Offer the ungated `<Query />` cell to those users instead.
-    """
-    cell_guidance = cell_guidance_prompt(sql_v2_enabled=sql_v2_enabled)
+def create_notebook_prompt() -> str:
+    cell_guidance = cell_guidance_prompt()
     return f"""
 Use this tool to create a notebook document with rich content.
 
@@ -139,33 +125,7 @@ class CreateNotebookToolArgs(BaseModel):
 class CreateNotebookTool(MaxTool):
     name: Literal[AssistantTool.CREATE_NOTEBOOK] = AssistantTool.CREATE_NOTEBOOK
     args_schema: type[BaseModel] = CreateNotebookToolArgs
-    # Fail closed: a caller that skips `create_tool_class` gets the description that authors no
-    # cell the user may be unable to run.
-    description: str = create_notebook_prompt(sql_v2_enabled=False)
-
-    @classmethod
-    async def create_tool_class(
-        cls,
-        *,
-        team: Team,
-        user: User,
-        node_path: tuple[NodePath, ...] | None = None,
-        state: AssistantState | None = None,
-        config: RunnableConfig | None = None,
-        context_manager: AssistantContextManager | None = None,
-    ) -> Self:
-        # The flag lookup reads `user.organization`, so it needs a thread with a database
-        # connection rather than this coroutine.
-        sql_v2_enabled = await database_sync_to_async(notebooks.is_sql_v2_enabled)(user)
-        return cls(
-            team=team,
-            user=user,
-            node_path=node_path,
-            state=state,
-            config=config,
-            context_manager=context_manager,
-            description=create_notebook_prompt(sql_v2_enabled=sql_v2_enabled),
-        )
+    description: str = create_notebook_prompt()
 
     async def _arun_impl(
         self,

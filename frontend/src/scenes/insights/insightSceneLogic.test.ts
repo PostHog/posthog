@@ -263,6 +263,48 @@ describe('insightSceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
     })
 
+    const sqlChart = {
+        kind: NodeKind.DataVisualizationNode,
+        source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+        display: 'ActionsTable',
+    }
+    const sqlWithFilters = {
+        kind: NodeKind.HogQLQuery,
+        query: 'SELECT 1',
+        filters: { dateRange: { date_from: '-7d' } },
+    }
+    it.each([
+        ['a SQL chart', sqlChart, sqlChart],
+        [
+            'a bare SQL query with filters',
+            sqlWithFilters,
+            { kind: NodeKind.DataVisualizationNode, source: sqlWithFilters },
+        ],
+        [
+            'a SQL table with column settings',
+            {
+                kind: NodeKind.DataTableNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                columns: ['a', 'b'],
+                hiddenColumns: ['b'],
+            },
+            {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                display: 'ActionsTable',
+                tableSettings: { columns: [{ column: 'a' }] },
+            },
+        ],
+    ])('sends a hand-built /insights/new link holding %s to the SQL editor', async (_, query, expectedOpenQuery) => {
+        router.actions.push(combineUrl('/insights/new', { dashboard: 5 }, { q: JSON.stringify(query) }).url)
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toEqual(addProjectIdIfMissing('/sql', MOCK_TEAM_ID))
+        expect(router.values.searchParams).toEqual({ dashboard: 5, open_query: expectedOpenQuery })
+    })
+
     it('retains the #q= query hash after navigating to /insights/new (persons modal drill-down)', async () => {
         // Mirrors PersonsModal's "View events" / "Open as new insight" navigation: a DataTableNode
         // query encoded in the #q= hash must survive the post-load URL sync, otherwise both buttons
@@ -477,6 +519,45 @@ describe('insightSceneLogic', () => {
     })
 
     const VARIABLE_ID = '00000000-0000-0000-0000-00000000beef'
+
+    it.each([true, false])('saving from a dashboard respects redirect=%s', async (redirect) => {
+        let savedDescription: string | undefined
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/insights/42/': async ({ request }) => {
+                    const body = (await request.json()) as { description?: string }
+                    savedDescription = body.description
+                    return [200, { id: 42, short_id: Insight42, ...body }]
+                },
+            },
+        })
+        router.actions.push(urls.insightEdit(Insight42, 6))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        sceneLogic.actions.setExportedScene(
+            { logic: insightSceneLogic, component: () => null as any },
+            Scene.Insight,
+            'insightEdit',
+            { params: {}, searchParams: {}, hashParams: {} }
+        )
+        sceneLogic.actions.setScene(
+            Scene.Insight,
+            'insightEdit',
+            { params: {}, searchParams: {}, hashParams: {} },
+            false
+        )
+        const insight = logic.values.insightLogicRef!.logic
+        insight.actions.setInsightMetadataLocal({ description: 'Updated review notes' })
+
+        await expectLogic(insight, () => insight.actions.saveInsight(redirect)).toFinishAllListeners()
+
+        expect(savedDescription).toEqual('Updated review notes')
+        expect(router.values.location.pathname).toEqual(
+            addProjectIdIfMissing(redirect ? urls.dashboard(6) : urls.insightEdit(Insight42), MOCK_TEAM_ID)
+        )
+    })
+
     const CARD_NAME_OVERRIDE: Record<string, HogQLVariable> = {
         [VARIABLE_ID]: {
             variableId: VARIABLE_ID,

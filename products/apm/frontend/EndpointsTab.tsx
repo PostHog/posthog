@@ -1,18 +1,27 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
+import { EndpointTimeSpent } from './EndpointTimeSpent'
 import type { EndpointHealthApi } from './generated/api.schemas'
 import { healthColumns } from './healthColumns'
 import { TelemetryLinks } from './TelemetryLinks'
 
 export function EndpointsTab(): JSX.Element {
-    const { endpoints, endpointsHealthLoading, endpointsLoadError, services, endpointsService, timeRange } =
-        useValues(applicationObservabilityLogic)
-    const { setEndpointsService } = useActions(applicationObservabilityLogic)
+    const {
+        endpoints,
+        filteredEndpoints,
+        search,
+        endpointsHealthLoading,
+        endpointsLoadError,
+        services,
+        endpointsService,
+        timeRange,
+    } = useValues(applicationObservabilityLogic)
+    const { setEndpointsService, setSearch } = useActions(applicationObservabilityLogic)
 
     const serviceNames = services.map((row) => row.service_name)
     if (endpointsService && !serviceNames.includes(endpointsService)) {
@@ -23,6 +32,7 @@ export function EndpointsTab(): JSX.Element {
         {
             title: 'Endpoint',
             key: 'endpoint',
+            sorter: (a, b) => a.endpoint.localeCompare(b.endpoint),
             render: (_, row) => (
                 <Link
                     to={urls.tracingOperation(row.service_name, row.endpoint, { date_from: timeRange, date_to: null })}
@@ -36,6 +46,7 @@ export function EndpointsTab(): JSX.Element {
         {
             title: 'Service',
             key: 'service_name',
+            sorter: (a, b) => a.service_name.localeCompare(b.service_name),
             render: (_, row) => row.service_name,
         },
         ...healthColumns<EndpointHealthApi>(),
@@ -44,7 +55,7 @@ export function EndpointsTab(): JSX.Element {
             key: 'links',
             render: (_, row) => (
                 <span className="flex gap-2">
-                    <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} />
+                    <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} source="endpoints" />
                 </span>
             ),
         },
@@ -63,6 +74,15 @@ export function EndpointsTab(): JSX.Element {
                     ]}
                     data-attr="apm-endpoints-service"
                 />
+                <LemonInput
+                    type="search"
+                    size="small"
+                    className="max-w-80"
+                    placeholder="Search endpoints"
+                    value={search}
+                    onChange={setSearch}
+                    data-attr="apm-endpoints-search"
+                />
             </div>
             {endpointsLoadError && (
                 <LemonBanner type="error">
@@ -73,10 +93,24 @@ export function EndpointsTab(): JSX.Element {
             )}
             <LemonTable
                 columns={columns}
-                dataSource={endpoints}
+                dataSource={filteredEndpoints}
                 rowKey={(row) => `${row.service_name}\n${row.endpoint}`}
                 loading={endpointsHealthLoading}
-                emptyState="No endpoints in this environment and time range. Endpoints come from the requests, messages, and jobs your services handle."
+                emptyState={
+                    endpoints.length > 0
+                        ? `No endpoints match "${search}".`
+                        : 'No endpoints in this environment and time range. Endpoints come from the requests, messages, and jobs your services handle.'
+                }
+                expandable={{
+                    noIndent: true,
+                    expandedRowRender: (row) => (
+                        <EndpointTimeSpent
+                            service={row.service_name}
+                            endpoint={row.endpoint}
+                            environment={row.environment}
+                        />
+                    ),
+                }}
                 data-attr="apm-endpoints-table"
             />
         </div>

@@ -31,7 +31,7 @@ from posthog.schema import (
 from posthog.constants import GroupTypeIndex
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
@@ -1444,8 +1444,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        action = Action.objects.create(name="purchase action", team=self.team, steps_json=[{"event": "purchase"}])
-        action.save()
+        action = create_action(name="purchase action", team=self.team, steps_json=[{"event": "purchase"}])
 
         metric = ExperimentFunnelMetric(
             series=[

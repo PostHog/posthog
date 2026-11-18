@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
 
 import { HogError } from '@/core/errors'
@@ -5,19 +7,23 @@ import type { Runtime } from '@/core/runtime'
 import type { StoreChoice, StoredSecret } from '@/posthog/credential-store/types'
 
 import { sendRequest } from './api'
-import { hostUrl } from './host'
+import { hostUrl, type Host } from './host'
+import type { ProjectId } from './ids'
 import { OAuthLogin } from './oauth'
 import type { LoginRecord } from './settings'
+import type { BearerToken, PersonalApiKey } from './tokens'
 
 // What `hog auth status` shows about a key.
 export interface AccessKeyStatus {
-    kind: 'personal_api_key' | 'oauth'
+    kind: 'personal_api_key' | 'oauth' | 'workload'
     // Null for a personal API key hog hasn't asked PostHog about.
     scopes: string[] | null
     // Epoch milliseconds. Null for a key that doesn't expire.
     expiresAt: number | null
-    // What hog says when PostHog rejects the key.
+    // What hog says when PostHog rejects the key, and the command that gets a new one.
     rejected: string
+    fix: string
+    provider: string | null
 }
 
 export interface LogoutOutcome {
@@ -33,15 +39,36 @@ export interface AccessKeyStorage {
     save(key: AccessKey): Promise<void>
 }
 
+export class MemoryKeyStorage implements AccessKeyStorage {
+    constructor(private latest: AccessKey) {}
+
+    async reread(): Promise<AccessKey> {
+        return this.latest
+    }
+
+    async save(key: AccessKey): Promise<void> {
+        this.latest = key
+    }
+}
+
+export interface WorkloadIdentity {
+    provider: string
+    subject: string
+    organization?: string
+}
+
 // A key hog sends to PostHog. Each kind owns how it authenticates, renews, logs out and is stored,
 // so callers never branch on the kind.
 export interface AccessKey {
-    readonly host: string
-    readonly projectId: string
+    readonly host: Host
+    readonly projectId: ProjectId
     // What PostHog takes as the bearer token.
-    readonly token: string
+    readonly token: BearerToken
     // Stays the same for the whole login, unlike an OAuth token, which changes on each renewal.
     readonly loginKey: string
+    // False for a key that acts for a CI job, so usage data never counts the job as the person it acts as.
+    readonly identifiesPerson: boolean
+    readonly workload?: WorkloadIdentity
     // A key with time left, renewed if it is about to expire, or if it is still `rejectedToken`,
     // a token PostHog refused.
     fresh(runtime: Runtime, storage: AccessKeyStorage, rejectedToken?: string): Promise<AccessKey>
@@ -58,21 +85,30 @@ export interface AccessKey {
 
 const KEY_CHECK_TIMEOUT_MS = 30_000
 
+// If hog doesn't recognize a scope, it drops it instead of failing the login
+const KeyScopes = z.object({
+    scopes: z
+        .array(z.unknown())
+        .transform((scopes) => scopes.filter((scope) => typeof scope === 'string'))
+        .catch([]),
+})
+
 export class PersonalAPIKey implements AccessKey {
-    readonly host: string
-    readonly projectId: string
-    readonly apiKey: string
+    readonly host: Host
+    readonly projectId: ProjectId
+    readonly apiKey: PersonalApiKey
     // Null until `verify` asks PostHog, because only PostHog knows a key's scopes.
     readonly scopes: string[] | null
+    readonly identifiesPerson = true
 
-    constructor(fields: { host: string; projectId: string; apiKey: string; scopes?: string[] }) {
+    constructor(fields: { host: Host; projectId: ProjectId; apiKey: PersonalApiKey; scopes?: string[] }) {
         this.host = fields.host
         this.projectId = fields.projectId
         this.apiKey = fields.apiKey
         this.scopes = fields.scopes ?? null
     }
 
-    get token(): string {
+    get token(): PersonalApiKey {
         return this.apiKey
     }
 
@@ -90,6 +126,8 @@ export class PersonalAPIKey implements AccessKey {
             scopes: this.scopes,
             expiresAt: null,
             rejected: 'PostHog rejected the key. Someone may have deleted it.',
+            fix: 'hog auth login',
+            provider: null,
         }
     }
 
@@ -123,14 +161,9 @@ export class PersonalAPIKey implements AccessKey {
                 'Check the host, then run the command again.'
             )
         }
-        const scopes = (response.json as { scopes?: unknown } | undefined)?.scopes
         const { host, projectId, apiKey } = this
-        return new PersonalAPIKey({
-            host,
-            projectId,
-            apiKey,
-            scopes: Array.isArray(scopes) ? scopes.filter((scope) => typeof scope === 'string') : [],
-        })
+        const scopes = KeyScopes.safeParse(response.json).data?.scopes ?? []
+        return new PersonalAPIKey({ host, projectId, apiKey, scopes })
     }
 
     // A personal API key can't be revoked from hog, so logout says where to delete it.

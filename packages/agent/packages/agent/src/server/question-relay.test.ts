@@ -1,4 +1,4 @@
-import { type SetupServerApi, setupServer } from "msw/node";
+import { type SetupServer, setupServer } from "msw/node";
 import {
   afterAll,
   afterEach,
@@ -164,7 +164,7 @@ describe("Question relay", () => {
 
   let repo: TestRepo;
   let server: TestableAgentServer;
-  let mswServer: SetupServerApi;
+  let mswServer: SetupServer;
   const port = 3098;
 
   // msw patches fetch process-wide. A second listen() on an already-patched
@@ -485,6 +485,9 @@ describe("Question relay", () => {
 
         expect(result.outcome.outcome).toBe("cancelled");
         expect(result._meta?.message).toContain("stop before publishing");
+        expect(result._meta?.message).toContain(
+          "Publishing is disabled for this run, even if the user invokes a skill.",
+        );
       });
     });
   });

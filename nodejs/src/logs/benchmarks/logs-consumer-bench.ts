@@ -89,7 +89,6 @@ async function run(implementation: string, workloadPath: string, passes: number,
     outputs.producedCount = 0
 
     const batchMs: number[] = []
-    let peakRss = process.memoryUsage().rss
     const cpuStart = process.cpuUsage()
     const wallStart = performance.now()
     for (let pass = 0; pass < passes; pass++) {
@@ -97,11 +96,12 @@ async function run(implementation: string, workloadPath: string, passes: number,
             const start = performance.now()
             await runBatch(i)
             batchMs.push(performance.now() - start)
-            peakRss = Math.max(peakRss, process.memoryUsage().rss)
         }
     }
     const wallMs = performance.now() - wallStart
     const cpu = process.cpuUsage(cpuStart)
+    // The process high-water mark in KiB, as the Rust benchmark reads VmHWM.
+    const peakRssKb = process.resourceUsage().maxRSS
 
     const messagesPerPass = scenario.batches.reduce((n, batch) => n + batch.length, 0)
     const recordsPerPass = scenario.batches.reduce(
@@ -123,7 +123,7 @@ async function run(implementation: string, workloadPath: string, passes: number,
         produced: outputs.producedCount,
         wall_ms: wallMs,
         cpu_ms: (cpu.user + cpu.system) / 1000,
-        peak_rss_mb: peakRss / 1024 / 1024,
+        peak_rss_mb: peakRssKb / 1024,
         messages_per_s: (messagesPerPass * passes) / seconds,
         records_per_s: (recordsPerPass * passes) / seconds,
         input_mb_per_s: (bytesPerPass * passes) / 1024 / 1024 / seconds,

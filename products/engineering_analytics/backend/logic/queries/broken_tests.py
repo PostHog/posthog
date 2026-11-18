@@ -1,33 +1,8 @@
-"""Broken-tests classifier: rank live CI failures by how they're behaving right now.
+"""Classifies recent CI failure fingerprints against the latest default-branch job status.
 
-The test-health queue answers "which tests are unreliable over a week". This answers a
-sharper, more urgent question: of the failures happening *right now*, which are breaking trunk,
-which are a new failure catching on, which are just one PR's problem. It reads the fingerprinted
-failure lines (``engineering_analytics_ci_failures`` — the Logs-backed view) over a short window,
-groups them into distinct failures, and classifies each against the latest default-branch job
-status. The classifier lives here (not in the UI) so the same verdict backs both the panel and,
-later, the Signals emitter — detection defined once over the read layer (SPEC §3).
-
-Three reads, merged in Python because they span two ClickHouse clusters:
-
-- fingerprints + the 24h sparkline histogram — both over the failure-lines view on the LOGS
-  cluster (scoped by ``repo`` since that view is team-global, not source-scoped);
-- latest default-branch job status — over the curated ``workflow_jobs`` source on the warehouse
-  cluster, keyed by job name.
-
-Age, span, and sparkline offsets are computed in SQL as integer ``dateDiff``s against ``now()`` so
-the Python classifier never does timezone-sensitive datetime math on the returned values.
-
-``breaking_master`` / ``potentially_resolved`` need the failure's job to match a default-branch job
-by name (the log record's ``job_name`` vs the warehouse job ``name``). When the job-level source
-isn't synced there is no job status at all, so those fingerprints fall through to ``flaky`` /
-``pr_only`` — the panel degrades rather than misreports.
-
-``blocking_merge_queue`` needs neither: it reads only the failure lines' branches. A merge queue
-runs the full suite on a gate branch carrying the PR rebased onto trunk, so a failure there is on a
-commit the PR's own CI already passed. Without this verdict a gate-only failure ranks by its branch
-spread like any other — ``pr_only`` for a single merge attempt, ``flaky`` or ``novel_burst`` across
-several — which buries the one failure class the queue was installed to surface.
+The failure lines live on the LOGS cluster and the job status on the warehouse cluster, so the
+reads are merged in Python. When the jobs source is unsynced no fingerprint can classify as
+``breaking_master`` or ``potentially_resolved``.
 """
 
 from datetime import datetime
@@ -51,19 +26,16 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 )
 from products.engineering_analytics.backend.logic.views import ci_failures
 
-# Branch names treated as trunk — the failure "hit master" and job-status filters key on these.
 _DEFAULT_BRANCHES = ["master", "main"]
 
-# Job conclusions that mean trunk is red right now.
 _RED_MASTER_SET = frozenset({"failure", "timed_out"})
 
-# Classifier thresholds (heuristics over the failure fingerprints).
-_NOVEL_BURST_MAX_AGE_HOURS = 24  # "new today" — first seen within the last day
-_NOVEL_BURST_MIN_BRANCHES = 3  # ...and already spreading across at least this many branches
-_FLAKY_MIN_BRANCHES = 2  # sporadic on at least two branches
-_FLAKY_MIN_SPAN_HOURS = 24  # ...and recurring over more than a day
+_NOVEL_BURST_MAX_AGE_HOURS = 24
+_NOVEL_BURST_MIN_BRANCHES = 3
+_FLAKY_MIN_BRANCHES = 2
+_FLAKY_MIN_SPAN_HOURS = 24
 
-# Sort rank: lowest surfaces first (breaking master on top, PR-only last).
+# The lowest rank sorts first.
 _SEVERITY: dict[BrokenTestState, int] = {
     BrokenTestState.BREAKING_MASTER: 0,
     BrokenTestState.BLOCKING_MERGE_QUEUE: 1,
@@ -73,14 +45,9 @@ _SEVERITY: dict[BrokenTestState, int] = {
     BrokenTestState.PR_ONLY: 5,
 }
 
-# Fingerprint aggregation over the failure-lines view. ``age_hours`` / ``span_hours`` /
-# ``last_master_hit_age`` are computed here (integer dateDiffs against now()) so the Python classifier
-# stays timezone-agnostic. No signal-floor HAVING: single-branch failures are kept too (they classify
-# as pr_only, which the UI hides by default and the toggle reveals), so the "show PR-only" affordance
-# has real rows to show. The cap does the bounding, ordered by urgency proxy first (reached trunk, then
-# wider spread, then recency) so it can't evict a trunk-breaking fingerprint in favor of newer
-# low-signal ones before the Python classifier runs; +1 reveals truncation, and the final severity
-# ranking still happens after classification.
+# The ages are integer dateDiffs against now(), so the Python classifier does no timezone math.
+# The ORDER BY approximates severity, so the cap cannot evict a trunk-breaking fingerprint before
+# the classifier runs.
 _FINGERPRINTS_SELECT = """
     SELECT
         fingerprint,
@@ -113,10 +80,7 @@ _FINGERPRINTS_SELECT = """
     LIMIT {limit_plus_one}
 """
 
-# Per-fingerprint hourly failure counts over the last day, bucketed by how many whole hours ago the
-# hour was (0 = current hour). Bounded to the fingerprints we actually kept ({fingerprints}) so a repo
-# with thousands of distinct 24h failures doesn't scan+group them all just to fill ~200 sparklines;
-# folded into a fixed array per fingerprint below.
+# hours_ago is 0 for the current hour. The scan is bounded to the fingerprints the first read kept.
 _HOURLY_SELECT = f"""
     SELECT
         fingerprint,
@@ -128,15 +92,9 @@ _HOURLY_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# Latest default-branch status per (workflow, job), from the curated workflow-jobs source. Keyed by
-# workflow too, not job name alone: unrelated workflows can reuse a job name like ``test`` / ``build``,
-# and collapsing them would let one workflow's green job mask another's red one. The scan-pruning floor
-# rides inside the jobs builder (``created_floor=True``, a raw-string predicate a parsed-column one
-# can't replace); it floors a day below the precise ``created_at`` window. Recency keys on ``completed_at`` (when the run actually
-# finished), not ``created_at`` — a run that started before a failure but finished green after it is a
-# real recovery. ``latest_conclusion`` is that newest-finishing completed run's conclusion (red =
-# broken now); ``latest_completed_age`` is how long ago it finished, so the classifier can tell a
-# genuine recovery from a stale-green row the logs have already overtaken.
+# Keyed by engine and workflow as well as job name, because unrelated workflows reuse job names and
+# one workflow's green job would mask another's red one. Recency keys on completed_at, because a
+# job that started before a failure but finished green after it is a real recovery.
 _MASTER_JOBS_SELECT = f"""
     SELECT
         workflow_name,
@@ -164,46 +122,34 @@ def _classify(
     last_master_hit_age: int,
     latest_completed_age: int | None,
 ) -> BrokenTestState:
-    """The broken-test verdict for one fingerprint. ``latest_conclusion`` / ``latest_completed_age`` are
-    the matched default-branch job's newest completed conclusion and how long ago it finished, or None
-    when the job has no default-branch status (job source unsynced, or the failure's job never ran on
-    trunk). ``last_master_hit_age`` is how long ago this fingerprint last failed on trunk (only
-    meaningful when ``master_hits > 0``). All ages are seconds-ago-from-now, so smaller = more recent."""
+    """``latest_conclusion`` and ``latest_completed_age`` describe the matched default-branch job, and
+    are None when it has no status. ``last_master_hit_age`` is meaningful only when ``master_hits > 0``.
+    Ages are seconds before now, except ``age_hours`` and ``span_hours``."""
     master_red = latest_conclusion in _RED_MASTER_SET
-    # Only a green run that finished *after* the fingerprint's most recent trunk failure counts as a
-    # recovery. If the green predates the failure, the warehouse job status is just lagging the fresher
-    # logs and the trunk break is still live — don't call it resolved.
+    # A green job that finished before the newest trunk failure is a stale status, not a recovery.
     master_green_and_fresh = (
         latest_conclusion == "success"
         and latest_completed_age is not None
         and latest_completed_age < last_master_hit_age
     )
-    # Breaking trunk right now: hit the default branch and that job's latest run is still red.
     if master_hits > 0 and master_red:
         return BrokenTestState.BREAKING_MASTER
-    # Stopped a merge on a commit that had already passed the PR's own CI — the semantic conflict the
-    # queue exists to catch. Gated on failing *only* there: the queue re-runs the full suite on every
-    # merge attempt, so an ordinary flake picks up gate hits by sheer breadth. Requiring no trunk and
-    # no PR-branch failures keeps this the "passed everywhere else, died at the gate" signal instead
-    # of a second home for flakes, which stay ranked by the shape they actually have.
+    # The failure must happen only on gate branches. The queue runs the full suite on every merge
+    # attempt, so an ordinary flake also collects gate hits.
     if merge_queue_hits > 0 and master_hits == 0 and pr_branch_hits == 0:
         return BrokenTestState.BLOCKING_MERGE_QUEUE
-    # New today and already spreading across branches, but not on trunk yet.
     if age_hours < _NOVEL_BURST_MAX_AGE_HOURS and branches >= _NOVEL_BURST_MIN_BRANCHES and master_hits == 0:
         return BrokenTestState.NOVEL_BURST
-    # Hit the default branch but that job has since gone green again — probably already fixed.
     if master_hits > 0 and master_green_and_fresh:
         return BrokenTestState.POTENTIALLY_RESOLVED
-    # Sporadic across branches and recurring over more than a day.
     if branches >= _FLAKY_MIN_BRANCHES and span_hours > _FLAKY_MIN_SPAN_HOURS:
         return BrokenTestState.FLAKY
     return BrokenTestState.PR_ONLY
 
 
 def _sparklines_by_fingerprint(hourly_rows: list) -> dict[str, list[int]]:
-    """Fold the (fingerprint, hours_ago, count) rows into a fixed hourly array per fingerprint,
-    oldest slot first. Buckets outside the window are ignored; a fingerprint with no recent failures
-    simply gets no entry (the caller renders all-zeros)."""
+    """Hourly counts per fingerprint, oldest slot first. A fingerprint with no failures in the
+    window has no entry."""
     series_by_fp: dict[str, list[int]] = {}
     for fingerprint, hours_ago, count in hourly_rows:
         if hours_ago < 0 or hours_ago >= BROKEN_TEST_SPARKLINE_HOURS:
@@ -224,34 +170,30 @@ def query_broken_tests(
     branch: str | None = None,
 ) -> BrokenTestsResult:
     repository = curated.repository
-    # The failure-lines view is team-global; without a source repository we cannot scope it to the
-    # selected source, so return nothing rather than mix another repo's failures in.
+    # The failure-lines view is team-global, so without a repository to scope it the read would mix
+    # in another repo's failures.
     if not repository:
         return BrokenTestsResult(
             rows=[], breaking_master_jobs=[], window_days=window_days, truncated=False, limit=limit
         )
 
     failures_source = f"({ci_failures.build_query()})"
-    # Shape-only: the failure-lines view carries no actor to corroborate against, and a false
-    # positive here can only mis-rank one fingerprint — it drops and re-keys nothing.
     logs_placeholders: dict[str, ast.Expr] = {
         "default_branches": ast.Constant(value=_DEFAULT_BRANCHES),
         "repository": ast.Constant(value=repository),
         "date_from": ast.Constant(value=date_from),
-        # +1 so a full page reveals that more fingerprints qualified than returned.
         "limit_plus_one": ast.Constant(value=limit + 1),
     }
-    # The filters run before the cap, so a narrowed read reaches rows the cap would cut. They sit in
-    # HAVING because `test_id` in WHERE would bind to the `any(test_id)` alias (see repo_name above).
+    # The filters sit in HAVING because `test_id` in WHERE would bind to the `any(test_id)` alias.
     filters = ["1"]
     if test:
         filters.append("positionCaseInsensitive(test_id, {test}) > 0")
         logs_placeholders["test"] = ast.Constant(value=test)
-    # A branch keeps a fingerprint that failed there, but its counts cover every branch, so the row
-    # still shows whether the failure also happens elsewhere.
+    # The branch filter keeps a fingerprint that failed there, but its counts still cover every branch.
     if branch:
         filters.append("countIf(branch = {branch}) > 0")
         logs_placeholders["branch"] = ast.Constant(value=branch)
+    # The gate-branch match reads the branch name alone, because the failure lines carry no actor.
     fingerprints_sql = (
         _FINGERPRINTS_SELECT.replace("__MERGE_QUEUE_BRANCH__", looks_like_merge_queue_branch_expr("branch"))
         .replace("__FAILURES_SOURCE__", failures_source)
@@ -266,8 +208,6 @@ def query_broken_tests(
         ).results
         or []
     )
-    # Only the fingerprints we kept need a sparkline; bound the 24h scan to them (skip it entirely when
-    # the first scan found nothing) so a busy repo doesn't group every recent failure just to fill ~200.
     selected_fingerprints = [row[0] for row in fingerprint_rows]
     hourly_rows = (
         (
@@ -287,12 +227,9 @@ def query_broken_tests(
         else []
     )
 
-    # Latest default-branch status per (workflow, job) — empty when the job-level source isn't synced,
-    # in which case breaking_master / potentially_resolved can't be distinguished and those rows fall
-    # through. Keyed on (workflow_name, job_name) so a job name shared across workflows doesn't collapse.
     master_by_key: dict[tuple[str | None, str, str], tuple[str | None, int | None]] = {}
     breaking_master_jobs: set[str] = set()
-    jobs_source = curated.jobs_source(created_floor=True)
+    jobs_source = curated.jobs_source(created_floor=True, since=date_from)
     if jobs_source is not None:
         master_rows = (
             curated.run(
@@ -311,7 +248,7 @@ def query_broken_tests(
             if latest_conclusion in _RED_MASTER_SET:
                 breaking_master_jobs.add(job_name)
 
-    # A legacy log has no engine: use status only when the workflow/job names identify one engine.
+    # A log line with no engine uses the status only when its workflow and job names identify one engine.
     by_job: dict[tuple[str, str], list[tuple[str | None, int | None]]] = {}
     for (_engine, workflow, job), status in master_by_key.items():
         by_job.setdefault((workflow, job), []).append(status)
@@ -376,9 +313,7 @@ def query_broken_tests(
             )
         )
 
-    # Severity first, then most-recent failure — the top of the list is what's on fire right now.
-    # Two stable passes (Python's sort is stable): newest last_seen within each state, states in
-    # rank order. All last_seen values come from one query, so they're uniformly comparable.
+    # Two stable sorts order the rows by severity, then by newest failure within each state.
     rows.sort(key=lambda r: r.last_seen, reverse=True)
     rows.sort(key=lambda r: _SEVERITY[r.state])
     return BrokenTestsResult(

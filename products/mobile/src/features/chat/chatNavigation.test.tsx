@@ -29,6 +29,7 @@ jest.mock('@/demo/demoMode', () => ({
 }))
 jest.mock('@/features/chat/draftPersistence', () => ({}))
 jest.mock('@/features/hedgehog/useHedgehogWidgetSync', () => ({ useHedgehogWidgetSync: jest.fn() }))
+jest.mock('@/features/widgets/useChartWidgetSync', () => ({ useChartWidgetSync: jest.fn() }))
 jest.mock('@/features/notifications/pushRegistration', () => ({ configureNotifications: jest.fn() }))
 jest.mock('@/features/notifications/usePushRegistration', () => ({ usePushRegistration: jest.fn() }))
 jest.mock('expo-notifications', () => ({
@@ -39,14 +40,14 @@ jest.mock('expo-notifications', () => ({
 jest.mock('@/features/notifications/pushSupport', () => ({ notificationsSupported: () => true }))
 jest.mock('@/features/notifications/taskLookup', () => ({ findTask: jest.fn() }))
 jest.mock('@/lib/posthogClient', () => ({ initAnalytics: jest.fn() }))
-jest.mock('@/features/chat/ChatScreen', () => {
+jest.mock('@/features/chat/ChatEntryScreen', () => {
     const { useEffect, useState } = jest.requireActual<typeof import('react')>('react')
     const { Button, Text, TextInput, View } = jest.requireActual<typeof import('react-native')>('react-native')
     const { setViewedNotificationTask } = jest.requireActual<
         typeof import('@/features/notifications/foregroundNotifications')
     >('@/features/notifications/foregroundNotifications')
     return {
-        ChatScreen: ({ initialTaskId, onBack }: { initialTaskId?: string; onBack: () => void }): ReactElement => {
+        ChatEntryScreen: ({ initialTaskId, onBack }: { initialTaskId?: string; onBack: () => void }): ReactElement => {
             const [taskId, setTaskId] = useState(initialTaskId)
             const [draft, setDraft] = useState('')
             useEffect(() => {
@@ -89,8 +90,8 @@ describe('chat navigation', () => {
         })
     })
 
-    test('reuses one chat screen, preserves the same chat draft and loads a different conversation', () => {
-        const app = renderRouter({ _layout: RootLayout, inbox: Inbox, chat: ChatRoute }, { initialUrl: '/inbox' })
+    test('reuses one chat screen, preserves the same chat draft and loads a different conversation', async () => {
+        const app = await renderRouter({ _layout: RootLayout, inbox: Inbox, chat: ChatRoute }, { initialUrl: '/inbox' })
         act(() => router.push('/chat?taskId=task-a&entry=chats_list'))
         fireEvent.changeText(screen.getByTestId('draft'), 'Unsent message')
 
@@ -108,9 +109,12 @@ describe('chat navigation', () => {
         expect(screen.queryByTestId('chat-screen')).toBeNull()
     })
 
-    test.each(['/chat', '/chat?taskId=task-a'])('uses the default page for a direct link to %s', (initialUrl) => {
+    test.each(['/chat', '/chat?taskId=task-a'])('uses the default page for a direct link to %s', async (initialUrl) => {
         useDefaultPageStore.setState({ page: 'views' })
-        const app = renderRouter({ _layout: RootLayout, inbox: Inbox, views: Inbox, chat: ChatRoute }, { initialUrl })
+        const app = await renderRouter(
+            { _layout: RootLayout, inbox: Inbox, views: Inbox, chat: ChatRoute },
+            { initialUrl }
+        )
         fireEvent.press(screen.getByTestId('chat-back'))
         expect(app.getPathname()).toBe('/views')
     })
@@ -121,7 +125,7 @@ describe('chat navigation', () => {
         { name: 'chat started in the composer', initialTaskId: null, action: 'start-task', preserveDraft: true },
         { name: 'New chat after leaving this task', initialTaskId: 'task-a', action: 'new-chat', preserveDraft: false },
     ])('handles background notification taps for $name', async ({ name, initialTaskId, action, preserveDraft }) => {
-        const app = renderRouter({ _layout: RootLayout, inbox: Inbox, chat: ChatRoute }, { initialUrl: '/inbox' })
+        const app = await renderRouter({ _layout: RootLayout, inbox: Inbox, chat: ChatRoute }, { initialUrl: '/inbox' })
         act(() => router.push(initialTaskId ? `/chat?taskId=${initialTaskId}` : '/chat'))
         if (action) {
             fireEvent.press(screen.getByTestId(action))
@@ -146,6 +150,7 @@ describe('chat navigation', () => {
                         body: 'Chat update',
                         data: { type: 'task', taskId: 'task-a', projectId: 2 },
                         categoryIdentifier: null,
+                        threadIdentifier: null,
                         sound: null,
                     },
                 },

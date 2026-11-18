@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { MakeLogicType, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -9,6 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -29,6 +30,27 @@ const MOCK_IMPERSONATED_USER: UserType = {
 
 describe('apiStatusLogic', () => {
     let logic: ReturnType<typeof apiStatusLogic.build>
+
+    it('opens the recovery page once when concurrent requests are blocked by IP restrictions', async () => {
+        initKeaTests()
+        logic = apiStatusLogic()
+        logic.mount()
+        const originalLocation = window.location
+        const reload = jest.fn()
+        Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, reload } })
+        const response = (): Response => new Response(JSON.stringify({ code: 'ip_not_allowed' }), { status: 403 })
+
+        try {
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(response())
+                logic.actions.onApiResponse(response())
+            }).toFinishAllListeners()
+
+            expect(reload).toHaveBeenCalledTimes(1)
+        } finally {
+            Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+        }
+    })
 
     describe('401 handling during impersonation', () => {
         it('skips auto-logout on 401 for impersonated users', async () => {
@@ -304,6 +326,66 @@ describe('apiStatusLogic', () => {
             logic.actions.resolveSensitiveAction('success')
 
             expect(await result).toEqual({ saved: true })
+        })
+    })
+
+    describe('project access lost mid-session', () => {
+        const PROJECT_DENIED = { code: 'permission_denied', detail: "You don't have access to the project." }
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+        })
+
+        test.each([
+            [
+                'an environments endpoint of the current project',
+                `/api/environments/${MOCK_TEAM_ID}/dashboards/`,
+                PROJECT_DENIED,
+                403,
+                true,
+            ],
+            [
+                'a projects endpoint of the current project',
+                `/api/projects/${MOCK_TEAM_ID}/signals/reports/`,
+                PROJECT_DENIED,
+                403,
+                true,
+            ],
+            [
+                'one endpoint while the project still loads',
+                `/api/projects/${MOCK_TEAM_ID}/wizard/runs/`,
+                PROJECT_DENIED,
+                200,
+                false,
+            ],
+            ['an endpoint of another project', '/api/projects/12345/dashboards/', PROJECT_DENIED, 403, false],
+            [
+                'a resource-level denial',
+                `/api/projects/${MOCK_TEAM_ID}/insights/1/`,
+                { code: 'permission_denied', detail: 'You do not have viewer access to this resource.' },
+                403,
+                false,
+            ],
+        ])('handles a 403 from %s', async (_, path, body, projectStatus, expected) => {
+            useMocks({
+                get: {
+                    '/api/projects/:id/': () => [projectStatus, projectStatus === 403 ? PROJECT_DENIED : {}],
+                },
+            })
+            const mockResponse = {
+                status: 403,
+                ok: false,
+                url: `http://localhost${path}`,
+                json: () => Promise.resolve(body),
+            } as unknown as Response
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(mockResponse)
+            }).toFinishAllListeners()
+
+            expect(teamLogic.values.isCurrentProjectAccessDenied).toBe(expected)
         })
     })
 })

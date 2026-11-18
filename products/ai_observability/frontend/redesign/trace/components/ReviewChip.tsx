@@ -4,6 +4,8 @@ import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { TraceHumanReviewApi, TraceReviewStatusApi } from '../../../generated/api.schemas'
+import { ChipTag } from './ChipTag'
+import { LabeledChipValue } from './LabeledChipValue'
 
 export interface ReviewChipProps {
     status: TraceReviewStatusApi
@@ -36,19 +38,18 @@ export function ReviewChip({ status, queueHref, onRemoveFromQueue = null }: Revi
         <>
             {review ? (
                 <Tooltip title={<ReviewTooltip review={review} />}>
-                    <LemonTag weight="normal" type="success" icon={<IconCheck />} data-attr="trace-view-review-chip">
+                    <ChipTag weight="normal" type="success" icon={<IconCheck />} data-attr="trace-view-review-chip">
                         {scoreCount > 0
                             ? `Reviewed · ${scoreCount} ${scoreCount === 1 ? 'score' : 'scores'}`
                             : 'Reviewed'}
-                    </LemonTag>
+                    </ChipTag>
                 </Tooltip>
             ) : null}
             {queue ? (
                 <LemonTag weight="normal" className="max-w-full" data-attr="trace-view-review-queue-chip">
                     <Tooltip title="Open the review queue">
-                        <Link to={queueHref ?? undefined} subtle className="min-w-0">
-                            <span className="shrink-0">Queue:&nbsp;</span>
-                            <span className="max-w-60 truncate">{queue.name}</span>
+                        <Link to={queueHref ?? undefined} subtle className="inline-flex min-w-0">
+                            <LabeledChipValue label="Queue">{queue.name}</LabeledChipValue>
                         </Link>
                     </Tooltip>
                     {onRemoveFromQueue ? (

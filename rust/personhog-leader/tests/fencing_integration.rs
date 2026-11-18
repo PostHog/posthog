@@ -12,6 +12,7 @@ use std::time::Duration;
 use envconfig::Envconfig;
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::HandoffHandler;
+use personhog_coordination::types::{ChangelogTarget, ClusterEndpoint};
 use personhog_leader::fencing::{
     heal_fence, FenceGuard, FencedChangelogProducers, FencedProduceError, FencedProducerConfig,
     HealOutcome,
@@ -37,11 +38,15 @@ fn test_person(version: i64) -> Person {
 /// Count the records a `read_committed` consumer can see on partition 0
 /// — the same isolation the warming path uses.
 async fn read_committed_count(topic: &str) -> usize {
+    read_committed_count_on(KAFKA_BOOTSTRAP, topic).await
+}
+
+async fn read_committed_count_on(bootstrap: &str, topic: &str) -> usize {
     use rdkafka::consumer::{Consumer, StreamConsumer};
     use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
 
     let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set("bootstrap.servers", bootstrap)
         .set(
             "group.id",
             format!("fence-abort-probe-{}", uuid::Uuid::new_v4()),
@@ -146,16 +151,31 @@ async fn acquiring_on_another_topic_produces_there_and_discards_a_stale_preconne
 }
 
 /// Sealing claims every lane's id on the old topic, so a holder still producing
-/// there is fenced and nothing more lands, on the cold and the prepared path.
+/// there is fenced and nothing more lands, on the cold and the prepared path,
+/// and on the old topic's own cluster when it is not the default one.
 #[tokio::test]
 async fn a_seal_fences_the_holder_on_the_old_topic() {
-    for prepared in [false, true] {
+    let secondary = common::secondary_kafka_bootstrap();
+    let mut cases = vec![(false, None), (true, None)];
+    if let Some(hosts) = &secondary {
+        let old_cluster = ClusterEndpoint {
+            name: "old-cluster".to_string(),
+            hosts: hosts.clone(),
+            tls: false,
+        };
+        cases.extend([
+            (false, Some(old_cluster.clone())),
+            (true, Some(old_cluster)),
+        ]);
+    }
+    for (prepared, cluster) in cases {
         let topic = format!("fence_seal_{}", uuid::Uuid::new_v4().simple());
+        let old = ChangelogTarget {
+            cluster: cluster.clone(),
+            ..target(&topic)
+        };
         let holder = fenced_producers(2);
-        holder
-            .acquire(0, &target(&topic))
-            .await
-            .expect("holder acquires");
+        holder.acquire(0, &old).await.expect("holder acquires");
         holder
             .produce(0, &test_person(1))
             .await
@@ -163,22 +183,27 @@ async fn a_seal_fences_the_holder_on_the_old_topic() {
 
         let sealer = fenced_producers(2);
         if prepared {
-            sealer.preconnect(0, &target(&topic)).await;
+            sealer.preconnect(0, &old).await;
         }
         let path = sealer
-            .seal(0, &target(&topic))
+            .seal(0, &old)
             .await
             .expect("the seal claims every lane");
         assert_eq!(path, if prepared { "prepared" } else { "cold" });
 
         match holder.produce(0, &test_person(2)).await {
             Err(FencedProduceError::Fenced) | Err(FencedProduceError::NotAcquired) => {}
-            other => panic!("prepared={prepared}: the holder must be fenced, got {other:?}"),
+            other => panic!(
+                "prepared={prepared} cluster={cluster:?}: the holder must be fenced, got {other:?}"
+            ),
         }
+        let bootstrap = cluster
+            .as_ref()
+            .map_or(KAFKA_BOOTSTRAP, |c| c.hosts.as_str());
         assert_eq!(
-            read_committed_count(&topic).await,
+            read_committed_count_on(bootstrap, &topic).await,
             1,
-            "prepared={prepared}: nothing lands after the seal"
+            "prepared={prepared} cluster={cluster:?}: nothing lands after the seal"
         );
     }
 }
@@ -1563,6 +1588,115 @@ async fn a_resume_does_not_fence_the_window_its_own_warm_admitted() {
         result.is_ok(),
         "a resume must not fence the window this convergence's own warm \
          admitted, got {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn every_warm_of_a_partition_gets_a_fill_and_tracking_ends_with_it() {
+    use personhog_leader::cache::{CacheLookup, FillOutcome, PartitionedCache, PersonCacheKey};
+    use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
+
+    let topic = format!("fence_fill_{}", uuid::Uuid::new_v4().simple());
+    common::create_broker_topic(&topic, 1).await;
+    // A group of the test's own: a standalone commit is refused while a group has members.
+    let writer_group = format!("writer_{topic}");
+    let producers = Arc::new(fenced_producers(1));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let fill = personhog_leader::warming::FillConfig {
+        lookback: Duration::from_secs(3600),
+        chunk_offsets: 4,
+        room_fraction: 0.9,
+    };
+    let handler = common::test_handoff_handler_with_fill(
+        &topic,
+        Arc::clone(&producers),
+        Arc::clone(&cache),
+        Some(fill),
+        &writer_group,
+    );
+
+    // Applied history: the writer has committed past it, so only a fill restores it.
+    let writer: BaseConsumer = rdkafka::ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set("group.id", &writer_group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("writer-group consumer");
+    producers
+        .acquire(0, &target(&topic))
+        .await
+        .expect("acquire");
+    for version in 1..=4 {
+        producers
+            .produce(0, &test_person(version))
+            .await
+            .expect("history record");
+    }
+    let (_, end) = writer
+        .fetch_watermarks(&topic, 0, Duration::from_secs(5))
+        .expect("watermarks");
+    let mut tpl = rdkafka::TopicPartitionList::new();
+    tpl.add_partition_offset(&topic, 0, rdkafka::Offset::Offset(end))
+        .expect("tpl");
+    writer
+        .commit(&tpl, CommitMode::Sync)
+        .expect("writer commit");
+
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id: 7,
+    };
+    let filled = || matches!(cache.get(0, &key), CacheLookup::Found(_));
+    let tracking_ended = || {
+        let probe = PersonCacheKey {
+            team_id: 1,
+            person_id: 999,
+        };
+        let outcome = cache
+            .serving_cache(0)
+            .map(|serving| serving.fill(probe, common::test_cached_person()));
+        outcome == Some(FillOutcome::NotTracking)
+    };
+
+    handler.warm_partition(0).await.expect("warm");
+    wait_until("the first build's fill", filled).await;
+    wait_until("put tracking to end", tracking_ended).await;
+
+    handler.release_partition(0).await.expect("release");
+    handler.warm_partition(0).await.expect("warm again");
+    wait_until("the second build's fill", filled).await;
+}
+
+#[tokio::test]
+async fn a_warm_tracks_no_puts_when_no_fill_is_configured() {
+    use personhog_leader::cache::{FillOutcome, PartitionedCache, PersonCacheKey};
+
+    let topic = format!("fence_fill_off_{}", uuid::Uuid::new_v4().simple());
+    common::create_broker_topic(&topic, 1).await;
+    let producers = Arc::new(fenced_producers(1));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let handler = common::test_handoff_handler_with_fill(
+        &topic,
+        Arc::clone(&producers),
+        Arc::clone(&cache),
+        None,
+        &format!("writer_{topic}"),
+    );
+    producers
+        .acquire(0, &target(&topic))
+        .await
+        .expect("acquire");
+
+    handler.warm_partition(0).await.expect("warm the partition");
+
+    let key = PersonCacheKey {
+        team_id: 1,
+        person_id: 999,
+    };
+    let serving = cache.serving_cache(0).expect("the partition is serving");
+    assert_eq!(
+        serving.fill(key, common::test_cached_person()),
+        FillOutcome::NotTracking
     );
 }
 

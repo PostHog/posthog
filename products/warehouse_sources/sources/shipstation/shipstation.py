@@ -13,19 +13,18 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
 from products.warehouse_sources.sources.shipstation.settings import (
+    SHIPSTATION_CARRIER_ENDPOINTS,
     SHIPSTATION_V1,
     SHIPSTATION_V2,
     ShipStationEndpointConfig,
     endpoints_for_version,
 )
-
-# ShipStation list pages cap at 500 items on both versions.
-PAGE_SIZE = 500
 
 # All ShipStation v1 DateTime values are US Pacific time, not UTC.
 SHIPSTATION_TZ = ZoneInfo("America/Los_Angeles")
@@ -95,7 +94,8 @@ def _build_auth(api_key: str, api_secret: str | None, dialect: ShipStationDialec
 class ShipStationResumeConfig:
     # ShipStation paginates with a 1-based page number; the framework's PageNumberPaginator resume
     # state is a single ``{"page": <next page>}`` dict, so it maps straight onto this existing field.
-    page: int
+    page: int = 1
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 class ShipStationPageNumberPaginator(PageNumberPaginator):
@@ -161,10 +161,10 @@ def _build_params(
     incremental_field: str | None,
     dialect: ShipStationDialect = SHIPSTATION_DIALECTS[SHIPSTATION_V1],
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(config.params)
 
     if config.paginated:
-        params[dialect.page_size_param] = PAGE_SIZE
+        params[dialect.page_size_param] = config.page_size
 
     if not config.incremental_params:
         return params
@@ -227,7 +227,7 @@ def shipstation_source(
     dialect = _dialect(api_version)
     config = endpoints_for_version(api_version)[endpoint]
 
-    paginator = ShipStationPageNumberPaginator(PAGE_SIZE) if config.paginated else SinglePagePaginator()
+    paginator = ShipStationPageNumberPaginator(config.page_size) if config.paginated else SinglePagePaginator()
     params = _build_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field, dialect
     )
@@ -261,6 +261,43 @@ def shipstation_source(
         ],
     }
 
+    if config.fanout is not None:
+        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            resumable_source_manager.save_state(ShipStationResumeConfig(fanout_state=state))
+
+        resource = build_dependent_resource(
+            endpoint_configs={
+                **endpoints_for_version(api_version),
+                "carriers": SHIPSTATION_CARRIER_ENDPOINTS.get(
+                    api_version, SHIPSTATION_CARRIER_ENDPOINTS[SHIPSTATION_V1]
+                ),
+            },
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=rest_config["client"],
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            page_size_param=None,
+            parent_endpoint_extra={
+                "data_selector": "carriers" if api_version == SHIPSTATION_V2 else "$",
+                "paginator": SinglePagePaginator(),
+            },
+            child_endpoint_extra={"data_selector": config.data_key or "$", "paginator": SinglePagePaginator()},
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume else None,
+        )
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: resource,
+            primary_keys=config.primary_key if isinstance(config.primary_key, list) else [config.primary_key],
+            partition_count=1,
+            partition_size=1,
+        )
+
     initial_paginator_state: Optional[dict[str, Any]] = None
     if config.paginated and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
@@ -285,7 +322,7 @@ def shipstation_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_key if isinstance(config.primary_key, list) else [config.primary_key],
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

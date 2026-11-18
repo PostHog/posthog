@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use inquire::{Select, Text};
+use inquire::{InquireError, Select, Text};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -8,12 +8,15 @@ use tracing::info;
 
 use crate::api::client::PHClient;
 use crate::invocation_context::context;
+use crate::utils::{describe_failed_response, redact_request_error, redact_url};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum Language {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, clap::ValueEnum)]
+pub enum Language {
+    #[value(name = "typescript")]
     TypeScript,
+    #[value(name = "golang")]
     Golang,
+    #[value(name = "python")]
     Python,
 }
 
@@ -119,6 +122,74 @@ You can add optional properties through the option functions:
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum TypeScriptSdk {
+    /// A typed posthog-js instance the app imports instead of posthog-js
+    #[value(name = "posthog-js")]
+    PosthogJs,
+    /// Only the event types, with no imports, for posthog-react-native, posthog-node or any other SDK
+    #[value(name = "none")]
+    TypesOnly,
+}
+
+impl TypeScriptSdk {
+    fn as_str(&self) -> &'static str {
+        match self {
+            TypeScriptSdk::PosthogJs => "posthog-js",
+            TypeScriptSdk::TypesOnly => "none",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Module {
+    language: Language,
+    sdk: Option<TypeScriptSdk>,
+}
+
+impl Module {
+    fn types_only(&self) -> bool {
+        self.sdk == Some(TypeScriptSdk::TypesOnly)
+    }
+
+    fn display_name(&self) -> &'static str {
+        if self.types_only() {
+            "TypeScript (types only)"
+        } else {
+            self.language.display_name()
+        }
+    }
+
+    fn default_output_path(&self) -> &'static str {
+        if self.types_only() {
+            "posthog-events.ts"
+        } else {
+            self.language.default_output_path()
+        }
+    }
+
+    fn next_steps_text(&self, output_path: &str) -> String {
+        if !self.types_only() {
+            return self.language.next_steps_text(output_path);
+        }
+        format!(
+            r#"
+1. Import the event types into your analytics code (no SDK dependency):
+   import type {{ EventName, EventProperties }} from './{output_path}'
+2. Use them to type the calls to your PostHog SDK, for example posthog-react-native:
+   function track<K extends EventName>(event: K, properties: EventProperties<K>) {{
+       posthog.capture(event, properties)
+   }}
+"#
+        )
+    }
+
+    fn definitions_url(&self) -> String {
+        let query = if self.types_only() { "?sdk=none" } else { "" };
+        format!("event_definitions/{}/{query}", self.language.as_str())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct SchemaConfig {
     languages: HashMap<String, LanguageConfig>,
@@ -127,9 +198,27 @@ struct SchemaConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct LanguageConfig {
     output_path: String,
+    /// TypeScript only. Kept as text, so a value this version does not know fails with a message
+    /// instead of making the whole posthog.json unreadable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sdk: Option<String>,
     schema_hash: String,
     updated_at: String,
     event_count: usize,
+}
+
+impl LanguageConfig {
+    /// A posthog.json entry without `sdk` has a module that wraps posthog-js
+    fn typescript_sdk(&self) -> Result<TypeScriptSdk> {
+        match self.sdk.as_deref() {
+            None => Ok(TypeScriptSdk::PosthogJs),
+            Some(value) => <TypeScriptSdk as clap::ValueEnum>::from_str(value, false).map_err(|_| {
+                anyhow::anyhow!(
+                    "posthog.json sets the TypeScript sdk to \"{value}\", which this posthog-cli does not know. Update posthog-cli, or pass --sdk"
+                )
+            }),
+        }
+    }
 }
 
 impl SchemaConfig {
@@ -164,7 +253,7 @@ impl SchemaConfig {
     /// Update language config, preserving other languages
     fn update_language(
         &mut self,
-        language: Language,
+        module: Module,
         output_path: String,
         schema_hash: String,
         event_count: usize,
@@ -172,9 +261,10 @@ impl SchemaConfig {
         use chrono::Utc;
 
         self.languages.insert(
-            language.as_str().to_string(),
+            module.language.as_str().to_string(),
             LanguageConfig {
                 output_path,
+                sdk: module.sdk.map(|sdk| sdk.as_str().to_string()),
                 schema_hash,
                 updated_at: Utc::now().to_rfc3339(),
                 event_count,
@@ -188,36 +278,63 @@ struct DefinitionsResponse {
     content: String,
     event_count: usize,
     schema_hash: String,
+    #[serde(default)]
+    sdk: Option<String>,
 }
 
-pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()> {
-    // Select language
-    let language = select_language()?;
+pub fn pull(
+    _host: Option<String>,
+    output_override: Option<String>,
+    language: Option<Language>,
+    sdk: Option<TypeScriptSdk>,
+) -> Result<()> {
+    let language = match language {
+        Some(language) => language,
+        None => select_language()?,
+    };
+    if sdk.is_some() && language != Language::TypeScript {
+        anyhow::bail!("--sdk only applies to TypeScript. Pass --language typescript too");
+    }
+
+    let config = SchemaConfig::load();
+    let saved = config.get_language(language);
+    let module = Module {
+        language,
+        sdk: match (language, sdk, saved) {
+            (Language::TypeScript, Some(sdk), _) => Some(sdk),
+            (Language::TypeScript, None, Some(saved)) => Some(saved.typescript_sdk()?),
+            (Language::TypeScript, None, None) => Some(select_typescript_sdk()?),
+            _ => None,
+        },
+    };
 
     info!(
         "Fetching {} definitions from PostHog...",
-        language.display_name()
+        module.display_name()
     );
 
     // Get PH client
     let client = &context().client;
 
     // Determine output path
-    let output_path = determine_output_path(language, output_override)?;
+    let output_path = determine_output_path(module, output_override)?;
 
     // Fetch definitions from the server
-    let response = fetch_definitions(client, language)?;
+    let response = fetch_definitions(client, module)?;
 
     info!(
         "✓ Fetched {} definitions for {} events",
-        language.display_name(),
+        module.display_name(),
         response.event_count
     );
 
-    // Check if schema has changed for this language
-    let config = SchemaConfig::load();
-    if let Some(lang_config) = config.get_language(language) {
-        if lang_config.schema_hash == response.schema_hash {
+    // Check if schema has changed for this language, and that it still wraps the same SDK
+    if let Some(lang_config) = saved {
+        let same_sdk = match module.sdk {
+            Some(sdk) => lang_config.typescript_sdk().ok() == Some(sdk),
+            None => true,
+        };
+        if same_sdk && lang_config.schema_hash == response.schema_hash {
             info!(
                 "Schema unchanged for {} (hash: {})",
                 language.as_str(),
@@ -225,7 +342,7 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
             );
             crate::safe_println!(
                 "\n✓ {} schema is already up to date!",
-                language.display_name()
+                module.display_name()
             );
             crate::safe_println!("  No changes detected - skipping file write.");
             return Ok(());
@@ -250,7 +367,7 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     info!("Updating posthog.json...");
     let mut config = SchemaConfig::load();
     config.update_language(
-        language,
+        module,
         output_path.clone(),
         response.schema_hash,
         response.event_count,
@@ -260,25 +377,25 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
 
     crate::safe_println!("✓ Schema sync complete!");
     crate::safe_println!("\nNext steps:");
-    crate::safe_println!("{}", language.next_steps_text(&output_path));
+    crate::safe_println!("{}", module.next_steps_text(&output_path));
 
     Ok(())
 }
 
-fn determine_output_path(language: Language, output_override: Option<String>) -> Result<String> {
+fn determine_output_path(module: Module, output_override: Option<String>) -> Result<String> {
     // If CLI override is provided, use it (and normalize it)
     if let Some(path) = output_override {
-        return Ok(normalize_output_path(&path, language));
+        return Ok(normalize_output_path(&path, module));
     }
 
     // Check if posthog.json exists and has an output_path for this language
     let config = SchemaConfig::load();
-    if let Some(path) = config.get_output_path(language) {
+    if let Some(path) = config.get_output_path(module.language) {
         return Ok(path);
     }
 
     // Prompt user for output path
-    let default_filename = language.default_output_path();
+    let default_filename = module.default_output_path();
     let current_dir = std::env::current_dir()
         .ok()
         .and_then(|p| p.to_str().map(String::from))
@@ -292,18 +409,18 @@ fn determine_output_path(language: Language, output_override: Option<String>) ->
     );
 
     let path = Text::new(&format!(
-        "Where should we save the {} typed PostHog module?",
-        language.display_name()
+        "Where should we save the {} module?",
+        module.display_name()
     ))
     .with_default(default_filename)
     .with_help_message(&help_message)
     .prompt()
     .unwrap_or(default_filename.to_string());
 
-    Ok(normalize_output_path(&path, language))
+    Ok(normalize_output_path(&path, module))
 }
 
-fn normalize_output_path(path: &str, language: Language) -> String {
+fn normalize_output_path(path: &str, module: Module) -> String {
     let path_obj = Path::new(path);
 
     // If it's a directory (existing or ends with slash), append default filename
@@ -312,7 +429,7 @@ fn normalize_output_path(path: &str, language: Language) -> String {
 
     if should_append_filename {
         path_obj
-            .join(language.default_output_path())
+            .join(module.default_output_path())
             .to_string_lossy()
             .into_owned()
     } else {
@@ -327,7 +444,10 @@ pub fn status() -> Result<()> {
     crate::safe_println!("Authentication:");
     let config = context().config.clone();
     crate::safe_println!("  ✓ Authenticated");
-    crate::safe_println!("  Host: {}", config.host);
+    crate::safe_println!(
+        "  Host: {}",
+        redact_url(&reqwest::Url::parse(&config.host)?)
+    );
     crate::safe_println!("  Project ID: {}", config.env_id);
     let masked_token = format!(
         "{}****{}",
@@ -351,7 +471,13 @@ pub fn status() -> Result<()> {
         for (language_str, lang_config) in &config.languages {
             // Parse language to get display name, fallback to raw string if unknown
             let display = Language::from_str(language_str)
-                .map(|l| l.display_name())
+                .map(|language| {
+                    Module {
+                        language,
+                        sdk: lang_config.typescript_sdk().ok(),
+                    }
+                    .display_name()
+                })
                 .unwrap_or(language_str.as_str());
 
             crate::safe_println!("  {display}:");
@@ -373,29 +499,37 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-fn fetch_definitions(client: &PHClient, language: Language) -> Result<DefinitionsResponse> {
-    let url = format!("event_definitions/{}/", language.as_str());
+fn fetch_definitions(client: &PHClient, module: Module) -> Result<DefinitionsResponse> {
+    let url = module.definitions_url();
 
     let response = client
         .get(client.project_url(&url)?)
         .send()
+        .map_err(redact_request_error)
         .context(format!(
             "Failed to fetch {} definitions",
-            language.display_name()
+            module.display_name()
         ))?;
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
-            "Failed to fetch {} definitions: HTTP {}",
-            language.display_name(),
-            response.status()
+            "Failed to fetch {} definitions: {}",
+            module.display_name(),
+            describe_failed_response(response)
         ));
     }
 
     let json: DefinitionsResponse = response.json().context(format!(
         "Failed to parse {} definitions response",
-        language.display_name()
+        module.display_name()
     ))?;
+
+    // A PostHog that predates `sdk` ignores the query and sends the posthog-js module, without saying which SDK
+    if module.types_only() && json.sdk.as_deref() != Some(TypeScriptSdk::TypesOnly.as_str()) {
+        anyhow::bail!(
+            "This PostHog instance cannot generate TypeScript types without an SDK yet. Update PostHog, or pull without --sdk none"
+        );
+    }
 
     Ok(json)
 }
@@ -417,4 +551,17 @@ fn select_language() -> Result<Language> {
         .into_iter()
         .find(|l| l.display_name() == selected)
         .ok_or_else(|| anyhow::anyhow!("Invalid language selection"))
+}
+
+/// Without a terminal, the prompt fails and the module wraps posthog-js
+fn select_typescript_sdk() -> Result<TypeScriptSdk> {
+    let options = vec![
+        "posthog-js: wrap it so capture() checks your events",
+        "Another SDK, such as posthog-react-native: only the event types",
+    ];
+    match Select::new("Which PostHog SDK does this app use?", options.clone()).prompt() {
+        Ok(selected) if selected == options[1] => Ok(TypeScriptSdk::TypesOnly),
+        Ok(_) | Err(InquireError::NotTTY) => Ok(TypeScriptSdk::PosthogJs),
+        Err(err) => Err(err).context("Failed to select the TypeScript SDK"),
+    }
 }

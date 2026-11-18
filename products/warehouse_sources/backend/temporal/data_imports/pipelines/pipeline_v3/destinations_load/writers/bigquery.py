@@ -284,6 +284,23 @@ class BigQueryDestinationWriter:
         """Whether `table_ref` does not exist yet. Raises like `_owned_table`."""
         return self._owned_table(client, table_ref, action) is None
 
+    def _claim_staging_table(self, client: bigquery.Client, staging_ref: str) -> bool:
+        """Whether `staging_ref` does not exist yet, claiming it as this run's own otherwise.
+
+        Unlike `_owned_table`, a staging table never needs the foreign-table guard: its name
+        embeds this run's own run_uuid, so nothing but an earlier attempt of this exact run
+        could have produced it. `_write_full_refresh_chunk` labels a newly created staging
+        table only after loading the first chunk into it, so a crash or a dropped connection
+        in between leaves the table unlabeled; without this, the next attempt would read that
+        gap as a foreign table and refuse to ever reuse its own staging table again.
+        """
+        try:
+            client.get_table(staging_ref)
+        except NotFound:
+            return True
+        self._mark_owned(client, staging_ref)
+        return False
+
     def _set_labels(self, client: bigquery.Client, table_ref: str, labels: dict[str, str]) -> None:
         existing = client.get_table(table_ref)
         existing.labels = {**(existing.labels or {}), **labels}
@@ -397,9 +414,7 @@ class BigQueryDestinationWriter:
         table = pa.Table.from_batches([stamp_batch_index(record_batch, ctx.batch_index)])
 
         if first_chunk:
-            # The staging name is unique to this run, so a genuine collision is remote, but
-            # refusing to reuse an unrelated table costs one read and closes the gap.
-            staging_absent = self._check_owned_or_absent(client, staging_ref, "reuse it as a staging table")
+            staging_absent = self._claim_staging_table(client, staging_ref)
             if not staging_absent:
                 self._delete_batch_rows(client, staging, ctx.batch_index)
 

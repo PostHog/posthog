@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+import time_machine
 
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
@@ -10,6 +11,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.sources.twilio._config import TwilioAuthMethodConfig, TwilioSourceConfig
@@ -94,6 +96,25 @@ class TestBuildInitialParams:
         assert params["DateCreatedAfter"] == "2026-03-04T00:00:00Z"
         assert not any(key.endswith(">") for key in params)
 
+    @pytest.mark.parametrize(
+        "watermark, expected",
+        [
+            (datetime(2026, 3, 10, 15, 0, tzinfo=UTC), "2026-03-10T00:00:00Z"),
+            # Monitor refuses start dates older than its 30-day retention, so an old watermark is
+            # clamped to the oldest day it still serves.
+            (datetime(2025, 12, 1, tzinfo=UTC), "2026-02-12T00:00:00Z"),
+        ],
+    )
+    def test_alerts_start_date_stays_within_retention(self, watermark, expected):
+        with time_machine.travel(datetime(2026, 3, 13, 12, 0, tzinfo=UTC), tick=False):
+            params = _build_initial_params(
+                TWILIO_ENDPOINTS["alerts"],
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=watermark,
+                incremental_field="date_created",
+            )
+        assert params == {"StartDate": expected}
+
     def test_full_refresh_endpoint_never_filters(self):
         # `transcriptions` exposes no server-side filter even if incremental is requested.
         params = _build_initial_params(
@@ -161,6 +182,17 @@ class TestValidateCredentials:
         with scripted_network(_status(401)):
             is_valid, msg = validate_credentials(API_KEY_AUTH, ACCOUNT_SID, schema_name)
         assert (is_valid, msg) == (False, expected_message)
+
+    def test_fanout_schema_probes_its_parent_list(self):
+        # The child path holds a placeholder, so probing it directly would request a literal
+        # `{message_sid}` and fail every check.
+        with scripted_network(_status(200)) as network:
+            is_valid, _msg = validate_credentials(API_KEY_AUTH, ACCOUNT_SID, "message_media")
+
+        assert is_valid
+        assert [request.path for request in network.requests_log] == [
+            f"/2010-04-01/Accounts/{ACCOUNT_SID}/Messages.json"
+        ]
 
     def test_chosen_schema_reports_a_server_error_as_such(self):
         # Reporting a Twilio outage on a chosen table as a permission problem would send the user off
@@ -304,3 +336,91 @@ class TestPagination:
         )
 
         assert result.requests[0].param("DateSent>") == "2026-03-04"
+
+
+MESSAGES_PATH = f"/2010-04-01/Accounts/{ACCOUNT_SID}/Messages.json"
+
+
+def _media_path(message_sid: str) -> str:
+    return f"/2010-04-01/Accounts/{ACCOUNT_SID}/Messages/{message_sid}/Media.json"
+
+
+class TestMessageMediaFanout:
+    def test_walks_media_of_messages_with_media_only(self):
+        result = _run(
+            "message_media",
+            route(
+                {
+                    MESSAGES_PATH: [
+                        _response(
+                            {
+                                "messages": [{"sid": "SM1", "num_media": "2"}, {"sid": "SM2", "num_media": "0"}],
+                                "next_page_uri": f"{MESSAGES_PATH}?Page=1&PageToken=PAfake",
+                            }
+                        ),
+                        _response({"messages": [{"sid": "SM3", "num_media": "1"}], "next_page_uri": None}),
+                    ],
+                    _media_path("SM1"): [
+                        _response(
+                            {
+                                "media_list": [{"sid": "ME1", "parent_sid": "SM1"}],
+                                "next_page_uri": f"{_media_path('SM1')}?Page=1&PageToken=PAfake",
+                            }
+                        ),
+                        _response({"media_list": [{"sid": "ME2", "parent_sid": "SM1"}], "next_page_uri": None}),
+                    ],
+                    _media_path("SM3"): [
+                        _response({"media_list": [{"sid": "ME3", "parent_sid": "SM3"}], "next_page_uri": None}),
+                    ],
+                }
+            ),
+        )
+
+        assert [row["sid"] for row in result.rows] == ["ME1", "ME2", "ME3"]
+        assert not any(request.path == _media_path("SM2") for request in result.requests)
+        assert result.saved_states
+        assert all(state.fanout_state is not None and state.next_url is None for state in result.saved_states)
+
+    @pytest.mark.parametrize(
+        "incremental, expected_parent_filter",
+        [(False, None), (True, "2026-03-04")],
+    )
+    def test_incremental_run_lists_only_recent_messages(self, incremental, expected_parent_filter):
+        result = _run(
+            "message_media",
+            route(
+                {
+                    MESSAGES_PATH: [_response({"messages": [{"sid": "SM1", "num_media": "1"}], "next_page_uri": None})],
+                    _media_path("SM1"): [_response({"media_list": [{"sid": "ME1"}], "next_page_uri": None})],
+                }
+            ),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 9, 0, tzinfo=UTC) if incremental else None,
+            incremental_field="date_created",
+        )
+
+        parent_request = next(request for request in result.requests if request.path == MESSAGES_PATH)
+        assert parent_request.param("DateSent>") == expected_parent_filter
+
+    def test_resume_skips_finished_messages(self):
+        result = _run(
+            "message_media",
+            route(
+                {
+                    MESSAGES_PATH: [
+                        _response(
+                            {
+                                "messages": [{"sid": "SM1", "num_media": "1"}, {"sid": "SM2", "num_media": "1"}],
+                                "next_page_uri": None,
+                            }
+                        )
+                    ],
+                    _media_path("SM2"): [_response({"media_list": [{"sid": "ME2"}], "next_page_uri": None})],
+                }
+            ),
+            resume_state=TwilioResumeConfig(
+                fanout_state={"completed": [_media_path("SM1")], "current": None, "child_state": None}
+            ),
+        )
+
+        assert [row["sid"] for row in result.rows] == ["ME2"]

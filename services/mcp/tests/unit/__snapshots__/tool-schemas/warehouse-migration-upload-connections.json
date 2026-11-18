@@ -1,0 +1,72 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "account": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The Fivetran account info response, unchanged. Send it once, with the first upload."
+        },
+        "connections": {
+            "description": "At most 25 connections. A connection uploaded again replaces its plan, unless it is already created in PostHog or skipped.",
+            "items": {
+                "properties": {
+                    "connection": {
+                        "additionalProperties": {},
+                        "description": "The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay.",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "schema_config": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none."
+                    }
+                },
+                "required": ["connection"],
+                "type": "object"
+            },
+            "maxItems": 25,
+            "type": "array"
+        },
+        "destinations": {
+            "description": "Fivetran destination details responses, unchanged. Send them before the connections that use them, so PostHog reads each connection's sync time in its destination's time zone.",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
+        "id": {
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

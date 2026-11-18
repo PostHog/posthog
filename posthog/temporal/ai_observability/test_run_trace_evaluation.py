@@ -20,7 +20,7 @@ from posthog.api.capture import CaptureInternalError
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
-from posthog.models import Organization, PropertyDefinition, Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
@@ -31,19 +31,23 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import restriction_cache_scope
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    JUDGE_TRACE_MAX_CHARS,
+    build_trace_hog_globals,
+    execute_hog_eval_bytecode,
+)
 from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.cdp.backend.validation import compile_hog
+from products.event_definitions.backend.models import PropertyDefinition
 
 from .eval_reports.report_agent.tools import _execute_hogql, get_trace_detail
-from .evaluation_hog import execute_hog_eval_bytecode
 from .evaluation_llm_judge import BooleanEvalResult
 from .evaluation_types import EvaluationActivityResult
 from .evaluation_workflow_activities import backfill_verdict_timestamp
 from .run_trace_evaluation import (
-    JUDGE_TRACE_MAX_CHARS,
     MAX_TRACE_EVAL_EVENTS,
     TRACE_EVENTS_LOOKBACK,
     EmitTraceEvaluationEventInputs,
@@ -54,7 +58,6 @@ from .run_trace_evaluation import (
     TraceHogTestSample,
     _build_trace_skip_result,
     _sample_recent_traces,
-    build_trace_hog_globals,
     build_trace_system_prompt,
     emit_trace_evaluation_event_activity,
     execute_trace_hog_eval_activity,
@@ -931,7 +934,6 @@ class TestExecuteTraceLLMJudgeActivity:
                 "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
                 return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=1),
             ),
-            patch("posthog.temporal.ai_observability.judge_attachments.judge_sees_attachments", return_value=True),
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):
             mock_client = mock_client_class.return_value

@@ -1,0 +1,68 @@
+<resources>
+  <style name="ChartWidgetText">
+    <item name="android:includeFontPadding">false</item>
+    <item name="android:maxLines">1</item>
+    <item name="android:ellipsize">end</item>
+  </style>
+  <style name="ChartWidgetText.Title">
+    <item name="android:textSize">12sp</item>
+    <item name="android:fontFamily">sans-serif-medium</item>
+    <item name="android:textColor">@color/chart_widget_secondary</item>
+  </style>
+  <style name="ChartWidgetText.Value">
+    <item name="android:textSize">28sp</item>
+    <item name="android:autoSizeTextType">uniform</item>
+    <item name="android:autoSizeMinTextSize">12sp</item>
+    <item name="android:autoSizeMaxTextSize">28sp</item>
+    <item name="android:autoSizeStepGranularity">1sp</item>
+    <item name="android:textStyle">bold</item>
+    <item name="android:fontFeatureSettings">tnum</item>
+    <item name="android:textColor">@color/chart_widget_ink</item>
+  </style>
+  <style name="ChartWidgetText.Value.Hero">
+    <item name="android:textSize">50sp</item>
+    <item name="android:autoSizeMaxTextSize">50sp</item>
+    <item name="android:autoSizeMinTextSize">22sp</item>
+    <item name="android:letterSpacing">-0.03</item>
+    <item name="android:gravity">center</item>
+  </style>
+  <style name="ChartWidgetText.Value.Tile">
+    <item name="android:textSize">20sp</item>
+  </style>
+  <style name="ChartWidgetText.Meta">
+    <item name="android:textSize">10.5sp</item>
+    <item name="android:textColor">@color/chart_widget_secondary</item>
+  </style>
+  <style name="ChartWidgetText.Footer">
+    <item name="android:textSize">9sp</item>
+    <item name="android:textColor">@color/chart_widget_tertiary</item>
+  </style>
+  <style name="ChartWidgetText.Pill">
+    <item name="android:textSize">10.5sp</item>
+    <item name="android:fontFamily">sans-serif-medium</item>
+    <item name="android:fontFeatureSettings">tnum</item>
+    <item name="android:textColor">@color/chart_widget_green</item>
+    <item name="android:background">@drawable/chart_widget_pill_up</item>
+    <item name="android:paddingStart">5dp</item>
+    <item name="android:paddingEnd">5dp</item>
+    <item name="android:paddingTop">1.5dp</item>
+    <item name="android:paddingBottom">1.5dp</item>
+  </style>
+  <style name="ChartWidgetText.State">
+    <item name="android:textSize">12sp</item>
+    <item name="android:textColor">@color/chart_widget_secondary</item>
+    <item name="android:gravity">center</item>
+    <item name="android:maxLines">4</item>
+  </style>
+  <style name="ChartWidgetText.State.Title">
+    <item name="android:fontFamily">sans-serif-medium</item>
+    <item name="android:textColor">@color/chart_widget_ink</item>
+    <item name="android:maxLines">2</item>
+  </style>
+  <style name="ChartWidgetChartImage">
+    <item name="android:layout_width">match_parent</item>
+    <item name="android:layout_height">match_parent</item>
+    <item name="android:scaleType">fitXY</item>
+    <item name="android:importantForAccessibility">no</item>
+  </style>
+</resources>

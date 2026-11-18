@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
 from django.core import mail
@@ -17,7 +17,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.instance_setting import set_instance_setting
@@ -268,32 +267,36 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("suppressed", ESPSuppressionReason.SUPPRESSED, True),
-            ("not_suppressed", None, False),
-            ("api_failure", ESPSuppressionReason.API_FAILURE_FALLBACK, False),
+            ("suppressed", 422, {"type": "invalid_request", "code": "recipient_suppressed"}, True),
+            ("unreachable", 422, {"type": "invalid_request", "code": "recipient_unreachable"}, True),
+            ("sent", 202, {"message_id": "m1"}, False),
         ]
     )
-    @patch("posthog.tasks.email.EmailMessage")
-    @patch("posthog.tasks.email.check_esp_suppression")
+    @patch("posthog.email.requests.post")
     @patch("posthog.tasks.email.ph_scoped_capture")
-    def test_add_organization_invite_flags_esp_suppressed_email(
-        self, _name, reason, expected_suppressed, mock_scoped_capture, mock_check, _mock_email_message
+    def test_add_organization_invite_flags_an_address_workflows_refuses(
+        self, _name, status_code, body, expected_suppressed, mock_scoped_capture, mock_post
     ):
-        set_instance_setting("EMAIL_HOST", "localhost")
-        mock_check.return_value = ESPSuppressionResult(
-            is_suppressed=reason is not None, from_cache=False, reason=reason
-        )
+        mock_post.return_value = MagicMock(status_code=status_code, text="error", json=MagicMock(return_value=body))
         capture = mock_scoped_capture.return_value.__enter__.return_value
 
-        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com", CUSTOMER_IO_API_KEY="test-key"):
+        with self.settings(
+            EMAIL_ENABLED=True,
+            SITE_URL="http://test.posthog.com",
+            POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+            POSTHOG_HOST="https://us.posthog.com",
+        ):
             response = self.client.post("/api/organizations/@current/invites/", {"target_email": "x@x.com"})
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        mock_check.assert_called_once_with("x@x.com")
+        self.assertEqual(mock_post.call_args.kwargs["json"]["to"], "x@x.com")
         list_response = self.client.get("/api/organizations/@current/invites/")
         self.assertEqual(list_response.json()["results"][0]["email_suppressed"], expected_suppressed)
         events = [c.kwargs["event"] for c in capture.call_args_list]
         self.assertEqual(events, ["invite email suppressed"] if expected_suppressed else [])
+        if expected_suppressed:
+            assert capture.call_args.kwargs["distinct_id"] == str(self.user.distinct_id)
+            assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_with_email_on_instance_but_send_email_prop_false(self, mock_capture):
@@ -1880,18 +1883,16 @@ class TestOnboardingSkipAPI(APIBaseTest):
         self.assertEqual(self.user.onboarding_skipped_at, first_ts)
 
     @patch("posthog.api.user.posthoganalytics.capture")
-    def test_skip_captures_one_event_with_flow_variant(self, mock_capture):
+    def test_skip_captures_one_event(self, mock_capture):
         for _ in range(2):
             with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.post(
-                    self._skip_url(), {"reason": "later", "step_at_skip": "mcp", "flow_variant": "simple"}
-                )
+                response = self.client.post(self._skip_url(), {"reason": "later", "step_at_skip": "install"})
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
         skip_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "onboarding skipped"]
         self.assertEqual(
             [c.kwargs["properties"] for c in skip_calls],
-            [{"step_at_skip": "mcp", "reason": "later", "flow_variant": "simple"}],
+            [{"step_at_skip": "install", "reason": "later"}],
         )
         self.assertEqual(skip_calls[0].kwargs["groups"]["project"], str(self.team.uuid))
         self.assertEqual(skip_calls[0].kwargs["groups"]["organization"], str(self.organization.id))

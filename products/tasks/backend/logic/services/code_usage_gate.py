@@ -134,19 +134,28 @@ def code_access_required_response(
     posthog_ai_task_id: str | UUID | None = None,
     fail_open_on_resolution_error: bool = False,
 ) -> Response | None:
-    """Also applies the PostHog AI 2.0 gate to PostHog AI tasks, so every sandbox entry point that
-    checks Desktop access checks that too. Pass `origin_product` when no task exists yet.
+    """PostHog AI tasks take the PostHog AI 2.0 decision in place of the Desktop check. Every other task takes
+    the Desktop check. Pass `origin_product` when no task exists yet.
 
-    `posthog_ai_task_id` names the task for the PostHog AI gate only. Use it where a sandbox token bound to
-    the task must still pass the Desktop gate, which a `task_id` would let it skip."""
+    `posthog_ai_task_id` names the task without the sandbox-token exemption that a `task_id` gives, for a
+    caller whose sandbox token must not skip the check."""
     if _task_bound_internal_run(request, task_id):
         return None
-    # A Desktop fail-open must not skip the AI gate, which resolves on its own.
-    if desktop_response := _desktop_access_required_response(request, organization, fail_open_on_resolution_error):
-        return desktop_response
-    return posthog_ai_access_required_response(
-        request, organization, task_id=task_id or posthog_ai_task_id, origin_product=origin_product
-    )
+    if _is_posthog_ai_task(organization, task_id or posthog_ai_task_id, origin_product):
+        # The 2.0 decision already applies the funding rules to beta orgs, and it never refuses a grandfathered
+        # user, so the Desktop rules would only break a 2.0 the UI shows as available.
+        return _posthog_ai_access_required_response(request, organization)
+    return _desktop_access_required_response(request, organization, fail_open_on_resolution_error)
+
+
+def _is_posthog_ai_task(organization: "Organization", task_id: str | UUID | None, origin_product: str | None) -> bool:
+    if origin_product is None and task_id is not None:
+        origin_product = (
+            Task.objects.filter(id=task_id, team__organization_id=organization.id)
+            .values_list("origin_product", flat=True)
+            .first()
+        )
+    return origin_product == Task.OriginProduct.POSTHOG_AI
 
 
 def _desktop_access_required_response(
@@ -202,21 +211,7 @@ def _desktop_access_required_response(
     )
 
 
-def posthog_ai_access_required_response(
-    request: Request,
-    organization: "Organization",
-    *,
-    task_id: str | UUID | None = None,
-    origin_product: str | None = None,
-) -> Response | None:
-    if origin_product is None and task_id is not None:
-        origin_product = (
-            Task.objects.filter(id=task_id, team__organization_id=organization.id)
-            .values_list("origin_product", flat=True)
-            .first()
-        )
-    if origin_product != Task.OriginProduct.POSTHOG_AI:
-        return None
+def _posthog_ai_access_required_response(request: Request, organization: "Organization") -> Response | None:
     if get_posthog_ai_access_decision(cast("User", request.user), organization).allowed:
         return None
     return Response(

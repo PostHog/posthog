@@ -38,8 +38,8 @@ export interface TimeSeriesComboChartConfig {
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
      *  `'stacked'`. */
     barLayout?: ComboChartConfig['barLayout']
-    /** Stacked layout only — stack negative bar values below the zero baseline instead of
-     *  clamping them to 0. See {@link ComboChartConfig.divergingStack}. */
+    /** Stacked layout only — stack negative bar values below the zero baseline.
+     *  See {@link ComboChartConfig.divergingStack}. */
     divergingStack?: boolean
     /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
@@ -47,6 +47,8 @@ export interface TimeSeriesComboChartConfig {
     bandPadding?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Join the shared crosshair of an enclosing `ChartHoverSync`. Defaults to true. */
+    syncHover?: boolean
     /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
      *  `yAxis` config, when set, wins. */
     showGrid?: boolean
@@ -106,6 +108,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barCornerRadius,
         bandPadding,
         showCrosshair,
+        syncHover = true,
         showGrid,
         showAxisLines,
         showTickMarks,
@@ -124,7 +127,13 @@ export function TimeSeriesComboChart<Meta = unknown>({
         valueLabelFormatter,
         primaryYAxis,
         yAxes,
-    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
+    } = useTimeSeries(series, labels, theme, {
+        xAxis,
+        yAxis,
+        valueLabels,
+        legend,
+        isPercent: barLayout === 'percent',
+    })
     const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
     const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, chartSeries)
@@ -151,6 +160,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         showTickMarks,
         curve,
         showCrosshair,
+        syncHover,
         defaultSeriesType,
         barLayout,
         divergingStack,

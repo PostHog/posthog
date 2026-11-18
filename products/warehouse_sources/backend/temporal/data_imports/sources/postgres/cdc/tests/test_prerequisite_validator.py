@@ -71,6 +71,7 @@ _SLOT_EXISTS = ("slot_name", [(1,)])
 _SLOT_NOT_EXISTS: tuple[str, list] = ("slot_name", [])
 _PUB_EXISTS = ("pubname", [(1,)])
 _PUB_NOT_EXISTS: tuple[str, list] = ("pubname", [])
+_CANNOT_CREATE_PUBLICATION = ("has_database_privilege", [("app_db", False)])
 
 
 class TestValidateCDCPrerequisites:
@@ -176,10 +177,61 @@ class TestValidateCDCPrerequisites:
         )
         assert errors == []
 
+    def test_posthog_managed_requires_create_on_database(self):
+        conn = _mock_conn(
+            [_PG_15, _WAL_LOGICAL, _HAS_PK, _HAS_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_2, _CANNOT_CREATE_PUBLICATION]
+        )
+        errors = validate_cdc_prerequisites(
+            conn=conn, management_mode="posthog", tables=["users"], publication_name="posthog_pub_abc"
+        )
+        assert any('GRANT CREATE ON DATABASE "app_db"' in e for e in errors)
+
+    @pytest.mark.parametrize(
+        "management_mode,extra_results",
+        [
+            # The owner already created the publication, so PostHog never runs CREATE PUBLICATION.
+            ("self_managed", [_PUB_EXISTS]),
+            ("posthog", [_PUB_EXISTS, _OWNS_TABLES]),
+        ],
+    )
+    def test_existing_publication_needs_no_create_on_database(self, management_mode, extra_results):
+        conn = _mock_conn(
+            [
+                _PG_15,
+                _WAL_LOGICAL,
+                _HAS_PK,
+                _HAS_REPL_ROLE,
+                _MAX_SLOTS_10,
+                _SLOT_COUNT_2,
+                _CANNOT_CREATE_PUBLICATION,
+                *extra_results,
+            ]
+        )
+        errors = validate_cdc_prerequisites(
+            conn=conn, management_mode=management_mode, tables=["users"], publication_name="posthog_pub_abc"
+        )
+        assert errors == []
+
     def test_no_replication_slot_capacity(self):
         conn = _mock_conn([_PG_15, _WAL_LOGICAL, _HAS_PK, _HAS_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_10])
         errors = validate_cdc_prerequisites(conn=conn, management_mode="posthog", tables=["users"])
         assert any("capacity" in e for e in errors)
+
+    def test_max_replication_slots_unrecognized_parameter(self):
+        # Same class of failure as test_wal_level_unrecognized_parameter: a pooler or
+        # wire-compatible database that doesn't expose max_replication_slots must surface a
+        # graceful prerequisite error, not crash the whole validation.
+        conn = _mock_conn(
+            [_PG_15, _WAL_LOGICAL, _HAS_PK, _HAS_REPL_ROLE],
+            raise_on={
+                "max_replication_slots": psycopg.errors.UndefinedObject(
+                    'unrecognized configuration parameter "max_replication_slots"'
+                )
+            },
+        )
+        errors = validate_cdc_prerequisites(conn=conn, management_mode="posthog", tables=["users"])
+        assert any("logical replication CDC" in e for e in errors)
+        conn.rollback.assert_called()
 
     def test_self_managed_no_slot_name_is_ok(self):
         # PostHog creates the slot — slot_name omission is fine in self-managed.

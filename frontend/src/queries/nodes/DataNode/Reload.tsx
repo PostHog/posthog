@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
@@ -35,6 +37,23 @@ export function Reload({ size = 'small' }: Pick<LemonButtonProps, 'size'>): JSX.
 export function ReloadAll({ iconOnly }: { iconOnly?: boolean }): JSX.Element {
     const { areAnyLoading } = useValues(dataNodeCollectionLogic)
     const { reloadAll } = useActions(dataNodeCollectionLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <Button
+                variant="outline"
+                size={iconOnly ? 'icon' : undefined}
+                onClick={reloadAll}
+                loading={areAnyLoading}
+                aria-label={iconOnly ? 'Reload' : undefined}
+                tooltip={iconOnly ? 'Reload' : undefined}
+            >
+                <IconRefresh />
+                {!iconOnly && 'Reload'}
+            </Button>
+        )
+    }
 
     return (
         <LemonButton

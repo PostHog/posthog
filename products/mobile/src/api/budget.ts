@@ -2,7 +2,7 @@
 // exist to stop a client bug, such as a refresh loop, and normal use never empties them. They live in memory, so a cold
 // start refills them.
 
-export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay'
+export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay' | 'live'
 
 interface BucketSpec {
     capacity: number
@@ -30,6 +30,13 @@ export const BUDGETS: Record<BudgetFamily, readonly BucketSpec[]> = {
     replay: [
         { capacity: 60, windowMs: MINUTE_MS },
         { capacity: 300, windowMs: HOUR_MS },
+    ],
+    // The Live screen polls `query/` by design, on buckets of its own, so it never starves Views or replay reads. At 25%
+    // of the budget, the hourly bucket would stop a normal Live session after about half an hour. 900 an hour still caps
+    // a runaway client at 75% of the published query budget.
+    live: [
+        { capacity: 60, windowMs: MINUTE_MS },
+        { capacity: 900, windowMs: HOUR_MS },
     ],
 }
 
@@ -60,6 +67,17 @@ function bucketsFor(family: BudgetFamily, now: number): Bucket[] {
 /** True when a request of this family could go out now. Takes no token. */
 export function canSpend(family: BudgetFamily, now: number = Date.now()): boolean {
     return bucketsFor(family, now).every((bucket) => bucket.tokens >= 1)
+}
+
+/** Delay until a background read can leave half of every bucket for foreground requests. */
+export function backgroundReadDelay(family: BudgetFamily, now: number = Date.now()): number {
+    const state = bucketsFor(family, now)
+    return Math.max(
+        0,
+        ...BUDGETS[family].map((spec, index) =>
+            Math.ceil(((spec.capacity / 2 + 1 - (state[index]?.tokens ?? 0)) * spec.windowMs) / spec.capacity)
+        )
+    )
 }
 
 /** Takes one token from every bucket of the family, or none when any bucket is empty. */

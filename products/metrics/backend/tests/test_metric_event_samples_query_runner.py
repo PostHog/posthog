@@ -2,6 +2,7 @@ import base64
 import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -261,6 +262,39 @@ class TestMetricEventSamplesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(samples[0].count, 1)  # column default
         self.assertEqual(samples[0].metric_type, "")  # column default
         self.assertEqual(samples[0].attributes, {})
+
+    @parameterized.expand(
+        [
+            # An at-least-once replay sends the first point again in a new block, so
+            # ClickHouse insert deduplication does not drop it.
+            ("replayed_without_dedupe", [[(0, 1.0)], [(0, 1.0), (15, 2.0)]], False, [2.0, 1.0, 1.0]),
+            ("replayed_with_dedupe", [[(0, 1.0)], [(0, 1.0), (15, 2.0)]], True, [2.0, 1.0]),
+            # Dedupe drops only exact copies, not a different point at the same time.
+            ("same_time_different_value_with_dedupe", [[(0, 1.0)], [(0, 3.0)]], True, [3.0, 1.0]),
+        ]
+    )
+    def test_replayed_points_are_deduped_behind_flag(
+        self, _name: str, batches: list[list[tuple[int, float]]], dedupe: bool, expected: list[float]
+    ):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for batch in batches:
+            seed_metric_event(
+                team_id=self.team.id,
+                metric_name="m",
+                points=[(anchor + dt.timedelta(seconds=offset), value) for offset, value in batch],
+                trace_id=TRACE_A_B64,
+            )
+        with patch(
+            "products.metrics.backend.metric_query_runner.posthog_feature_flag_enabled", return_value=dedupe
+        ) as flag:
+            samples = list_metric_event_samples(
+                team=self.team,
+                metric_name="m",
+                date_from=anchor - dt.timedelta(hours=1),
+                date_to=anchor + dt.timedelta(hours=1),
+            )
+        self.assertEqual(sorted((s.value for s in samples), reverse=True), expected)
+        self.assertEqual(flag.call_args.args[0], "metrics-query-dedupe-points")
 
     def test_samples_api_requires_authentication(self):
         self.client.logout()

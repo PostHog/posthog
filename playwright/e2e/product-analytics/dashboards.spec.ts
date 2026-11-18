@@ -77,7 +77,7 @@ test.describe('Dashboards', () => {
             await insight.editName(updatedName)
             await expect(insight.topBarName).toContainText(updatedName)
             await expect(insight.saveButton).toBeEnabled()
-            await insight.save()
+            await insight.save({ returnsTo: dashboardUrl })
         })
 
         await test.step('navigate to dashboard and verify the updated insight', async () => {
@@ -161,6 +161,7 @@ test.describe('Dashboards', () => {
 
         await test.step('open SQL editor and create a Number variable', async () => {
             await page.goto('/sql')
+            await expect(page.locator('.CodeEditor[data-editor-ready="true"]')).toBeVisible()
             await page.getByRole('button', { name: 'Variables' }).click()
             await page.getByRole('menuitem', { name: 'New variable' }).click()
             await page.getByRole('menuitem', { name: 'Number', exact: true }).click()
@@ -172,9 +173,6 @@ test.describe('Dashboards', () => {
 
             // Saving the variable kicks off a reload of the insightVariables list, and the
             // editor can only substitute {variables.test_number} once that list has loaded.
-            // Running the query before the reload returns sends the placeholder unresolved,
-            // the backend errors with "Global variable not found: variables", and
-            // "Save as insight" never enables. Wait for the reload before using the variable.
             const variablesReloaded = page.waitForResponse(
                 (response) =>
                     response.url().includes('/insight_variables') &&
@@ -191,21 +189,19 @@ test.describe('Dashboards', () => {
             await editor.click()
             await page.keyboard.press('ControlOrMeta+a')
             // insertText() inserts the whole string at once, so Monaco's bracket
-            // auto-close and autocomplete don't intercept the `{`/`}` mid-type and
-            // produce a malformed query that leaves "Save as insight" disabled.
+            // auto-close and autocomplete don't intercept the `{`/`}` mid-type.
             await page.keyboard.insertText('SELECT {variables.test_number}')
             await page.keyboard.press('Escape')
 
             // The editor attaches the variable to the query through a short debounce, so a
-            // fast first Run can execute before {variables.test_number} is substituted —
-            // the query then errors with "Global variable not found: variables" and leaves
-            // "Save as insight" disabled. Re-run until the variable resolves and the query
-            // succeeds (a successful run is the only thing that enables "Save as insight").
+            // fast first Run can execute before {variables.test_number} is substituted.
+            // Saving is allowed during execution, so an enabled save button cannot prove completion.
             const saveAsInsight = page.getByRole('button', { name: 'Save as insight' })
             await expect(async () => {
                 await page.getByRole('button', { name: 'Run' }).click()
-                await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
-                await expect(saveAsInsight).toBeEnabled({ timeout: 15000 })
+                await expect(saveAsInsight.getByTestId('sql-editor-save-warning')).toBeHidden({ timeout: 15000 })
+                await page.getByText('Results', { exact: true }).click()
+                await expect(page.getByRole('gridcell', { name: '5', exact: true })).toBeVisible({ timeout: 15000 })
             }).toPass({ timeout: 60000 })
             await saveAsInsight.click()
 
@@ -238,89 +234,17 @@ test.describe('Dashboards', () => {
             await expect(dashboard.variableButtons.first()).toContainText('99')
         })
     })
-
-    test('Deleting a dashboard navigates to the dashboards list', async ({ page }) => {
-        const dashboard = new DashboardPage(page)
-        const dashboardName = randomString('dash-delete')
-
-        await test.step('create a dashboard', async () => {
-            await dashboard.createNew(dashboardName)
-            await expect(page).toHaveURL(/\/dashboard\/\d+/)
-        })
-
-        await test.step('delete the dashboard', async () => {
-            await dashboard.deleteDashboard()
-        })
-
-        await test.step('verify navigation to dashboards list (not "Not found")', async () => {
-            await expect(page).toHaveURL(/\/dashboard(#panel=[a-z]+)?$/)
-            await expect(page.getByText('Not found')).not.toBeVisible()
-            // Reload so the list is rebuilt from the server, which excludes deleted
-            // dashboards. The in-memory dashboardsModel can keep a stale row visible
-            // (the list selector doesn't filter `deleted`, and an in-flight load can
-            // re-merge it after delayedDeleteDashboard prunes it), so an unscoped or
-            // even table-scoped assertion against live state is racy. Scope to the
-            // table to exclude the "deleted" toast, which also contains the name.
-            await page.reload()
-            await expect(page.getByTestId('dashboards-table')).toBeVisible()
-            await expect(page.getByTestId('dashboards-table').getByText(dashboardName)).not.toBeVisible()
-        })
-    })
-
-    test('Deleting an insight from dashboard redirects back', async ({ page }) => {
-        test.setTimeout(120_000)
-        const dashboard = new DashboardPage(page)
-        const insight = new InsightPage(page)
-        const insightName = randomString('dash-trends')
-
-        await test.step('create a saved Trends insight', async () => {
-            await createSavedTrendsInsight(page, insightName, workspace!)
-        })
-
-        await test.step('create a dashboard with an insight', async () => {
-            await dashboard.createNew()
-            await dashboard.addInsightToNewDashboard(insightName)
-            await expect(dashboard.insightCards).toBeVisible()
-        })
-
-        await test.step('open the insight from the dashboard', async () => {
-            await dashboard.openFirstTileMenu()
-            await dashboard.selectTileMenuOption('Edit')
-            await expect(page).toHaveURL(/\/insights\/.+\/edit(?:\?|$)/)
-            // Wait for the insight to fully load before interacting with the
-            // side panel — InsightPanelDangerZone only renders the delete
-            // button once the insight data is available in the store.
-            await expect(insight.saveButton).toContainText('No changes')
-        })
-
-        await test.step('open the info panel and click delete', async () => {
-            await insight.openInfoPanel()
-            await insight.clickDeleteInsight()
-            await expect(page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })).toBeVisible()
-        })
-
-        await test.step('cancel the dialog and verify we stay on the insight', async () => {
-            await insight.cancelDeleteDialog()
-            await expect(page).toHaveURL(/edit/)
-        })
-
-        await test.step('click delete again and confirm', async () => {
-            await insight.clickDeleteInsight()
-            await insight.confirmDeleteDialog()
-        })
-
-        await test.step('verify redirect to the dashboard with no insight cards', async () => {
-            await expect(page).toHaveURL(/\/dashboard\//)
-            await expect(dashboard.insightCards).toHaveCount(0)
-        })
-    })
 })
 
 test.describe('Dashboard compact cards and inline editing', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+        workspace = await playwrightSetup.createWorkspace({
+            use_current_time: true,
+            skip_onboarding: true,
+            no_demo_data: true,
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {

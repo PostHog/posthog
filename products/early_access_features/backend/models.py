@@ -56,6 +56,7 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     description = models.TextField(blank=True)
     stage = models.CharField(max_length=40, choices=Stage)
     documentation_url = models.URLField(max_length=800, blank=True)
+    image_url = models.URLField(max_length=800, blank=True, default="", db_default="")
     payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Exactly one of assigned_user/assigned_role may be set (same convention as ErrorTrackingIssueAssignment).

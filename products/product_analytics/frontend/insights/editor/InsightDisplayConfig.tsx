@@ -22,8 +22,10 @@ import { ChartDisplayType } from '~/types'
 import { InsightDateFilter } from 'products/product_analytics/frontend/insights/editor/filters/InsightDateFilter'
 import { FunnelBinsPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelDisplayLayoutPicker'
+import { QuillFunnelVizType } from 'products/product_analytics/frontend/insights/funnels/filters/QuillFunnelVizType'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 import { PathStepPicker } from 'products/product_analytics/frontend/insights/paths/filters/PathStepPicker'
+import { QuillRetentionChartPicker } from 'products/product_analytics/frontend/insights/retention/filters/QuillRetentionChartPicker'
 import { RetentionBreakdownFilter } from 'products/product_analytics/frontend/insights/retention/filters/RetentionBreakdownFilter'
 import { RetentionChartPicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionChartPicker'
 import { RetentionDatePicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionDatePicker'
@@ -31,6 +33,11 @@ import { RetentionDatePicker } from 'products/product_analytics/frontend/insight
 import { insightDisplayOptions } from './insightDisplayOptions'
 import { InsightDisplayOptionsPanel } from './InsightDisplayOptionsPanel'
 import { QuillInsightDisplayOptionsButton } from './QuillInsightDisplayOptionsButton'
+
+const editorDisplayOptions = {
+    ...insightDisplayOptions,
+    bindings: { ...insightDisplayOptions.bindings, funnelSummaryOnDashboards: undefined },
+}
 
 export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: ReactNode }): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
@@ -74,7 +81,7 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
 
-    const { tabs: displayOptionTabs, count: advancedOptionsCount } = useDisplayOptions(insightDisplayOptions)
+    const { tabs: displayOptionTabs, count: advancedOptionsCount } = useDisplayOptions(editorDisplayOptions)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
@@ -171,15 +178,20 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
                 {supportsDisplay && <ConfigFilter>{chartTypeControl ?? <ChartFilter />}</ConfigFilter>}
                 {!!isRetention && (
                     <ConfigFilter>
-                        <RetentionChartPicker />
+                        {todayRailNav ? <QuillRetentionChartPicker /> : <RetentionChartPicker />}
                     </ConfigFilter>
                 )}
-                {!!isStepsFunnel && (
+                {todayRailNav && isFunnels && (
+                    <ConfigFilter>
+                        <QuillFunnelVizType insightProps={insightProps} disabledReason={editingDisabledReason} />
+                    </ConfigFilter>
+                )}
+                {!!isStepsFunnel && !todayRailNav && (
                     <ConfigFilter>
                         <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
                 )}
-                {!!isTimeToConvertFunnel && (
+                {!!isTimeToConvertFunnel && !todayRailNav && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
                     </ConfigFilter>

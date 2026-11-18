@@ -3,7 +3,7 @@ use std::hash::Hasher;
 
 use anyhow::Result;
 use base64::{prelude::BASE64_STANDARD, Engine};
-use chrono::serde::ts_microseconds;
+use chrono::serde::{ts_microseconds, ts_microseconds_option};
 use chrono::DateTime;
 use chrono::Utc;
 use opentelemetry_proto::tonic::{
@@ -53,6 +53,25 @@ pub struct KafkaMetricRow {
     pub series_fingerprint: i64,
     pub has_labels: bool,
     pub retention_days: Option<i32>,
+    #[serde(with = "ts_microseconds_option")]
+    pub start_timestamp: Option<DateTime<Utc>>,
+}
+
+const POINT_BYTES: u64 = 24;
+const LABEL_BYTES: u64 = 8;
+const HISTOGRAM_BUCKET_BYTES: u64 = 8;
+
+/// Billable size of one point: 24 bytes, plus 8 bytes for each label and each histogram bucket.
+/// The size uses counts, not string lengths, so customers can predict it from what they send.
+/// The wire format, batch size and name lengths do not change it.
+pub fn compute_kafka_metric_row_bytes(row: &KafkaMetricRow) -> u64 {
+    let labels = (row.resource_attributes.len() + row.attributes.len()) as u64;
+    let buckets = row.histogram_counts.len() as u64;
+    POINT_BYTES + LABEL_BYTES * labels + HISTOGRAM_BUCKET_BYTES * buckets
+}
+
+pub fn sum_kafka_metric_row_bytes(rows: &[KafkaMetricRow]) -> u64 {
+    rows.iter().map(compute_kafka_metric_row_bytes).sum()
 }
 
 /// Flatten an OTEL Metric into one or more KafkaMetricRow records.
@@ -136,8 +155,10 @@ pub fn flatten_metric(
             for dp in hist.data_points {
                 let value = dp.sum.unwrap_or(0.0);
                 let count = dp.count as i64;
-                let bounds = dp.explicit_bounds.clone();
-                let counts: Vec<i64> = dp.bucket_counts.iter().map(|c| *c as i64).collect();
+                let (bounds, counts) = drop_trailing_infinite_bounds(
+                    dp.explicit_bounds.clone(),
+                    dp.bucket_counts.iter().map(|c| *c as i64).collect(),
+                );
 
                 let (mut row, overridden) = build_number_row(
                     &metric_name,
@@ -256,7 +277,7 @@ fn build_number_row(
     service_name: &str,
     instrumentation_scope: &str,
     time_unix_nano: u64,
-    _start_time_unix_nano: u64,
+    start_time_unix_nano: u64,
     dp_attributes: &[KeyValue],
     value: f64,
     histogram_bounds: Option<Vec<f64>>,
@@ -302,7 +323,7 @@ fn build_number_row(
         })
         .collect();
 
-    // Identity is assigned once, here. Computed before the synthetic $originalTimestamp
+    // Identity is assigned once, here. Computed before the synthetic original timestamp attribute
     // is added so an overridden timestamp never splits a series.
     let series_fingerprint = compute_series_fingerprint(
         metric_name,
@@ -313,7 +334,10 @@ fn build_number_row(
     );
 
     if let Some(original) = original_timestamp {
-        attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+        attributes.insert(
+            crate::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
+            original.to_rfc3339(),
+        );
     }
 
     let observed_timestamp = Utc::now();
@@ -341,9 +365,20 @@ fn build_number_row(
         series_fingerprint,
         has_labels: true,
         retention_days: None,
+        start_timestamp: start_timestamp(start_time_unix_nano),
     };
 
     Ok((row, was_overridden))
+}
+
+// OTLP uses 0 for an unset start time. A value past i64 nanoseconds cannot be a real time.
+fn start_timestamp(start_time_unix_nano: u64) -> Option<DateTime<Utc>> {
+    match start_time_unix_nano {
+        0 => None,
+        nanos => i64::try_from(nanos)
+            .ok()
+            .map(DateTime::<Utc>::from_timestamp_nanos),
+    }
 }
 
 /// Stable, order-independent 64-bit identity for a metric series, assigned at ingest.
@@ -390,6 +425,22 @@ fn hash_sorted_map(hasher: &mut SipHasher13, map: &HashMap<String, String>) {
         hash_str(hasher, key);
         hash_str(hasher, value);
     }
+}
+
+/// prom-client histograms with an explicit `Infinity` bucket send `+Inf` as their last
+/// bound, followed by an empty overflow bucket. Readers reject the non-finite bound.
+fn drop_trailing_infinite_bounds(
+    mut bounds: Vec<f64>,
+    mut counts: Vec<i64>,
+) -> (Vec<f64>, Vec<i64>) {
+    if counts.len() != bounds.len() + 1 {
+        return (bounds, counts);
+    }
+    while bounds.last() == Some(&f64::INFINITY) && counts.last() == Some(&0) {
+        bounds.pop();
+        counts.pop();
+    }
+    (bounds, counts)
 }
 
 /// Flatten exponential histogram buckets into explicit bounds and counts.
@@ -463,7 +514,7 @@ fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> S
     }
 }
 
-fn extract_resource_attributes(resource: Option<&Resource>) -> HashMap<String, String> {
+pub(crate) fn extract_resource_attributes(resource: Option<&Resource>) -> HashMap<String, String> {
     let Some(resource) = resource else {
         return HashMap::new();
     };
@@ -587,12 +638,57 @@ mod tests {
     }
 
     #[test]
-    fn test_has_labels_and_retention_days_serialise_into_avro_payload() {
+    fn test_row_bytes_count_points_labels_and_buckets_not_lengths() {
+        let mut row = build_test_row(&[]);
+        row.metric_name = "rpc.latency".to_string();
+        row.histogram_bounds = vec![1.0, 5.0];
+        row.histogram_counts = vec![1, 2, 3];
+        row.resource_attributes = HashMap::from([("host".to_string(), "web-1".to_string())]);
+        row.attributes = HashMap::from([("route".to_string(), "/api".to_string())]);
+
+        assert_eq!(compute_kafka_metric_row_bytes(&row), 24 + 2 * 8 + 3 * 8);
+
+        row.metric_name = "m".repeat(200);
+        row.instrumentation_scope = "s".repeat(200);
+        row.unit = "u".repeat(200);
+        row.attributes = HashMap::from([("r".repeat(100), "v".repeat(100))]);
+        assert_eq!(compute_kafka_metric_row_bytes(&row), 24 + 2 * 8 + 3 * 8);
+
+        // The second row's overridden timestamp adds a `posthog.original_timestamp` label.
+        assert_eq!(
+            sum_kafka_metric_row_bytes(&[row, build_test_row(&[])]),
+            (24 + 2 * 8 + 3 * 8) + (24 + 8)
+        );
+    }
+
+    #[test]
+    fn test_has_labels_retention_days_and_start_timestamp_serialise_into_avro_payload() {
         use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
         use apache_avro::types::Value;
         use apache_avro::{Codec, Reader, Schema, Writer};
 
-        let mut row = build_test_row(&[]);
+        assert_eq!(
+            build_test_row(&[]).start_timestamp,
+            None,
+            "OTLP start time 0 means unset"
+        );
+        let (mut row, _) = build_number_row(
+            "test.metric",
+            "sum",
+            "",
+            &HashMap::new(),
+            "test-service",
+            "test-scope@1.0",
+            1_700_000_000_000_000_000,
+            1_699_999_990_000_000_000,
+            &[],
+            1.0,
+            None,
+            None,
+            &[],
+            0,
+        )
+        .expect("build_number_row should succeed");
         row.has_labels = false;
         row.retention_days = Some(30);
 
@@ -604,6 +700,7 @@ mod tests {
         let reader = Reader::new(payload.as_slice()).expect("reader ok");
         let mut found_has_labels = None;
         let mut found_retention_days = None;
+        let mut found_start_timestamp = None;
         for value in reader {
             let Value::Record(fields) = value.expect("decode ok") else {
                 panic!("expected a record");
@@ -616,12 +713,18 @@ mod tests {
                             found_retention_days = Some(v);
                         }
                     }
+                    ("start_timestamp", Value::Union(_, inner)) => {
+                        if let Value::TimestampMicros(v) = *inner {
+                            found_start_timestamp = Some(v);
+                        }
+                    }
                     _ => {}
                 }
             }
         }
         assert_eq!(found_has_labels, Some(false));
         assert_eq!(found_retention_days, Some(30));
+        assert_eq!(found_start_timestamp, Some(1_699_999_990_000_000));
     }
 
     #[test]
@@ -717,6 +820,88 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].trace_id, BASE64_STANDARD.encode(VALID_TRACE_BYTES));
         assert_eq!(rows[0].span_id, BASE64_STANDARD.encode(VALID_SPAN_BYTES));
+    }
+
+    #[test]
+    fn test_histogram_drops_trailing_empty_infinite_bound() {
+        struct Case {
+            name: &'static str,
+            bounds: Vec<f64>,
+            counts: Vec<u64>,
+            want_bounds: Vec<f64>,
+            want_counts: Vec<i64>,
+        }
+        let cases = vec![
+            Case {
+                name: "prom-client explicit Infinity",
+                bounds: vec![16.0, 32.0, f64::INFINITY],
+                counts: vec![1, 2, 3, 0],
+                want_bounds: vec![16.0, 32.0],
+                want_counts: vec![1, 2, 3],
+            },
+            Case {
+                name: "repeated Infinity",
+                bounds: vec![16.0, f64::INFINITY, f64::INFINITY],
+                counts: vec![1, 2, 0, 0],
+                want_bounds: vec![16.0],
+                want_counts: vec![1, 2],
+            },
+            Case {
+                name: "count above Infinity unchanged",
+                bounds: vec![16.0, f64::INFINITY],
+                counts: vec![1, 2, 5],
+                want_bounds: vec![16.0, f64::INFINITY],
+                want_counts: vec![1, 2, 5],
+            },
+            Case {
+                name: "finite bounds unchanged",
+                bounds: vec![16.0, 32.0],
+                counts: vec![1, 2, 3],
+                want_bounds: vec![16.0, 32.0],
+                want_counts: vec![1, 2, 3],
+            },
+            Case {
+                name: "length mismatch unchanged",
+                bounds: vec![16.0, f64::INFINITY],
+                counts: vec![1, 2],
+                want_bounds: vec![16.0, f64::INFINITY],
+                want_counts: vec![1, 2],
+            },
+        ];
+        for Case {
+            name,
+            bounds,
+            counts,
+            want_bounds,
+            want_counts,
+        } in cases
+        {
+            let metric = Metric {
+                name: "test.histogram".to_string(),
+                description: String::new(),
+                unit: String::new(),
+                metadata: vec![],
+                data: Some(Data::Histogram(Histogram {
+                    aggregation_temporality: 2,
+                    data_points: vec![HistogramDataPoint {
+                        attributes: vec![],
+                        start_time_unix_nano: 1_700_000_000_000_000_000,
+                        time_unix_nano: 1_700_000_000_000_000_000,
+                        count: counts.iter().sum(),
+                        sum: Some(1.0),
+                        bucket_counts: counts,
+                        explicit_bounds: bounds,
+                        exemplars: vec![],
+                        flags: 0,
+                        min: None,
+                        max: None,
+                    }],
+                })),
+            };
+            let (rows, _) = flatten_metric(metric, None, None).expect("flatten_metric ok");
+            assert_eq!(rows[0].histogram_bounds, want_bounds, "{name}");
+            assert_eq!(rows[0].histogram_counts, want_counts, "{name}");
+        }
     }
 
     #[test]
@@ -861,7 +1046,7 @@ mod tests {
 
     #[test]
     fn test_series_fingerprint_ignores_timestamp_override() {
-        // $originalTimestamp is a synthetic attribute added only when a point's timestamp
+        // posthog.original_timestamp is a synthetic attribute added only when a point's timestamp
         // falls outside the ±24h window, and it is inserted AFTER the fingerprint is
         // computed. A stale point and a fresh one for the same series must therefore share
         // a fingerprint. Guards the compute-before-insert ordering in build_number_row.
@@ -876,8 +1061,8 @@ mod tests {
         // The override must actually fire for the stale point, else the test is vacuous.
         assert!(!fresh_overridden);
         assert!(stale_overridden);
-        assert!(!fresh.attributes.contains_key("$originalTimestamp"));
-        assert!(stale.attributes.contains_key("$originalTimestamp"));
+        assert!(!fresh.attributes.contains_key("posthog.original_timestamp"));
+        assert!(stale.attributes.contains_key("posthog.original_timestamp"));
         // Despite that attribute difference, both map to one series.
         assert_eq!(fresh.series_fingerprint, stale.series_fingerprint);
     }

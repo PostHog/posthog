@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -9,6 +10,7 @@ import { SidePanelTab } from '~/types'
 
 import { taskTrackerSceneLogic } from 'products/posthog_ai/frontend/scenes/TaskTracker/taskTrackerSceneLogic'
 
+import { maxLogic } from './maxLogic'
 import { phaiSidePanelComposerSeedLogic } from './phaiSidePanelComposerSeedLogic'
 
 describe('phaiSidePanelComposerSeedLogic', () => {
@@ -51,6 +53,31 @@ describe('phaiSidePanelComposerSeedLogic', () => {
     afterEach(() => {
         seedLogic?.unmount()
         trackerLogic?.unmount()
+    })
+
+    // The panel swaps to the legacy chat when the server refuses a 2.0 send, which unmounts the runner and its
+    // restored draft. The refused message must become the legacy chat's draft, or the user loses it.
+    it('gives a send the server refuses to the legacy chat as its draft', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': () => [
+                    403,
+                    { type: 'permission_denied', code: 'task_unavailable', error: "This task isn't available to you." },
+                ],
+            },
+        })
+        initKeaTests()
+        const legacyChat = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+        legacyChat.mount()
+        try {
+            mountPanelLogics()
+            trackerLogic.actions.setNewTaskData({ description: 'Explain the example chart' })
+            await expectLogic(trackerLogic, () => trackerLogic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(legacyChat.values.question).toBe('Explain the example chart')
+        } finally {
+            legacyChat.unmount()
+        }
     })
 
     // The org-level AI data-processing consent gate: an auto-run CTA (`!`-prefixed prompt) must never start

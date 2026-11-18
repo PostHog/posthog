@@ -28,6 +28,9 @@ from typing import Any
 
 from slack_sdk.errors import SlackApiError
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
+
 from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_PAYLOAD_PATH, STAMPHOG_SANDBOX_REPO_DIR
 from products.tasks.backend.facade.sandbox import SandboxNotFoundError
 
@@ -194,6 +197,8 @@ class GitHubRecorder:
         self.files_at_ref: dict[tuple[str, str], str] = {}
         # The files every compare lists, for a caller that pins a PR's file list to two commits.
         self.compare_files: list[dict] = []
+        self.check_runs: dict[tuple[str, str], list[dict]] = {}
+        self.shed_batch = False
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.
         self.empty_repositories: set[str] = set()
@@ -204,6 +209,7 @@ class GitHubRecorder:
         self.reviewer_request_failures = 0
         # How many label requests answer 500 before GitHub takes them again.
         self.label_request_failures = 0
+        self.labels_refused = False
         # How many times the ownership reader looked up the default branch head.
         self.head_lookups = 0
         self.github_writes: list[dict[str, Any]] = []
@@ -235,6 +241,8 @@ class GitHubRecorder:
         json_body = kwargs.get("json")
         params = kwargs.get("params") or {}
 
+        if self.shed_batch and kwargs.get("priority") is Priority.BATCH:
+            raise GitHubEgressBudgetExhausted("the installation budget is spent")
         if method == "POST" and (m := _TOKEN_RE.match(path)):
             return self._mint_token(m.group("inst"))
         if method == "GET" and (m := _PR_FILES_RE.match(path)):
@@ -251,8 +259,14 @@ class GitHubRecorder:
             return FakeResponse(
                 200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}, "files": self.compare_files}
             )
-        if method == "GET" and _CHECK_RUNS_RE.match(path):
-            return FakeResponse(200, json_data={"check_runs": []})
+        if method == "GET" and (m := _CHECK_RUNS_RE.match(path)):
+            check_runs = [
+                check_run
+                for check_run in self.check_runs.get((m.group("repo"), m.group("sha")), [])
+                if params.get("check_name") in (None, check_run.get("name"))
+                and params.get("app_id") in (None, (check_run.get("app") or {}).get("id"))
+            ]
+            return FakeResponse(200, json_data={"check_runs": check_runs})
         if method == "GET" and (m := _COLLABORATOR_PERMISSION_RE.match(path)):
             permission = self.collaborator_permissions.get((m.group("repo"), m.group("username")), "write")
             return FakeResponse(200, json_data={"permission": permission})
@@ -296,6 +310,8 @@ class GitHubRecorder:
             if self.label_request_failures > 0:
                 self.label_request_failures -= 1
                 return FakeResponse(500, text="server error")
+            if self.labels_refused:
+                return FakeResponse(403, text="forbidden")
             self._record_write("add_labels", m.group("repo"), int(m.group("number")), json_body)
             return FakeResponse(200, json_data=[])
         if method == "PUT" and (m := _DISMISS_RE.match(path)):

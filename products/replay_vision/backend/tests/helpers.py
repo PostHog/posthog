@@ -4,10 +4,11 @@ from django.utils import timezone
 
 import numpy as np
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.utils import uuid7
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade import testing as experiments_testing
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -59,6 +60,16 @@ def seed_scanner_spend(scanner: ReplayScanner, credits: int, *, observations: in
     )
 
 
+@frozen
+class SeededExperiment:
+    """The ids of an experiment planted through the experiments test facade. It is not a model row,
+    so tests change the experiment with `update_experiment`."""
+
+    id: int
+    team_id: int
+    feature_flag_id: int
+
+
 def create_experiment(
     team: Team,
     flag_key: str,
@@ -66,7 +77,7 @@ def create_experiment(
     *,
     launched: bool = False,
     variants: list[str] | None = None,
-) -> Experiment:
+) -> SeededExperiment:
     """An experiment for targeting tests. `launched` plus `variants` makes it resolvable by
     `resolve_exposure_linkage`, which the experiment scanner type's write path requires."""
     filters: dict[str, Any] = {"groups": [{"properties": [], "rollout_percentage": 100}]}
@@ -75,14 +86,19 @@ def create_experiment(
             "variants": [{"key": key, "rollout_percentage": 100 // len(variants)} for key in variants]
         }
     flag = FeatureFlag.objects.create(team=team, key=flag_key, filters=filters)
-    return Experiment.objects.create(
-        team=team,
+    experiment_id = experiments_testing.create_experiment(
+        team_id=team.id,
+        feature_flag_id=flag.id,
         name=f"exp-{flag_key}",
-        feature_flag=flag,
-        created_by=created_by,
+        created_by_id=created_by.id if created_by else None,
         start_date=timezone.now() if launched else None,
         exposure_criteria={},
     )
+    return SeededExperiment(id=experiment_id, team_id=team.id, feature_flag_id=flag.id)
+
+
+def update_experiment(experiment: SeededExperiment, **fields: Any) -> None:
+    experiments_testing.update_experiment(team_id=experiment.team_id, experiment_id=experiment.id, **fields)
 
 
 def axis_anchors() -> dict[WatchCategory, np.ndarray]:

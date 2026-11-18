@@ -1,3 +1,6 @@
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
+
 import pytest
 
 from django.test import SimpleTestCase
@@ -6,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.scoping import (
     get_current_team_id,
+    get_resolved_team_id,
     reset_current_team_id,
     set_current_team_id,
     team_scope,
@@ -39,6 +43,24 @@ class TestContextVar(SimpleTestCase):
         token = set_current_team_id(99)
         reset_current_team_id(token)
         assert get_current_team_id() is None
+
+    @parameterized.expand(
+        [
+            ("resolved_scope", nullcontext, 1),
+            ("nested_unscoped", unscoped, None),
+            ("nested_team_scope", lambda: team_scope(5, canonical=True), None),
+        ]
+    )
+    def test_resolved_team_id_answers_only_for_the_id_the_scope_was_resolved_from(
+        self, _name: str, inner_scope: Callable[[], AbstractContextManager[None]], expected: int | None
+    ) -> None:
+        token = set_current_team_id(1, resolved_from_team_id=2)
+        try:
+            with inner_scope():
+                assert get_resolved_team_id(2) == expected
+                assert get_resolved_team_id(3) is None
+        finally:
+            reset_current_team_id(token)
 
 
 class TestTeamScopeContextManager(SimpleTestCase):

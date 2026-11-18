@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
@@ -6,8 +6,9 @@ use common_cookieless::COOKIELESS_SENTINEL_VALUE;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-use crate::api::errors::FlagError;
+use crate::api::errors::{ClientFacingError, FlagError};
 use crate::handler::flags::EvaluationRuntime;
+use crate::properties::property_matching::is_person_metadata_key;
 use crate::utils::bounded_json5;
 
 /// Maximum length for distinct_id values.
@@ -16,6 +17,42 @@ use crate::utils::bounded_json5;
 pub const MAX_DISTINCT_ID_LEN: usize = 200;
 
 const MAX_LIB_LEN: usize = 64;
+
+/// Maximum number of keys in `person_property_keys_known_absent`, and in each group type's list
+/// in `group_property_keys_known_absent`. Duplicates count toward the limit.
+pub const MAX_KNOWN_ABSENT_KEYS: usize = 1000;
+
+/// Property keys a request lists as known absent, validated. Group sets are keyed by group type
+/// name.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct KnownAbsentProperties {
+    pub person: HashSet<String>,
+    pub groups: HashMap<String, HashSet<String>>,
+}
+
+fn bad_request(msg: String) -> FlagError {
+    FlagError::ClientFacing(ClientFacingError::BadRequest(msg))
+}
+
+/// Reads an array of at most `MAX_KNOWN_ABSENT_KEYS` strings, or returns a 400 with one of the
+/// given messages.
+fn known_absent_keys(
+    value: &Value,
+    wrong_type_msg: impl Fn() -> String,
+    too_long_msg: impl FnOnce() -> String,
+) -> Result<HashSet<String>, FlagError> {
+    let items = value
+        .as_array()
+        .ok_or_else(|| bad_request(wrong_type_msg()))?;
+    if items.len() > MAX_KNOWN_ABSENT_KEYS {
+        return Err(bad_request(too_long_msg()));
+    }
+    items
+        .iter()
+        .map(|item| item.as_str().map(str::to_string))
+        .collect::<Option<_>>()
+        .ok_or_else(|| bad_request(wrong_type_msg()))
+}
 
 fn deserialize_distinct_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
@@ -35,10 +72,12 @@ where
     }))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIter)]
 pub enum FlagRequestType {
     Decide,
     FlagDefinitions,
+    /// A `/flags/definitions` poll answered with 304, billed at the `/flags` rate.
+    FlagDefinitionsNotModified,
 }
 
 impl FlagRequestType {
@@ -46,6 +85,7 @@ impl FlagRequestType {
         match self {
             FlagRequestType::Decide => "decide",
             FlagRequestType::FlagDefinitions => "flag_definitions",
+            FlagRequestType::FlagDefinitionsNotModified => "flag_definitions_not_modified",
         }
     }
 }
@@ -83,6 +123,18 @@ pub struct FlagRequest {
     pub groups: Option<HashMap<String, Value>>,
     #[serde(default, alias = "$group_properties")]
     pub group_properties: Option<HashMap<String, HashMap<String, Value>>>,
+    /// Person property keys the caller knows the person doesn't have, as an array of at most
+    /// `MAX_KNOWN_ABSENT_KEYS` strings. Evaluation treats each listed key as absent, even when
+    /// the stored person, `person_properties`, or a value the service adds (such as `$geoip_*`)
+    /// has one. The field is a raw `Value` so that a wrong type reaches
+    /// `known_absent_properties`, which names the field in its 400.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_property_keys_known_absent: Option<Value>,
+    /// Group property keys the caller knows are absent, as an object that maps a group type name
+    /// to an array of at most `MAX_KNOWN_ABSENT_KEYS` strings. Group type names the team doesn't
+    /// have are ignored. Otherwise this follows `person_property_keys_known_absent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_property_keys_known_absent: Option<Value>,
     #[serde(alias = "$anon_distinct_id", skip_serializing_if = "Option::is_none")]
     pub anon_distinct_id: Option<String>,
     #[serde(alias = "$device_id", skip_serializing_if = "Option::is_none")]
@@ -273,6 +325,49 @@ impl FlagRequest {
             .map(str::to_string)
     }
 
+    /// Validates `person_property_keys_known_absent` and `group_property_keys_known_absent`.
+    /// A field that is missing or JSON null lists nothing. A wrong type or a list over
+    /// `MAX_KNOWN_ABSENT_KEYS` returns a 400 that names the field. Person keys with the person
+    /// metadata prefix are dropped, because known absence applies to person properties and not
+    /// to persons-table columns such as `created_at`.
+    pub fn known_absent_properties(&self) -> Result<KnownAbsentProperties, FlagError> {
+        const PERSON_FIELD: &str = "person_property_keys_known_absent";
+        const GROUP_FIELD: &str = "group_property_keys_known_absent";
+        let group_wrong_type =
+            || format!("{GROUP_FIELD} must be an object whose values are arrays of strings");
+
+        let mut person = match &self.person_property_keys_known_absent {
+            None | Some(Value::Null) => HashSet::new(),
+            Some(value) => known_absent_keys(
+                value,
+                || format!("{PERSON_FIELD} must be an array of strings"),
+                || format!("{PERSON_FIELD} allows at most {MAX_KNOWN_ABSENT_KEYS} keys"),
+            )?,
+        };
+        person.retain(|key| !is_person_metadata_key(key));
+
+        let groups = match &self.group_property_keys_known_absent {
+            None | Some(Value::Null) => HashMap::new(),
+            Some(value) => {
+                let entries = value
+                    .as_object()
+                    .ok_or_else(|| bad_request(group_wrong_type()))?;
+                let mut groups = HashMap::with_capacity(entries.len());
+                for (group_type, keys) in entries {
+                    let keys = known_absent_keys(keys, group_wrong_type, || {
+                        format!(
+                            "{GROUP_FIELD} allows at most {MAX_KNOWN_ABSENT_KEYS} keys per group type"
+                        )
+                    })?;
+                    groups.insert(group_type.clone(), keys);
+                }
+                groups
+            }
+        };
+
+        Ok(KnownAbsentProperties { person, groups })
+    }
+
     /// Checks if feature flags should be disabled for this request.
     /// Returns true if disable_flags is explicitly set to true.
     pub fn is_flags_disabled(&self) -> bool {
@@ -282,14 +377,16 @@ impl FlagRequest {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use std::sync::Arc;
 
-    use crate::api::errors::FlagError;
+    use crate::api::errors::{ClientFacingError, FlagError};
 
     use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
-    use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN, MAX_LIB_LEN};
+    use crate::flags::flag_request::{
+        FlagRequest, KnownAbsentProperties, MAX_DISTINCT_ID_LEN, MAX_LIB_LEN,
+    };
     use crate::flags::flag_service::FlagService;
     use crate::utils::bounded_json5::MAX_NESTING_DEPTH;
     use crate::utils::test_utils::{
@@ -1092,5 +1189,156 @@ mod tests {
         let org_props = group_props.get("organization").unwrap();
         assert_eq!(org_props.get("name").unwrap(), &json!("ACME Corp"));
         assert_eq!(org_props.get("size").unwrap(), &json!(100));
+    }
+
+    const PERSON_WRONG_TYPE: &str = "person_property_keys_known_absent must be an array of strings";
+    const PERSON_OVER_LIMIT: &str = "person_property_keys_known_absent allows at most 1000 keys";
+    const GROUP_WRONG_TYPE: &str =
+        "group_property_keys_known_absent must be an object whose values are arrays of strings";
+    const GROUP_OVER_LIMIT: &str =
+        "group_property_keys_known_absent allows at most 1000 keys per group type";
+
+    fn numbered_keys(prefix: &str, count: usize) -> Vec<String> {
+        (0..count).map(|i| format!("{prefix}{i}")).collect()
+    }
+
+    fn known_absent(person: &[&str], groups: &[(&str, &[&str])]) -> KnownAbsentProperties {
+        KnownAbsentProperties {
+            person: person.iter().map(|key| key.to_string()).collect(),
+            groups: groups
+                .iter()
+                .map(|(group_type, keys)| {
+                    (
+                        group_type.to_string(),
+                        keys.iter().map(|key| key.to_string()).collect(),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    #[rstest]
+    #[case::fields_absent(json!({}), Ok(KnownAbsentProperties::default()))]
+    #[case::person_null(
+        json!({"person_property_keys_known_absent": null}),
+        Ok(KnownAbsentProperties::default())
+    )]
+    #[case::group_null(
+        json!({"group_property_keys_known_absent": null}),
+        Ok(KnownAbsentProperties::default())
+    )]
+    #[case::person_empty_array(
+        json!({"person_property_keys_known_absent": []}),
+        Ok(KnownAbsentProperties::default())
+    )]
+    #[case::person_duplicates(
+        json!({"person_property_keys_known_absent": ["a", "a"]}),
+        Ok(known_absent(&["a"], &[]))
+    )]
+    #[case::group_empty_object(
+        json!({"group_property_keys_known_absent": {}}),
+        Ok(KnownAbsentProperties::default())
+    )]
+    #[case::group_empty_list(
+        json!({"group_property_keys_known_absent": {"company": []}}),
+        Ok(known_absent(&[], &[("company", &[])]))
+    )]
+    #[case::person_and_group_lists(
+        json!({
+            "person_property_keys_known_absent": ["plan"],
+            "group_property_keys_known_absent": {"company": ["tier"], "project": ["name", "tier"]}
+        }),
+        Ok(known_absent(&["plan"], &[("company", &["tier"]), ("project", &["name", "tier"])]))
+    )]
+    #[case::person_at_limit(
+        json!({"person_property_keys_known_absent": numbered_keys("p", 1000)}),
+        Ok(KnownAbsentProperties {
+            person: numbered_keys("p", 1000).into_iter().collect(),
+            ..Default::default()
+        })
+    )]
+    #[case::two_group_types_each_at_limit(
+        json!({"group_property_keys_known_absent": {
+            "company": numbered_keys("c", 1000),
+            "project": numbered_keys("p", 1000)
+        }}),
+        Ok(KnownAbsentProperties {
+            groups: HashMap::from([
+                ("company".to_string(), numbered_keys("c", 1000).into_iter().collect::<HashSet<_>>()),
+                ("project".to_string(), numbered_keys("p", 1000).into_iter().collect()),
+            ]),
+            ..Default::default()
+        })
+    )]
+    #[case::person_metadata_key_dropped(
+        json!({"person_property_keys_known_absent": ["__posthog_person_metadata__created_at", "plan"]}),
+        Ok(known_absent(&["plan"], &[]))
+    )]
+    #[case::person_string(json!({"person_property_keys_known_absent": "a"}), Err(PERSON_WRONG_TYPE))]
+    #[case::person_number_element(
+        json!({"person_property_keys_known_absent": [1]}),
+        Err(PERSON_WRONG_TYPE)
+    )]
+    #[case::person_null_after_string(
+        json!({"person_property_keys_known_absent": ["a", null]}),
+        Err(PERSON_WRONG_TYPE)
+    )]
+    #[case::person_over_limit(
+        json!({"person_property_keys_known_absent": numbered_keys("p", 1001)}),
+        Err(PERSON_OVER_LIMIT)
+    )]
+    #[case::person_over_limit_with_duplicates(
+        json!({"person_property_keys_known_absent": vec!["a"; 1001]}),
+        Err(PERSON_OVER_LIMIT)
+    )]
+    #[case::group_array(json!({"group_property_keys_known_absent": []}), Err(GROUP_WRONG_TYPE))]
+    #[case::group_list_is_null(
+        json!({"group_property_keys_known_absent": {"company": null}}),
+        Err(GROUP_WRONG_TYPE)
+    )]
+    #[case::group_number_element(
+        json!({"group_property_keys_known_absent": {"company": [1]}}),
+        Err(GROUP_WRONG_TYPE)
+    )]
+    #[case::group_null_after_string(
+        json!({"group_property_keys_known_absent": {"company": ["a", null]}}),
+        Err(GROUP_WRONG_TYPE)
+    )]
+    #[case::second_group_type_over_limit(
+        json!({"group_property_keys_known_absent": {
+            "company": numbered_keys("c", 1000),
+            "project": numbered_keys("p", 1001)
+        }}),
+        Err(GROUP_OVER_LIMIT)
+    )]
+    #[case::group_over_limit_with_duplicates(
+        json!({"group_property_keys_known_absent": {"company": vec!["a"; 1001]}}),
+        Err(GROUP_OVER_LIMIT)
+    )]
+    fn test_known_absent_properties_validation(
+        #[case] fields: Value,
+        #[case] expected: Result<KnownAbsentProperties, &str>,
+    ) {
+        let mut body = json!({"token": "my_token1", "distinct_id": "user123"});
+        body.as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
+        // A wrong shape must survive parsing, so the field-specific 400 reaches the client
+        // instead of the generic "invalid JSON" error.
+        let request = FlagRequest::from_bytes(Bytes::from(body.to_string()))
+            .expect("a known-absent field of any shape must parse");
+
+        let result = request.known_absent_properties();
+
+        match (result, expected) {
+            (Ok(actual), Ok(expected)) => assert_eq!(actual, expected),
+            (
+                Err(FlagError::ClientFacing(ClientFacingError::BadRequest(message))),
+                Err(expected),
+            ) => {
+                assert_eq!(message, expected)
+            }
+            (actual, expected) => panic!("expected {expected:?}, got {actual:?}"),
+        }
     }
 }

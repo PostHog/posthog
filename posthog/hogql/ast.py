@@ -499,10 +499,12 @@ class CTETableAliasType(BaseTableType):
         return self.cte_table_type.resolve_column_constant_type(name, context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType
+    # The lazy table that this subquery stands for, when lazy table resolution built it.
+    lazy_table: Optional[LazyTable] = field(default=None, repr=False, compare=False)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
@@ -1036,7 +1038,7 @@ class PropertyAccess(Expr):
     keys: list[str | int]
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=False, kw_only=True, slots=True)
 class JsonSubcolumnAccess(Expr):
     """ClickHouse JSON subcolumn read emitted after property lowering.
 
@@ -1047,7 +1049,6 @@ class JsonSubcolumnAccess(Expr):
 
     expr: Expr
     keys: list[str]
-    access_type: Literal["path", "sub_object"] = "path"
 
 
 @dataclass(kw_only=True, slots=True)

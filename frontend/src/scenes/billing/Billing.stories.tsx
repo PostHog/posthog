@@ -1,6 +1,9 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 
 import { dayjs } from 'lib/dayjs'
+import { GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY } from 'lib/logic/billing/billingLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -9,7 +12,7 @@ import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_10
 import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { BillingProvider, BillingType, StartupProgramLabel } from '~/types'
+import { AvailableFeature, BillingProvider, BillingType, StartupProgramLabel } from '~/types'
 
 import { Billing } from './Billing'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
@@ -24,6 +27,25 @@ const billingJsonWithoutIconKeys: BillingType = {
         icon_key: null,
         addons: product.addons.map((addon) => ({ ...addon, icon_key: undefined })),
     })),
+}
+
+const billingJsonWithGrandfatheredEventsRetention: BillingType = {
+    ...billingJson,
+    products: billingJson.products.map((product) =>
+        product.type === 'product_analytics'
+            ? {
+                  ...product,
+                  plans: product.plans.flatMap((plan) =>
+                      plan.current_plan
+                          ? [
+                                { ...plan, plan_key: GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY },
+                                { ...plan, plan_key: 'paid-20261105', current_plan: false },
+                            ]
+                          : [plan]
+                  ),
+              }
+            : product
+    ),
 }
 
 const VERCEL_INVOICES_URL = 'https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices'
@@ -298,5 +320,51 @@ export const BillingUnsubscribeModal: Story = {
         })
 
         return <UnsubscribeSurveyModal product={billingJson.products[0]} />
+    },
+}
+
+export const BillingUnsubscribeModalShorteningEventsRetention: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/@current/': {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    available_product_features: [
+                        {
+                            key: AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION,
+                            name: 'Data retention',
+                            limit: 7,
+                            unit: 'years',
+                        },
+                    ],
+                },
+                '/api/organizations/:organization_id/events_retention_setting/downgrade_deletion_count/': {
+                    retention_months: 12,
+                    events_deleted: 1234567,
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: () => {
+        useStorybookMocks({ get: { '/api/billing/': billingJson } })
+
+        return <UnsubscribeSurveyModal product={billingJson.products[0]} />
+    },
+}
+
+export const BillingUnsubscribeModalWithGrandfatheredEventsRetention: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': billingJsonWithGrandfatheredEventsRetention,
+                '/api/organizations/:organization_id/events_retention_setting/downgrade_deletion_count/': {
+                    retention_months: 12,
+                    events_deleted: 1234567,
+                },
+            },
+        })
+
+        return <UnsubscribeSurveyModal product={billingJsonWithGrandfatheredEventsRetention.products[0]} />
     },
 }

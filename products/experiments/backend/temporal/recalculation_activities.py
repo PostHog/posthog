@@ -130,7 +130,8 @@ async def calculate_experiment_metric_for_recalculation(
     outcome once Temporal stops retrying. When Temporal ends the metric earlier (the schedule_to_close budget, or a
     kill from the outside), no attempt persists it and the workflow runs record_metric_out_of_time_failure.
     """
-    attempt = temporalio.activity.info().attempt
+    activity_info = temporalio.activity.info()
+    attempt = activity_info.attempt
     is_final_attempt = attempt >= MAX_METRIC_ATTEMPTS
     deadline = asyncio.get_running_loop().time() + METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS
     # The heartbeat runs on the event loop beside the body's thread. Temporal delivers a cancellation (a workflow
@@ -147,6 +148,7 @@ async def calculate_experiment_metric_for_recalculation(
                 attempt,
                 precomputation_mode,
                 calculation_key_version,
+                activity_info.task_queue,
             )
         )
         try:

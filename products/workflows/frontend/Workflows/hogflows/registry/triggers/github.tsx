@@ -4,7 +4,7 @@ import { IconGithub } from '@posthog/icons'
 import { LemonBanner, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
+import { useRepositories } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -48,6 +48,37 @@ const ADVANCED_PROPERTY_DEFINITIONS: PropertyDefinition[] = ADVANCED_PROPERTIES.
     property_type: type,
 }))
 
+function GithubRepositoriesSelect({
+    integrationId,
+    value,
+    onChange,
+}: {
+    integrationId: number
+    value: string[]
+    onChange: (repositories: string[]) => void
+}): JSX.Element {
+    const { options, loading, failed, retry } = useRepositories(integrationId, { valueKey: 'full_name' })
+
+    return (
+        <div>
+            {failed && (
+                <LemonBanner type="error" className="mb-2" action={{ children: 'Retry', onClick: retry }}>
+                    Could not load repositories. Try again.
+                </LemonBanner>
+            )}
+            <LemonInputSelect
+                mode="multiple"
+                value={value}
+                options={options}
+                loading={loading}
+                placeholder="Select repositories"
+                onChange={onChange}
+                data-attr="github-trigger-repositories"
+            />
+        </div>
+    )
+}
+
 function StepTriggerConfigurationGithubEvent({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
@@ -78,7 +109,7 @@ function StepTriggerConfigurationGithubEvent({ node }: { node: any }): JSX.Eleme
             <LemonBanner type="warning" className="w-full">
                 <p className="mb-0">
                     This trigger needs a GitHub connection, and this project doesn't have one yet. Install the GitHub
-                    app on the repositories you want, then come back and pick one.{' '}
+                    app on the repositories you want, then come back and pick them.{' '}
                     <Link to={urls.settings('project-integrations')} className="font-semibold">
                         Connect GitHub
                     </Link>
@@ -95,22 +126,21 @@ function StepTriggerConfigurationGithubEvent({ node }: { node: any }): JSX.Eleme
             </p>
 
             <LemonField.Pure
-                label="Repository"
+                label="Repositories"
                 error={validationResult?.errors?.repository}
                 info="PostHog only receives events from repositories the GitHub app is installed on."
             >
-                <GitHubRepositoryPicker
+                <GithubRepositoriesSelect
                     integrationId={githubIntegrations[0].id}
-                    value={filters.repository ?? ''}
-                    onChange={(value) => update({ repository: value })}
-                    valueKey="full_name"
+                    value={filters.repositories}
+                    onChange={(repositories) => update({ repositories })}
                 />
             </LemonField.Pure>
 
             <LemonField.Pure
                 label="What starts a run"
                 error={validationResult?.errors?.eventTypes}
-                info="Pick at least one. Every delivery of that kind on the repository starts a run."
+                info="Pick at least one. Every delivery of that kind on these repositories starts a run."
             >
                 <LemonInputSelect
                     mode="multiple"
@@ -204,7 +234,7 @@ registerTriggerType({
             source: 'internal-events',
             events: [{ id: '$github_event_received', type: 'events' }],
             properties: encodeGithubFilters({
-                repository: null,
+                repositories: [],
                 eventTypes: [],
                 actorMode: 'write_access',
                 actorLogins: [],
@@ -217,8 +247,8 @@ registerTriggerType({
             return null
         }
         const filters = decodeGithubFilters(config.filters?.properties)
-        if (!filters.repository) {
-            return { valid: false, errors: { repository: 'Please pick a repository' } }
+        if (!filters.repositories.length) {
+            return { valid: false, errors: { repository: 'Pick at least one repository' } }
         }
         if (!filters.eventTypes.length) {
             return { valid: false, errors: { eventTypes: 'Pick at least one event, or the trigger will never fire' } }

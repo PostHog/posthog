@@ -279,6 +279,12 @@ def monitoring_window_end(start: datetime, soak_minutes: int | None) -> datetime
     return start + timedelta(minutes=soak_minutes or 0)
 
 
+class MetricThresholdReplacementConfig(MetricThresholdConfig):
+    monitoring: MonitoringMetricConfig = Field(
+        description="Monitoring definition for the replacement, including the target reference period and scaling policy."
+    )
+
+
 def monitoring_interval_minutes(run_interval_minutes: int | None) -> int:
     return max(MIN_CHECK_INTERVAL_MINUTES, run_interval_minutes or DEFAULT_MONITORING_INTERVAL_MINUTES)
 

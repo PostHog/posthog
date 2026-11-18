@@ -26,6 +26,8 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory, force_authenticate
 
+from posthog.hogql.database.database import Database
+
 from posthog.models import Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -419,6 +421,13 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         # by_day_model queries). top_traces
         # is deprecated and returned empty without a query.
         assert mock_exec.call_count == 7
+
+    def test_spend_queries_skip_the_full_hogql_catalog(self) -> None:
+        with patch.object(Database, "create_for", side_effect=AssertionError("built the full HogQL catalog")):
+            response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-1d&bucket_minutes=60")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "by_bucket" in response.json()
 
     def test_second_call_serves_from_cache(self) -> None:
         with patch("products.ai_observability.backend.api.personal_spend.execute_hogql_query") as mock_exec:

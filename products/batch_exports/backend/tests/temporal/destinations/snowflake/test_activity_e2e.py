@@ -5,6 +5,7 @@ Note: This module uses a real Snowflake connection.
 """
 
 import os
+import json
 import uuid
 import typing as t
 import datetime as dt
@@ -784,3 +785,54 @@ async def test_insert_into_snowflake_activity_handles_extra_columns_in_destinati
         extra_fields={"extra_column": "test"},
         min_ingested_timestamp=min_ingested_timestamp,
     )
+
+
+async def test_insert_into_snowflake_activity_loads_malformed_people_set_as_null(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_activity_inputs,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    for event_name, properties in (
+        ("malformed", {"$set": "not valid json", "$set_once": "{also not valid"}),
+        ("well-formed", {"$set": '{"plan": "free"}', "$set_once": '{"plan": "paid"}'}),
+    ):
+        await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            count=1,
+            count_outside_range=0,
+            count_other_team=0,
+            event_name=event_name,
+            properties=properties,
+        )
+
+    table_name = f"test_insert_activity_malformed_people_set_{ateam.pk}"
+    result = await _run_activity(
+        activity_environment=activity_environment,
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        snowflake_activity_inputs=snowflake_activity_inputs,
+        team=ateam,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        table_name=table_name,
+        batch_export_model=BatchExportEventsModel(),
+        assert_clickhouse_records=False,
+    )
+
+    assert isinstance(result, BatchExportResult)
+    assert result.error is None
+
+    snowflake_cursor.execute(f'SELECT "event", "people_set", "people_set_once" FROM "{table_name}" ORDER BY "event"')
+    malformed, well_formed = snowflake_cursor.fetchall()
+
+    assert malformed == ("malformed", None, None)
+    assert well_formed[0] == "well-formed"
+    assert json.loads(well_formed[1]) == {"plan": "free"}
+    assert json.loads(well_formed[2]) == {"plan": "paid"}

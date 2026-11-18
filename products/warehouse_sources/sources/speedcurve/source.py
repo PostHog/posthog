@@ -91,7 +91,7 @@ class SpeedcurveSource(ResumableSource[SpeedcurveSourceConfig, SpeedcurveResumeC
         schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=INCREMENTAL_FIELDS)
         for schema in schemas:
             schema.detected_primary_keys = list(ENDPOINTS[schema.name].primary_keys)
-            if schema.supports_incremental:
+            if schema.supports_incremental and ENDPOINTS[schema.name].paginated:
                 # Recent tests can still be queued, and deployment notes can change after creation.
                 schema.default_incremental_lookback_seconds = INCREMENTAL_LOOKBACK_SECONDS
         return schemas

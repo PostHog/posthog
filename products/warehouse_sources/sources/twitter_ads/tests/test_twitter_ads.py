@@ -67,7 +67,7 @@ def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicM
             response({"data": [{"id": "two", "deleted": True}], "next_cursor": None}),
         ],
     ) as send:
-        resource = twitter_ads_source(client, "account", "campaigns", manager, None)
+        resource = twitter_ads_source(client, "account", "campaigns", manager, None, MagicMock())
         assert list(sync_items(resource)) == [[{"id": "one"}], [{"id": "two", "deleted": True}]]
     requests_sent = [call.args[0] for call in send.call_args_list]
     assert isinstance(client.session.auth, OAuth1)
@@ -98,7 +98,7 @@ def test_entity_page_request_respects_per_table_limits(
     client: TwitterAdsClient, manager: MagicMock, table: str, count: str, sort_by: list[str] | None
 ) -> None:
     with patch.object(client.session, "send", return_value=response({"data": [], "next_cursor": None})) as send:
-        list(sync_items(twitter_ads_source(client, "account", table, manager, None)))
+        list(sync_items(twitter_ads_source(client, "account", table, manager, None, MagicMock())))
     url = urlparse(request_url(send.call_args.args[0]))
     params = parse_qs(url.query)
     assert url.path == f"/12/accounts/account/{table}"
@@ -116,6 +116,7 @@ def test_entity_page_request_respects_per_table_limits(
 )
 @pytest.mark.parametrize("table", ["campaign_stats", "line_item_stats"])
 @pytest.mark.parametrize("incremental_since", [None, date(2025, 10, 30)])
+@pytest.mark.parametrize("include_video_and_conversions", [False, True])
 def test_stats_limits_daily_rows_currency_and_dst(
     client: TwitterAdsClient,
     manager: MagicMock,
@@ -123,6 +124,7 @@ def test_stats_limits_daily_rows_currency_and_dst(
     incremental_since: date | None,
     timezone_name: str,
     expected_offsets: set[timedelta],
+    include_video_and_conversions: bool,
 ) -> None:
     account_timezone = ZoneInfo(timezone_name)
     calls = []
@@ -149,14 +151,17 @@ def test_stats_limits_daily_rows_currency_and_dst(
         end = datetime.fromisoformat(params["end_time"][0]).astimezone(account_timezone)
         ids = params["entity_ids"][0].split(",")
         assert len(ids) <= 20
-        assert end.astimezone(UTC) - start.astimezone(UTC) <= timedelta(days=7)
+        # X rejects every exact week on a half-hour-offset account with a misleading entity error.
+        assert end.astimezone(UTC) - start.astimezone(UTC) < timedelta(days=7)
         # X rejects a DAY window whose bounds are not midnight in the ad account's own timezone,
         # which means the offset in force on each date rather than today's.
         assert start.hour == end.hour == 0
         assert start.minute == end.minute == 0
         offsets.update({start.utcoffset(), end.utcoffset()})
         assert params["granularity"] == ["DAY"]
-        assert params["metric_groups"] == ["ENGAGEMENT,BILLING"]
+        assert params["metric_groups"] == [
+            "ENGAGEMENT,BILLING,VIDEO,WEB_CONVERSION" if include_video_and_conversions else "ENGAGEMENT,BILLING"
+        ]
         assert params["entity"] == ["CAMPAIGN" if table == "campaign_stats" else "LINE_ITEM"]
         days = (end.date() - start.date()).days
         calls.append((start.date(), end.date(), params["placement"][0], ids))
@@ -172,6 +177,14 @@ def test_stats_limits_daily_rows_currency_and_dst(
                                     "impressions": list(range(days)),
                                     "clicks": [2] * days,
                                     "billed_charge_local_micro": [1000000] * days,
+                                    "video_total_views": [7] * days,
+                                    "conversion_sign_ups": {
+                                        "metric": [5] * days,
+                                        "post_view": [2] * days,
+                                        "post_engagement": [3] * days,
+                                        "sale_amount": None,
+                                    },
+                                    "conversion_purchases": None,
                                 },
                             }
                         ],
@@ -185,7 +198,9 @@ def test_stats_limits_daily_rows_currency_and_dst(
         time_machine.travel("2025-11-10T20:00:00Z", tick=False),
         patch.object(client.session, "send", side_effect=send),
     ):
-        resource = twitter_ads_source(client, "account", table, manager, incremental_since)
+        resource = twitter_ads_source(
+            client, "account", table, manager, incremental_since, MagicMock(), include_video_and_conversions
+        )
         rows = [row for page in sync_items(resource) for row in page]
     start = incremental_since or date(2025, 10, 25)
     today = datetime(2025, 11, 10, 20, tzinfo=UTC).astimezone(account_timezone).date()
@@ -194,6 +209,25 @@ def test_stats_limits_daily_rows_currency_and_dst(
     assert {row["currency"] for row in rows} == {"EUR"}
     assert {row["billed_charge_local_micro"] for row in rows} == {1000000}
     assert {row["clicks"] for row in rows} == {2}
+    if include_video_and_conversions:
+        # Metrics X leaves null must still land as integers, or an all-null batch types the column as text.
+        assert {
+            (
+                row["video_total_views"],
+                row["video_views_25"],
+                row["conversion_sign_ups"],
+                row["conversion_sign_ups_post_view"],
+                row["conversion_sign_ups_post_engagement"],
+                row["conversion_sign_ups_assisted"],
+                row["conversion_purchases"],
+                row["conversion_purchases_post_view"],
+            )
+            for row in rows
+        } == {(7, 0, 5, 2, 3, 0, 0, 0)}
+        assert all(type(row["conversion_purchases"]) is int for row in rows)
+        assert not any("conversion_sign_ups_sale_amount" in row for row in rows)
+    else:
+        assert not any(key.startswith(("video_", "conversion_")) for row in rows for key in row)
     assert all(row["account_id"] == "account" for row in rows)
     assert min(row["date"] for row in rows) == start
     assert max(row["date"] for row in rows) == today - timedelta(days=1)

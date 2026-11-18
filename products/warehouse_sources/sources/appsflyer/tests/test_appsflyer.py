@@ -3,12 +3,15 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSourceConfig
 from products.warehouse_sources.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
     LOOKBACK_DAYS,
     MASTER_MAX_LOOKBACK_DAYS,
     MASTER_MAX_REQUEST_DAYS,
+    QUOTA_EXHAUSTED_ERROR,
     RAW_LOOKBACK_DAYS,
     RAW_MAX_LOOKBACK_DAYS,
     RAW_MAX_REQUEST_DAYS,
@@ -29,6 +32,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
 
@@ -134,6 +138,13 @@ class TestValidateCredentials:
             ("token secret-token is not allowed", "AppsFlyer said: token [redacted] is not allowed"),
             ("<html><body>Forbidden</body></html>", None),
             ("Forbidden: <!DOCTYPE html><html><body>Denied</body></html>", None),
+            ('{"error": "Authentication error"}', "AppsFlyer said: Authentication error"),
+            ('{"message": "token secret-token\\nis not allowed"}', "AppsFlyer said: token [redacted] is not allowed"),
+            ('{"detail": "App not found"}', "AppsFlyer said: App not found"),
+            ('{"error": {"code": 403}}', None),
+            ('{"status": "denied"}', None),
+            ('["denied"]', None),
+            ("{not json", None),
         ],
     )
     def test_validate_credentials_surfaces_appsflyer_reason(self, body: str, expected_reason: str | None) -> None:
@@ -146,6 +157,13 @@ class TestValidateCredentials:
         else:
             assert message.endswith(expected_reason)
         assert "secret-token" not in message
+        assert "{" not in message
+
+    @pytest.mark.parametrize("status_code", [403, 429])
+    @pytest.mark.parametrize("body", ["Limit reached for daily-report", "  LIMIT REACHED for geo-report\n"])
+    def test_validate_accepts_used_up_quota(self, status_code: int, body: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, body=body.encode()))):
+            assert validate_credentials("token", "id123") is True
 
     @pytest.mark.parametrize("api_token", [" token ", "Bearer token", "bearer  token"])
     def test_validate_credentials_sends_a_clean_token_and_ios_app_id(self, api_token: str) -> None:
@@ -251,6 +269,77 @@ class TestGetRows:
         assert result.raised is None
         headers = result.session_options[0]["headers"]
         assert headers["Accept"] == "text/csv"
+
+
+class TestUsedUpQuota:
+    @pytest.mark.parametrize("status_code", [403, 429])
+    def test_quota_response_is_retryable(self, status_code: int) -> None:
+        result = _driver().run("daily_report", always(ScriptedResponse(status=status_code, body=b"Limit reached")))
+
+        assert isinstance(result.raised, AppsFlyerRetryableError)
+        assert QUOTA_EXHAUSTED_ERROR in str(result.raised)
+
+    def test_rate_limit_without_quota_body_is_not_reported_as_used_up_quota(self) -> None:
+        result = _driver().run("daily_report", always(ScriptedResponse(status=429, body=b"Too many requests")))
+
+        assert isinstance(result.raised, AppsFlyerRetryableError)
+        assert QUOTA_EXHAUSTED_ERROR not in str(result.raised)
+
+    def test_forbidden_without_quota_body_stays_a_permanent_error(self) -> None:
+        result = _driver().run("daily_report", always(ScriptedResponse(status=403, body=b"Forbidden")))
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "403 Client Error" in str(result.raised)
+
+
+PLAN_REJECTION_BODY = b"Your current subscription package doesn't include raw data reports. If you'd like to have raw data, contact your CSM"
+
+
+class TestRawDataRejection:
+    @pytest.mark.parametrize(
+        "endpoint, body, expected_copy",
+        [
+            ("installs", PLAN_REJECTION_BODY, "doesn't include raw data reports"),
+            ("installs", b"x" * 600 + PLAN_REJECTION_BODY, "doesn't include raw data reports"),
+            ("daily_report", PLAN_REJECTION_BODY, "may be used up"),
+            ("installs", b"Raw reports historical lookback is limited to 90 days", "may be used up"),
+            ("installs", b"", "may be used up"),
+        ],
+    )
+    def test_400_maps_to_the_message_for_its_cause(self, endpoint: str, body: bytes, expected_copy: str) -> None:
+        result = _driver().run(endpoint, always(ScriptedResponse(status=400, body=body)))
+
+        assert result.raised is not None
+        error = f"{type(result.raised).__name__}: {result.raised}"
+        source = AppsFlyerSource()
+        messages = [
+            message
+            for pattern, message in source.get_non_retryable_errors().items()
+            if message and error_message_matches(error, [pattern])
+        ]
+        assert messages and expected_copy in messages[0]
+
+
+class TestNotFoundRejection:
+    @pytest.mark.parametrize(
+        "endpoint, expected_copy",
+        [
+            ("master_report", "doesn't include the Master API"),
+            ("daily_report", "app not found"),
+            ("installs", "app not found"),
+        ],
+    )
+    def test_404_maps_to_the_message_for_its_api(self, endpoint: str, expected_copy: str) -> None:
+        result = _driver().run(endpoint, always(ScriptedResponse(status=404, body=b"")))
+
+        assert result.raised is not None
+        error = f"{type(result.raised).__name__}: {result.raised}"
+        messages = [
+            message
+            for pattern, message in AppsFlyerSource().get_non_retryable_errors().items()
+            if message and error_message_matches(error, [pattern])
+        ]
+        assert messages and expected_copy in messages[0]
 
 
 class TestRawAndMasterWindows:

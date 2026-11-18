@@ -14,6 +14,8 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from asgiref.sync import async_to_sync
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -32,6 +34,8 @@ BUFFER_LANE = "buffer"
 # Marks a table whose reset waits for a sync that can still hand over. The slot or the request moves
 # on meanwhile, so this key is what makes a later capture run finish the reset.
 CDC_RESET_PENDING_KEY = "cdc_reset_pending"
+# A `_ph_cdc_seq` value: the snapshot holds every change at or below it.
+CDC_SNAPSHOT_POSITION_KEY = "cdc_snapshot_position"
 
 
 def snapshot_in_buffer(schema: ExternalDataSchema) -> bool:
@@ -60,15 +64,7 @@ def cancel_running_sync(schema: ExternalDataSchema) -> str | None:
     # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
     from products.data_warehouse.backend.facade.api import cancel_external_data_workflow  # noqa: PLC0415
 
-    job = (
-        ExternalDataJob.objects.filter(
-            team_id=schema.team_id, schema_id=schema.id, status=ExternalDataJob.Status.RUNNING
-        )
-        .exclude(workflow_id__isnull=True)
-        .exclude(workflow_id__startswith=CDC_EXTRACTION_WORKFLOW_ID_PREFIX)
-        .order_by("-created_at")
-        .first()
-    )
+    job = _latest_running_sync_job(schema)
     if job is None or not job.workflow_id:
         return None
     try:
@@ -78,6 +74,44 @@ def cancel_running_sync(schema: ExternalDataSchema) -> str | None:
             raise
         return None
     return job.workflow_id
+
+
+def running_sync_workflow_id(schema: ExternalDataSchema) -> str | None:
+    """The id of the table's running scheduled sync, picked as `cancel_running_sync` picks it, without stopping it.
+
+    Returns None when no sync runs, or its workflow already closed. A Temporal failure raises.
+    """
+    job = _latest_running_sync_job(schema)
+    if job is None or not job.workflow_id:
+        return None
+    return job.workflow_id if _workflow_is_running(job.workflow_id) else None
+
+
+def _latest_running_sync_job(schema: ExternalDataSchema) -> ExternalDataJob | None:
+    return (
+        ExternalDataJob.objects.filter(
+            team_id=schema.team_id, schema_id=schema.id, status=ExternalDataJob.Status.RUNNING
+        )
+        .exclude(workflow_id__isnull=True)
+        .exclude(workflow_id__startswith=CDC_EXTRACTION_WORKFLOW_ID_PREFIX)
+        .order_by("-created_at")
+        .first()
+    )
+
+
+@async_to_sync
+async def _workflow_is_running(workflow_id: str) -> bool:
+    # Deferred: the Temporal client stays off this module's import path, as the cancel above does.
+    from posthog.temporal.common.client import async_connect  # noqa: PLC0415
+
+    client = await async_connect()
+    try:
+        description = await client.get_workflow_handle(workflow_id).describe()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return description.status == WorkflowExecutionStatus.RUNNING
 
 
 def cancel_sync_that_could_hand_over(schema: ExternalDataSchema) -> bool:

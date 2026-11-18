@@ -8,6 +8,7 @@ function makeInstallation(
   return {
     id: "inst-1",
     template_id: null,
+    gateway_server_id: null,
     name: "Test",
     icon_key: "",
     icon_domain: "",

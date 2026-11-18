@@ -1,4 +1,3 @@
-import posthoganalytics
 from temporalio import activity
 
 from posthog.dataclasses import frozen
@@ -14,7 +13,6 @@ from products.tasks.backend.temporal.process_task.activities.get_pr_context impo
 )
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
-AUTO_READY_FEATURE_FLAG = "tasks-pr-auto-ready"
 KEEP_DRAFT_LABELS = frozenset({"keep-draft", "no-ci"})
 
 
@@ -48,17 +46,6 @@ def mark_pr_ready(input: MarkPrReadyInput) -> bool:
 
             parsed = GitHubIntegration.parse_pull_request_url(input.snapshot.pr_url)
             if parsed is None or parsed.repository.casefold() != (context.repository or "").casefold():
-                return False
-
-            enabled = posthoganalytics.feature_enabled(
-                AUTO_READY_FEATURE_FLAG,
-                distinct_id=context.distinct_id,
-                groups={"organization": context.organization_id},
-                group_properties={"organization": {"id": context.organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-            if enabled is not True:
                 return False
 
             github = (

@@ -15,12 +15,14 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.persons import create_person
+from posthog.test.persons import create_group_type_mapping, create_person
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
 from products.experiments.backend.health.context import (
     MIN_EXPOSED_UNITS_TO_WARN,
     ChangeWindow,
+    ExposedUnits,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
@@ -40,13 +42,30 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 FLAG_KEY = "split-gate"
 FULL_ACCESS = ExperimentHealthReaderAccess(
-    can_read_flag_history=True, can_query_events=True, denied_event_properties=frozenset()
+    can_read_flag_history=True,
+    can_query_events=True,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 _BY_EVENT_PROPERTY: dict[str, Any] = {
     "exposure_config": {
         "kind": "ExperimentEventExposureConfig",
         "event": "$feature_flag_called",
         "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "event"}],
+    }
+}
+_BY_PERSON_PROPERTY: dict[str, Any] = {
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}],
+    }
+}
+_BY_HOGQL: dict[str, Any] = {
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [{"key": "properties.plan = 'pro'", "type": "hogql"}],
     }
 }
 _BY_ACTION: dict[str, Any] = {"exposure_config": {"kind": "ActionsNode", "id": 1}}
@@ -129,16 +148,31 @@ class TestLoadFlagHistory(BaseTest):
         self,
         answers: list[bool | Exception] | Callable[..., bool],
         *,
-        units: list[int | Exception] | Callable[..., int] | None = None,
+        units: list[int | ExposedUnits | Exception] | Callable[..., int | ExposedUnits] | None = None,
         reader_access: ExperimentHealthReaderAccess = FULL_ACCESS,
         load: Callable[..., FlagHistory | FlagHistoryNotChecked | None] = load_flag_history,
     ) -> tuple[FlagHistory | FlagHistoryNotChecked | None, MagicMock]:
+        remaining = iter(units) if isinstance(units, list) else None
+        supplier = None if isinstance(units, list) else units
+
+        def count(*args: Any, **kwargs: Any) -> ExposedUnits:
+            answer: int | ExposedUnits | Exception
+            if remaining is not None:
+                answer = next(remaining)
+            elif supplier is not None:
+                answer = supplier(*args, **kwargs)
+            else:
+                answer = MIN_EXPOSED_UNITS_TO_WARN
+            if isinstance(answer, Exception):
+                raise answer
+            if isinstance(answer, ExposedUnits):
+                return answer
+            return ExposedUnits(units=answer, paths={((0, "control"),): answer}, complete=True)
+
         with (
             patch("products.experiments.backend.health.exposure_gate.query_any_exposure", side_effect=answers) as query,
             patch(
-                "products.experiments.backend.health.exposure_gate.query_exposed_units",
-                side_effect=units,
-                return_value=MIN_EXPOSED_UNITS_TO_WARN,
+                "products.experiments.backend.health.exposure_gate.query_exposed_units", side_effect=count
             ) as units_query,
         ):
             history = load(self.experiment, reader_access=reader_access)
@@ -190,6 +224,30 @@ class TestLoadFlagHistory(BaseTest):
         self.assertEqual([change.changed_at for change in history.counted(SplitChange)], changed_at[2:])
         self.assertEqual(query.call_count, 2)
 
+    def test_names_the_group_types_of_a_match_by_change(self) -> None:
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            name_plural="organizations",
+        )
+        create_group_type_mapping(
+            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+        )
+        self._log_change(
+            self.launched_at + timedelta(days=1),
+            filters=(
+                {**_filters(_split(50, 50)), "aggregation_group_type_index": 0},
+                {**_filters(_split(50, 50)), "aggregation_group_type_index": 1},
+            ),
+        )
+
+        history, _ = self._load([True])
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(history.group_type_names, {0: "organizations", 1: "company"})
+
     def test_each_window_asks_with_the_key_the_flag_had_then(self) -> None:
         first_at = self.launched_at + timedelta(days=1)
         changed_at = [first_at, first_at + timedelta(hours=1)]
@@ -233,7 +291,13 @@ class TestLoadFlagHistory(BaseTest):
         )
         self.assertEqual(
             [
-                (call.kwargs["window_start"], call.kwargs["window_end"], call.kwargs["served"])
+                (
+                    call.kwargs["window_start"],
+                    call.kwargs["window_end"],
+                    call.kwargs["served"],
+                    call.kwargs["by_path"],
+                    call.kwargs["split_points"],
+                )
                 for call in self.units_query.call_args_list
             ],
             [
@@ -241,8 +305,10 @@ class TestLoadFlagHistory(BaseTest):
                     self.launched_at,
                     changed_at[2],
                     (("first-key", ("control", "test")), (FLAG_KEY, ("control", "test"))),
+                    True,
+                    (changed_at[1],),
                 ),
-                (self.launched_at, changed_at[0], (("first-key", ("control", "test")),)),
+                (self.launched_at, changed_at[0], (("first-key", ("control", "test")),), False, ()),
             ],
         )
 
@@ -267,16 +333,36 @@ class TestLoadFlagHistory(BaseTest):
         assert isinstance(history, FlagHistory)
         self.assertEqual((query.call_count, self.units_query.call_count), (0, 0))
 
-    def test_a_count_is_cached_apart_from_the_exposure_answer_of_the_same_window(self) -> None:
+    def test_split_history_after_a_split_change_after_the_end_queries_no_exposures(self) -> None:
+        ended_at = self.launched_at + timedelta(days=1)
+        self.experiment.end_date = ended_at
+        self.experiment.save()
+        changed_at = self._log_split_changes(
+            [_split(50, 50), _split(60, 40), _split(70, 30)], first_at=ended_at - timedelta(minutes=30)
+        )
+
+        history, query = self._load([True], load=load_split_history)
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual([change.changed_at for change in history.of_kind(SplitChange)], changed_at)
+        self.assertEqual((query.call_count, self.units_query.call_count), (0, 0))
+
+    @parameterized.expand([("complete", True, {((0, "control"),): 2, ((0, "test"),): 1}), ("at_the_cap", False, None)])
+    def test_a_count_is_cached_apart_from_the_exposure_answer_of_the_same_window(
+        self, _name: str, complete: bool, paths: dict[tuple[tuple[int, str], ...], int] | None
+    ) -> None:
         self._log_split_changes([_split(50, 50), _split(60, 40)])
-        first, _ = self._load([True], units=[3])
+        first, _ = self._load(
+            [True], units=[ExposedUnits(units=3, paths={((0, "control"),): 2, ((0, "test"),): 1}, complete=complete)]
+        )
 
         with patch("products.experiments.backend.health.exposure_gate.cache", wraps=cache) as cache_spy:
             second, query = self._load([])
 
         assert isinstance(first, FlagHistory) and isinstance(second, FlagHistory)
-        self.assertEqual(first.exposed_units_before_last, {ExperimentHealthFlagChangeKind.SPLIT: 3})
-        self.assertEqual(second.exposed_units_before_last, {ExperimentHealthFlagChangeKind.SPLIT: 3})
+        for history in (first, second):
+            self.assertEqual(history.exposed_units_before_last, {ExperimentHealthFlagChangeKind.SPLIT: 3})
+            self.assertEqual(history.split_paths_before_last, paths)
         self.assertEqual((query.call_count, self.units_query.call_count), (0, 0))
         self.assertEqual((cache_spy.get_many.call_count, cache_spy.get.call_count), (1, 0))
 
@@ -297,7 +383,10 @@ class TestLoadFlagHistory(BaseTest):
         history, query = self._load(
             [],
             reader_access=ExperimentHealthReaderAccess(
-                can_read_flag_history=True, can_query_events=True, denied_event_properties=denied
+                can_read_flag_history=True,
+                can_query_events=True,
+                denied_event_properties=denied,
+                restricted_properties=frozenset(),
             ),
         )
 
@@ -324,6 +413,8 @@ class TestLoadFlagHistory(BaseTest):
                 "custom_event_without_property_filters",
                 {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "checkout", "properties": []}},
             ),
+            ("event_property_filters", _BY_EVENT_PROPERTY),
+            ("person_property_filters", _BY_PERSON_PROPERTY),
             (
                 "activation_event_on_the_default_exposure",
                 {
@@ -412,7 +503,7 @@ class TestLoadFlagHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("exposure_filters", _BY_EVENT_PROPERTY, True, True, FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+            ("exposure_filters", _BY_HOGQL, True, True, FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
             ("exposure_action", _BY_ACTION, True, True, FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
             ("exposure_criteria", _UNREADABLE, True, True, FlagHistoryNotCheckedReason.EXPOSURE_CRITERIA),
             ("no_query_access", {}, True, False, FlagHistoryNotCheckedReason.NO_QUERY_ACCESS),
@@ -421,7 +512,7 @@ class TestLoadFlagHistory(BaseTest):
                 _BY_EVENT_PROPERTY,
                 True,
                 False,
-                FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
+                FlagHistoryNotCheckedReason.NO_QUERY_ACCESS,
             ),
             ("no_history_access", {}, False, True, FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
         ]
@@ -444,6 +535,7 @@ class TestLoadFlagHistory(BaseTest):
                 can_read_flag_history=can_read_flag_history,
                 can_query_events=can_query_events,
                 denied_event_properties=frozenset(),
+                restricted_properties=frozenset(),
             ),
         )
 
@@ -455,12 +547,15 @@ class TestLoadFlagHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("exposure_filters", _BY_EVENT_PROPERTY, FULL_ACCESS),
+            ("exposure_action", _BY_ACTION, FULL_ACCESS),
             (
                 "no_query_access",
                 {},
                 ExperimentHealthReaderAccess(
-                    can_read_flag_history=True, can_query_events=False, denied_event_properties=frozenset()
+                    can_read_flag_history=True,
+                    can_query_events=False,
+                    denied_event_properties=frozenset(),
+                    restricted_properties=frozenset(),
                 ),
             ),
         ]
@@ -571,6 +666,24 @@ class TestLoadFlagHistory(BaseTest):
         self.assertEqual(history.exposed_units_before_last, {ExperimentHealthFlagChangeKind.SPLIT: None})
         self.assertEqual(self.units_query.call_count, 0)
 
+    @parameterized.expand([("team_timezone",), ("property_type",)])
+    def test_a_setting_that_the_filters_compile_with_asks_again(self, setting: str) -> None:
+        self.experiment.exposure_criteria = _BY_EVENT_PROPERTY
+        self.experiment.save()
+        self._log_split_changes([_split(50, 50), _split(60, 40)])
+        self._load([False])
+
+        if setting == "team_timezone":
+            self.experiment.team.timezone = "Europe/Berlin"
+            self.experiment.team.save()
+        else:
+            PropertyDefinition.objects.create(
+                team=self.team, name="plan", property_type="Numeric", type=PropertyDefinition.Type.EVENT
+            )
+        _, query = self._load([False])
+
+        self.assertEqual(query.call_count, 1)
+
     def test_cached_walk_reads_the_cache_once(self) -> None:
         self._log_split_changes([_split(50, 50), _split(60, 40)] * 5)
         self._load([False] * 9)
@@ -585,7 +698,15 @@ class TestLoadFlagHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("exposed", True, 5, timedelta(minutes=10), timedelta(days=2), 0, 0),
+            (
+                "count_at_the_cap",
+                True,
+                ExposedUnits(units=900, paths={((0, "control"),): 900}, complete=False),
+                timedelta(minutes=10),
+                timedelta(minutes=10),
+                0,
+                0,
+            ),
             ("nobody_in_a_settled_window", False, None, timedelta(hours=2), timedelta(days=2), 0, 0),
             ("nobody_in_a_recent_window_minutes_later", False, None, timedelta(minutes=10), timedelta(minutes=1), 0, 0),
             ("nobody_in_a_recent_window_later", False, None, timedelta(minutes=10), timedelta(minutes=10), 1, 0),
@@ -597,7 +718,7 @@ class TestLoadFlagHistory(BaseTest):
         self,
         _name: str,
         answer: bool,
-        units: int | None,
+        units: int | ExposedUnits | None,
         change_age: timedelta,
         next_load_after: timedelta,
         expected_queries: int,
@@ -641,6 +762,15 @@ class TestQueryAnyExposure(ClickhouseTestMixin, BaseTest):
                 3,
                 True,
             ),
+            (
+                "event_property_filter_that_the_exposure_misses",
+                _BY_EVENT_PROPERTY,
+                "$feature_flag_called",
+                "test",
+                3,
+                False,
+            ),
+            ("person_property_filter_left_out", _BY_PERSON_PROPERTY, "$feature_flag_called", "test", 3, True),
         ]
     )
     def test_query_any_exposure(
@@ -682,31 +812,72 @@ class TestQueryAnyExposure(ClickhouseTestMixin, BaseTest):
         self.assertIs(exposed, expected)
 
 
+Exposure = tuple[str, str, str, str | None, float]
+
+
 class TestQueryExposedUnits(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
-            ("capped", None, [(f"person-{index}", FLAG_KEY, "test", None) for index in range(7)], 5),
+            (
+                "capped",
+                None,
+                [(f"person-{index}", FLAG_KEY, "test", None, 3) for index in range(7)],
+                True,
+                (),
+                (5, {((0, "test"),): 5}, False),
+            ),
             (
                 "each_person_once_under_every_key",
                 None,
                 [
-                    ("person-1", "old-key", "control", None),
-                    ("person-1", FLAG_KEY, "control", None),
-                    ("person-2", FLAG_KEY, "test", None),
-                    ("person-3", FLAG_KEY, "blue", None),
+                    ("person-1", "old-key", "control", None, 3),
+                    ("person-1", FLAG_KEY, "control", None, 3),
+                    ("person-2", FLAG_KEY, "test", None, 3),
+                    ("person-3", FLAG_KEY, "blue", None, 3),
                 ],
-                2,
+                True,
+                (),
+                (2, {((0, "control"),): 1, ((0, "test"),): 1}, True),
             ),
             (
                 "groups_with_a_group_key",
                 0,
                 [
-                    ("person-1", FLAG_KEY, "test", "org-1"),
-                    ("person-2", FLAG_KEY, "control", "org-1"),
-                    ("person-3", FLAG_KEY, "test", "org-2"),
-                    ("person-4", FLAG_KEY, "test", None),
+                    ("person-1", FLAG_KEY, "test", "org-1", 3),
+                    ("person-2", FLAG_KEY, "control", "org-1", 3),
+                    ("person-3", FLAG_KEY, "test", "org-2", 3),
+                    ("person-4", FLAG_KEY, "test", None, 3),
                 ],
-                2,
+                True,
+                (),
+                (2, {((0, "control"), (0, "test")): 1, ((0, "test"),): 1}, True),
+            ),
+            (
+                "each_person_by_the_part_of_the_window_they_were_exposed_in",
+                None,
+                [
+                    ("person-1", FLAG_KEY, "control", None, 4),
+                    ("person-1", FLAG_KEY, "test", None, 2),
+                    ("person-2", FLAG_KEY, "control", None, 2),
+                    ("person-3", FLAG_KEY, "test", None, 4),
+                ],
+                True,
+                (3,),
+                (3, {((0, "control"), (1, "test")): 1, ((1, "control"),): 1, ((0, "test"),): 1}, True),
+            ),
+            (
+                "without_paths_a_person_in_two_variants_counts_once_towards_the_cap",
+                None,
+                [
+                    ("person-1", FLAG_KEY, "control", None, 3),
+                    ("person-1", FLAG_KEY, "test", None, 3),
+                    ("person-2", FLAG_KEY, "control", None, 3),
+                    ("person-2", FLAG_KEY, "test", None, 3),
+                    *((f"person-{index}", FLAG_KEY, "test", None, 3) for index in range(3, 7)),
+                ],
+                False,
+                (),
+                (5, {}, False),
             ),
         ]
     )
@@ -714,14 +885,16 @@ class TestQueryExposedUnits(ClickhouseTestMixin, BaseTest):
         self,
         _name: str,
         group_type_index: int | None,
-        exposures: list[tuple[str, str, str, str | None]],
-        expected: int,
+        exposures: list[Exposure],
+        by_path: bool,
+        split_points_days_ago: tuple[float, ...],
+        expected: tuple[int, dict[tuple[tuple[int, str], ...], int], bool],
     ) -> None:
         now = timezone.now()
         experiment = _create_running_experiment(self.team, self.user, launched_at=now - timedelta(days=5))
         for distinct_id in dict.fromkeys(distinct_id for distinct_id, *_ in exposures):
             create_person(team=self.team, distinct_ids=[distinct_id])
-        for distinct_id, flag_key, variant, group_key in exposures:
+        for distinct_id, flag_key, variant, group_key, days_ago in exposures:
             _create_event(
                 team=self.team,
                 event="$feature_flag_called",
@@ -731,17 +904,20 @@ class TestQueryExposedUnits(ClickhouseTestMixin, BaseTest):
                     "$feature_flag_response": variant,
                     **({"$group_0": group_key} if group_key else {}),
                 },
-                timestamp=now - timedelta(days=3),
+                timestamp=now - timedelta(days=days_ago),
             )
         flush_persons_and_events()
 
-        units = query_exposed_units(
-            experiment,
-            window_start=now - timedelta(days=5),
-            window_end=now - timedelta(days=1),
-            served=[("old-key", ["control", "test"]), (FLAG_KEY, ["control", "test"])],
-            group_type_index=group_type_index,
-            default_exposure_event=DEFAULT_EXPOSURE_EVENT,
-        )
+        with patch("products.experiments.backend.health.exposure_gate.MAX_COUNTED_BEFORE_CHANGE", 5):
+            units = query_exposed_units(
+                experiment,
+                window_start=now - timedelta(days=5),
+                window_end=now - timedelta(days=1),
+                served=[("old-key", ["control", "test"]), (FLAG_KEY, ["control", "test"])],
+                group_type_index=group_type_index,
+                default_exposure_event=DEFAULT_EXPOSURE_EVENT,
+                by_path=by_path,
+                split_points=[now - timedelta(days=days_ago) for days_ago in split_points_days_ago],
+            )
 
-        self.assertEqual(units, expected)
+        self.assertEqual((units.units, dict(units.paths), units.complete), expected)

@@ -134,7 +134,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fil
     normalize_column_name,
     normalize_delimiter,
     resolve_file_format,
-    uses_brotli_compression,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
@@ -167,6 +166,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.legacy_oauth import (
+    LegacyOAuthGrant,
+    LegacyOAuthGrantUnusable,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     CredentialAccountsMixin,
@@ -182,6 +185,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     unbracket_host,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import PointerPath
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.added_tables import (
+    table_root_of_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     AzureBlobConfig,
     DiscoveryOptions,
@@ -189,7 +195,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStoreProvider,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
-    FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
@@ -362,6 +367,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     SelectQueryBuilder,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -390,6 +396,7 @@ __all__ = [
     "BearerTokenAuthConfig",
     "BoundaryCheckpoint",
     "BoundedRetry",
+    "CERTIFICATE_ERRORS",
     "CHUNK_SIZE",
     "CLOUDFLARE_TRANSIENT_STATUSES",
     "CanonicalDescriptions",
@@ -418,7 +425,6 @@ __all__ = [
     "ExternalDataSource",
     "ExternalDataSourceType",
     "ExternalWebhookInfo",
-    "FEATURE_FLAG",
     "FILE_MODIFIED_AT_COLUMN",
     "FILE_PATH_COLUMN",
     "FORMAT_ERROR",
@@ -453,6 +459,8 @@ __all__ = [
     "JSONResponseCursorPaginatorConfig",
     "JSONResponsePaginator",
     "KEYWORDS",
+    "LegacyOAuthGrant",
+    "LegacyOAuthGrantUnusable",
     "MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP",
     "MAX_EXCEL_FILE_BYTES",
     "MetaAdsIntegration",
@@ -641,6 +649,7 @@ __all__ = [
     "strip_oauth2_permanent_marker",
     "submit_with_context",
     "suspend_adapter_retries",
+    "table_root_of_url",
     "text_field",
     "tracked_interceptors",
     "try_resolve_parent_table",
@@ -648,6 +657,5 @@ __all__ = [
     "unreachable_vendor_message",
     "update_sync_type_config_keys",
     "url_field",
-    "uses_brotli_compression",
     "validate_via_probe",
 ]

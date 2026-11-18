@@ -105,6 +105,12 @@ export const DISPLAY_OPTIONS = [
     { name: 'lifecycleStacking', label: 'Stack bars', group: 'display', control: 'checkbox' },
     { name: 'valuesOnSeries', label: 'Show values on series', group: 'display', control: 'checkbox' },
     {
+        name: 'funnelSummaryOnDashboards',
+        label: 'Show summary on dashboards',
+        group: 'display',
+        control: 'checkbox',
+    },
+    {
         name: 'valueLabelPosition',
         label: 'Value position',
         group: 'display',
@@ -115,6 +121,7 @@ export const DISPLAY_OPTIONS = [
             { value: 'center', label: 'Inside' },
         ],
     },
+    { name: 'valueLabelColors', label: 'Value colors', group: 'display', advanced: true, control: 'custom' },
     { name: 'valueLabelBackground', label: 'Value background', group: 'display', advanced: true, control: 'checkbox' },
     {
         name: 'valueLabelFontSize',
@@ -133,6 +140,7 @@ export const DISPLAY_OPTIONS = [
         options: ROTATION_OPTIONS,
     },
     { name: 'lifecyclePercentages', label: 'Show percentages on series', group: 'display', control: 'checkbox' },
+    { name: 'colorBarsByCategory', label: 'Color bars by category', group: 'display', control: 'checkbox' },
     { name: 'percentStack', label: 'Show as % of total', group: 'display', advanced: true, control: 'checkbox' },
     { name: 'stackBreakdown', label: 'Stack breakdown values', group: 'display', advanced: true, control: 'checkbox' },
     { name: 'sliceNames', label: 'Show names on slices', group: 'display', control: 'checkbox' },
@@ -242,6 +250,7 @@ export const DISPLAY_OPTIONS = [
         max: 9,
         placeholder: String(DEFAULT_DECIMAL_PLACES),
     },
+    { name: 'funnelBinCount', label: 'Bins', group: 'display', control: 'custom' },
     {
         name: 'retentionDashboardDisplay',
         label: 'On dashboards',

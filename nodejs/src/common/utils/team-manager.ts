@@ -30,6 +30,14 @@ export function validTeamIds(keys: string[]): number[] {
     return keys.map(Number).filter(isValidTeamId)
 }
 
+// Ids and tokens share one cache, so each key carries its kind. A token that looks like a number
+// must only ever match `api_token`, never `id`.
+const ID_KEY_PREFIX = 'id:'
+const TOKEN_KEY_PREFIX = 'token:'
+
+const idKey = (teamId: number | string): string => `${ID_KEY_PREFIX}${teamId}`
+const tokenKey = (token: string): string => `${TOKEN_KEY_PREFIX}${token}`
+
 export interface TeamManagerOptions {
     /** Retry transient team-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
     loaderRetry?: LoaderRetryOptions
@@ -52,26 +60,28 @@ export class TeamManager {
             refreshAgeMs: 2 * 60 * 1000, // 2 minute
             refreshJitterMs: 30 * 1000, // 30 seconds
             loaderRetry: options?.loaderRetry,
-            loader: async (teamIdOrTokens: string[]) => {
-                return await this.fetchTeams(teamIdOrTokens)
+            loader: async (keys: string[]) => {
+                return await this.fetchTeams(keys)
             },
         })
     }
 
     public async getTeam(teamId: number): Promise<Team | null> {
-        return this.lazyLoader.get(String(teamId))
+        return this.lazyLoader.get(idKey(teamId))
     }
 
     public async getTeamByToken(token: string): Promise<Team | null> {
-        return this.lazyLoader.get(token)
+        return this.lazyLoader.get(tokenKey(token))
     }
 
     public async getTeams(teamIds: number[]): Promise<Record<string, Team | null>> {
-        return this.lazyLoader.getMany(teamIds.map(String))
+        const loaded = await this.lazyLoader.getMany(teamIds.map(idKey))
+        return Object.fromEntries(teamIds.map((teamId) => [String(teamId), loaded[idKey(teamId)] ?? null]))
     }
 
     public async getTeamsByTokens(tokens: string[], options?: LoadOptions): Promise<Record<string, Team | null>> {
-        return this.lazyLoader.getMany(tokens, options)
+        const loaded = await this.lazyLoader.getMany(tokens.map(tokenKey), options)
+        return Object.fromEntries(tokens.map((token) => [token, loaded[tokenKey(token)] ?? null]))
     }
 
     public async hasAvailableFeature(teamId: number, feature: OrganizationAvailableFeature): Promise<boolean> {
@@ -109,7 +119,7 @@ export class TeamManager {
 
             // Both keys, because a team is cached under its id and its token but ingestion only ever
             // looks it up by token - refreshing the id alone leaves the entry this worker reads stale.
-            this.lazyLoader.markForRefresh([String(team.id), team.api_token])
+            this.lazyLoader.markForRefresh([idKey(team.id), tokenKey(team.api_token)])
 
             if ((updateResult.rowCount ?? 0) === 0) {
                 // Another worker (or an earlier event seen through a stale cache) already flipped
@@ -133,6 +143,7 @@ export class TeamManager {
                         team,
                         'first team event ingested',
                         {
+                            $update_person_last_seen_at: false,
                             sdk: properties.$lib,
                             realm: properties.realm,
                             host: properties.$host,
@@ -146,25 +157,22 @@ export class TeamManager {
         }
     }
 
-    private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
-        const [teamIds, tokens] = teamIdOrTokens.reduce(
-            ([teamIds, tokens], idOrToken) => {
-                // TRICKY: We are caching ids and tokens so we need to determine which is which
-                // Fix this to be a prefix based lookup. Added hack to limit to positive integer
-                // that shouldn't overflow 32-bit integer in DB column.
-                if (/^\d{1,10}$/.test(idOrToken)) {
-                    const parsed = parseInt(idOrToken)
-                    // TODO: stat if this happens
+    private async fetchTeams(keys: string[]): Promise<Record<string, Team | null>> {
+        const teamIds: number[] = []
+        const tokens: string[] = []
+        for (const key of keys) {
+            if (key.startsWith(ID_KEY_PREFIX)) {
+                const rawId = key.slice(ID_KEY_PREFIX.length)
+                if (/^\d{1,10}$/.test(rawId)) {
+                    const parsed = parseInt(rawId)
                     if (isValidTeamId(parsed)) {
                         teamIds.push(parsed)
                     }
-                } else {
-                    tokens.push(idOrToken)
                 }
-                return [teamIds, tokens]
-            },
-            [[] as number[], [] as string[]]
-        )
+            } else if (key.startsWith(TOKEN_KEY_PREFIX)) {
+                tokens.push(key.slice(TOKEN_KEY_PREFIX.length))
+            }
+        }
 
         const result = await this.postgres.query<RawTeam>(
             PostgresUse.COMMON_READ,
@@ -208,10 +216,10 @@ export class TeamManager {
             'fetch-teams-with-features'
         )
 
-        // Initialize result record with nulls for all requested IDs/tokens
+        // Initialize result record with nulls for all requested keys
         const resultRecord: Record<string, Team | null> = {}
-        for (const idOrToken of teamIdOrTokens) {
-            resultRecord[idOrToken] = null
+        for (const key of keys) {
+            resultRecord[key] = null
         }
 
         // Fill in actual teams where they exist
@@ -228,8 +236,8 @@ export class TeamManager {
                         : null,
                 available_features: availableFeatures(available_product_feature_keys),
             }
-            resultRecord[row.id] = team
-            resultRecord[row.api_token] = team
+            resultRecord[idKey(row.id)] = team
+            resultRecord[tokenKey(row.api_token)] = team
         })
 
         return resultRecord

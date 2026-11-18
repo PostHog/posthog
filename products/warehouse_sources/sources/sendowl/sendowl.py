@@ -1,24 +1,24 @@
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    ClientConfig,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
-from products.warehouse_sources.sources.sendowl.settings import SENDOWL_ENDPOINTS
+from products.warehouse_sources.sources.sendowl.settings import PER_PAGE, SENDOWL_ENDPOINTS, SendowlEndpointConfig
 
 SENDOWL_BASE_URL = "https://www.sendowl.com"
-# SendOwl caps `per_page` at 50 (default 10); the largest page minimises round trips while
-# staying under the documented ~1 request/second advisory.
-PER_PAGE = 50
 # Cheap endpoint used to confirm the credentials are genuine. The key pair is account-wide, so
 # one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/api/v1/products"
@@ -29,6 +29,7 @@ class SendowlResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `id`.
     next_page: int = 1
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 class SendowlPaginator(BasePaginator):
@@ -87,6 +88,78 @@ def _unwrap(wrapper_key: str):
     return _map
 
 
+def _software_products(row: dict[str, Any]) -> list[dict[str, Any]]:
+    # Only software products carry license keys, so skip the licenses request for the others.
+    product = row["product"]
+    return [product] if product.get("product_type") == "software" else []
+
+
+def _client_config(api_key: str, api_secret: str) -> ClientConfig:
+    return {
+        "base_url": SENDOWL_BASE_URL,
+        "headers": {"Accept": "application/json"},
+        # HTTP Basic auth with the API key as username and the secret as password. Supplying it
+        # via the framework auth config redacts the secret from any raised error/log.
+        "auth": {"type": "http_basic", "username": api_key, "password": api_secret},
+        "paginator": SendowlPaginator(per_page=PER_PAGE),
+    }
+
+
+def _fanout_source(
+    api_key: str,
+    api_secret: str,
+    endpoint: str,
+    config: SendowlEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[SendowlResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        resumable_source_manager.save_state(SendowlResumeConfig(fanout_state=state))
+
+    resource = build_dependent_resource(
+        endpoint_configs=SENDOWL_ENDPOINTS,
+        child_endpoint=endpoint,
+        fanout=config.fanout,
+        # License keys are redeemable codes under a generic `key` field the sample scrubber does
+        # not redact, so keep these responses out of HTTP sample capture.
+        client_config={**_client_config(api_key, api_secret), "capture": False},
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        page_size_param="per_page",
+        parent_endpoint_extra={"data_selector_malformed_retryable": True},
+        parent_data_map=_software_products,
+        child_endpoint_extra={
+            "data_selector_malformed_retryable": True,
+            # A product deleted after the products listing returns 404 here, so skip it.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+        # Keeps the checkpoint to two pages of finished products instead of every product.
+        resume_parent_pagination=True,
+    )
+    items = cast(Resource, resource).add_map(_unwrap(config.wrapper_key))
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: items,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+    )
+
+
 def sendowl_source(
     api_key: str,
     api_secret: str,
@@ -98,15 +171,11 @@ def sendowl_source(
 ) -> SourceResponse:
     config = SENDOWL_ENDPOINTS[endpoint]
 
+    if config.fanout is not None:
+        return _fanout_source(api_key, api_secret, endpoint, config, team_id, job_id, resumable_source_manager)
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": SENDOWL_BASE_URL,
-            "headers": {"Accept": "application/json"},
-            # HTTP Basic auth with the API key as username and the secret as password. Supplying it
-            # via the framework auth config redacts the secret from any raised error/log.
-            "auth": {"type": "http_basic", "username": api_key, "password": api_secret},
-            "paginator": SendowlPaginator(per_page=PER_PAGE),
-        },
+        "client": _client_config(api_key, api_secret),
         "resource_defaults": {},
         "resources": [
             {

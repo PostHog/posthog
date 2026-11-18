@@ -11,13 +11,14 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import EventProperty, Team, User
+from posthog.models import Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend import session_event_deltas
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.models.experiment import Experiment
@@ -1073,9 +1074,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
     @rank_anything
     def test_an_action_based_exposure_still_backs_its_cards_with_recordings(self) -> None:
-        action = Action.objects.create(
-            team=self.team, name="Reached checkout", steps_json=[{"event": "checkout_viewed"}]
-        )
+        action = create_action(team=self.team, name="Reached checkout", steps_json=[{"event": "checkout_viewed"}])
         experiment = self._create_experiment(
             metrics=[PURCHASE_METRIC], exposure_criteria={"exposure_config": {"kind": "ActionsNode", "id": action.id}}
         )

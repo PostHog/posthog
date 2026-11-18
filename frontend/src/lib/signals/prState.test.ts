@@ -19,7 +19,22 @@ describe('prState', () => {
             ['a draft PR is not up for review', SignalReportStatus.READY, false, 'draft', 'draft'],
             ['an open PR is up for review', SignalReportStatus.READY, false, 'open', 'open'],
             ['an unreported PR state reads as open', SignalReportStatus.READY, false, undefined, 'open'],
+            ['an unknown PR state reads as open on a live report', SignalReportStatus.READY, false, 'unknown', 'open'],
+            ['a merged state wins without the merged flag', SignalReportStatus.FAILED, false, 'merged', 'merged'],
         ]
+
+        test.each([
+            SignalReportStatus.FAILED,
+            SignalReportStatus.RESOLVED,
+            SignalReportStatus.SUPPRESSED,
+            SignalReportStatus.CLOSED,
+        ])('closes a PR with no known state on a %s report', (status) => {
+            for (const prState of [undefined, null, 'unknown'] as const) {
+                const state = derivePrState(status, false, prState)
+                expect(state).toBe('closed')
+                expect(prCiGlyphStatus(state, 'pending')).toBeNull()
+            }
+        })
 
         test.each(cases)('%s', (_name, status, prMerged, prState, expected) => {
             expect(derivePrState(status, prMerged, prState)).toBe(expected)

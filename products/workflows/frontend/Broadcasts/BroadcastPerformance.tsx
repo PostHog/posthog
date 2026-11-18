@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -10,11 +10,36 @@ import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { EmailLinksTable } from '../Workflows/EmailLinksTable'
 import { BroadcastPerformanceLogicProps, broadcastPerformanceLogic } from './broadcastPerformanceLogic'
+import { describeRunAudience } from './broadcastRunAudience'
 import { BroadcastSendActivity } from './BroadcastSendActivity'
 import { BroadcastSendErrorAction, BroadcastSendErrorBanner } from './BroadcastSendErrorBanner'
 
+const HEADLINE_COLUMNS: Record<number, string> = {
+    6: '@xl:grid-cols-3 @4xl:grid-cols-6',
+    7: '@xl:grid-cols-4 @4xl:grid-cols-7',
+    8: '@xl:grid-cols-4 @4xl:grid-cols-8',
+}
+
 function share(part: number, whole: number): string {
-    return whole > 0 ? percentage(part / whole, 1) : '-'
+    return whole > 0 ? percentage(Math.min(part / whole, 1), 1) : '-'
+}
+
+export function BroadcastRunAudience(props: BroadcastPerformanceLogicProps): JSX.Element | null {
+    const { audience, capHoldHours } = useValues(broadcastPerformanceLogic(props))
+    if (!audience) {
+        return null
+    }
+    return (
+        <div className="flex flex-col gap-0.5 text-sm" data-attr="broadcast-run-audience">
+            <span>{describeRunAudience(audience)}</span>
+            {audience.waitingOnCap > 0 && audience.stillSending ? (
+                <span className="text-xs text-muted">
+                    Each email goes out when that person's frequency cap clears
+                    {capHoldHours ? `, at most ${capHoldHours} hours after it was held` : ''}.
+                </span>
+            ) : null}
+        </div>
+    )
 }
 
 export function BroadcastPerformance({
@@ -50,10 +75,21 @@ export function BroadcastPerformance({
     }
 
     const notSent = sendCounts?.notSent ?? 0
-    const headline = [
+    const headline: { label: string; value: string; detail: number | null; tooltip?: string }[] = [
         { label: 'Sent', value: humanFriendlyNumber(stats.sent), detail: null },
         ...(notSent > 0 ? [{ label: 'Not sent', value: humanFriendlyNumber(notSent), detail: null }] : []),
         { label: 'Delivered', value: share(stats.delivered, stats.sent), detail: stats.delivered },
+        ...(stats.awaitingResult > 0
+            ? [
+                  {
+                      label: 'With no result',
+                      value: share(stats.awaitingResult, stats.sent),
+                      detail: stats.awaitingResult,
+                      tooltip:
+                          "Your email provider accepted these emails but hasn't reported a delivery or bounce for them. Often the receiving mail server asked to try again later. Results that arrive later move to Delivered or Bounced, and some emails never get one.",
+                  },
+              ]
+            : []),
         { label: 'Bounced', value: share(stats.bounced, stats.sent), detail: stats.bounced },
         { label: 'Marked as spam', value: share(stats.markedAsSpam, stats.sent), detail: stats.markedAsSpam },
         { label: 'Failed', value: share(stats.failed, stats.sent), detail: stats.failed },
@@ -65,12 +101,17 @@ export function BroadcastPerformance({
             : [
                   { label: 'Opened', part: stats.opened, whole: stats.trackedSends },
                   { label: 'Clicked', part: stats.clicked, whole: stats.trackedSends },
-                  { label: 'Clicked to opened', part: stats.clicked, whole: stats.opened },
+                  ...(stats.engagementCountsPeople
+                      ? [{ label: 'Clicked to opened', part: stats.clicked, whole: stats.opened }]
+                      : []),
               ]),
         ...(hasGoal ? [{ label: 'Converted', part: stats.converted, whole: stats.sent }] : []),
     ]
     const footnote = [
         trackingOff ? null : 'Opens and clicks are counted against sends with tracking on.',
+        !trackingOff && !stats.engagementCountsPeople
+            ? 'This send counts every open and click, so one person can count more than once.'
+            : null,
         hasGoal ? 'Conversions are counted against all sends.' : null,
     ]
         .filter(Boolean)
@@ -80,20 +121,24 @@ export function BroadcastPerformance({
         <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface-primary p-4">
             <EmailMetricsIncidentBanner dateFrom={dayjs(props.runStartedAt)} />
             <BroadcastSendErrorBanner {...props} fixAction={fixAction} resendAction={resendAction} content={content} />
-            <div
-                className={cn(
-                    'grid grid-cols-2 gap-4',
-                    notSent > 0 ? '@xl:grid-cols-4 @4xl:grid-cols-7' : '@xl:grid-cols-3 @4xl:grid-cols-6'
-                )}
-            >
-                {headline.map(({ label, value, detail }) => (
-                    <div key={label} className="flex flex-col">
-                        <span className="text-xl font-semibold">{value}</span>
-                        <span className="text-xs uppercase tracking-wide text-muted">
-                            {detail === null ? label : `${humanFriendlyNumber(detail)} ${label.toLowerCase()}`}
-                        </span>
-                    </div>
-                ))}
+            <div className={cn('grid grid-cols-2 gap-4', HEADLINE_COLUMNS[headline.length])}>
+                {headline.map(({ label, value, detail, tooltip }) => {
+                    const caption = detail === null ? label : `${humanFriendlyNumber(detail)} ${label.toLowerCase()}`
+                    return (
+                        <div key={label} className="flex flex-col">
+                            <span className="text-xl font-semibold">{value}</span>
+                            {tooltip ? (
+                                <Tooltip title={tooltip}>
+                                    <span className="w-fit cursor-help text-xs uppercase tracking-wide text-muted underline decoration-dotted">
+                                        {caption}
+                                    </span>
+                                </Tooltip>
+                            ) : (
+                                <span className="text-xs uppercase tracking-wide text-muted">{caption}</span>
+                            )}
+                        </div>
+                    )
+                })}
             </div>
 
             {stats.sent > 0 && trackingOff ? (

@@ -1,11 +1,10 @@
 import { type ReactElement, type RefObject, useState } from 'react'
-import { View } from 'react-native'
+import { View, type ViewInstance } from 'react-native'
 
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import { BackChip } from '@/ui/BackChip'
-import { BlurEdge } from '@/ui/BlurEdge'
-import { FadeEdge } from '@/ui/FadeEdge'
+import { HeaderBackdrop } from '@/ui/HeaderBackdrop'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
 import { PillControl } from '@/ui/PillControl'
@@ -13,9 +12,10 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { screenLayout } from '@/ui/screenLayout'
 import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, layout, radii } from '@/ui/tokens'
+import { useNativeRail } from '@/ui/useNativeRail'
 import { useScreenInsets } from '@/ui/useScreenInsets'
-
 import { ChatHeaderMenu } from './ChatHeaderMenu'
+import { NativeChatChrome } from './NativeChatChrome'
 import { useCopyChatLink } from './useCopyChatLink'
 
 const HEADER_TOP = screenLayout.top - layout.designStatusBar
@@ -27,7 +27,7 @@ export const CHAT_COMPACT_HEADER_HEIGHT = HEADER_TOP + ROW_HEIGHT + 8
 interface ChatHeaderProps {
     compact?: boolean
     webUrl: string | undefined
-    blurTarget?: RefObject<View | null>
+    blurTarget?: RefObject<ViewInstance | null>
     onBack: () => void
     onNewChat: () => void
     newChatDisabledReason?: string
@@ -46,6 +46,7 @@ export function ChatHeader({
     const { colors, shadows } = useTheme()
     const styles = useStyles()
     const insets = useScreenInsets()
+    const nativeRail = useNativeRail()
     const [menuOpen, setMenuOpen] = useState(false)
     const toasts = useToasts()
     const { copyLink, copying } = useCopyChatLink(toasts.show)
@@ -78,10 +79,19 @@ export function ChatHeader({
             ]}
             testID="chat-header"
         >
-            <BlurEdge solid={0.7} blurTarget={blurTarget} />
-            <FadeEdge direction="down" solid={0.7} opacity={layout.chromeTint} />
-            <BackChip onPress={onBack} testID="chat-back" />
-            {webUrl || onArchive ? (
+            <HeaderBackdrop fadeStart={insets.top + HEADER_TOP + ROW_HEIGHT} blurTarget={blurTarget} />
+            {nativeRail ? (
+                <NativeChatChrome
+                    onBack={onBack}
+                    onNewChat={onNewChat}
+                    onMore={() => setMenuOpen(true)}
+                    hasActions={!!(webUrl || onArchive)}
+                    disabledReason={newChatDisabledReason}
+                />
+            ) : (
+                <BackChip onPress={onBack} testID="chat-back" />
+            )}
+            {!nativeRail && (webUrl || onArchive) ? (
                 <PillControl height={ROW_HEIGHT} style={[styles.actions, shadows.chip]}>
                     <Pressable44
                         onPress={() => (newChatDisabledReason ? toasts.show(newChatDisabledReason) : onNewChat())}

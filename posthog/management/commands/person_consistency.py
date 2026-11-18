@@ -15,6 +15,13 @@ Usage:
     python manage.py person_consistency repair --dir /tmp/scan-2 --verb republish --apply --limit 10
     python manage.py person_consistency repair --dir /tmp/scan-2 --verb republish --apply --resume <actions file>
 
+    # Move distinct ids off a live person onto persons of their own (no scan needed):
+    python manage.py person_consistency split --team-id 2 --person-uuid <uuid> --distinct-id <id> --apply
+
+    # Republish named persons, or the owners of named distinct ids, from Postgres (no scan needed):
+    python manage.py person_consistency republish --team-id 2 --distinct-id <id> --apply
+    python manage.py person_consistency republish --team-id 2 --distinct-ids-file <file> --apply
+
 Scans are read-only. A scan that stops resumes with --resume. The report (report.jsonl) holds one row per
 key that is not ok, with the raw keys a repair needs; summary.json holds counts and hashed group names, and names no key.
 A repair writes nothing without --apply, and records one action per key in an actions file.
@@ -27,10 +34,13 @@ import argparse
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.person.divergence.detach import SplitError, split_distinct_ids
+from posthog.models.person.divergence.repairs import DEFAULT_MAX_WRITES_PER_SECOND, republish_named
 from posthog.models.person.divergence.team_scan import (
     PLAN_FILE,
     SUMMARY_FILE,
@@ -43,6 +53,8 @@ from posthog.models.person.divergence.team_scan import (
     run_postgres,
 )
 from posthog.models.person.divergence.verbs import VERBS, VerbError, run_verb
+
+_SHOWN_KEYS = 20
 
 
 def _parse_utc(value: str) -> datetime:
@@ -134,7 +146,7 @@ class Command(BaseCommand):
         repair.add_argument(
             "--max-calls-per-second",
             type=float,
-            default=20.0,
+            default=DEFAULT_MAX_WRITES_PER_SECOND,
             help="Personhog write calls per second (default: %(default)s).",
         )
         repair.add_argument(
@@ -148,6 +160,35 @@ class Command(BaseCommand):
             action="store_true",
             help="bury: tombstone new persons even past the share limit that protects a team needing a restore.",
         )
+
+        split = actions.add_parser(
+            "split",
+            help="DRY RUN unless --apply. Move distinct ids off a live person onto persons of their own.",
+        )
+        split.add_argument("--team-id", type=int, required=True, help="Team of the person.")
+        split.add_argument("--person-uuid", required=True, help="The live person that owns the distinct ids.")
+        split.add_argument(
+            "--distinct-id", action="append", required=True, help="Distinct id to move off the person. Repeatable."
+        )
+        split.add_argument("--apply", action="store_true", help="Split. Without it the command only checks.")
+
+        republish = actions.add_parser(
+            "republish",
+            help="DRY RUN unless --apply. Republish named persons, or the owners of named distinct ids, where "
+            "ClickHouse disagrees with Postgres.",
+        )
+        republish.add_argument("--team-id", type=int, required=True, help="Team of the persons.")
+        republish.add_argument("--person-uuid", action="append", default=[], help="Person to republish. Repeatable.")
+        republish.add_argument(
+            "--distinct-id", action="append", default=[], help="Republish the person that owns it. Repeatable."
+        )
+        republish.add_argument(
+            "--distinct-ids-file",
+            type=Path,
+            default=None,
+            help="A file of distinct ids, one per line, read like --distinct-id.",
+        )
+        republish.add_argument("--apply", action="store_true", help="Write. Without it the command only reports.")
 
         final = actions.add_parser("finalize", help="Join every run's rows into report.jsonl and summary.json.")
         self._add_dir(final)
@@ -201,10 +242,52 @@ class Command(BaseCommand):
                     self._scan(options)
                 elif options["action"] == "repair":
                     self._repair(options)
+                elif options["action"] == "split":
+                    split_distinct_ids(
+                        options["team_id"],
+                        options["person_uuid"],
+                        options["distinct_id"],
+                        apply=options["apply"],
+                        log=self._log,
+                    )
+                elif options["action"] == "republish":
+                    self._republish(options)
                 else:
                     self._finalize(options["dir"], partial=options["partial"])
-            except (ScanError, VerbError) as exc:
+            except (ScanError, VerbError, SplitError) as exc:
                 raise CommandError(str(exc)) from exc
+
+    def _republish(self, options: dict[str, Any]) -> None:
+        distinct_ids = list(options["distinct_id"])
+        if options["distinct_ids_file"] is not None:
+            # Read as bytes, because text mode turns a carriage return into a newline; only a newline ends an id.
+            text = options["distinct_ids_file"].read_bytes().decode()
+            distinct_ids.extend(line for line in text.split("\n") if line)
+        if not options["person_uuid"] and not distinct_ids:
+            raise CommandError("name at least one --person-uuid, --distinct-id or --distinct-ids-file")
+        try:
+            person_uuids = [str(UUID(uuid)) for uuid in options["person_uuid"]]
+        except ValueError as exc:
+            raise CommandError(f"--person-uuid must be a uuid: {exc}") from exc
+        apply = options["apply"]
+        result = republish_named(
+            options["team_id"], person_uuids=person_uuids, distinct_ids=distinct_ids, apply=apply, log=self._log
+        )
+        summary = result.summary
+        self._log(
+            f"republish {'APPLY' if apply else 'DRY RUN'}: {summary.persons} persons, "
+            f"person outcomes {summary.person_outcomes}, mapping outcomes {summary.mapping_outcomes}, "
+            f"undelivered {summary.undelivered}"
+        )
+        if not apply:
+            self._log("Dry run: nothing was written. Pass --apply to write.")
+        elif result.unconfirmed:
+            shown = ", ".join(result.unconfirmed[:_SHOWN_KEYS])
+            more = f" and {len(result.unconfirmed) - _SHOWN_KEYS} more" if len(result.unconfirmed) > _SHOWN_KEYS else ""
+            raise CommandError(
+                f"ClickHouse may still disagree with Postgres for {len(result.unconfirmed)} named keys: "
+                f"{shown}{more}. Check them with person_inspect."
+            )
 
     def _plan(self, options: dict[str, Any], *, chunks: int) -> None:
         if options["pg_page_size"] > 10_000:

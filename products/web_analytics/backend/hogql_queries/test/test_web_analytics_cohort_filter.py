@@ -15,7 +15,7 @@ from posthog.schema import (
 
 from posthog.models.utils import uuid7
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
@@ -318,7 +318,7 @@ class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        Action.objects.create(
+        create_action(
             team=self.team,
             name="Visit Page 1",
             steps_json=[{"event": "$pageview", "url": "/page1", "url_matching": "contains"}],

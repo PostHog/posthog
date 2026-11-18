@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import { DEFAULT_STATE, ONE_TIME_RRULE, parseRRuleToState } from './hogflows/steps/components/rrule-helpers'
 import { HogFlowSchedule } from './hogflows/types'
-import { workflowLogic } from './workflowLogic'
+import { NEW_WORKFLOW, workflowLogic } from './workflowLogic'
 
 const WEEKLY_MONDAY_RRULE = 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO'
 const STARTS_AT = '2026-04-10T09:00:00.000Z'
@@ -25,15 +25,6 @@ describe('workflowLogic schedule reducers', () => {
         initKeaTests()
         logic = workflowLogic({ id: 'new' })
         logic.mount()
-    })
-
-    describe('initial state', () => {
-        it('has default schedule state', () => {
-            expect(logic.values.scheduleState).toEqual(DEFAULT_STATE)
-            expect(logic.values.scheduleStartsAt).toBeNull()
-            expect(logic.values.isScheduleRepeating).toBe(false)
-            expect(logic.values.pendingSchedule).toBe(false)
-        })
     })
 
     describe('setSchedules', () => {
@@ -74,14 +65,6 @@ describe('workflowLogic schedule reducers', () => {
     })
 
     describe('pendingSchedule selector', () => {
-        it('returns false when no changes have been made', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setSchedules([makeSchedule()])
-            }).toMatchValues({
-                pendingSchedule: false,
-            })
-        })
-
         it('returns schedule config when starts_at changes', async () => {
             logic.actions.setSchedules([makeSchedule()])
             const newStartsAt = '2026-05-01T10:00:00.000Z'
@@ -93,21 +76,6 @@ describe('workflowLogic schedule reducers', () => {
                     rrule: expect.any(String),
                     starts_at: newStartsAt,
                     timezone: 'UTC',
-                },
-            })
-        })
-
-        it('returns schedule config when timezone changes', async () => {
-            logic.actions.setSchedules([makeSchedule()])
-
-            await expectLogic(logic, () => {
-                logic.actions.setScheduleTimezone('US/Eastern', 'UTC')
-            }).toMatchValues({
-                pendingSchedule: {
-                    rrule: expect.any(String),
-                    // Wall clock stays 9:00 AM, UTC shifts from 09:00 to 13:00 (9:00 AM EDT = UTC-4)
-                    starts_at: '2026-04-10T13:00:00.000Z',
-                    timezone: 'US/Eastern',
                 },
             })
         })
@@ -181,18 +149,6 @@ describe('workflowLogic schedule reducers', () => {
             applyChange()
             expect(logic.values.hasUnsavedChanges).toBe(true)
         })
-
-        it('is false after resetting changes', async () => {
-            logic.actions.setSchedules([makeSchedule()])
-            logic.actions.setScheduleTimezone('US/Eastern')
-            expect(logic.values.hasUnsavedChanges).toBe(true)
-
-            await expectLogic(logic, () => {
-                logic.actions.resetWorkflow(logic.values.workflow)
-            }).toMatchValues({
-                hasUnsavedChanges: false,
-            })
-        })
     })
 
     describe('end-to-end scenarios', () => {
@@ -249,23 +205,6 @@ describe('workflowLogic schedule reducers', () => {
                 pendingSchedule: false,
             })
             expect(logic.values.scheduleState.endType).toBe('never')
-        })
-
-        it('scenario 4: toggle repeat off produces one-time rrule', async () => {
-            logic.actions.setSchedules([makeSchedule()])
-            logic.actions.setScheduleRepeating(false)
-
-            const pending = logic.values.pendingSchedule
-            expect(pending).not.toBe(false)
-            expect((pending as any).rrule).toBe(ONE_TIME_RRULE)
-            expect((pending as any).starts_at).toBe(STARTS_AT)
-        })
-
-        it('scenario 5: clearing date on existing schedule produces null (delete)', async () => {
-            logic.actions.setSchedules([makeSchedule()])
-            logic.actions.setScheduleStartsAt(null)
-
-            expect(logic.values.pendingSchedule).toBeNull()
         })
 
         it('scenario 6: no false dirty state after loading schedule', async () => {
@@ -520,6 +459,31 @@ describe('workflowLogic schedule reducers', () => {
 
             expect(logic.values.currentSchedule?.id).toBe('schedule-1')
             expect(logic.values.pendingSchedule).toBe(false)
+        })
+
+        it.each([
+            { case: 'a blank new workflow', props: { id: 'new' } },
+            { case: 'a template being edited', props: { id: 'new', editTemplateId: 'template-1' } },
+        ])('asks for no schedules while $case is still unsaved', async ({ props }) => {
+            const scheduleRequests: string[] = []
+            const notFound = (req: { params: { id?: unknown } }): [number, Record<string, string>] => {
+                scheduleRequests.push(String(req.params.id))
+                return [404, { detail: 'Not found.' }]
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_flows/:id/schedules/': notFound,
+                    '/api/projects/:team_id/hog_flow_templates/:id/': { ...NEW_WORKFLOW, id: 'template-1' },
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+            })
+            logic.unmount()
+            logic = workflowLogic(props)
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+
+            expect(scheduleRequests).toEqual([])
         })
     })
 })

@@ -14,7 +14,11 @@ import { Hub, Team } from '~/types'
 
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { FrequencyCap, TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
+import {
+    EmailSuppressionService,
+    SuppressionLookupError,
+    emailSuppressionConfigFromEnv,
+} from './email-suppression.service'
 import { createFrequencyCapValkeyPool } from './frequency-cap-valkey-pool'
 import { FrequencyCapCheck, RecipientPreferencesService } from './recipient-preferences.service'
 import { RecipientTokensService } from './recipient-tokens.service'
@@ -396,6 +400,18 @@ describe('RecipientPreferencesService', () => {
                     const result = await service.shouldSkipAction(invocation, action)
 
                     expect(result).toBe(expected)
+                })
+
+                it('runs the step when the list cannot be read, so the send path can hold the email', async () => {
+                    jest.spyOn(mockEmailSuppressionService, 'isSuppressed').mockRejectedValue(
+                        new SuppressionLookupError()
+                    )
+                    const action = createEmailAction('unreadable@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                    const invocation = createFunctionStepInvocation(action)
+
+                    const result = await service.shouldSkipAction(invocation, action)
+
+                    expect(result).toBeNull()
                 })
 
                 // Suppressed cc and bcc addresses are removed at send time, and a deliverable cc address
@@ -783,6 +799,82 @@ describe('RecipientPreferencesService', () => {
             expect(await sendAt(pushToNamed, 1_800_000_000_001)).toBe(true)
             expect(persons.getCyclotronPerson).toHaveBeenCalledWith(team.id, 'named-user', 'distinct_id')
             expect(await sendAt(emailAction(), 1_800_000_000_002)).toBe(false)
+        })
+
+        describe('for an email the email worker will skip', () => {
+            const at = 1_800_000_000_000
+
+            type Unsendable = {
+                suspendedAt?: string
+                providerStatus?: string
+                pausedAt?: string
+                to?: { email: string } | null
+            }
+
+            const capOneMessageAWeek = async ({ suspendedAt, providerStatus }: Unsendable = {}): Promise<void> => {
+                jest.mocked(teamWorkflowsConfig.getFrequencyCap).mockRestore()
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, marketing_frequency_cap_max_messages,
+                         marketing_frequency_cap_window_days, email_sending_suspended_at, ses_tenant_sending_status)
+                     VALUES ($1, false, 'off', '', 1, 7, $2, $3)`,
+                    [team.id, suspendedAt ?? null, providerStatus ?? ''],
+                    'test-cap-one-message-a-week'
+                )
+            }
+            const checkEmailAt = (sendAt: number, { pausedAt, to }: Unsendable = {}): Promise<FrequencyCapCheck> => {
+                const action = emailAction()
+                if (to !== undefined) {
+                    action.config.inputs.email.value.to = to
+                }
+                const invocation = createFunctionStepInvocation(action)
+                if (pausedAt) {
+                    invocation.hogFunction.metadata = { email_sending_paused_at: pausedAt }
+                }
+                jest.spyOn(Date, 'now').mockReturnValue(sendAt)
+                return cappedService.checkFrequencyCap(invocation, action)
+            }
+            const push: Extract<HogFlowAction, { type: 'function_push' }> = {
+                id: 'push',
+                name: 'Send push',
+                description: '',
+                type: 'function_push',
+                filters: null,
+                config: { template_id: 'template-native-push', inputs: {} },
+                created_at: Date.now(),
+                updated_at: Date.now(),
+            }
+            const pausedWorkflow: Unsendable = { pausedAt: '2026-11-17T00:00:00Z' }
+
+            it.each<[string, Unsendable]>([
+                ['a team that staff suspended', { suspendedAt: '2026-11-17T00:00:00Z' }],
+                ['a team whose provider paused sending', { providerStatus: 'DISABLED' }],
+                ['a workflow with paused email', pausedWorkflow],
+                ['a blank recipient address', { to: { email: ' ' } }],
+                ['no recipient', { to: null }],
+            ])('takes no slot for %s', async (_, unsendable) => {
+                await capOneMessageAWeek(unsendable)
+
+                expect(await checkEmailAt(at, unsendable)).toEqual({ capped: false })
+                expect(await sendAt(push, at + 1)).toBe(false)
+            })
+
+            it('lets it through at the cap, so the email worker records why it did not send', async () => {
+                await capOneMessageAWeek()
+                expect(await sendAt(emailAction(), at)).toBe(false)
+                expect(await sendAt(emailAction(), at + 1)).toBe(true)
+
+                expect(await checkEmailAt(at + 2, pausedWorkflow)).toEqual({ capped: false })
+            })
+
+            it('still counts a push on a team with suspended email', async () => {
+                await capOneMessageAWeek({ suspendedAt: '2026-11-17T00:00:00Z' })
+
+                expect(await sendAt(push, at)).toBe(false)
+                expect(await sendAt(push, at + 1)).toBe(true)
+            })
         })
 
         it.each([

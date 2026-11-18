@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { listAvailableAccountViewComponents } from '../../components/Accounts/accountViewComponents'
 import type { AccountDetailTabsConfigApi, AccountViewApi } from '../../generated/api.schemas'
 import {
@@ -31,6 +33,18 @@ const tabs: AccountTabDefinition[] = [
 ]
 
 describe('account tabs', () => {
+    it.each([false, true])('gates the Automations tab, picker, and direct route (%s)', (enabled) => {
+        const flags = { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET]: enabled }
+        const availableTabs = listAccountTabs(flags, [])
+        expect(availableTabs.some((tab) => tab.id === 'system:automations')).toBe(enabled)
+        expect(listAvailableAccountViewComponents(flags).some((component) => component.kind === 'automations')).toBe(
+            enabled
+        )
+        expect(getActiveAccountTabId(availableTabs, emptyConfig, 'system:automations', 1)).toBe(
+            enabled ? 'system:automations' : 'system:notes'
+        )
+    })
+
     it.each(['properties', 'session_replays'])('offers %s tiles without adding a system tab', (kind) => {
         expect(listAvailableAccountViewComponents({}).map((component) => component.kind)).toContain(kind)
         expect(listAccountTabs({}, []).map((tab) => tab.routeKey)).not.toContain(kind)
@@ -41,25 +55,20 @@ describe('account tabs', () => {
         expect(getActiveAccountTabId(tabs, emptyConfig, 'view:missing', 1)).toBe('view:missing')
     })
 
-    it('does not apply tab preferences while account views are disabled', () => {
+    it('applies saved tab order, visibility, and default', () => {
         const config: AccountDetailTabsConfigApi = {
             ordered_tab_ids: ['system:users'],
             hidden_tab_ids: ['system:notes', 'view:shared'],
             default_tab_id: 'system:users',
         }
 
-        expect(listOrderedAccountTabs(tabs, config, false).map((tab) => tab.id)).toEqual([
+        expect(listOrderedAccountTabs(tabs, config).map((tab) => tab.id)).toEqual([
             'view:shared',
-            'system:notes',
             'system:users',
-        ])
-        expect(listVisibleAccountTabs(tabs, config, undefined, 1, false).map((tab) => tab.id)).toEqual([
-            'view:shared',
             'system:notes',
-            'system:users',
         ])
-        expect(getDefaultAccountTabId(tabs, config, 1, false)).toBe('system:notes')
-        expect(getDefaultAccountTabId(tabs, config, 1, true)).toBe('system:users')
+        expect(listVisibleAccountTabs(tabs, config, undefined, 1).map((tab) => tab.id)).toEqual(['system:users'])
+        expect(getDefaultAccountTabId(tabs, config, 1)).toBe('system:users')
     })
 
     it('does not opt into another user’s team view while reordering system tabs', () => {

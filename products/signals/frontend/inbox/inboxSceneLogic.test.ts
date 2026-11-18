@@ -17,7 +17,7 @@ import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { myClaim } from './__mocks__/inboxMocks'
-import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
+import { inboxSceneLogic, mergeSignalRuns, REPORT_READ_ACTIVE_MS } from './inboxSceneLogic'
 import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
 import { SignalReport, SignalReportStatus, SignalScoutRunSummary } from './types'
@@ -182,6 +182,28 @@ describe('inboxSceneLogic routing', () => {
         mountLogic()
         router.actions.push(urls.inbox())
         expect(logic.values.activeTab).toBe('reports')
+    })
+
+    it('uses the open report title in breadcrumbs and restores the inbox title on close', () => {
+        mountLogic()
+        const inboxBreadcrumbs = logic.values.breadcrumbs
+        expect(inboxBreadcrumbs).toHaveLength(1)
+
+        logic.actions.setSelectedReportId('report-1')
+        logic.actions.loadSelectedReportSuccess({ id: 'report-1', title: 'Example report' } as SignalReport)
+        expect(logic.values.breadcrumbs).toEqual([...inboxBreadcrumbs, { key: 'report-1', name: 'Example report' }])
+
+        logic.actions.setSelectedReportId('report-2')
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-1', title: 'Example report' } as SignalReport)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-2', title: 'Another report' } as SignalReport)
+        expect(logic.values.breadcrumbs.at(-1)?.name).toBe('Another report')
+
+        logic.actions.setSelectedReportId(null)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-2', title: 'Another report' } as SignalReport)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
     })
 
     it.each([null, 'report', 'scout'] as const)('opens sources from %s without selecting a report', (surface) => {
@@ -369,7 +391,7 @@ describe('inboxSceneLogic routing', () => {
     })
 
     // A link PostHog wrote names its surface in `link_source`. The product filter keeps `source`. A tab that already saw the list can still
-    // open one, and the param leaves the address bar so a copied URL does not pass it on.
+    // open one, and the param leaves the address bar so a copied URL does not pass it on. `link_action` leaves it the same way.
     it.each([
         { name: 'no param', source: undefined, visitedList: false, method: 'deeplink', linkSource: null },
         { name: 'a known source', source: 'slack', visitedList: false, method: 'deeplink', linkSource: 'slack' },
@@ -389,17 +411,26 @@ describe('inboxSceneLogic routing', () => {
         },
         { name: 'a source after the list', source: 'mcp', visitedList: true, method: 'deeplink', linkSource: 'mcp' },
         { name: 'no param after the list', source: undefined, visitedList: true, method: 'click', linkSource: null },
+        {
+            name: 'the implement action',
+            source: 'slack',
+            linkAction: 'implement',
+            visitedList: false,
+            method: 'deeplink',
+            linkSource: 'slack',
+        },
     ])(
         'a report link with $name opens as $method with link source $linkSource',
-        async ({ source, visitedList, method, linkSource }) => {
+        async ({ source, linkAction, visitedList, method, linkSource }) => {
             mountLogic()
             if (visitedList) {
                 router.actions.push(urls.inbox('reports'))
             }
-            const url = combineUrl(
-                urls.inboxReport('reports', 'r1'),
-                source ? { link_source: source, source: 'github' } : { source: 'github' }
-            ).url
+            const url = combineUrl(urls.inboxReport('reports', 'r1'), {
+                source: 'github',
+                ...(source ? { link_source: source } : {}),
+                ...(linkAction ? { link_action: linkAction } : {}),
+            }).url
 
             let payload: { openMethod?: string; linkSource?: string | null } = {}
             await expectLogic(logic, () => router.actions.push(url)).toDispatchActions([
@@ -413,6 +444,7 @@ describe('inboxSceneLogic routing', () => {
             ])
             expect(payload).toMatchObject({ openMethod: method, linkSource })
             expect(router.values.searchParams).toEqual({ source: 'github' })
+            expect(logic.values.linkImplementReportId).toBe(linkAction ? 'r1' : null)
         }
     )
 
@@ -543,6 +575,74 @@ describe('inboxSceneLogic routing', () => {
         expect(inboxCalls[0][2]).toMatchObject({ send_instantly: true })
         expect(inboxCalls[1][2]).toEqual({ send_instantly: true })
         captureSpy.mockRestore()
+    })
+
+    // A report left open in a background tab, or opened and never scrolled, is not a read. The read
+    // fires during the open, so a tab close that drops the close event does not lose it.
+    it('sends `Inbox report read` once per open, after a scroll and enough visible time', () => {
+        const originalVisibilityState = document.visibilityState
+        const setTabVisibility = (state: 'visible' | 'hidden'): void => {
+            Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        const eventsNamed = (name: string): Record<string, any>[] =>
+            captureSpy.mock.calls.filter(([event]) => event === name).map((call) => call[1] as Record<string, any>)
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        jest.useFakeTimers()
+        try {
+            mountLogic()
+            setTabVisibility('visible')
+            logic.actions.setSelectedReportId('r1')
+            logic.actions.loadSelectedReportSuccess({ id: 'r1', title: 'Crash on login' } as SignalReport)
+
+            jest.advanceTimersByTime(2000)
+            setTabVisibility('hidden')
+            jest.advanceTimersByTime(60_000)
+            setTabVisibility('visible')
+            jest.advanceTimersByTime(REPORT_READ_ACTIVE_MS)
+            expect(eventsNamed('Inbox report read')).toHaveLength(0)
+
+            logic.actions.reportDetailScrolled()
+            expect(eventsNamed('Inbox report read')).toEqual([
+                expect.objectContaining({
+                    report_id: 'r1',
+                    active_time_ms: REPORT_READ_ACTIVE_MS + 2000,
+                    time_since_open_ms: REPORT_READ_ACTIVE_MS + 62_000,
+                }),
+            ])
+
+            setTabVisibility('hidden')
+            setTabVisibility('visible')
+            logic.actions.reportDetailScrolled()
+            jest.advanceTimersByTime(30_000)
+            expect(eventsNamed('Inbox report read')).toHaveLength(1)
+
+            logic.actions.setSelectedReportId('r2')
+            logic.actions.loadSelectedReportSuccess({ id: 'r2', title: 'Checkout times out' } as SignalReport)
+            expect(eventsNamed('Inbox report closed')[0]).toMatchObject({
+                report_id: 'r1',
+                time_spent_ms: REPORT_READ_ACTIVE_MS + 92_000,
+                active_time_ms: REPORT_READ_ACTIVE_MS + 32_000,
+            })
+
+            logic.actions.reportDetailScrolled()
+            setTabVisibility('hidden')
+            jest.advanceTimersByTime(60_000)
+            setTabVisibility('visible')
+            jest.advanceTimersByTime(REPORT_READ_ACTIVE_MS - 1)
+            expect(eventsNamed('Inbox report read')).toHaveLength(1)
+
+            jest.advanceTimersByTime(1)
+            expect(eventsNamed('Inbox report read')[1]).toMatchObject({
+                report_id: 'r2',
+                active_time_ms: REPORT_READ_ACTIVE_MS,
+                time_since_open_ms: REPORT_READ_ACTIVE_MS + 60_000,
+            })
+        } finally {
+            jest.useRealTimers()
+            Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true })
+            captureSpy.mockRestore()
+        }
     })
 
     it('stops the runs poll when opening another surface closes the panel', () => {

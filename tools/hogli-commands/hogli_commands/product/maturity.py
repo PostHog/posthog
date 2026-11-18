@@ -623,9 +623,8 @@ def score_boundaries(
             score += 5
             parts.append("tach (no interfaces)")
             next_steps.append(
-                f'Add `interfaces = ["products.{name}.backend.facade.*", '
-                f'"products.{name}.backend.presentation.*"]` to the [[modules]] entry in '
-                f"tach.toml so tach enforces what's public."
+                f"Add {name} to the `from` regex of the shared [[interfaces]] block in tach.toml that "
+                f"exposes `backend.facade.*` and `backend.presentation.views.*`, so tach enforces what's public."
             )
 
         # Cross-product depends_on: each one is an explicit coupling
@@ -645,8 +644,9 @@ def score_boundaries(
     else:
         parts.append("not in tach.toml")
         next_steps.append(
-            f"Add a [[modules]] entry for products.{name} to tach.toml with explicit "
-            f"`depends_on` and `interfaces`. Without it, tach won't catch boundary regressions."
+            f"Add a [[modules]] entry for products.{name} to tach.toml with an explicit "
+            f"`depends_on`, and name it in an [[interfaces]] block. Without them, tach won't catch "
+            f"boundary regressions."
         )
 
     # Outbound: this product importing other products' internals
@@ -958,6 +958,8 @@ def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
         return "ON", "contract-check skip live \u2014 Django suite stays off unrelated CI shards"
     if status.is_sealed and _blocking_facade_classes(status):
         return "BLOCKED", _blocked_reason(status)
+    if status.is_sealed and status.skip_withheld_reason:
+        return "WITHHELD", f"by DevEx decision: {status.skip_withheld_reason}"
     if status.is_sealed:
         missing = []
         if not status.has_contract_check_script:
@@ -1027,7 +1029,7 @@ def _isolation_capstone(status: IsolationStatus) -> list[str]:
     return lines
 
 
-SEAL_LEGEND = "seal: on=tests live  ready=eligible, not wired  cls:N=facade hands out N non-contract classes  int:N=N internal bypasses open  ext\u2717=external boundary open  \u2014=Lenient (no facade contracts)"
+SEAL_LEGEND = "seal: on=tests live  held=skip withheld by DevEx decision  ready=eligible, not wired  cls:N=facade hands out N non-contract classes  int:N=N internal bypasses open  ext\u2717=external boundary open  \u2014=Lenient (no facade contracts)"
 
 
 def _seal_token(status: IsolationStatus | None) -> str:
@@ -1045,7 +1047,7 @@ def _seal_token(status: IsolationStatus | None) -> str:
     if status.is_sealed and blocking:
         return f"cls:{len(blocking)}"
     if status.is_sealed:
-        return "ready"
+        return "held" if status.skip_withheld_reason else "ready"
     return "partial"
 
 

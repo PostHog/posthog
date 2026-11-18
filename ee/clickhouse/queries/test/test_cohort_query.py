@@ -24,7 +24,7 @@ from posthog.models import Team
 from posthog.models.property import PropertyGroup
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
@@ -81,7 +81,7 @@ def _properties(properties: dict[str, Any], team: Optional[Team] = None) -> Prop
 
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
     def test_basic_query(self):
-        action1 = Action.objects.create(
+        action1 = create_action(
             team=self.team,
             name="action1",
             steps_json=[
@@ -185,7 +185,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     "type": "AND",
                     "values": [
                         {
-                            "key": action1.pk,
+                            "key": action1.id,
                             "event_type": "actions",
                             "time_value": 2,
                             "time_interval": "week",
@@ -1326,7 +1326,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         assert sorted([p1.uuid, p2.uuid, p3.uuid]) == sorted([r[0] for r in res])
 
     def test_person_properties_with_pushdowns(self):
-        action1 = Action.objects.create(
+        action1 = create_action(
             team=self.team,
             name="action1",
             steps_json=[
@@ -1429,7 +1429,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                         "type": "AND",
                         "values": [
                             {
-                                "key": action1.pk,
+                                "key": action1.id,
                                 "event_type": "actions",
                                 "time_value": 2,
                                 "time_interval": "week",
@@ -2367,7 +2367,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             properties={"name": "test", "email": "test@posthog.com"},
         )
 
-        action1 = Action.objects.create(
+        action1 = create_action(
             team=self.team,
             name="action1",
             steps_json=[
@@ -2407,13 +2407,13 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                 "type": "AND",
                 "values": [
                     {
-                        "key": action1.pk,
+                        "key": action1.id,
                         "event_type": "actions",
                         "time_interval": "day",
                         "time_value": 7,
                         "seq_time_interval": "day",
                         "seq_time_value": 3,
-                        "seq_event": action1.pk,
+                        "seq_event": action1.id,
                         "seq_event_type": "actions",
                         "value": "performed_event_sequence",
                         "type": "behavioral",
@@ -3438,7 +3438,7 @@ class TestCohortNegationValidation(BaseTest):
 
         other_team = Team.objects.create(organization=self.organization, project=self.project)
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="action",
             steps_json=[
@@ -3468,7 +3468,7 @@ class TestCohortNegationValidation(BaseTest):
                             "type": "OR",
                             "values": [
                                 {
-                                    "key": action.pk,
+                                    "key": action.id,
                                     "type": "behavioral",
                                     "value": "performed_event",
                                     "negation": False,

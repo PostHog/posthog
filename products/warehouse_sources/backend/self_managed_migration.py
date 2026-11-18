@@ -47,7 +47,6 @@ from botocore.config import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
 
 from posthog.dataclasses import frozen
-from posthog.models.team import Team
 
 from products.data_warehouse.backend.facade.api import delete_external_data_schedule
 from products.warehouse_sources.backend.facade.contracts import UploadReadSettings
@@ -79,9 +78,6 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
-    source_feature_flag_missing,
-)
 from products.warehouse_sources.backend.self_managed_access import (
     MIGRATION_MARKER_KEY,
     SourceAccessPlan,
@@ -361,13 +357,12 @@ def _lock_group(team_id: int, source_type: str, group_key: str, fingerprint: str
 
 
 class _Planner:
-    """Maps tables onto sources, caching the per-team flag check and the per-bucket region lookup."""
+    """Maps tables onto sources, caching the per-bucket region lookup."""
 
     def __init__(self, resolve_region: BucketRegionResolver) -> None:
         self._resolve_region = resolve_region
         self._sources = _object_storage_sources()
         self._upload_source = file_upload_source()
-        self._flag_missing: dict[tuple[int, str], bool] = {}
         self._regions: dict[tuple[str, str], str | None] = {}
         self._access: dict[int, TeamAccessRules] = {}
 
@@ -392,8 +387,6 @@ class _Planner:
             source = self._sources.get(location.service)
             if source is None:
                 return f"no import source reads '{location.service}' storage"
-            if self._team_lacks_flag(table.team, source):
-                return f"the team doesn't have the '{source.requires_team_feature_flag}' feature flag"
             if location.service == "s3" and location.region is None:
                 region = self._region(table, location, credential, fingerprint)
                 if region is None:
@@ -426,8 +419,6 @@ class _Planner:
     ) -> _TablePlan | str:
         """A table that reads a file the team uploaded gets a file upload source of its own."""
         source = self._upload_source
-        if self._team_lacks_flag(table.team, source):
-            return f"the team doesn't have the '{source.requires_team_feature_flag}' feature flag"
         file_format = TABLE_FORMAT_TO_FILE_FORMAT.get(table.format)
         if file_format is None:
             return f"an uploaded '{table.format}' file has no import equivalent"
@@ -455,12 +446,6 @@ class _Planner:
             shares_source=False,
             access=access,
         )
-
-    def _team_lacks_flag(self, team: Team, source: ObjectStorageSource[Any] | FileUploadSource) -> bool:
-        key = (team.pk, str(source.source_type))
-        if key not in self._flag_missing:
-            self._flag_missing[key] = source_feature_flag_missing(source, team)
-        return self._flag_missing[key]
 
     def _region(
         self,
@@ -537,7 +522,7 @@ def _select_tables(
     """Self-managed tables, plus every table the migration made a schema for, oldest first.
 
     A table that another source's schema already links to is left out: a table made from an upload
-    while the team had the flag waits for the first sync of its own file upload source.
+    through a file upload source waits for the first sync of that source.
     """
     queryset = (
         DataWarehouseTable.raw_objects.exclude(deleted=True)

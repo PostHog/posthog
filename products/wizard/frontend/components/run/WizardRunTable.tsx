@@ -1,3 +1,5 @@
+import { createContext, useContext } from 'react'
+
 import { IconFolder, IconGithub } from '@posthog/icons'
 import type { DataTableProps } from '@posthog/quill-components'
 import { DataTable } from '@posthog/quill-components'
@@ -29,6 +31,178 @@ import { WizardRunStatusTag } from '../run-tags/WizardRunStatusTag'
 import { WizardRunActionsMenu } from './WizardRunActionsMenu'
 import { WizardRunsEmptyState } from './WizardRunsEmptyState'
 
+interface WizardRunTableProps {
+    runs: WizardRunApi[]
+    totalRuns: number
+    highlightedRunId?: string | null
+    currentUserId: number | null
+    loading: boolean
+    failed: boolean
+    hasActiveFilters: boolean
+    refreshing: boolean
+    cancelling: boolean
+    onOpenLibrary: () => void
+    onClearFilters: () => void
+    onRefreshRuns: () => void
+    onSelect: (run: WizardRunApi) => void
+    onRefreshRun: (run: WizardRunApi) => void
+    onCopyRunId: (runId: string, location: 'bottom_button') => void
+    onOpenWorkspace: (run: WizardRunApi, url: string) => void
+    onPaginate: (page: number, nextPage: number) => void
+    onCancel: (run: WizardRunApi) => void
+}
+
+const WizardRunTableContext = createContext<Pick<
+    WizardRunTableProps,
+    | 'currentUserId'
+    | 'refreshing'
+    | 'cancelling'
+    | 'onSelect'
+    | 'onRefreshRun'
+    | 'onCopyRunId'
+    | 'onOpenWorkspace'
+    | 'onCancel'
+> | null>(null)
+
+// TanStack renders cell functions as components, so their identity must survive updates to the table context.
+const columns: DataTableProps<WizardRunApi, unknown>['columns'] = [
+    {
+        accessorKey: 'program.name',
+        header: 'Program',
+        cell: function ProgramCell({ row }) {
+            const { onSelect } = useContext(WizardRunTableContext)!
+            const run = row.original
+            return (
+                <Button variant="link-muted" size="sm" onClick={() => onSelect(run)}>
+                    <span className="flex min-w-44 flex-col items-start text-left">
+                        <span className="font-semibold">{run.program.name}</span>
+                        <Text size="xs" variant="muted">
+                            Wizard {run.program.wizard_version}
+                        </Text>
+                    </span>
+                </Button>
+            )
+        },
+    },
+    {
+        id: 'workspace',
+        header: 'Workspace',
+        enableSorting: false,
+        meta: { expand: true },
+        cell: function WorkspaceCell({ row }) {
+            const { onOpenWorkspace } = useContext(WizardRunTableContext)!
+            const run = row.original
+            if (run.workspace.type === 'git_repository') {
+                const url = wizardGithubRepositoryUrl(run.workspace.repository)
+                return (
+                    <Button
+                        variant="link-muted"
+                        size="sm"
+                        render={
+                            <LinkPrimitive
+                                to={url}
+                                target="_blank"
+                                onClick={(event) => {
+                                    event.stopPropagation()
+                                    onOpenWorkspace(run, url)
+                                }}
+                            />
+                        }
+                    >
+                        <IconGithub />
+                        {run.workspace.repository}
+                    </Button>
+                )
+            }
+            return (
+                <Text size="xs" className="flex h-6 items-center gap-1 px-2">
+                    <IconFolder className="size-3" />
+                    {wizardWorkspaceLabel(run)}
+                </Text>
+            )
+        },
+    },
+    {
+        id: 'created_by',
+        accessorFn: (run) => run.created_by?.first_name || run.created_by?.email || '',
+        header: 'Created by',
+        cell: ({ row }) => {
+            const creator = row.original.created_by
+            if (!creator) {
+                return (
+                    <Text size="sm" variant="muted">
+                        Unknown
+                    </Text>
+                )
+            }
+
+            const name = [creator.first_name, creator.last_name].filter(Boolean).join(' ') || creator.email
+            const initials = creator.first_name
+                ? `${creator.first_name[0]}${creator.last_name[0] ?? ''}`
+                : creator.email[0]
+
+            return (
+                <span className="flex min-w-0 items-center gap-2">
+                    <Avatar size="sm">
+                        <AvatarFallback>{initials}</AvatarFallback>
+                    </Avatar>
+                    <Text size="sm" className="max-w-40 truncate">
+                        {name}
+                    </Text>
+                </span>
+            )
+        },
+    },
+    {
+        accessorKey: 'environment',
+        header: 'Environment',
+        cell: ({ row }) => <WizardRunEnvironmentTag environment={row.original.environment} />,
+    },
+    {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => {
+            const run = row.original
+            return <WizardRunStatusTag status={run.status} />
+        },
+    },
+    {
+        accessorKey: 'started_at',
+        header: 'Started',
+        cell: ({ row }) =>
+            row.original.started_at ? (
+                <TZLabel time={row.original.started_at} className="whitespace-nowrap text-xs" />
+            ) : (
+                <Text size="xs" variant="muted">
+                    Not started
+                </Text>
+            ),
+    },
+    {
+        id: 'actions',
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        meta: { align: 'right' },
+        cell: function ActionsCell({ row }) {
+            const { currentUserId, refreshing, cancelling, onSelect, onRefreshRun, onCopyRunId, onCancel } =
+                useContext(WizardRunTableContext)!
+            return (
+                <WizardRunActionsMenu
+                    key={row.original.id}
+                    run={row.original}
+                    currentUserId={currentUserId}
+                    refreshing={refreshing}
+                    cancelling={cancelling}
+                    onView={onSelect}
+                    onRefresh={onRefreshRun}
+                    onCopyRunId={onCopyRunId}
+                    onCancel={onCancel}
+                />
+            )
+        },
+    },
+]
+
 export function WizardRunTable({
     runs,
     totalRuns,
@@ -48,157 +222,7 @@ export function WizardRunTable({
     onOpenWorkspace,
     onPaginate,
     onCancel,
-}: {
-    runs: WizardRunApi[]
-    totalRuns: number
-    highlightedRunId?: string | null
-    currentUserId: number | null
-    loading: boolean
-    failed: boolean
-    hasActiveFilters: boolean
-    refreshing: boolean
-    cancelling: boolean
-    onOpenLibrary: () => void
-    onClearFilters: () => void
-    onRefreshRuns: () => void
-    onSelect: (run: WizardRunApi) => void
-    onRefreshRun: (run: WizardRunApi) => void
-    onCopyRunId: (runId: string, location: 'bottom_button') => void
-    onOpenWorkspace: (run: WizardRunApi, url: string) => void
-    onPaginate: (page: number, nextPage: number) => void
-    onCancel: (run: WizardRunApi) => void
-}): JSX.Element {
-    const columns: DataTableProps<WizardRunApi, unknown>['columns'] = [
-        {
-            accessorKey: 'program.name',
-            header: 'Program',
-            cell: ({ row }) => {
-                const run = row.original
-                return (
-                    <Button variant="link-muted" size="sm" onClick={() => onSelect(run)}>
-                        <span className="flex min-w-44 flex-col items-start text-left">
-                            <span className="font-semibold">{run.program.name}</span>
-                            <Text size="xs" variant="muted">
-                                Wizard {run.program.wizard_version}
-                            </Text>
-                        </span>
-                    </Button>
-                )
-            },
-        },
-        {
-            id: 'workspace',
-            header: 'Workspace',
-            enableSorting: false,
-            meta: { expand: true },
-            cell: ({ row }) => {
-                const run = row.original
-                if (run.workspace.type === 'git_repository') {
-                    const url = wizardGithubRepositoryUrl(run.workspace.repository)
-                    return (
-                        <Button
-                            variant="link-muted"
-                            size="sm"
-                            render={
-                                <LinkPrimitive
-                                    to={url}
-                                    target="_blank"
-                                    onClick={(event) => {
-                                        event.stopPropagation()
-                                        onOpenWorkspace(run, url)
-                                    }}
-                                />
-                            }
-                        >
-                            <IconGithub />
-                            {run.workspace.repository}
-                        </Button>
-                    )
-                }
-                return (
-                    <Text size="xs" className="flex h-6 items-center gap-1 px-2">
-                        <IconFolder className="size-3" />
-                        {wizardWorkspaceLabel(run)}
-                    </Text>
-                )
-            },
-        },
-        {
-            id: 'created_by',
-            accessorFn: (run) => run.created_by?.first_name || run.created_by?.email || '',
-            header: 'Created by',
-            cell: ({ row }) => {
-                const creator = row.original.created_by
-                if (!creator) {
-                    return (
-                        <Text size="sm" variant="muted">
-                            Unknown
-                        </Text>
-                    )
-                }
-
-                const name = [creator.first_name, creator.last_name].filter(Boolean).join(' ') || creator.email
-                const initials = creator.first_name
-                    ? `${creator.first_name[0]}${creator.last_name[0] ?? ''}`
-                    : creator.email[0]
-
-                return (
-                    <span className="flex min-w-0 items-center gap-2">
-                        <Avatar size="sm">
-                            <AvatarFallback>{initials}</AvatarFallback>
-                        </Avatar>
-                        <Text size="sm" className="max-w-40 truncate">
-                            {name}
-                        </Text>
-                    </span>
-                )
-            },
-        },
-        {
-            accessorKey: 'environment',
-            header: 'Environment',
-            cell: ({ row }) => <WizardRunEnvironmentTag environment={row.original.environment} />,
-        },
-        {
-            accessorKey: 'status',
-            header: 'Status',
-            cell: ({ row }) => {
-                const run = row.original
-                return <WizardRunStatusTag status={run.status} />
-            },
-        },
-        {
-            accessorKey: 'started_at',
-            header: 'Started',
-            cell: ({ row }) =>
-                row.original.started_at ? (
-                    <TZLabel time={row.original.started_at} className="whitespace-nowrap text-xs" />
-                ) : (
-                    <Text size="xs" variant="muted">
-                        Not started
-                    </Text>
-                ),
-        },
-        {
-            id: 'actions',
-            header: () => <span className="sr-only">Actions</span>,
-            enableSorting: false,
-            meta: { align: 'right' },
-            cell: ({ row }) => (
-                <WizardRunActionsMenu
-                    run={row.original}
-                    currentUserId={currentUserId}
-                    refreshing={refreshing}
-                    cancelling={cancelling}
-                    onView={onSelect}
-                    onRefresh={onRefreshRun}
-                    onCopyRunId={onCopyRunId}
-                    onCancel={onCancel}
-                />
-            ),
-        },
-    ]
-
+}: WizardRunTableProps): JSX.Element {
     if (failed && totalRuns === 0) {
         return (
             <Item tone="destructive" variant="outline">
@@ -247,20 +271,33 @@ export function WizardRunTable({
                 </div>
             ) : (
                 <Card size="sm" flush className="overflow-hidden">
-                    <DataTable
-                        columns={columns}
-                        data={runs}
-                        empty={empty}
-                        pageSize={25}
-                        fullWidth
-                        onRowClick={onSelect}
-                        rowClassName={(run) =>
-                            run.id === highlightedRunId
-                                ? 'bg-fill-highlight-100 hover:bg-fill-highlight-100'
-                                : undefined
-                        }
-                        onPageChange={onPaginate}
-                    />
+                    <WizardRunTableContext.Provider
+                        value={{
+                            currentUserId,
+                            refreshing,
+                            cancelling,
+                            onSelect,
+                            onRefreshRun,
+                            onCopyRunId,
+                            onOpenWorkspace,
+                            onCancel,
+                        }}
+                    >
+                        <DataTable
+                            columns={columns}
+                            data={runs}
+                            empty={empty}
+                            pageSize={25}
+                            fullWidth
+                            onRowClick={onSelect}
+                            rowClassName={(run) =>
+                                run.id === highlightedRunId
+                                    ? 'bg-fill-highlight-100 hover:bg-fill-highlight-100'
+                                    : undefined
+                            }
+                            onPageChange={onPaginate}
+                        />
+                    </WizardRunTableContext.Provider>
                 </Card>
             )}
         </div>

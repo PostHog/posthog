@@ -24,9 +24,11 @@ IncrementalParamFormat = Literal["epoch", "date"]
 # - "array":       the rows are the JSON body itself, or the array under `data_key`.
 # - "daily_stats": nested `[{date, stats: [{metrics: {...}}]}]` that flattens to one row per
 #                  metrics bucket with `date` merged in (the /stats family).
-# - "category_stats": the same nesting, flattened to one row per date with the requested
-#                  `category` merged in (category_stats).
-ResponseShape = Literal["array", "daily_stats", "category_stats"]
+# - "breakdown_stats": the same nesting, flattened to one row per `stats` entry with the
+#                  entry's `type` and `name` kept (the advanced stats breakdowns).
+# - "parent_stats": the same nesting, flattened to one row per date with the fan-out parent
+#                  value named by `parent_stats_field` merged in (category_stats, subuser_stats).
+ResponseShape = Literal["array", "daily_stats", "breakdown_stats", "parent_stats"]
 
 # /stats requires `start_date` on every request, so the first sync (no cursor yet) backfills this
 # far back. Daily aggregation means one row per day, so a year is cheap and gives enough history to
@@ -46,6 +48,8 @@ class SendGridEndpointConfig:
     # Stable creation field used for datetime partitioning. Never use a "modified" field here.
     partition_key: Optional[str] = None
     page_size: int = 500
+    # False for a metadata endpoint that documents no `page_size` param and returns every row at once.
+    send_page_size: bool = True
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Server-side query param that filters by the incremental field.
     incremental_param: Optional[str] = None
@@ -57,6 +61,8 @@ class SendGridEndpointConfig:
     default_backfill_days: Optional[int] = None
     # How the response body is shaped, so the transport can flatten nested stats responses.
     response_shape: ResponseShape = "array"
+    # Parent row field merged into each flattened row of a "parent_stats" response.
+    parent_stats_field: Optional[str] = None
     # Order rows arrive in across the whole sync. The Email Activity walk pages newest to oldest,
     # so it declares "desc" and the pipeline defers the incremental watermark to the end of a
     # successful run instead of checkpointing it per batch. None when rows come one parent at a
@@ -94,6 +100,8 @@ _MARKETING_CAMPAIGNS_NOTE = (
     "Accounts without Marketing Campaigns, or on legacy Marketing Campaigns, cannot sync this table."
 )
 
+_SUBUSERS_NOTE = "Only a parent account with Subusers can sync this table."
+
 
 def _epoch_field(name: str) -> IncrementalField:
     return {
@@ -122,9 +130,37 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
+def _breakdown_stats_endpoint(
+    name: str,
+    path: str,
+    required_scope: str,
+    pagination: PaginationMode = "offset",
+    permission_note: Optional[str] = None,
+) -> SendGridEndpointConfig:
+    return SendGridEndpointConfig(
+        name=name,
+        path=path,
+        # One row per breakdown value per day. `type` stays in the key because geo rows can be a
+        # country or a state.
+        primary_keys=["date", "type", "name"],
+        pagination=pagination,
+        partition_key="date",
+        incremental_fields=[_date_field("date")],
+        incremental_param="start_date",
+        incremental_param_format="date",
+        default_backfill_days=STATS_DEFAULT_BACKFILL_DAYS,
+        response_shape="breakdown_stats",
+        # The API does not document the order of the date buckets.
+        sort_mode=None,
+        extra_params={"aggregated_by": "day"},
+        required_scope=required_scope,
+        permission_note=permission_note,
+    )
+
+
 # SendGrid (v3) endpoint catalog. The suppression endpoints expose a genuine server-side
 # `start_time` filter (Unix epoch seconds) over their immutable `created` field, so they sync
-# incrementally. `stats` and `category_stats` filter on `start_date` (YYYY-MM-DD) over their daily
+# incrementally. The stats tables filter on `start_date` (YYYY-MM-DD) over their daily
 # aggregate date and also sync incrementally. Marketing/asm metadata endpoints offer no timestamp filter and ship as
 # full refresh. See api_inventory.md for the per-endpoint research notes.
 SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
@@ -195,6 +231,22 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         extra_params={"aggregated_by": "day"},
         required_scope="stats.read",
     ),
+    # The advanced stats breakdowns. They return 500 items per request by default, and all but
+    # /clients/stats document `limit`/`offset`, so those page with an explicit limit.
+    "geo_stats": _breakdown_stats_endpoint(
+        "geo_stats",
+        "/geo/stats",
+        "geo.stats.read",
+        permission_note="Regional (EU) subusers cannot sync this table.",
+    ),
+    "mailbox_provider_stats": _breakdown_stats_endpoint(
+        "mailbox_provider_stats", "/mailbox_providers/stats", "mailbox_providers.stats.read"
+    ),
+    "device_stats": _breakdown_stats_endpoint("device_stats", "/devices/stats", "devices.stats.read"),
+    "client_stats": _breakdown_stats_endpoint(
+        "client_stats", "/clients/stats", "clients.stats.read", pagination="single"
+    ),
+    "browser_stats": _breakdown_stats_endpoint("browser_stats", "/browsers/stats", "browsers.stats.read"),
     "categories": SendGridEndpointConfig(
         name="categories",
         path="/categories",
@@ -218,7 +270,8 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         incremental_param="start_date",
         incremental_param_format="date",
         default_backfill_days=STATS_DEFAULT_BACKFILL_DAYS,
-        response_shape="category_stats",
+        response_shape="parent_stats",
+        parent_stats_field="category",
         sort_mode=None,
         extra_params={"aggregated_by": "day"},
         required_scope="categories.stats.read",
@@ -260,6 +313,18 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         pagination="metadata",
         data_key="result",
         page_size=100,
+        required_scope="marketing.read",
+        permission_note=_MARKETING_CAMPAIGNS_NOTE,
+    ),
+    # Segments v2 returns every segment in one `results` array and documents no page params.
+    "segments": SendGridEndpointConfig(
+        name="segments",
+        path="/marketing/segments/2.0",
+        primary_keys=["id"],
+        pagination="metadata",
+        data_key="results",
+        send_page_size=False,
+        partition_key="created_at",
         required_scope="marketing.read",
         permission_note=_MARKETING_CAMPAIGNS_NOTE,
     ),
@@ -337,6 +402,67 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
             parent_field_renames={"id": "automation_id"},
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
+    ),
+    "subusers": SendGridEndpointConfig(
+        name="subusers",
+        path="/subusers",
+        primary_keys=["id"],
+        pagination="offset",
+        # No maximum is documented, and a silently capped page would read as the short last page.
+        page_size=100,
+        extra_params={"include_region": "true"},
+        required_scope="subusers.read",
+        permission_note=_SUBUSERS_NOTE,
+    ),
+    # /subusers/stats requires the `subusers` param, so it fans out over the subuser listing one
+    # subuser per request.
+    "subuser_stats": SendGridEndpointConfig(
+        name="subuser_stats",
+        path="/subusers/stats?subusers={username}",
+        primary_keys=["username", "date"],
+        pagination="offset",
+        partition_key="date",
+        incremental_fields=[_date_field("date")],
+        incremental_param="start_date",
+        incremental_param_format="date",
+        default_backfill_days=STATS_DEFAULT_BACKFILL_DAYS,
+        response_shape="parent_stats",
+        parent_stats_field="username",
+        sort_mode=None,
+        extra_params={"aggregated_by": "day"},
+        required_scope="subusers.stats.read",
+        permission_note=_SUBUSERS_NOTE,
+        default_incremental_field="date",
+        fanout=DependentEndpointConfig(
+            parent_name="subusers",
+            resolve_param="username",
+            resolve_field="username_param",
+            include_from_parent=["username"],
+            parent_field_renames={"username": "username"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        probe_resolve_value="posthog",
+        encode_parent_field="username",
+    ),
+    # The spec does not say what `usernames` defaults to, so each subuser is requested by name.
+    "subuser_reputations": SendGridEndpointConfig(
+        name="subuser_reputations",
+        path="/subusers/reputations?usernames={username}",
+        primary_keys=["username"],
+        pagination="single",
+        sort_mode=None,
+        required_scope="subusers.reputations.read",
+        permission_note=_SUBUSERS_NOTE,
+        fanout=DependentEndpointConfig(
+            parent_name="subusers",
+            resolve_param="username",
+            resolve_field="username_param",
+            include_from_parent=["username"],
+            parent_field_renames={"username": "username"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        probe_resolve_value="posthog",
+        encode_parent_field="username",
     ),
     "templates": SendGridEndpointConfig(
         name="templates",

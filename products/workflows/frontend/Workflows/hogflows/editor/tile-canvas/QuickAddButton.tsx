@@ -10,7 +10,7 @@ import { getEdgeId } from '../../edgeId'
 import type { HogFlowEdge } from '../../types'
 import { StepPalette } from './StepPalette'
 import { tileCanvasLogic } from './tileCanvasLogic'
-import { Point } from './tileCanvasModel'
+import { Point, QUICK_ADD_ATTR } from './tileCanvasModel'
 
 function buttonLook(isDropTarget: boolean, isActive: boolean, revealed: boolean): string {
     if (isDropTarget) {
@@ -77,7 +77,7 @@ export function QuickAddButton({
                     ref={buttonRef}
                     aria-label={label}
                     title={label}
-                    data-attr="workflow-tile-quick-add"
+                    data-attr={QUICK_ADD_ATTR}
                     onClick={() => (isPlacing ? placeAt(edge) : isOpen ? closeQuickAdd() : openQuickAdd(key))}
                     className={cn(
                         'flex size-5 cursor-pointer items-center justify-center rounded-full border bg-surface-primary text-secondary transition-all duration-200 ease-out hover:scale-125 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] motion-reduce:transition-none',

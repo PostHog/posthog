@@ -9,7 +9,9 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import F
+from django.db.models import F, QuerySet
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -17,6 +19,7 @@ from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
     from posthog.models.deletion_targets import DeletionTarget
+    from posthog.models.user import User
 
 
 def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> str:
@@ -112,7 +115,7 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False, hogql_tabl
         raise ValidationError({"hogql_predicate": "team no longer exists; cannot validate the predicate."}) from exc
     modifiers = create_default_modifiers_for_team(team)
     modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-    # The organization mode that hides posthog.flag_evaluations from queries does not apply here.
+    # A self-hosted organization on the Events mode has no posthog.flag_evaluations in its catalog.
     # The rows that table holds still have to be deletable.
     database = (
         None if on_events else Database.create_for(team=team, modifiers=modifiers, include_flag_evaluations_table=True)
@@ -451,6 +454,37 @@ class ExecutionMode(models.TextChoices):
     DEFERRED = "deferred"
 
 
+# The fields that decide what a request deletes. Changing one invalidates stats and any approval.
+CRITERIA_FIELDS = frozenset(
+    {
+        "request_type",
+        "events",
+        "delete_all_events",
+        "properties",
+        "person_properties",
+        "start_time",
+        "end_time",
+        "hogql_predicate",
+        "hogql_query",
+        "hogql_variables",
+        "person_uuids",
+        "person_distinct_ids",
+        "person_drop_profiles",
+        "person_drop_events",
+        "person_drop_recordings",
+    }
+)
+
+# Approved and later requests are locked. Staff move one back to draft to change its criteria.
+EDITABLE_STATUSES = frozenset({RequestStatus.DRAFT, RequestStatus.PENDING})
+
+
+@frozen
+class StaffEditNotice:
+    text: str
+    warning: bool = False
+
+
 class DataDeletionRequest(UUIDModel):
     # Request config
     team_id = models.IntegerField()
@@ -643,9 +677,10 @@ class DataDeletionRequest(UUIDModel):
     property_removal_marker = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="inserted_at/_timestamp stamp applied to cleaned re-inserts of this property_removal "
-        "request. Set once on the first execution attempt and reused by every retry so re-runs recognize "
-        "already-cleaned rows and never insert a second copy. Cleared when deletion criteria change.",
+        help_text="Cutoff of this property_removal request: rows ingested at or after it are out of scope, and "
+        "cleaned re-inserts carry a _timestamp one second past it. Set once on the first execution attempt and "
+        "reused by every retry so re-runs recognize already-cleaned rows and never insert a second copy. Cleared "
+        "when deletion criteria change.",
     )
 
     # The team_id this request was loaded from the DB with (None until loaded). Set by from_db so
@@ -770,6 +805,92 @@ class DataDeletionRequest(UUIDModel):
             )
         if self.person_drop_profiles or self.person_drop_events or self.person_drop_recordings:
             raise ValidationError({"person_drop_profiles": "person_drop_* flags are only valid for person_removal."})
+
+    def apply_staff_edit(self, user: "User", changed_fields: Collection[str], *, is_new: bool) -> list[StaffEditNotice]:
+        """Applies the rules of a staff create or edit before the save, and returns what to tell staff.
+
+        `changed_fields` are the fields the staff form changed. The request is not saved here.
+        """
+        notices = []
+        if is_new:
+            self.created_by = user
+            self.created_by_staff = user.is_staff
+        elif CRITERIA_FIELDS & set(changed_fields):
+            # The edit clears the marker, which lets another property removal on the team start. This run may
+            # still restore its staged copy over the rows that removal rewrites.
+            if unfinished_property_removals().filter(pk=self.pk).exists():
+                raise ValidationError(
+                    "This property removal's run started and did not complete. Retry it until it completes "
+                    "before you change its criteria."
+                )
+            self.criteria_updated_by = user
+            self.criteria_updated_at = timezone.now()
+            invalidate_compiled_predicate_cache(self.pk)
+            self.count = None
+            self.part_count = None
+            self.parts_size = None
+            self.parts_row_count = None
+            self.min_timestamp = None
+            self.max_timestamp = None
+            self.stats_calculated_at = None
+            # A stale marker would leave out every row ingested since the earlier run.
+            self.property_removal_marker = None
+            if self.status != RequestStatus.DRAFT:
+                self.status = RequestStatus.DRAFT
+                notices.append(
+                    StaffEditNotice(
+                        text="Deletion criteria were changed. Status has been reset to draft.", warning=True
+                    )
+                )
+        if self.request_type == RequestType.EVENT_REMOVAL and (self.properties or self.person_properties):
+            self.properties = []
+            self.person_properties = []
+            notices.append(StaffEditNotice(text="Properties cleared. Event removal requests do not use properties."))
+        if self.request_type == RequestType.PERSON_REMOVAL and (
+            self.events or self.delete_all_events or self.hogql_predicate
+        ):
+            self.events = []
+            self.delete_all_events = False
+            self.hogql_predicate = ""
+            notices.append(
+                StaffEditNotice(
+                    text="Event filters cleared. Person removal requests do not use events or a HogQL filter."
+                )
+            )
+        if self.request_type != RequestType.PERSON_REMOVAL and (
+            self.person_uuids
+            or self.person_distinct_ids
+            or self.person_drop_profiles
+            or self.person_drop_events
+            or self.person_drop_recordings
+        ):
+            self.person_uuids = []
+            self.person_distinct_ids = []
+            self.person_drop_profiles = None
+            self.person_drop_events = None
+            self.person_drop_recordings = None
+            notices.append(StaffEditNotice(text="Person targets cleared. Only person removal requests use them."))
+        return notices
+
+    def duplicate_as_draft(self, user: "User", copy_note: str) -> "DataDeletionRequest":
+        notes = f"{copy_note}\n\n{self.notes}" if self.notes else copy_note
+        # Copied from CRITERIA_FIELDS, so a new criteria field is copied without a change here. Lists are copied,
+        # so the duplicate never shares a list with the original.
+        criteria: dict[str, Any] = {}
+        for field in CRITERIA_FIELDS:
+            value = getattr(self, field)
+            criteria[field] = list(value) if isinstance(value, list) else value
+        if self.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+            criteria["execution_mode"] = ExecutionMode.DEFERRED
+        return DataDeletionRequest.objects.create(
+            **criteria,
+            team_id=self.team_id,
+            requires_approval=self.requires_approval,
+            notes=notes,
+            status=RequestStatus.DRAFT,
+            created_by=user,
+            created_by_staff=user.is_staff,
+        )
 
 
 def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
@@ -1056,6 +1177,11 @@ class AdhocEventDeletionBacklog:
     for_team: int
 
 
+# The approval preview waits on this count, and the preview shows a notice when the count fails, so a short
+# limit keeps staff from waiting on a FINAL scan of the whole queue.
+_BACKLOG_MAX_EXECUTION_TIME = 5
+
+
 def count_adhoc_event_deletion_backlog(team_id: int) -> AdhocEventDeletionBacklog:
     from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
     from posthog.clickhouse.client import sync_execute
@@ -1078,6 +1204,7 @@ def count_adhoc_event_deletion_backlog(team_id: int) -> AdhocEventDeletionBacklo
             readonly=True,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.META,
+            settings={"max_execution_time": _BACKLOG_MAX_EXECUTION_TIME},
         )
     total, for_team = result[0] if result else (0, 0)
     return AdhocEventDeletionBacklog(total=int(total), for_team=int(for_team))
@@ -1358,6 +1485,28 @@ def queued_requests_to_verify(lookback: timedelta) -> list["DataDeletionRequest"
             if reaches_target_through_event_uuids(request, target):
                 selected.setdefault(request.pk, request)
     return list(selected.values())
+
+
+def unfinished_property_removals() -> QuerySet[DataDeletionRequest]:
+    """Property removals whose run started and did not complete.
+
+    Such a run may hold rows only in its staged files, or may still restore a staged copy over rows that
+    another removal rewrote, so no other property removal on the team may start meanwhile.
+    """
+    return DataDeletionRequest.objects.filter(
+        request_type=RequestType.PROPERTY_REMOVAL, property_removal_marker__isnull=False
+    ).exclude(status=RequestStatus.COMPLETED)
+
+
+@receiver(pre_delete, sender=DataDeletionRequest)
+def refuse_to_delete_an_unfinished_property_removal(sender, instance: DataDeletionRequest, **kwargs) -> None:
+    # Deleting the row would let another property removal on the team start while this run may still
+    # restore its staged copy. Django sends this signal for each row of a queryset delete too.
+    if unfinished_property_removals().filter(pk=instance.pk).exists():
+        raise ValidationError(
+            "This property removal's run started and did not complete. Retry it until it completes before you "
+            "delete it."
+        )
 
 
 # An event removal below this many events is cheap enough that a dedicated ClickHouse Team review buys

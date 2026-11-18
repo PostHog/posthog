@@ -24,4 +24,4 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 
 [dev-dependencies]
-rstest = "0.26"
+rstest = "0.28"

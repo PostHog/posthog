@@ -163,11 +163,13 @@ class CatalogModel:
 _GLM_COST = ModelCost(1.4, 4.4)
 _GLM_FLASH_COST = ModelCost(0.15, 0.5)
 _KIMI_COST = ModelCost(3, 15)
+_KIMI_K31_PRO_COST = ModelCost(2, 10)
 _DEEPSEEK_COST = ModelCost(0.13, 0.26)
 _DEEPSEEK_V4_1_FLASH_FAST_COST = ModelCost(0.6, 2.4)
 _OPUS_COST = ModelCost(5, 25)
 _OPUS_5_5_COST = ModelCost(4, 20)
 _FABLE_COST = ModelCost(10, 50)
+_FABLE_5_2_COST = ModelCost(8, 40)
 _SONNET_COST = ModelCost(2, 10)
 _SONNET_4_COST = ModelCost(3, 15)
 _GPT_PRO_COST = ModelCost(5, 30)
@@ -195,7 +197,8 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST, retired=True),
     CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", cost=_GLM_COST),
     CatalogModel("zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", cost=_GLM_FLASH_COST),
-    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", cost=_KIMI_COST),
+    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", cost=_KIMI_COST, retired=True),
+    CatalogModel("moonshotai/kimi-k3.1-pro", CLAUDE, _NO_EFFORT, label="Kimi K3.1 Pro", cost=_KIMI_K31_PRO_COST),
     CatalogModel(
         "deepseek-ai/deepseek-v4-flash-0731",
         CLAUDE,
@@ -247,6 +250,7 @@ MODELS: tuple[CatalogModel, ...] = (
     ),
     CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
     CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
+    CatalogModel("claude-fable-5-2", CLAUDE, _EXTENDED, cost=_FABLE_5_2_COST, supports_1m_context=True),
     CatalogModel("claude-sonnet-5-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
     CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
     CatalogModel(

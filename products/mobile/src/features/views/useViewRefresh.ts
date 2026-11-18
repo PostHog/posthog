@@ -330,6 +330,9 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 if (!stillActive(generation, passGroup)) {
                     return
                 }
+                if (!optionsRef.current.items.some((candidate) => candidate.key === item.key)) {
+                    continue
+                }
                 const failed = previous?.status === 'failed'
                 const snapshot = item.snapshot()
                 // Dashboard tiles follow the web's open path: after the cache-only dashboard read, a tile computes
@@ -433,16 +436,35 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     const seenGroup = useRef(group)
     const containerKey = useRef<string | null>(null)
     const itemKeys = options.items.map((item) => item.key).join('|')
+    const lastItemKeys = useRef(itemKeys)
     const visibleKeyList = options.visibleKeys ? [...options.visibleKeys].sort().join('|') : '*'
     // biome-ignore lint/correctness/useExhaustiveDependencies: the key strings stand for the items, read through the ref.
     useEffect(() => {
+        const current = optionsRef.current
+        if (lastItemKeys.current !== itemKeys) {
+            lastItemKeys.current = itemKeys
+            const keys = new Set(current.items.map((item) => item.key))
+            for (const key of seen.current) {
+                if (!keys.has(key)) {
+                    seen.current.delete(key)
+                }
+            }
+            for (const key of itemReads.current.keys()) {
+                if (!keys.has(key)) {
+                    itemReads.current.delete(key)
+                }
+            }
+            if (current.container) {
+                keys.add(current.container.key)
+            }
+            viewsQueue.leave(group, keys)
+        }
         if (!enabled || !isFocused) {
             if (!enabled) recoverOnEnable.current = true
             seen.current.clear()
             containerKey.current = null
             return
         }
-        const current = optionsRef.current
         const counters: PassCounters = { jobs: [] }
         if (seenGroup.current !== groupOf(current)) {
             // Leaving a range dropped its queued reads, so coming back to it checks its items again.

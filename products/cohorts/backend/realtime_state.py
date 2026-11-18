@@ -17,17 +17,21 @@ filters changing is not evidence that anything is rebuilding.
 """
 
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
-from datetime import datetime
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from datetime import date, datetime
+from functools import cache
 from typing import Any, TypeGuard
 from uuid import UUID
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Count, Max, Q
+from django.utils import timezone
 
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.models.organization import Organization
 from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.backfill import (
@@ -35,6 +39,7 @@ from products.cohorts.backend.models.backfill import (
     READINESS_CHUNKS,
     CohortBackfillChunk,
     CohortBackfillChunkStatus,
+    CohortBackfillRefusal,
     CohortBackfillRun,
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
@@ -42,6 +47,8 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
+from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit
+from products.cohorts.backend.realtime_limits import max_realtime_history_days
 from products.cohorts.backend.realtime_teams import is_serving_team
 
 logger = structlog.get_logger(__name__)
@@ -51,10 +58,16 @@ class CohortRealtimeState(models.TextChoices):
     STATIC = "static", "Static"
     PERSON_PROPERTIES = "person_properties", "Person properties"
     DAILY = "daily", "Daily"
+    OFF = "off", "Off"
     BUILDING = "building", "Building"
     REBUILDING = "rebuilding", "Rebuilding"
     READY = "ready", "Ready"
     NEEDS_ATTENTION = "needs_attention", "Needs attention"
+
+
+class CohortRealtimeUnavailableReason(models.TextChoices):
+    HISTORY_OVER_LIMIT = "history_over_limit", "History over limit"
+    TOO_LARGE_TO_BUILD = "too_large_to_build", "Too large to build"
 
 
 class CohortHistoryBuildPhase(models.TextChoices):
@@ -102,9 +115,11 @@ class CohortRealtimeReadiness:
     state: str
     ready_at: datetime | None
     build: CohortHistoryBuild | None
+    reason: CohortRealtimeUnavailableReason | None = None
+    history_limit_days: int | None = None
 
 
-def _has_event_criteria(cohort: Cohort) -> bool:
+def has_event_criteria(cohort: Cohort) -> bool:
     """Whether the cohort matches on events, counting the ones that store that in ``groups``.
 
     ``_has_filter_type`` walks the ``filters`` JSON alone, and a legacy cohort keeps its condition
@@ -129,15 +144,37 @@ def _settled_state(cohort: Cohort) -> str | None:
     """The state a cohort has without consulting a run row, or None when a run decides it."""
     if cohort.is_static:
         return CohortRealtimeState.STATIC
-    if not _has_event_criteria(cohort):
+    if not has_event_criteria(cohort):
         # Flags evaluate person properties off the person record as they run, so they can target
         # this cohort whatever the pipeline is doing. Only an event-based leaf waits on a backfill.
         return CohortRealtimeState.PERSON_PROPERTIES
     if cohort.cohort_type != CohortType.REALTIME:
         return CohortRealtimeState.DAILY
+    if not cohort.realtime_enabled:
+        return CohortRealtimeState.OFF
     if cohort.is_flag_compatible:
         return CohortRealtimeState.READY
     return None
+
+
+def _history_limit_to_report(
+    cohort: Cohort, state: str, *, plan_history_days: Callable[[], int], today: date
+) -> int | None:
+    """The plan's history limit, when criteria that look back past a limit keep this cohort ``off`` or ``daily``.
+
+    An ``off`` cohort past the plan's limit can't be turned on. A save makes a cohort ``daily`` when its criteria
+    look back past the pipeline's cap, and that one reports the plan's limit too, because it is the one a person
+    can act on and it is never above the cap.
+    """
+    if state == CohortRealtimeState.OFF:
+        limit_days = plan_history_days()
+    elif state == CohortRealtimeState.DAILY:
+        limit_days = settings.REALTIME_COHORT_MAX_HISTORY_DAYS
+    else:
+        return None
+    if not behavioral_history_over_limit((cohort.filters or {}).get("properties"), limit_days=limit_days, today=today):
+        return None
+    return plan_history_days()
 
 
 def _required_backfill_kinds(cohort: Cohort) -> set[str]:
@@ -302,21 +339,44 @@ def _cohort_progress(
     return progress or None
 
 
+def _too_large_to_build(team_id: int, cohorts: Sequence[Cohort]) -> set[int]:
+    """The cohorts whose run a creator refused as too large, on their current behavioral definition."""
+    if not cohorts:
+        return set()
+    current_hash = {cohort.id: cohort.behavioral_filters_shape_hash or "" for cohort in cohorts}
+    refusals = (
+        CohortBackfillRefusal.objects.for_team(team_id, canonical=True)
+        .filter(cohort_id__in=current_hash)
+        .values_list("cohort_id", "shape_hash")
+    )
+    return {cohort_id for cohort_id, shape_hash in refusals if shape_hash == current_hash[cohort_id]}
+
+
 def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, CohortRealtimeReadiness]:
     readiness: dict[int, CohortRealtimeReadiness] = {}
     pending: list[Cohort] = []
+    # The save uses the team's calendar day, and UTC can be one day off it. For that day, an absolute
+    # start date at the limit can read on the other side of it here, which changes only the reason.
+    today = timezone.now().date()
+    # Read only for a cohort that can be past it, so a page of cohorts that are on reads no organization.
+    plan_history_days = cache(lambda: max_realtime_history_days(Organization.objects.get(team__id=team_id)))
 
     for cohort in cohorts:
         settled = _settled_state(cohort)
         if settled is None:
             pending.append(cohort)
         else:
+            history_limit_days = _history_limit_to_report(
+                cohort, settled, plan_history_days=plan_history_days, today=today
+            )
             readiness[cohort.id] = CohortRealtimeReadiness(
                 # Only a prepared realtime cohort has a moment it became targetable. A person
                 # property cohort always was, and it can carry a stamp from an earlier definition.
                 state=settled,
                 ready_at=cohort.realtime_ready_at if settled == CohortRealtimeState.READY else None,
                 build=None,
+                reason=CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT if history_limit_days is not None else None,
+                history_limit_days=history_limit_days,
             )
 
     if not pending:
@@ -342,6 +402,7 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
     queued = _queued_triggers([(cohort.id, kind) for cohort in pending for kind in sorted(unresolved[cohort.id])])
 
     progress_by_cohort: dict[int, list[_KindProgress]] = {}
+    needs_attention: list[Cohort] = []
     for cohort in pending:
         if queued is None and unresolved[cohort.id]:
             # The lookup that would say whether a build is queued is unavailable, so this cohort
@@ -349,11 +410,18 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
             continue
         progress = _cohort_progress(cohort.id, required_kinds[cohort.id], live_runs[cohort.id], queued or {})
         if progress is None:
-            readiness[cohort.id] = CohortRealtimeReadiness(
-                state=CohortRealtimeState.NEEDS_ATTENTION, ready_at=None, build=None
-            )
+            needs_attention.append(cohort)
             continue
         progress_by_cohort[cohort.id] = progress
+
+    too_large = _too_large_to_build(team_id, needs_attention)
+    for cohort in needs_attention:
+        readiness[cohort.id] = CohortRealtimeReadiness(
+            state=CohortRealtimeState.NEEDS_ATTENTION,
+            ready_at=None,
+            build=None,
+            reason=CohortRealtimeUnavailableReason.TOO_LARGE_TO_BUILD if cohort.id in too_large else None,
+        )
 
     # A cohort is only as far along as its least advanced kind, and that is the only run a reader
     # is shown, so it is the only one whose chunks are tallied.
@@ -419,7 +487,7 @@ def cohorts_with_realtime_state(cohorts: Sequence[Cohort]) -> list[Cohort]:
     return [
         cohort
         for cohort in saved
-        if cohort.team_id in serving_teams and (_has_event_criteria(cohort) or _has_person_criteria(cohort))
+        if cohort.team_id in serving_teams and (has_event_criteria(cohort) or _has_person_criteria(cohort))
     ]
 
 

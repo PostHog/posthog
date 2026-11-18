@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import {
+    Button,
     Combobox,
     ComboboxChip,
     ComboboxChips,
@@ -10,15 +11,24 @@ import {
     ComboboxItem,
     ComboboxList,
     ComboboxValue,
-    Spinner,
+    Skeleton,
     useComboboxAnchor,
 } from '@posthog/quill'
+
+const SCROLL_END_THRESHOLD_PX = 64
 
 type TagsComboboxProps = {
     value: string[]
     onChange: (next: string[]) => void
     onOpen?: () => void
+    onClose?: () => void
+    onInputChange?: (input: string) => void
     loading?: boolean
+    error?: string
+    onRetry?: () => void
+    /** Called when the list scrolls near its end, to load the next page. */
+    onScrollEnd?: () => void
+    loadingMore?: boolean
     options?: string[]
     placeholder?: string
     autoFocus?: boolean
@@ -45,7 +55,13 @@ function TagsComboboxInner({
     value,
     onChange,
     onOpen,
+    onClose,
+    onInputChange,
     loading,
+    error,
+    onRetry,
+    onScrollEnd,
+    loadingMore,
     options = [],
     placeholder,
     autoFocus,
@@ -56,13 +72,21 @@ function TagsComboboxInner({
     className,
 }: TagsComboboxProps): JSX.Element {
     const [inputValue, setInputValue] = useState('')
+    const createPrefix = `__create__${useId()}:`
     const trimmed = inputValue.trim()
+    // While matches load, Enter would pick "Create" over an existing tag that hasn't arrived yet.
+    // After a failed search, the Create row would hide the error and its retry.
     const showCreateItem =
-        allowCustomValues && trimmed.length > 0 && !value.includes(trimmed) && !options.includes(trimmed)
+        allowCustomValues &&
+        !loading &&
+        !error &&
+        trimmed.length > 0 &&
+        !value.includes(trimmed) &&
+        !options.includes(trimmed)
 
     // Synthetic items list: existing options + (optionally) the "Create X" sentinel at the bottom.
     const items: string[] = [...options]
-    const createSentinel = `__create__:${trimmed}`
+    const createSentinel = `${createPrefix}${trimmed}`
     if (showCreateItem) {
         items.push(createSentinel)
     }
@@ -79,17 +103,20 @@ function TagsComboboxInner({
                     return
                 }
                 // Convert any sentinel selection into the real typed value, dedupe.
-                const cleaned = (next ?? []).map((v) =>
-                    v.startsWith('__create__:') ? v.slice('__create__:'.length) : v
-                )
+                const cleaned = (next ?? []).map((v) => (v === createSentinel ? trimmed : v))
                 onChange(Array.from(new Set(cleaned)))
                 setInputValue('')
             }}
             inputValue={inputValue}
-            onInputValueChange={(v: string) => setInputValue(v)}
+            onInputValueChange={(v: string) => {
+                setInputValue(v)
+                onInputChange?.(v)
+            }}
             onOpenChange={(open) => {
                 if (open) {
                     onOpen?.()
+                } else {
+                    onClose?.()
                 }
             }}
         >
@@ -103,6 +130,10 @@ function TagsComboboxInner({
                 customValueNoun={customValueNoun}
                 trimmed={trimmed}
                 loading={loading}
+                error={error}
+                onRetry={onRetry}
+                onScrollEnd={onScrollEnd}
+                loadingMore={loadingMore}
             />
         </Combobox>
     )
@@ -118,6 +149,10 @@ function TagsComboboxBody({
     customValueNoun,
     trimmed,
     loading,
+    error,
+    onRetry,
+    onScrollEnd,
+    loadingMore,
 }: {
     placeholder?: string
     autoFocus?: boolean
@@ -128,6 +163,10 @@ function TagsComboboxBody({
     customValueNoun: string
     trimmed: string
     loading?: boolean
+    error?: string
+    onRetry?: () => void
+    onScrollEnd?: () => void
+    loadingMore?: boolean
 }): JSX.Element {
     const anchor = useComboboxAnchor()
     return (
@@ -137,7 +176,7 @@ function TagsComboboxBody({
                     {(values) => (
                         <>
                             {(values as string[])
-                                .filter((v) => !v.startsWith('__create__:'))
+                                .filter((v) => v !== createSentinel)
                                 .map((v) => (
                                     <ComboboxChip key={v} title={v}>
                                         {v}
@@ -155,18 +194,46 @@ function TagsComboboxBody({
             </ComboboxChips>
             <ComboboxContent anchor={anchor}>
                 <ComboboxEmpty>
-                    {loading ? (
-                        <span className="flex items-center gap-2">
-                            <Spinner />
-                            Loading {customValueNoun}s...
+                    {error ? (
+                        <span className="flex items-center justify-between gap-2">
+                            {error}
+                            {onRetry && (
+                                <Button size="sm" variant="outline" onClick={onRetry}>
+                                    Try again
+                                </Button>
+                            )}
                         </span>
+                    ) : loading ? (
+                        <div
+                            role="status"
+                            aria-label={`Loading ${customValueNoun}s`}
+                            className="flex w-56 flex-col gap-2"
+                        >
+                            <Skeleton className="h-3 w-3/4" />
+                            <Skeleton className="h-3 w-1/2" />
+                            <Skeleton className="h-3 w-2/3" />
+                        </div>
                     ) : trimmed ? (
-                        `No matching ${customValueNoun}`
+                        `No matching ${customValueNoun}s`
                     ) : (
                         `No ${customValueNoun}s yet`
                     )}
                 </ComboboxEmpty>
-                <ComboboxList>
+                <ComboboxList
+                    onScroll={
+                        onScrollEnd
+                            ? (event) => {
+                                  const list = event.currentTarget
+                                  if (
+                                      list.scrollHeight - list.scrollTop - list.clientHeight <
+                                      SCROLL_END_THRESHOLD_PX
+                                  ) {
+                                      onScrollEnd()
+                                  }
+                              }
+                            : undefined
+                    }
+                >
                     {(item: string) => {
                         if (item === createSentinel) {
                             return (
@@ -182,6 +249,16 @@ function TagsComboboxBody({
                         )
                     }}
                 </ComboboxList>
+                {loadingMore && (
+                    <div
+                        role="status"
+                        aria-label={`Loading more ${customValueNoun}s`}
+                        className="flex flex-col gap-2 p-2"
+                    >
+                        <Skeleton className="h-3 w-3/4" />
+                        <Skeleton className="h-3 w-1/2" />
+                    </div>
+                )}
             </ComboboxContent>
         </>
     )

@@ -11,17 +11,16 @@ import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger, serializeError } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { RedisCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { ReplayEventsOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
 import { RecordingApiOp, createRecordingApiAuthMiddleware, createReplayBlocksAuthMiddleware } from './auth'
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
-import { ListedBlock, RecordingDeletedResult, RecordingService } from './recording-service'
+import { BlockAdmission, ListedBlock, RecordingDeletedResult, RecordingService } from './recording-service'
 import {
     DeleteRecordingsBodySchema,
     EncryptBlocksBodySchema,
@@ -30,9 +29,11 @@ import {
     ReplayBlockParamsSchema,
     TeamParamsSchema,
 } from './schemas'
+import { SingleFlightKeyStore } from './single-flight-keystore'
 import { TimedKeyStore } from './timed-keystore'
 import {
     KeyStore,
+    PublicBlockLimits,
     REPLAY_BLOCK_TIERS,
     RecordingApiConfig,
     RecordingApiRole,
@@ -42,13 +43,16 @@ import {
     ReplayBlockBucket,
     ReplayBlockTier,
     getDefaultRecordingApiBlocksConfig,
+    parsePublicBlockLimits,
     parseRecordingApiRole,
     parseReplayBlockRateLimits,
 } from './types'
 
-// The browser keeps each block for a day. Django's sources listing, which hands out block URLs, reads the block
-// listing uncached and reports a deletion first, so the player never asks for a cached block of a deleted recording.
-const REPLAY_BLOCK_CACHE_CONTROL = 'private, max-age=86400, immutable'
+// The browser keeps each block for 4 hours, which bounds how long a deleted recording stays readable from its cache.
+// Django's sources listing, which hands out block URLs, reads the block listing uncached and reports a deletion first,
+// so the player never asks for a cached block of a deleted recording.
+const REPLAY_BLOCK_CACHE_CONTROL = 'private, max-age=14400, immutable'
+const PUBLIC_BLOCK_HOLD_CAP_MS = 30_000
 
 const KEY_LOOKUP_TIMEOUT_MS = 1000
 // Each Redis, DynamoDB and KMS call gives up after this, so a lookup the listing abandoned does not pile up.
@@ -70,12 +74,14 @@ export class RecordingApi {
     private blockRateLimiter: KeyedRateLimiterService | null = null
     private readonly role: RecordingApiRole
     private readonly replayBlockBuckets: Record<ReplayBlockTier, ReplayBlockBucket> | null
+    private publicBlockBytesInFlight = 0
+    private readonly publicBlockLimits: PublicBlockLimits | null
 
     // Postgres and the outputs are only used by internal routes, so a public process passes neither.
     constructor(
         private config: RecordingApiConfig,
         private postgres?: PostgresRouter,
-        private outputs?: IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
+        private outputs?: IngestionOutputs<ReplayEventsOutput>
     ) {
         this.role = parseRecordingApiRole(config.RECORDING_API_ROLE || 'internal')
         // Only a process serving the browser route reads its limits, so a bad value cannot stop an internal pod.
@@ -85,6 +91,7 @@ export class RecordingApi {
                       getDefaultRecordingApiBlocksConfig().RECORDING_API_BLOCK_RATE_LIMITS
               )
             : null
+        this.publicBlockLimits = this.servesPublicRoutes ? parsePublicBlockLimits(config) : null
     }
 
     private get servesInternalRoutes(): boolean {
@@ -159,12 +166,14 @@ export class RecordingApi {
         })
         this.redisPool = createRedisPoolFromConfig(redisConfig('recording-api'))
 
-        const keyStore: KeyStore = new TimedKeyStore(
-            getKeyStore(s3Region, {
-                kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
-                dynamoDBEndpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
-                requestTimeoutMs: this.config.RECORDING_API_AWS_TIMEOUT_MS,
-            })
+        const keyStore: KeyStore = new SingleFlightKeyStore(
+            new TimedKeyStore(
+                getKeyStore(s3Region, {
+                    kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
+                    dynamoDBEndpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+                    requestTimeoutMs: this.config.RECORDING_API_AWS_TIMEOUT_MS,
+                })
+            )
         )
         // In-memory caching is intentionally omitted here — a stale in-memory cache on
         // another instance would allow serving a deleted recording's data.
@@ -202,7 +211,6 @@ export class RecordingApi {
         await this.encryptor.start()
 
         const metadataStore = new SessionMetadataStore(this.outputs)
-        const featureStore = new SessionFeatureStore(this.outputs)
 
         // Initialize ClickHouse client for block listing queries
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
@@ -228,7 +236,6 @@ export class RecordingApi {
             this.keyStore,
             this.decryptor,
             metadataStore,
-            featureStore,
             this.postgres,
             { client: this.clickhouseClient, credential: ClickHouseCredential.fromConfig(this.config) },
             this.encryptor
@@ -488,6 +495,45 @@ export class RecordingApi {
         }
     }
 
+    // Each block is read and decrypted whole in memory, so the process caps the bytes it holds at once.
+    private admitPublicBlock(bytes: number): BlockAdmission {
+        if (bytes > this.publicBlockLimits!.maxBlockBytes) {
+            return 'too_large'
+        }
+        if (this.publicBlockBytesInFlight + bytes > this.publicBlockLimits!.bytesInFlight) {
+            return 'busy'
+        }
+        this.publicBlockBytesInFlight += bytes
+        return 'ok'
+    }
+
+    // The socket closes once the response is fully written or the client aborts. The timer covers anything that
+    // emits neither, and outlasts the Envoy route timeout, which resets a stalled upstream response.
+    private releaseWhenWritten(res: express.Response, bytes: number): void {
+        let released = false
+        let finishEmitted = false
+        res.once('finish', () => (finishEmitted = true))
+        const release = (): void => {
+            if (!released) {
+                released = true
+                clearTimeout(timer)
+                this.publicBlockBytesInFlight -= bytes
+            }
+        }
+        const timer = setTimeout(release, PUBLIC_BLOCK_HOLD_CAP_MS)
+        timer.unref()
+        res.socket?.once('close', () => {
+            release()
+            // A write that hit backpressure completes without 'finish', which the HTTP metrics wait for.
+            setImmediate(() => {
+                if (!finishEmitted) {
+                    res.emit('finish')
+                }
+            })
+        })
+        res.once('close', release)
+    }
+
     private getBlockByRef = async (req: express.Request, res: express.Response): Promise<void> => {
         const paramsResult = ReplayBlockParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
@@ -499,6 +545,7 @@ export class RecordingApi {
             return
         }
         const { team_id: teamId, session_id: sessionId, ref } = paramsResult.data
+        let admittedBytes = 0
 
         try {
             if (this.blockRateLimiter) {
@@ -519,11 +566,32 @@ export class RecordingApi {
                 }
             }
 
-            const result = await this.recordingService.getBlockByRef(teamId, sessionId, ref)
+            const result = await this.recordingService.getBlockByRef(
+                teamId,
+                sessionId,
+                ref,
+                (bytes) => {
+                    const admission = this.admitPublicBlock(bytes)
+                    if (admission === 'ok') {
+                        admittedBytes = bytes
+                    }
+                    return admission
+                },
+                this.publicBlockLimits!.readTimeoutMs
+            )
             if (!result.ok) {
-                RecordingApiMetrics.incrementReplayBlockRequest(result.error === 'deleted' ? 'deleted' : 'not_found')
+                RecordingApiMetrics.incrementReplayBlockRequest(result.error === 'deleted' ? 'deleted' : result.error)
                 if (result.error === 'deleted') {
                     sendRecordingDeleted(res, result)
+                    return
+                }
+                if (result.error === 'too_large') {
+                    res.status(413).json({ error: 'Block too large for this route' })
+                    return
+                }
+                if (result.error === 'busy') {
+                    res.set('Retry-After', '1')
+                    res.status(503).json({ error: 'Busy' })
                     return
                 }
                 res.status(404).json({ error: 'Block not found' })
@@ -533,7 +601,27 @@ export class RecordingApi {
             res.set('Content-Type', 'application/octet-stream')
             res.set('Content-Length', String(Buffer.byteLength(result.data)))
             res.set('Cache-Control', REPLAY_BLOCK_CACHE_CONTROL)
-            res.send(result.data)
+            // The block is attacker-influenced bytes on an app origin, so the browser must never sniff it as HTML.
+            res.set('X-Content-Type-Options', 'nosniff')
+            // The write below skips the ETag and revalidation that send() does, so they happen here.
+            const etag = req.app.get('etag fn')?.(result.data)
+            if (etag) {
+                res.set('ETag', etag)
+            }
+            if (req.fresh) {
+                res.status(304).end()
+                return
+            }
+            if (req.method === 'HEAD') {
+                res.end()
+                return
+            }
+            // send() hands the whole buffer to uWS at once, so a slow reader would hold it after the budget frees it.
+            // A write with Content-Length set goes out under backpressure and closes the socket once fully written.
+            this.releaseWhenWritten(res, admittedBytes)
+            admittedBytes = 0
+            res.write(result.data)
+            res.end()
         } catch (error) {
             RecordingApiMetrics.incrementReplayBlockRequest('error')
             logger.error('[RecordingApi] Error serving a block by ref', {
@@ -543,6 +631,8 @@ export class RecordingApi {
             })
             captureException(error)
             res.status(500).json({ error: 'Failed to fetch block' })
+        } finally {
+            this.publicBlockBytesInFlight -= admittedBytes
         }
     }
 

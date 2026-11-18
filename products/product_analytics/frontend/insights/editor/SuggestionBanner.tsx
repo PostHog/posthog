@@ -3,10 +3,13 @@ import { useEffect, useRef } from 'react'
 import { IconCheck, IconInfo, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { pluralize } from 'lib/utils/strings'
 import { compareInsightTopLevelSections } from 'scenes/insights/utils'
 
 import { Node } from '~/queries/schema/schema-general'
+
+import { QuillSuggestionBanner } from './QuillSuggestionBanner'
 
 export interface SuggestionBannerProps {
     previousQuery: Node
@@ -22,6 +25,7 @@ export function SuggestionBanner({
     onReject,
 }: SuggestionBannerProps): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         if (ref.current) {
@@ -31,6 +35,18 @@ export function SuggestionBanner({
 
     const changedLabels = compareInsightTopLevelSections(previousQuery, suggestedQuery)
     const diffString = `🔍 ${pluralize(changedLabels.length, 'section')} changed: \n${changedLabels.join('\n')}`
+
+    if (todayRailNav) {
+        return (
+            <QuillSuggestionBanner
+                containerRef={ref}
+                changedLabels={changedLabels}
+                diffString={diffString}
+                onKeep={onKeep}
+                onReject={onReject}
+            />
+        )
+    }
 
     return (
         <div className="w-full px-2" ref={ref}>

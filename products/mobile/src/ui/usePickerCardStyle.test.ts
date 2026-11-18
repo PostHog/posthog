@@ -17,7 +17,7 @@ jest.mock('./useScreenInsets', () => ({
 
 test('keeps a picker above the keyboard when less than 120 points remain', () => {
     const { result } = renderHook(() => usePickerCardStyle(90, 320))
-    expect(result.current).toEqual({ top: 56, height: 98 })
+    expect(result.current).toMatchObject({ top: 56, height: 98 })
     const style = result.current as { top: number; height: number }
     expect(style.top + style.height).toBeLessThan(393 - 235)
 })

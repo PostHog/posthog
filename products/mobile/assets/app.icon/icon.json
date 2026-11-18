@@ -1,31 +1,41 @@
 {
-    "fill": {
-        "solid": "display-p3:0.97647,0.93333,0.88235,1.00000"
-    },
+    "fill-specializations": [
+        { "value": { "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000" } },
+        { "appearance": "dark", "value": { "solid": "extended-srgb:0.06667,0.06667,0.07451,1.00000" } }
+    ],
     "groups": [
         {
-            "blur-material": null,
             "layers": [
                 {
                     "glass": false,
                     "image-name": "logo.png",
-                    "name": "logo"
+                    "name": "PostHog",
+                    "opacity-specializations": [
+                        { "value": 1 },
+                        { "appearance": "dark", "value": 0 },
+                        { "appearance": "tinted", "value": 0 }
+                    ]
+                },
+                {
+                    "glass-specializations": [{ "value": true }, { "appearance": "dark", "value": false }],
+                    "image-name": "logo-mono.png",
+                    "name": "Monochrome PostHog",
+                    "opacity-specializations": [
+                        { "value": 0 },
+                        { "appearance": "dark", "value": 0 },
+                        { "appearance": "tinted", "value": 1 }
+                    ]
+                },
+                {
+                    "glass": false,
+                    "image-name": "logo-dark.png",
+                    "name": "White PostHog",
+                    "opacity-specializations": [{ "value": 0 }, { "appearance": "dark", "value": 1 }]
                 }
-            ],
-            "lighting": "individual",
-            "shadow": {
-                "kind": "neutral",
-                "opacity": 0.5
-            },
-            "specular": true,
-            "translucency": {
-                "enabled": true,
-                "value": 0.5
-            }
+            ]
         }
     ],
     "supported-platforms": {
-        "circles": ["watchOS"],
         "squares": "shared"
     }
 }

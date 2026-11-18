@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
-import { AccountPropertiesWidgetConfiguration } from './AccountPropertiesWidgetConfiguration'
+import { getAccountViewComponentByKind } from '../../components/Accounts/accountViewComponents'
 import { accountViewsLogic } from './accountViewsLogic'
 
 interface AccountViewTileEditorModalProps {
@@ -11,13 +11,19 @@ interface AccountViewTileEditorModalProps {
 
 export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorModalProps): JSX.Element {
     const logic = accountViewsLogic({ projectId })
-    const { tileEditor, tileSaving } = useValues(logic)
-    const { closeTileEditor, saveTileEditor, setTileEditorName, setTileEditorPropertiesConfig } = useActions(logic)
+    const { tileEditor, tileSaving, tileEditorConfigError, tileEditorConfigErrorLoading } = useValues(logic)
+    const { closeTileEditor, saveTileEditor, setTileEditorName, setTileEditorConfig } = useActions(logic)
+    const definition = tileEditor?.kind ? getAccountViewComponentByKind(tileEditor.kind) : undefined
+    const ConfigEditor = definition?.ConfigEditor
     const saveDisabledReason = tileSaving
         ? 'Saving changes'
         : !tileEditor?.name.trim()
           ? 'Enter a tile name'
-          : undefined
+          : definition?.getConfigError && tileEditorConfigErrorLoading
+            ? 'Validating tile settings'
+            : definition?.getConfigError
+              ? tileEditorConfigError
+              : undefined
 
     return (
         <LemonModal
@@ -28,6 +34,7 @@ export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorM
                 }
             }}
             title="Edit tile"
+            width={definition?.configEditorWidth}
             footer={
                 <>
                     <LemonButton
@@ -56,20 +63,20 @@ export function AccountViewTileEditorModal({ projectId }: AccountViewTileEditorM
                     value={tileEditor?.name ?? ''}
                     disabled={tileSaving}
                     onChange={setTileEditorName}
-                    onPressEnter={tileSaving ? undefined : saveTileEditor}
+                    onPressEnter={tileSaving || saveDisabledReason ? undefined : saveTileEditor}
                     autoFocus
                     maxLength={400}
                     data-attr="account-view-tile-name"
                 />
             </div>
-            {tileEditor?.propertiesConfig && tileEditor.accountId ? (
+            {ConfigEditor && tileEditor?.config && tileEditor.accountId ? (
                 <div className="mt-4">
-                    <AccountPropertiesWidgetConfiguration
+                    <ConfigEditor
                         projectId={projectId}
                         accountId={tileEditor.accountId}
-                        config={tileEditor.propertiesConfig}
+                        config={tileEditor.config}
                         saving={tileSaving}
-                        onChange={setTileEditorPropertiesConfig}
+                        onChange={setTileEditorConfig}
                     />
                 </div>
             ) : null}

@@ -31,7 +31,6 @@ export interface ReportsInboxViewPresentationProps {
   isEmpty: boolean;
   hasActiveFilters: boolean;
   showConfigureAgentsEmptyState: boolean;
-  triageEnabled: boolean;
   filterControl: ReactNode;
   scopeControl: ReactNode;
   renderReport: (report: SignalReport) => ReactNode;
@@ -52,7 +51,6 @@ export function ReportsInboxViewPresentation({
   isEmpty,
   hasActiveFilters,
   showConfigureAgentsEmptyState,
-  triageEnabled,
   filterControl,
   scopeControl,
   renderReport,
@@ -79,31 +77,29 @@ export function ReportsInboxViewPresentation({
                   Configure agents
                 </Button>
               )}
-              {triageEnabled && (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="gap-2"
-                        disabled={triageReportCount === 0}
-                        onClick={onEnterTriage}
-                      >
-                        <ListChecksIcon />
-                        Triage mode
-                        <kbd className="rounded bg-(--gray-4) px-1.5 font-mono text-[12px] text-gray-11">
-                          T
-                        </kbd>
-                      </Button>
-                    }
-                  />
-                  <TooltipContent side="bottom">
-                    Step through reports that need a decision, one at a time.
-                    Open, create a PR, or dismiss each from the keyboard.
-                  </TooltipContent>
-                </Tooltip>
-              )}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2"
+                      disabled={triageReportCount === 0}
+                      onClick={onEnterTriage}
+                    >
+                      <ListChecksIcon />
+                      Triage mode
+                      <kbd className="rounded bg-(--gray-4) px-1.5 font-mono text-[12px] text-gray-11">
+                        T
+                      </kbd>
+                    </Button>
+                  }
+                />
+                <TooltipContent side="bottom">
+                  Step through reports that need a decision, one at a time.
+                  Open, create a PR, or dismiss each from the keyboard.
+                </TooltipContent>
+              </Tooltip>
               {scopeControl}
             </div>
           </div>

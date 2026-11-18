@@ -23,6 +23,14 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 
+# ThrottleUser scopes the limit to the API key, ThrottleIP to the caller's egress address.
+# Raised as `BingWebmasterToolsError` by `_request_payload`.
+THROTTLE_ERRORS = ("ERROR!!! ThrottleUser", "ERROR!!! ThrottleIP")
+THROTTLE_RETRY_ERROR = (
+    "Bing Webmaster Tools' API rate limit ran out before this sync finished. "
+    "The next sync runs on schedule; if this keeps happening, sync fewer tables."
+)
+
 
 @SourceRegistry.register
 class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
@@ -58,14 +66,12 @@ class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
         }
 
     def get_retryable_errors(self) -> set[str]:
-        return {
-            # Bing's rate-limit faults, raised as `BingWebmasterToolsError` by `_request_payload`.
-            # ThrottleUser scopes the limit to the API key, ThrottleIP to the caller's egress
-            # address; either clears once its window rolls over, so a Temporal retry with backoff
-            # normally resolves it and it must not page as a bug.
-            "ERROR!!! ThrottleUser",
-            "ERROR!!! ThrottleIP",
-        }
+        # Either limit clears once its window rolls over, so a Temporal retry with backoff
+        # normally resolves it and it must not page as a bug.
+        return set(THROTTLE_ERRORS)
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return dict.fromkeys(THROTTLE_ERRORS, THROTTLE_RETRY_ERROR)
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.sources.bing_webmaster_tools.canonical_descriptions import (  # noqa: PLC0415 (keeps the descriptions dict off the registry import path; only the enrichment activity reads it)

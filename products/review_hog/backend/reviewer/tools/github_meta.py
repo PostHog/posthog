@@ -1,5 +1,6 @@
 import re
 import logging
+from collections.abc import Iterable
 from typing import Any
 
 import requests
@@ -281,6 +282,31 @@ def _patch_omitted(file: dict[str, Any]) -> bool:
     return not (file.get("status") == "renamed" and not (file["additions"] or file["deletions"]))
 
 
+def _read_files(files: Iterable[dict[str, Any]], pr_filter: PRFilter, pr_parser: PRParser) -> FetchedFiles:
+    pr_files: list[PRFile] = []
+    skipped_paths: list[str] = []
+    diff_sections: list[str] = []
+    for file in files:
+        if pr_filter.skips(file["filename"]):
+            skipped_paths.append(file["filename"])
+            continue
+        if _patch_omitted(file):
+            skipped_paths.append(file["filename"])
+        patch = file.get("patch")
+        pr_files.append(
+            PRFile(
+                filename=file["filename"],
+                previous_filename=file.get("previous_filename"),
+                status=file["status"],
+                additions=file["additions"],
+                deletions=file["deletions"],
+                changes=pr_parser.parse_patch(patch) if patch else [],
+            )
+        )
+        diff_sections.append(_format_diff_section(file["filename"], file["status"], patch or ""))
+    return FetchedFiles(pr_files=pr_files, diff="\n\n".join(diff_sections), skipped_paths=tuple(skipped_paths))
+
+
 def _merge_base_sha(comparison: dict[str, Any]) -> str | None:
     sha = (comparison.get("merge_base_commit") or {}).get("sha")
     return sha if isinstance(sha, str) else None
@@ -358,29 +384,7 @@ def fetch_branch_compare(
 
     pr_filter = PRFilter(review_tests_and_text=review_tests_and_text)
     pr_parser = PRParser()
-    pr_files: list[PRFile] = []
-    skipped_paths: list[str] = []
-    diff_sections: list[str] = []
-    additions = deletions = 0
-    for file in files:
-        additions += file["additions"]
-        deletions += file["deletions"]
-        if pr_filter.skips(file["filename"]):
-            skipped_paths.append(file["filename"])
-            continue
-        if _patch_omitted(file):
-            skipped_paths.append(file["filename"])
-        patch = file.get("patch")
-        pr_files.append(
-            PRFile(
-                filename=file["filename"],
-                status=file["status"],
-                additions=file["additions"],
-                deletions=file["deletions"],
-                changes=pr_parser.parse_patch(patch) if patch else [],
-            )
-        )
-        diff_sections.append(_format_diff_section(file["filename"], file["status"], patch or ""))
+    fetched = _read_files(files, pr_filter, pr_parser)
 
     metadata = PRMetadata(
         number=0,
@@ -396,17 +400,17 @@ def fetch_branch_compare(
         is_fork=False,
         head_sha=head_sha,
         commits=comparison["total_commits"],
-        additions=additions,
-        deletions=deletions,
+        additions=sum(file["additions"] for file in files),
+        deletions=sum(file["deletions"] for file in files),
         changed_files=len(files),
     )
     return FetchedPR(
         pr_metadata=metadata,
         pr_comments=[],
-        pr_files=pr_files,
-        diff="\n\n".join(diff_sections),
+        pr_files=fetched.pr_files,
+        diff=fetched.diff,
         merge_base_sha=_merge_base_sha(comparison),
-        skipped_paths=tuple(skipped_paths),
+        skipped_paths=fetched.skipped_paths,
     )
 
 
@@ -505,35 +509,19 @@ class PRFetcher:
         `commit` artefact (it anchors a finding to the exact reviewed code even after later
         force-pushes).
         """
-        pr_files: list[PRFile] = []
-        skipped_paths: list[str] = []
-        diff_sections: list[str] = []
         try:
-            for file in github_api_get_paginated(
-                f"/repos/{self.owner}/{self.repo}/pulls/{self.pr_number}/files",
-                token=self._token,
-                installation_id=self._installation_id,
-                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
-            ):
-                if pr_filter.skips(file["filename"]):
-                    skipped_paths.append(file["filename"])
-                    continue
-                if _patch_omitted(file):
-                    skipped_paths.append(file["filename"])
-                patch = file.get("patch")
-                pr_files.append(
-                    PRFile(
-                        filename=file["filename"],
-                        status=file["status"],
-                        additions=file["additions"],
-                        deletions=file["deletions"],
-                        changes=pr_parser.parse_patch(patch) if patch else [],
-                    )
-                )
-                diff_sections.append(_format_diff_section(file["filename"], file["status"], patch or ""))
+            return _read_files(
+                github_api_get_paginated(
+                    f"/repos/{self.owner}/{self.repo}/pulls/{self.pr_number}/files",
+                    token=self._token,
+                    installation_id=self._installation_id,
+                    endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
+                ),
+                pr_filter,
+                pr_parser,
+            )
         except (GitHubAPIError, GitHubRateLimitError) as e:
             raise ValueError(f"Failed to fetch PR files: {e}") from e
-        return FetchedFiles(pr_files=pr_files, diff="\n\n".join(diff_sections), skipped_paths=tuple(skipped_paths))
 
     def fetch_merge_base_sha(self, *, base_branch: str, head_sha: str) -> str | None:
         """The commit GitHub computes the PR's diff against, or None when the compare call fails.

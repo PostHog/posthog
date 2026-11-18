@@ -1,9 +1,7 @@
-"""Curated query: delivery and CI friction for one scope against the repository. The SQL returns one
-row of facts per merged PR, and ``scope_repo_figure`` folds them into medians and shares in Python.
+"""Curated query: delivery and CI friction for one scope against the repository.
 
-The comparison is against the repository, not against the previous window: the question is "is this
-friction unusual here", and a trend over time says nothing about that. A window of merged pull
-requests is small, so folding in Python keeps the scope and the repo figures on one definition."""
+The SQL returns one row of facts per merged PR. Python folds them into medians and shares, so the
+scope and the repo figures share one definition."""
 
 import math
 import statistics
@@ -101,8 +99,8 @@ class MergedPRFacts:
 
     @property
     def first_approval_at(self) -> datetime | None:
-        """The first approval after the PR went ready. An approval that landed while the PR was a
-        draft counts as approved at ready: nobody waited on a reviewer after that point."""
+        """The first approval between ready and merge. An approval from before ready counts as approved
+        at ready, because nobody waited on a reviewer after that point. None when no approval is observed."""
         ready_at = self.ready_at
         if ready_at is None or not self.approved_at:
             return None
@@ -249,8 +247,6 @@ def scope_repo_figure(
     facts: list[MergedPRFacts],
     measure: Callable[[list[MergedPRFacts]], float | None],
 ) -> ScopeRepoFigure:
-    """Applies one measure to the PRs in scope and to every PR, so the scope and the repo can never be
-    measured two different ways."""
     return ScopeRepoFigure(scope=measure(scope_facts), repo=measure(facts))
 
 
@@ -369,7 +365,7 @@ def _merged_facts(
 def query_ready_to_merge_facts(
     curated: CuratedGitHubSource, *, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
 ) -> list[MergedPRFacts]:
-    """The merged PRs with only the facts the ready-to-merge medians read: no CI, queue or cost reads."""
+    """The merged PRs with approvals only: pushed_at and gate_attempts are empty and cost is None."""
     rows = _query_merged_rows(curated, scope=scope, date_from=date_from, date_to=date_to)
     if not rows:
         return []
@@ -379,7 +375,7 @@ def query_ready_to_merge_facts(
 
 def _query_pushes(curated: CuratedGitHubSource, pr_numbers: list[int], run_from: datetime) -> dict[int, list[datetime]]:
     push_rows = push_rows_select(
-        runs_source=curated.run_source(started_floor=True),
+        runs_source=curated.run_source(started_floor=True, since=run_from),
         run_filter="pr_number IN {pr_numbers} AND run_started_at >= {run_from}",
     )
     response = curated.run(
@@ -400,7 +396,7 @@ def _query_gate_attempts(
     gate_from = date_from - GATE_RUN_LOOKBACK
     response = curated.run(
         gate_attempts_sql(
-            runs_source=curated.run_source(started_floor=True),
+            runs_source=curated.run_source(started_floor=True, since=gate_from),
             pull_requests_source=curated.pr_source(),
             pull_request_filter="pr.number IN {pr_numbers} AND pr.merged_at IS NOT NULL",
             decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,
@@ -429,7 +425,7 @@ def _query_gate_attempts(
 
 def _query_costs(curated: CuratedGitHubSource, pr_numbers: list[int], run_from: datetime) -> dict[int, PRCostAggregate]:
     # A resolved source is one repository's tables, so dropping the owner and name cannot collide two
-    # pull requests. The timelines read keeps the full key, because it shows the repository per row.
+    # pull requests.
     return {
         number: cost
         for (_, _, number), cost in query_pr_costs(curated=curated, pr_numbers=pr_numbers, run_from=run_from).items()

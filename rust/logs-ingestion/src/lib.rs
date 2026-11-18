@@ -17,3 +17,4 @@ pub mod rate_limiter;
 pub mod record;
 pub mod retention;
 pub mod sampling;
+pub mod service;
