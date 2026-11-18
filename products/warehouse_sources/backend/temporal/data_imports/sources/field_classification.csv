@@ -9,6 +9,7 @@ ActiveCampaign,api_url api_key,,,,,active-campaign
 AcuityScheduling,,,,,,acuity-scheduling
 AdRoll,client_id personal_access_token,,,,,ad-roll
 Adapty,api_key,,,start_date,,adapty
+Adcell,,,,,,adcell
 Adjust,api_token,,,app_tokens,,adjust
 AdobeAnalytics,client_id client_secret report_suite_id global_company_id,,,report_dimension report_metrics start_date,,adobe-analytics
 AdobeCommerce,store_url store_code auth_method,,,,,adobe-commerce
@@ -1175,6 +1176,7 @@ Smartrecruiters,api_key,,,,,smartrecruiters
 Smartsheet,access_token,,,,,smartsheet
 Smartwaiver,api_key,,,,,smartwaiver
 Smokeball,,,,,,smokeball
+SmsMagic,,,,,,sms-magic
 SmsManager,,,,,,sms-manager
 SnapchatAds,,snapchat_integration_id,ad_account_id,,,snapchat
 Snovio,,,,,,snovio
