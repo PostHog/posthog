@@ -142,48 +142,6 @@ test.describe('Message preferences page', () => {
                     .poll(() => storedPreferences())
                     .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_IN', [eventInvitesId]: 'OPTED_OUT' })
             })
-
-            await test.step('all marketing off during a pending topic save keeps the new topic choice', async () => {
-                const heldSaves: (() => void)[] = []
-                const holdSave = async (route: Route): Promise<void> => {
-                    await new Promise<void>((release) => heldSaves.push(release))
-                    await route.continue()
-                }
-                // No `times` limit: once a limited handler runs out, Playwright turns interception off,
-                // which lets the other held save through before the test releases it
-                await recipientPage.route(UPDATE_URL, holdSave)
-                await productNews.click()
-                await expect.poll(() => heldSaves.length).toBe(1)
-                await expect(status(productNewsId)).toHaveText('Saving…')
-                await allMarketing.click()
-                await expect.poll(() => heldSaves.length).toBe(2)
-
-                const topicSaved = recipientPage.waitForResponse(UPDATE_URL)
-                heldSaves[0]()
-                await topicSaved
-                const allOffSaved = recipientPage.waitForResponse(UPDATE_URL)
-                heldSaves[1]()
-                await allOffSaved
-                await recipientPage.unroute(UPDATE_URL, holdSave)
-
-                await expect(status('$all')).toHaveText('Not subscribed')
-                await expect(status(productNewsId)).toHaveText('Not subscribed')
-                await expect
-                    .poll(() => storedPreferences())
-                    .toEqual({ $all: 'OPTED_OUT', [productNewsId]: 'OPTED_OUT', [eventInvitesId]: 'OPTED_OUT' })
-            })
-
-            await test.step('all marketing on afterwards keeps that topic off', async () => {
-                await recipientPage.reload()
-                await allMarketing.click()
-                await expect(status('$all')).toHaveText('Subscribed')
-                await expect(productNews).not.toBeChecked()
-                await expect(productNews).toBeEnabled()
-                await expect(status(productNewsId)).toHaveText('Not subscribed')
-                await expect
-                    .poll(() => storedPreferences())
-                    .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_OUT', [eventInvitesId]: 'OPTED_OUT' })
-            })
         } finally {
             await context.close()
         }
@@ -230,32 +188,108 @@ test.describe('Message preferences page', () => {
         }
     })
 
-    test('a refused topic save turns the topic back on', async ({ browser, page, playwrightSetup }) => {
+    test('all marketing off during a pending topic save keeps the new topic choice', async ({
+        browser,
+        page,
+        playwrightSetup,
+    }) => {
         const { path, productNewsId, eventInvitesId, storedPreferences } = await createPreferencesPage(
             page,
             playwrightSetup
         )
-        const { context, recipientPage, productNews, eventInvites, status } = await openAsRecipient(browser, path)
+        const { context, recipientPage, productNews, eventInvites, allMarketing, status } = await openAsRecipient(
+            browser,
+            path
+        )
 
         try {
-            await recipientPage.route(
-                UPDATE_URL,
-                (route) => route.fulfill({ status: 500, json: { error: 'Topic save refused' } }),
-                { times: 1 }
-            )
-            await productNews.click()
-            await expect(recipientPage.getByText('Topic save refused')).toBeVisible()
-            await expect(productNews).toBeChecked()
-            await expect(productNews).toBeEnabled()
-            await expect(status(productNewsId)).toHaveText('Subscribed')
-
             await eventInvites.click()
             await expect(status(eventInvitesId)).toHaveText('Not subscribed')
+
+            const heldSaves: (() => void)[] = []
+            const holdSave = async (route: Route): Promise<void> => {
+                await new Promise<void>((release) => heldSaves.push(release))
+                await route.continue()
+            }
+            // No `times` limit: once a limited handler runs out, Playwright turns interception off,
+            // which lets the other held save through before the test releases it
+            await recipientPage.route(UPDATE_URL, holdSave)
+            await productNews.click()
+            await expect.poll(() => heldSaves.length).toBe(1)
+            await expect(status(productNewsId)).toHaveText('Saving…')
+            await allMarketing.click()
+            await expect.poll(() => heldSaves.length).toBe(2)
+
+            const topicSaved = recipientPage.waitForResponse(UPDATE_URL)
+            heldSaves[0]()
+            await topicSaved
+            const allOffSaved = recipientPage.waitForResponse(UPDATE_URL)
+            heldSaves[1]()
+            await allOffSaved
+            await recipientPage.unroute(UPDATE_URL, holdSave)
+
+            await expect(status('$all')).toHaveText('Not subscribed')
+            await expect(status(productNewsId)).toHaveText('Not subscribed')
             await expect
                 .poll(() => storedPreferences())
-                .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_IN', [eventInvitesId]: 'OPTED_OUT' })
+                .toEqual({ $all: 'OPTED_OUT', [productNewsId]: 'OPTED_OUT', [eventInvitesId]: 'OPTED_OUT' })
+
+            await recipientPage.reload()
+            await allMarketing.click()
+            await expect(status('$all')).toHaveText('Subscribed')
+            await expect(productNews).not.toBeChecked()
+            await expect(productNews).toBeEnabled()
+            await expect(status(productNewsId)).toHaveText('Not subscribed')
+            await expect
+                .poll(() => storedPreferences())
+                .toEqual({ $all: 'OPTED_IN', [productNewsId]: 'OPTED_OUT', [eventInvitesId]: 'OPTED_OUT' })
         } finally {
             await context.close()
         }
     })
+
+    for (const startsSubscribed of [true, false]) {
+        test(`a refused topic save keeps the saved choice when the topic starts ${startsSubscribed ? 'on' : 'off'}`, async ({
+            browser,
+            page,
+            playwrightSetup,
+        }) => {
+            const { path, productNewsId, eventInvitesId, storedPreferences } = await createPreferencesPage(
+                page,
+                playwrightSetup
+            )
+            const { context, recipientPage, productNews, eventInvites, status } = await openAsRecipient(browser, path)
+            const savedText = startsSubscribed ? 'Subscribed' : 'Not subscribed'
+
+            try {
+                if (!startsSubscribed) {
+                    await productNews.click()
+                    await expect(status(productNewsId)).toHaveText(savedText)
+                }
+
+                await recipientPage.route(
+                    UPDATE_URL,
+                    (route) => route.fulfill({ status: 500, json: { error: 'Topic save refused' } }),
+                    { times: 1 }
+                )
+                await productNews.click()
+                await expect(recipientPage.getByText('Topic save refused')).toBeVisible()
+                await expect(productNews).toBeChecked({ checked: startsSubscribed })
+                await expect(productNews).toBeEnabled()
+                await expect(status(productNewsId)).toHaveText(savedText)
+
+                await eventInvites.click()
+                await expect(status(eventInvitesId)).toHaveText('Not subscribed')
+                await expect
+                    .poll(() => storedPreferences())
+                    .toEqual({
+                        $all: 'OPTED_IN',
+                        [productNewsId]: startsSubscribed ? 'OPTED_IN' : 'OPTED_OUT',
+                        [eventInvitesId]: 'OPTED_OUT',
+                    })
+            } finally {
+                await context.close()
+            }
+        })
+    }
 })
