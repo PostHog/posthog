@@ -29,12 +29,14 @@ the old code, so its result counts only while that code is still the default bra
 
 The token expires five minutes after the job requests it, and a review often comes later, so the
 expiry is not checked. The audience binds the token to one result, so an old token proves only what
-it signed. Two limits remain:
+it signed. Three limits remain:
 - A writer's job can edit a newer result's check run and post an older result of the same PR, head
   and merge base again. That result proved the same inputs with code the pins still hold, so this
   matters only for a publisher that can answer differently on the same inputs.
 - A key that GitHub removes from its published set fails every result it signed. The entry then
   waits until the publisher runs again.
+- A writer who floods a head with check runs or check suites past GitHub's listing limits keeps the
+  entry pending. A flood can delay a lift, never forge one.
 """
 
 import re

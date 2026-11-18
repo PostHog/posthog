@@ -198,7 +198,7 @@ The next delivery skips and dismisses the standing approval, and the engine refu
 ## Attestation issuers (who the publisher is, and what it may lift)
 
 An attestation entry splits who the publisher is from what it may do.
-`check` and `app_id` identify the publisher, and `paths` and `lifts` say what it may lift.
+`check` with an `app_id`, or with a `workflow` (see "Workflow publishers" below), identifies the publisher, and `paths` and `lifts` say what it may lift.
 The default-branch paths the publisher runs from are its own description, kept in one place: an `issuer` manifest that the publisher owns, such as `tools/change-prover/issuer.yml`, which holds only `paths`.
 A key ending in `/` is a directory, which the marker pins by its git tree id, so a file added under it changes the pin too. Any other key is a file pinned by its blob id.
 The manifest must cover its own path, so an edit to it changes a pin as well.
@@ -213,34 +213,17 @@ The policy only names the manifest. It never copies the list, so the two cannot 
 ## Workflow publishers (identity without an App)
 
 An entry names either an `app_id` or a default-branch `workflow` with its publishing `job` and the `events` it runs on, never both.
-Any job's built-in token can create a check run under any name, and can edit the title, summary and annotations of any check run a workflow wrote, including another run's job check run.
-So nothing the Checks API returns says which job wrote it, and a workflow entry trusts only a result its publishing job signed with a GitHub Actions OIDC ID token.
+Any job's built-in token can create a check run under any name and edit any check run a workflow wrote, so a workflow entry trusts only a result its publishing job signed with a GitHub Actions OIDC token.
+`logic/workflow_proofs.py` verifies it, and its module docstring lists the accepted limits. Read it before you change how a result is selected or verified. The publisher's side of the contract is in the engine README's attestation section.
 
-The publisher's side:
+A change to the verification keeps these true:
 
-- Only the publishing job gets `permissions: id-token: write`. The job that reads PR data concludes in a separate job with no permissions, as in the App setup, and stays security code, because the publisher signs whatever it hands over.
-- The publishing job requests a token with the audience `proof_audience(check, conclusion, marker)` from `logic/workflow_proofs.py`: `stamphog-` and the sha256 of `stamphog:v1\n<check>\n<conclusion>\n<marker JSON>`. It then posts the check run with the marker and `<!-- stamphog-oidc:v1 <token> -->` in the summary.
-- It signs every result it posts, including the fallback when the conclude job broke, because a newer unsigned result cannot replace an older signed one.
-- The marker must be the object form, naming the PR and head. The engine refuses the list form for a workflow entry, because a signed list could be posted again on any head.
-- A `workflow_run` publisher never trusts the triggering run's data, because a writer can edit that workflow on a branch. It proves the PR itself.
-
-The server's side (`logic/workflow_proofs.py`, with the policy fields read by `logic/attestation_policy.py`):
-
-- It reads every check run of the entry's name with `filter=all`. GitHub lists only the newest one by default, and any job can post a newer one.
-- The token must verify against GitHub's published keys, read through the shared JWKS cache (`select_signing_key` in `posthog/api/oauth/client_assertion.py`), and name this repository id, one of the entry's events, and the entry's file on the default branch as both `workflow_ref` and `job_workflow_ref`. A `pull_request` run, a branch's workflow and a reusable workflow fail here. `pull_request_target` reads the default branch's file even for a PR into another branch, which GitHub changed in December 2025.
-- Among the results that pass, the newest run (`run_id`, `run_attempt`) decides, not the newest check run.
-- The token's `check_run_id` is the requesting job's id. The Actions API must name that job the entry's `job` in the token's run, so a second job with `id-token: write` cannot publish. `job` is the name Actions shows, not the job's key in the file, so give the publishing job a name no other job of the workflow has.
-- A success lifts only when the run's commit (`job_workflow_sha`) and the default branch hold the same workflow file and pinned paths, and the marker's `blobs` match them. A re-run of an old run executes the old code, so it counts only while that code is current. The server records the answer as `pinned_blobs_current`.
-- The verified result goes in as a check run under `WORKFLOW_PROOF_KEY`, which GitHub never sends. Both review paths, the context fetch and `_attest_gates`, build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
-- The poll records the publisher in the pending entry and wakes only when the review would find a verified result, the same test that ends the engine's wait. A forged check, or a result the server cannot finish checking, spends no re-review.
-- The StampHog App needs "Actions: read" for the job lookup. A refused lookup proves nothing, and the entry stays pending.
-
-Accepted limits:
-
-- The token expires five minutes after the job requests it, and a review often comes later, so the server does not check the expiry. The audience binds the token to one result, so an old token proves only what it signed.
-- A key that GitHub removes from its published set fails every result it signed, and the entry waits until the publisher runs again. A token whose key cannot be read (a failed or rate-limited refresh after a rotation) makes the publisher unreadable when it claims a later run than the result from the publishing job that would decide, so an older result never decides in its place.
-- A writer's job can strip the token from a newer result and post an older signed result of the same PR, head and merge base again. Unlike an App's check run, the newer one cannot be protected. The older result proved the same inputs with code that is still current, so this matters only for a publisher that answers differently on the same inputs.
-- Every check run of the name is verified, once per token, because a writer orders the check run ids and copies of an old result would push a newer one out of any window. A listing that reaches the API's page limit, or a commit with more check suites than GitHub lists check runs from (1000), counts as unreadable, so a flood keeps the entry pending and never lifts.
+- Every completed check run of the name is read with `filter=all` and verified once per signed content (token, conclusion, marker). No window of the newest check run ids is safe, because a writer orders them. A listing at the API page cap, or on a commit with more than 1000 check suites, proves nothing.
+- The claims name this repository id, one of the entry's events, and the entry's file on the default branch as both `workflow_ref` and `job_workflow_ref`. The expiry is not checked, on purpose.
+- The newest run (`run_id`, `run_attempt`) whose token the Actions API ties to the entry's `job` through `check_run_id` decides, never the newest check run. A token whose key cannot be read and that claims a later run than that result makes the publisher unreadable.
+- A success lifts only while the run's commit (`job_workflow_sha`) and the default branch hold the same workflow file and pinned paths, recorded as `pinned_blobs_current`.
+- A read that fails leaves the entry pending, never a completed result that lifts nothing. The poll wakes only when `verified_result` returns a result, the same test that ends the engine's wait.
+- Both review paths, the context fetch and `_attest_gates`, build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
 
 ## The manual trigger (the one exception to label mode)
 
@@ -398,7 +381,7 @@ any failing gate other than the deny-list, and a migrations deny always drags th
 T2-never with it, so it answers False for every PR it exists to catch.
 
 The engine records the checks it waited on in `classification.attestations`, and the server acts on that record, never on the policy.
-After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, the engine's own test for pending.
+After a WAIT whose only cause is those checks, the workflow polls GitHub on a workflow timer (`poll_pending_attestations`) until each one has a completed run from its pinned App, or for a workflow entry a result the server verified, the engine's own test for pending.
 It then queues a re-review through the same gates as the external re-review, the inbox exclusion included, and at most `_ATTESTATION_WAKES_PER_HEAD` times per head.
 Stamphog subscribes to no `check_run` webhook, because a subscription delivers every check of every PR, and the poll asks GitHub for each pending check by name and App, one request per check.
 A run that no report can wake, an inbox run or one at the per-head cap, does not poll.
