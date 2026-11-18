@@ -20,9 +20,9 @@ export function PayGateProductIcon({
     }
 
     return (
-        <div className="flex h-8 items-center">
+        <div className="flex h-10 items-center">
             <Suspense fallback={null}>
-                <Logomark size="lg" />
+                <Logomark size="xs" />
             </Suspense>
         </div>
     )
