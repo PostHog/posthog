@@ -189,10 +189,12 @@ class EndpointsHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(EndpointsHealthResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
 
-class EndpointTimeSpentViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class EndpointTimeSpentViewSet(_LogsClusterSlotMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Where one endpoint's request time goes, by service and inferred dependency. Same gate and window as services."""
 
     scope_object = "tracing"
+    # Loads up to TIME_SPENT_SPAN_LIMIT spans per request, and the UI reloads it on every poll.
+    slot_for_every_authenticator = True
 
     @extend_schema(
         parameters=[EndpointTimeSpentRequestSerializer], responses={200: EndpointTimeSpentResponseSerializer}
