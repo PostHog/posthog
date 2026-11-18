@@ -1443,6 +1443,118 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        it('wakes a run whose wait event fired while a worker still held the run', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('wakeup_event')],
+                max_wait_duration: '5m',
+            })
+            let openGate!: () => void
+            const gate = new Promise<void>((resolve) => (openGate = resolve))
+            mockPersonRepo.fetchPersonsByDistinctIds.mockImplementation(async () => {
+                await gate
+                return []
+            })
+
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(async () => {
+                expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['running'])
+            }, 5000)
+
+            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+            openGate()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        describe('pending wakes recorded on the job row', () => {
+            const match = { kind: 'match', eventName: 'wakeup_event', eventUuid: 'event-1' }
+
+            // Parks a wait, then moves it to a queue no worker reads, so the row shows only what the matcher wrote.
+            const parkOutOfReach = async (): Promise<string> => {
+                await createWaitUntilWorkflow({
+                    condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                    events: [eventNameFilter('wakeup_event')],
+                    max_wait_duration: '5m',
+                })
+                await triggerWorkflow(createGlobals())
+                await expectParked()
+                const [job] = await queryCyclotronJobs()
+                await cyclotronPool.query(`UPDATE cyclotron_jobs SET queue_name = 'out_of_reach' WHERE id = $1`, [
+                    job.id,
+                ])
+                return job.id
+            }
+            const record = (id: string, wake: Record<string, string>): Promise<void> =>
+                (matcher as any).recordPendingWakes([{ id, wakes: { wait_condition: wake } }])
+            const rowOf = async (id: string): Promise<{ due: boolean; pending_wake: any }> =>
+                (
+                    await cyclotronPool.query(
+                        `SELECT scheduled <= now() AS due, pending_wake FROM cyclotron_jobs WHERE id = $1`,
+                        [id]
+                    )
+                ).rows[0]
+
+            it.each([
+                ['wakes a run that parked on its wait before the match landed', false, true],
+                ['keeps a wait that is retrying a failed cohort lookup on its backoff', true, false],
+            ])('%s', async (_name, cohortRetry, due) => {
+                const id = await parkOutOfReach()
+                if (cohortRetry) {
+                    await cyclotronPool.query(
+                        `UPDATE cyclotron_jobs SET state = convert_to(jsonb_set(convert_from(state, 'UTF8')::jsonb,
+                             '{state,currentAction,cohortLookupAttempts}', '1')::text, 'UTF8') WHERE id = $1`,
+                        [id]
+                    )
+                }
+
+                await record(id, match)
+
+                const row = await rowOf(id)
+                expect(row.due).toBe(due)
+                expect(row.pending_wake.wait_condition).toMatchObject(match)
+            })
+
+            it.each([
+                ['while the run is parked', false],
+                ['after the run parked again with the match still unapplied', true],
+            ])('keeps a recorded match when a re-check for the same step follows %s', async (_name, reparked) => {
+                const id = await parkOutOfReach()
+
+                await record(id, match)
+                if (reparked) {
+                    await cyclotronPool.query(
+                        `UPDATE cyclotron_jobs SET last_transition = clock_timestamp() WHERE id = $1`,
+                        [id]
+                    )
+                }
+                await record(id, { kind: 'recheck' })
+
+                expect((await rowOf(id)).pending_wake.wait_condition).toMatchObject(match)
+            })
+
+            it('records a match whose event name contains a NUL byte', async () => {
+                const id = await parkOutOfReach()
+
+                await record(id, { ...match, eventName: 'wakeup\u0000event' })
+
+                expect((await rowOf(id)).pending_wake.wait_condition.eventName).toBe('wakeup\uFFFDevent')
+            })
+
+            it('does not rewrite the row when the same wake arrives again', async () => {
+                const id = await parkOutOfReach()
+                await record(id, match)
+                const first = (await rowOf(id)).pending_wake.wait_condition.at
+
+                await record(id, match)
+
+                expect((await rowOf(id)).pending_wake.wait_condition.at).toBe(first)
+            })
+        })
+
         it('wakes a parked job whose wait entry is action-based (events empty, actions + bytecode set)', async () => {
             await createWaitUntilWorkflow({
                 // Property condition never matches the trigger event, so the job parks.
@@ -1995,6 +2107,51 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('re-checks a wait whose distinct_id was merged while a slow step in the same batch held the run', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    function_slow: fetchAction('https://example.com/slow'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_slow', type: 'continue' },
+                    { from: 'function_slow', to: 'exit', type: 'continue' },
+                ],
+            })
+            let merged = false
+            mockPersonRepo.fetchPersonsByDistinctIds.mockImplementation(() =>
+                Promise.resolve([merged ? { ...survivorPersonRow(), distinct_id: 'distinct_id' } : anonPersonRow()])
+            )
+            let openGate!: () => void
+            const gate = new Promise<void>((resolve) => (openGate = resolve))
+            const okResponse = mockFetch.getMockImplementation()!
+            mockFetch.mockImplementation(async (...args: Parameters<typeof okResponse>) => {
+                if (args[0] === 'https://example.com/slow') {
+                    await gate
+                }
+                return okResponse(...args)
+            })
+
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/slow', expect.anything())
+            }, 5000)
+            expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['running', 'running'])
+
+            merged = true
+            await matcher.processMoveBatch(matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage() as any]))
+            openGate()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+            }, 10000)
         })
 
         it('anchors and wakes a wait that parked before its distinct_id had a person', async () => {

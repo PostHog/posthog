@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { PendingWake } from './services/cyclotron-v2/types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
@@ -382,6 +383,7 @@ export type CyclotronJobInvocation = {
     sealed?: string
     // The stored token could not be opened, so the state holds only its plaintext fields and must not run.
     stateUnreadable?: true
+    pendingWake?: PendingWake
 }
 
 // The result of an execution
