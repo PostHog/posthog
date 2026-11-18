@@ -1,3 +1,4 @@
 name: Product analytics
 owners:
     - team-product-analytics
+isolated: true

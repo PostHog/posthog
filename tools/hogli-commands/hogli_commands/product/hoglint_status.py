@@ -1,8 +1,7 @@
 """What hoglint says about each product: the Isolated level and the debt it carries.
 
 The Isolated level comes from files: `level:isolated <product>` lines in `hoglint.ledger` say the
-product passes, and a `backend:contract-check` task with `inputs` in `products/<name>/turbo.json`
-says it claims the level. The debt comes from `hoglint query --by package --json`, which groups
+product passes, and `isolated: true` in `products/<name>/product.yaml` says it claims the level. The debt comes from `hoglint query --by package --json`, which groups
 finding rows by the source module's `package` label, hoglint's own attribution. A row's status is
 `accepted` (in the ledger), `new` (blocks) or `advisory` (its rule never blocks, so it is no debt).
 """
@@ -15,31 +14,21 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .product_yaml import parse_product_yaml
+
 LEDGER_FILE = "hoglint.ledger"
 ISOLATED_LEVEL_RULE = "level:isolated"
-CONTRACT_CHECK_TASK = "backend:contract-check"
 QUERY_COMMAND = ("query", "--by", "package", "--json")
 
 
 def claims_isolated(product_dir: Path) -> bool:
-    """Whether the product's turbo.json narrows `backend:contract-check` to its own inputs."""
-    turbo_json = product_dir / "turbo.json"
-    if not turbo_json.is_file():
+    """Whether the product's product.yaml sets `isolated: true`. product:lint holds the value to a
+    boolean, and hoglint fails its run on any other value."""
+    product_yaml = product_dir / "product.yaml"
+    if not product_yaml.is_file():
         return False
-    try:
-        config = json.loads(turbo_json.read_text())
-    except json.JSONDecodeError:
-        return False
-    if not isinstance(config, dict):
-        return False
-    tasks = config.get("tasks")
-    if not isinstance(tasks, dict):
-        return False
-    task = tasks.get(CONTRACT_CHECK_TASK)
-    if not isinstance(task, dict):
-        return False
-    inputs = task.get("inputs")
-    return isinstance(inputs, list) and len(inputs) > 0
+    data, _error = parse_product_yaml(product_yaml)
+    return data.get("isolated") is True
 
 
 @dataclass(frozen=True)

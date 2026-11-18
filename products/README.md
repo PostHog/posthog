@@ -172,18 +172,19 @@ The lint command validates:
 
 The lint does not check the boundaries between products.
 hoglint checks them: run `hoglint check`.
-A product that narrows its `backend:contract-check` inputs in its own `turbo.json` claims hoglint's Isolated level.
-turbo-discover then skips the full Django test suite for a change in that product that leaves those inputs untouched, and `hoglint check` fails when the product does not meet the level.
+A product whose `product.yaml` sets `isolated: true` claims hoglint's Isolated level.
+turbo-discover then skips the full Django test suite for a change in that product that leaves its watched files untouched, and `hoglint check` fails when the product does not meet the level.
+`hoglint watched` prints each product's watched files; hoglint derives them, so there is no list to keep.
 
 > [!NOTE]
 > To migrate a product to full isolation (facade + contracts + selective testing), use the `isolating-product-facade-contracts` skill. See [products/architecture.md](architecture.md) for the target architecture.
 
 ### New products must be isolated
 
-`hogli product:bootstrap` scaffolds a product that is already isolated: real facade, contracts, `backend:contract-check` and narrowed `turbo.json` inputs.
+`hogli product:bootstrap` scaffolds a product that is already isolated: real facade, contracts, and `isolated: true` in its `product.yaml`.
 The scaffold passes hoglint's Isolated level from its first commit.
-When `hoglint check` names a file that the narrowed inputs do not watch, add the file to the inputs.
-Dropping the narrowing needs a person: the product is then not isolated, and the full Django backend suite runs on every change it makes.
+When `hoglint check` says the product fails the level, fix each reason in the code.
+Removing the claim needs a person: the product is then not isolated, and the full Django backend suite runs on every change it makes.
 
 ### Manual setup
 

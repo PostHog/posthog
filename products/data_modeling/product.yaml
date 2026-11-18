@@ -1,3 +1,4 @@
 name: Data modeling
 owners:
     - team-data-modeling
+isolated: true

@@ -1,3 +1,4 @@
 name: Uptime monitoring
 owners:
     - team-apm
+isolated: true

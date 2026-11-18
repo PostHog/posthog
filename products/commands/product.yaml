@@ -1,3 +1,4 @@
 name: Commands
 owners:
     - team-devex
+isolated: true

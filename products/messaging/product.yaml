@@ -1,3 +1,4 @@
 name: Messaging
 owners:
     - team-workflows
+isolated: true

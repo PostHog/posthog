@@ -1,3 +1,4 @@
 name: Knowledge writer
 owners:
     - team-wizard-docs
+isolated: true

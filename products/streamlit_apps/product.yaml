@@ -1,3 +1,4 @@
 name: Streamlit apps
 owners:
     - team-data-tools
+isolated: true

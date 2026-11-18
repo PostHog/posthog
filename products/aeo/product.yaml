@@ -1,3 +1,4 @@
 name: AEO
 owners:
     - team-web-analytics
+isolated: true

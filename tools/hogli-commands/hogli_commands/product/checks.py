@@ -356,6 +356,10 @@ class ProductYamlCheck(ProductCheck):
         if "sensitive" in data and not isinstance(data["sensitive"], bool):
             result.issues.append("product.yaml 'sensitive' must be true or false")
 
+        # hoglint reads a value that is not a boolean as a claim error and fails the whole run.
+        if "isolated" in data and not isinstance(data["isolated"], bool):
+            result.issues.append("product.yaml 'isolated' must be true or false")
+
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
         else:

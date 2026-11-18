@@ -1,3 +1,4 @@
 name: Workflows
 owners:
     - team-workflows
+isolated: true

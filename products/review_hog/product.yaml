@@ -1,3 +1,4 @@
 name: PostHog Review
 owners:
     - team-devex
+isolated: true

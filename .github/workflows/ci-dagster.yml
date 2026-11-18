@@ -230,8 +230,7 @@ jobs:
                         # globs: DAGs import only backend.types and the facade, and the product
                         # holds 850+ source connector dirs no DAG can reach — a whole-backend
                         # glob would run this suite on every new-source PR. models/** is kept
-                        # because facade.models re-exports flow through it. Mirrors the
-                        # product's turbo.json backend:contract-check surface.
+                        # because facade.models re-exports flow through it.
                         - 'products/warehouse_sources/backend/types.py'
                         - 'products/warehouse_sources/backend/facade/**/*.py'
                         - 'products/warehouse_sources/backend/models/**/*.py'

@@ -103,14 +103,12 @@ services/mcp/src/templates/sections/tool-search.md @PostHog/team-context-and-mcp
 
 # hoglint's policy. An exception lets new boundary debt through, and the root config, the preset
 # and the pinned version decide what every rule finds, so a change to any of them can relax a
-# boundary for the whole repo. The pin lives in the map script and the dev group, and the
-# script's test holds the two equal. hoglint.ledger has no line here on purpose: it shrinks each
-# time a finding is fixed, and `hoglint compare` judges growth from the code, not from the file.
+# boundary for the whole repo. The pin lives in pyproject.toml and uv.lock, busy files that have
+# no line here. hoglint.ledger has no line here on purpose either: it shrinks each time a finding
+# is fixed, and `hoglint compare` judges growth from the code, not from the file.
 /hoglint.exceptions.toml @PostHog/team-devex
 /hoglint.toml @PostHog/team-devex
 /tools/hoglint/presets/posthog.toml @PostHog/team-devex
-/.github/scripts/hoglint_map.py @PostHog/team-devex
-/.github/scripts/test_hoglint_map.py @PostHog/team-devex
 
 # Agent instructions and the PR description format apply to every PR in the repo. They have
 # changed back and forth many times, and each change undid an earlier lesson that the author

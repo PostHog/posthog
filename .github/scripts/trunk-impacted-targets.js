@@ -50,15 +50,16 @@
 //      the suite still has a bounded importer set, and gets a lane from it.
 //
 //      Which of the product's own files seed that cascade is the narrower
-//      question isolation does govern. An isolated product declares a contract
-//      surface as its `backend:contract-check` inputs in products/<name>/turbo.json.
-//      This is the same declaration turbo-discover reads to decide whether dependent
-//      test suites run, so the two mechanisms cannot drift apart. A change confined
+//      question isolation does govern. An isolated product's contract surface
+//      is its watched set, which `hoglint watched` derives from the tree. This
+//      is the same answer turbo-discover reads to decide whether dependent test
+//      suites run, so the two mechanisms cannot drift apart. A change confined
 //      to its internals keeps its own lane without cascading. This makes the
-//      declaration load-bearing for
-//      correctness: an input list that omits a file other products import puts
-//      those products in a parallel lane. A product that declares no narrowed
-//      inputs, isolated or not, cascades on every backend file.
+//      set load-bearing for correctness: a file other products import that the
+//      set misses puts those products in a parallel lane, which is why
+//      hoglint's reached-watched rule puts every such file in it. A product
+//      that is not isolated, or a run in which hoglint gives no complete
+//      answer, cascades on every backend file.
 //
 //   2. The cascade names direct importers rather than the transitive closure.
 //      Only a direct importer can reference the changed product's symbols.
@@ -1151,25 +1152,12 @@ function listProducts(repoRoot) {
         .sort()
 }
 
-// A product is isolated when it declares a backend:contract-check script *and*
-// narrows that task's inputs in its own turbo.json, the same pair turbo-discover
-// uses to decide a product can be tested alone. The script alone leaves the task
-// on the root definition, whose inputs are the product's whole backend, so the
-// product claims a contract surface it never narrowed. Non-isolated products
-// have no narrowed contract, so a change in one is treated as a core change.
-function listIsolatedProducts(repoRoot, products, contractSurfaces) {
-    const isolated = new Set()
-    for (const product of products) {
-        const manifest = path.join(repoRoot, 'products', product, 'package.json')
-        if (!fs.existsSync(manifest) || !contractSurfaces.has(product)) {
-            continue
-        }
-        const parsed = JSON.parse(fs.readFileSync(manifest, 'utf8'))
-        if (parsed.scripts && parsed.scripts['backend:contract-check']) {
-            isolated.add(product)
-        }
-    }
-    return isolated
+// A product is isolated when it claims the Isolated level in its product.yaml and
+// passes it, as `hoglint watched` reports: the answer turbo-discover reads to
+// decide a product can be tested alone. Without a complete answer no product is
+// isolated, so every backend file of a product counts as its contract.
+function listIsolatedProducts(products, watched) {
+    return new Set(products.filter((product) => watched.isolated.has(product)))
 }
 
 // --- Nested JS workspaces ---
@@ -1357,12 +1345,10 @@ function listMappedProducts(products, importGraph) {
     return new Set(products.filter((product) => isMapped(product, importGraph)))
 }
 
-// --- Contract surfaces ---
+// --- JSON with comments ---
 
-const CONTRACT_TASK = 'backend:contract-check'
-
-// turbo.json permits comments, which JSON.parse rejects. Strip them outside
-// string literals so a `//` inside a glob survives.
+// turbo.json and the oxc configs permit comments, which JSON.parse rejects. Strip
+// them outside string literals so a `//` inside a glob survives.
 function stripJsonComments(text) {
     let out = ''
     let inString = false
@@ -1406,75 +1392,31 @@ function stripJsonComments(text) {
     return out
 }
 
-// Compiles a task's `inputs` into a predicate over product-relative paths. A
-// path is contract when at least one positive glob matches it and no negated
-// one does, matching how Turbo reads the same list.
-function compileContractMatcher(inputs) {
-    const include = []
-    const exclude = []
-    for (const input of inputs) {
-        const negated = input.startsWith('!')
-        const glob = negated ? input.slice(1) : input
-        // An input reaching outside the product (../../uv.lock and the like)
-        // cannot be expressed as a product-relative path. Dropping it is safe
-        // because every such file in use today is already a tripwire or lands
-        // in py:core, both of which overlap this product's lane anyway.
-        if (glob.startsWith('../')) {
-            continue
-        }
-        if (negated) {
-            exclude.push(globToRegExp(glob))
-        } else {
-            include.push(globToRegExp(glob))
-        }
-    }
-    if (include.length === 0) {
-        return null
-    }
-    return (relativePath) => include.some((re) => re.test(relativePath)) && !exclude.some((re) => re.test(relativePath))
-}
+// --- Contract surfaces ---
 
-// Only products that narrow `backend:contract-check` in their own turbo.json get
-// an entry. Absence means "every backend file is contract", so a product that
-// has not declared a surface, or whose turbo.json cannot be read, keeps
+// An isolated product's contract surface is its watched set: a predicate over
+// product-relative paths. Only isolated products get an entry. Absence means
+// "every backend file is contract", so a product that is not isolated keeps
 // cascading on every backend change.
-function loadContractSurfaces(repoRoot, products) {
+function loadContractSurfaces(products, watched) {
     const surfaces = new Map()
-    for (const product of products) {
-        const manifest = path.join(repoRoot, 'products', product, 'turbo.json')
-        if (!fs.existsSync(manifest)) {
-            continue
-        }
-        let inputs
-        try {
-            const parsed = JSON.parse(stripJsonComments(fs.readFileSync(manifest, 'utf8')))
-            const tasks = parsed.tasks || parsed.pipeline || {}
-            inputs = (tasks[CONTRACT_TASK] || {}).inputs
-        } catch (error) {
-            console.error(
-                `Could not read products/${product}/turbo.json (${error.message}); every backend file counts as its contract`
-            )
-            continue
-        }
-        if (!Array.isArray(inputs)) {
-            continue
-        }
-        const matcher = compileContractMatcher(inputs)
-        if (matcher) {
-            surfaces.set(product, matcher)
+    for (const product of listIsolatedProducts(products, watched)) {
+        const files = watched.watched.get(product)
+        if (files) {
+            surfaces.set(product, (relativePath) => files.has(`products/${product}/${relativePath}`))
         }
     }
     return surfaces
 }
 
-// The files that define the gate for their own product: turbo.json holds the
-// contract inputs, package.json decides whether the product is isolated at all.
+// The files that define the gate for their own product: product.yaml holds the
+// claim that makes the product isolated, package.json its backend test task.
 // Neither is importable, so the surface test would call them internal, and both
-// are read from the PR's own tree. A change that drops a path from the contract
-// and edits a file under that path in the same commit would then be gated
-// against its own new, narrower contract and keep the lane to itself, which is
-// exactly when the dependents most need to be tested alongside it.
-const CONTRACT_DECLARATIONS = ['turbo.json', 'package.json']
+// are read from the PR's own tree. A change that adds the claim and edits an
+// internal file in the same commit would then be gated against its own new
+// claim and keep the lane to itself, which is exactly when the dependents most
+// need to be tested alongside it.
+const CONTRACT_DECLARATIONS = ['product.yaml', 'package.json']
 
 function isContractDeclaration(product, file) {
     return CONTRACT_DECLARATIONS.includes(file.slice(`products/${product}/`.length))
@@ -2559,6 +2501,12 @@ function loadImportMap(repoRoot) {
     return graph === null ? null : { graph, importDependents }
 }
 
+// The same `hoglint watched --map` run as the import map: turbo-discover keeps one per process.
+function loadWatched(repoRoot) {
+    const { loadWatchedSets } = require('./turbo-discover')
+    return loadWatchedSets(repoRoot)
+}
+
 // Every directory under services/ holds a lane, so the list has to be read
 // rather than declared or allKnownTargets would miss a newly added one. Null on
 // failure, which widens to the "ALL" sentinel instead of to a partial set.
@@ -3178,7 +3126,7 @@ function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const importGraph = loadImportMap(repoRoot)
     const rustInventory = loadRustInventory(repoRoot)
-    const contractSurfaces = loadContractSurfaces(repoRoot, products)
+    const watched = loadWatched(repoRoot)
     const nodeLaneMap = loadNodeLaneMap(repoRoot)
     const headLockfile = readOptional(path.join(repoRoot, 'pnpm-lock.yaml'))
     return {
@@ -3188,8 +3136,8 @@ function buildContext(repoRoot) {
         jsLockfileNodeLanes: jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile),
         rustAffectedCrates: parseRustAffectedCrates(process.env[RUST_AFFECTED_CRATES_ENV], rustInventory),
         services: listServices(repoRoot),
-        isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
-        contractSurfaces,
+        isolatedProducts: listIsolatedProducts(products, watched),
+        contractSurfaces: loadContractSurfaces(products, watched),
         productWorkspaces: loadProductWorkspaces(repoRoot, products),
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, importGraph),
         mappedProducts: listMappedProducts(products, importGraph),
@@ -3209,7 +3157,6 @@ module.exports = {
     NODE_SUB_LANES,
     allKnownTargets,
     buildContext,
-    compileContractMatcher,
     compileWorkspaceMatcher,
     findDeletedFiles,
     globToRegExp,
