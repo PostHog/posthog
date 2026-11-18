@@ -6420,11 +6420,11 @@ Diffed against: <https://instana.github.io/openapi/openapi.json>
 - [x] `/api/synthetics/settings/locations and /api/synthetics/settings/datacenters` — lookup resolving the location IDs on synthetic tests and results - required to break results down by PoP (high). Added as `synthetic_locations` and `synthetic_datacenters`.
 - [x] `POST /api/application-monitoring/metrics/{applications,services,endpoints}` — the golden-signal time series (calls, errors, latency percentiles) for the applications/services/endpoints already synced as catalogs only (high). Added as `application_metrics`, `service_metrics` and `endpoint_metrics`: a daily rollup (calls, erroneous calls, error rate, mean/p50/p90/p99 latency), incremental on the bucket `timestamp`.
 - [x] `/api/settings/apdex and /api/apdex/report/{apdexId}` — Apdex configs and scores, the per-service user-satisfaction metric (medium). Added as `apdex_configs` and `apdex_reports` (fan-out over `apdex_configs`, trailing 7-day window).
-- [ ] `/api/host-agent (+ /api/host-agent/{id})` — agent and host inventory with versions, for fleet coverage and upgrade tracking (medium)
-- [ ] `/api/settings/users, /api/settings/rbac/teams, /api/settings/rbac/groups` — user and team membership tables for attributing alerts and ownership (medium)
-- [ ] `/api/settings/auditlog and /api/settings/accesslog` — who changed which alert config or dashboard and when - the standard compliance table (medium)
+- [x] `/api/host-agent (+ /api/host-agent/{id})` — agent and host inventory with versions, for fleet coverage and upgrade tracking (medium). Added as `host_agents`. `/api/host-agent/{id}` skipped: it returns the same snapshot as the list row.
+- [x] `/api/settings/users, /api/settings/rbac/teams, /api/settings/rbac/groups` — user and team membership tables for attributing alerts and ownership (medium). Added as `users`, `teams` and `groups`.
+- [x] `/api/settings/auditlog and /api/settings/accesslog` — who changed which alert config or dashboard and when - the standard compliance table (medium). Added as `audit_logs` and `access_logs`.
 - [x] `/api/mobile-app-monitoring/config` — mobile app inventory, the exact parallel of the `websites` table already synced from website-monitoring/config (medium). Added as `mobile_apps`.
-- [ ] `/api/business-monitoring/business-perspectives` — business perspective definitions that segment traces by business context, a key breakdown dimension (medium)
+- [x] `/api/business-monitoring/business-perspectives` — business perspective definitions that segment traces by business context, a key breakdown dimension (medium). Added as `business_perspectives`.
 
 Note: Instana publishes a full OpenAPI 3 spec (1.9MB JSON / 1.5MB YAML, version 1.307.1417) at instana.github.io/openapi - very reliable to diff against. Two caveats for an implementer: (1) much of the analytical surface is POST-with-body (metrics, analyze/traces, analyze/beacons, analyze/entities) rather than GET, so those tables need request bodies rather than query params; (2) as the source's own settings.py notes, /api/events has no pagination and infrastructure snapshots use a `size` cap, so wide time windows must be chunked. Excluded as config: custom dashboards, API tokens, alert channel infos, maintenance windows, session settings, automation policies, sourcemap uploads, and the per-plugin catalog/tag metadata endpoints.
 
@@ -11250,11 +11250,11 @@ Diffed against: <https://api.skyvern.com/openapi.json>
 - [x] `GET /v1/runs/{run_id}/timeline` — per-run block/step execution timeline - the state-transition history behind every run outcome (high) → `run_timeline` (fan-out over workflows and runs, one row per block or thought; incremental on the runs `created_at_start` window; off by default)
 - [x] `GET /v1/folders (and /v1/folders/{folder_id})` — lookup table resolving the folder a workflow/agent lives in (high) → `folders` (full refresh; the single-folder endpoint adds nothing the list does not return)
 - [x] `GET /v1/agents/{workflow_permanent_id}/tags` — workflow-to-tag membership for grouping and cost attribution of synced workflows (high) → `workflow_tags` (full refresh, fan-out over `workflows`)
-- [ ] `GET /v1/browser_sessions` — persistent browser sessions runs attach to; explains run cost and reuse (medium)
-- [ ] `GET /v1/runs/{workflow_run_id}/tags` — run-to-tag membership, the standard breakdown dimension for run reporting (medium)
-- [ ] `GET /v1/tag-keys and GET /v1/tag-values` — lookup tables that resolve the tag key/value ids attached to workflows and runs (medium)
+- [ ] `GET /v1/browser_sessions` — persistent browser sessions runs attach to; explains run cost and reuse (medium) Skipped: the endpoint lists only currently active sessions, with no history or filters, so a table would hold a short-lived snapshot.
+- [x] `GET /v1/runs/{workflow_run_id}/tags` — run-to-tag membership, the standard breakdown dimension for run reporting (medium) → `run_tags` (full refresh, fan-out over workflows and runs; off by default)
+- [x] `GET /v1/tag-keys and GET /v1/tag-values` — lookup tables that resolve the tag key/value ids attached to workflows and runs (medium) → `tag_keys` and `tag_values` (full refresh, single page)
 - [x] `GET /v1/agents/{workflow_permanent_id}/versions` — workflow version history, needed to attribute run results to a definition version (medium) → `workflow_versions` (full refresh, fan-out over `workflows`)
-- [ ] `GET /v1/runs/{run_id}/artifacts` — artifact metadata produced per run (screenshots, logs, downloaded files) (medium)
+- [x] `GET /v1/runs/{run_id}/artifacts` — artifact metadata produced per run (screenshots, logs, downloaded files) (medium) → `run_artifacts` (fan-out over workflows and runs; incremental on the runs `created_at_start` window; signed URLs dropped; off by default)
 - [ ] `GET /v1/browser_profiles/{profile_id}/usage` — which runs consumed which browser profile (low)
 - [ ] `GET /v1/scripts (and /v1/scripts/{script_id})` — generated scripts deployed from workflows; joins to runs executed in script mode (low)
 - [ ] `GET /v1/agents/{workflow_permanent_id}/tags/history` — tag change history on a workflow (low)
