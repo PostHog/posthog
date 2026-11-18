@@ -1,4 +1,9 @@
-"""Compute MCP Wrapped for every project the compute flag allows, a few projects at a time.
+"""Compute MCP Wrapped for chosen projects, or every project with tool calls this year, a few at a time.
+
+Nothing schedules this workflow. Someone starts it when the year's wrap should be filled:
+
+    python manage.py execute_temporal_workflow mcpa-wrapped-coordinator <year> [<team_id> ...] \
+        --task-queue <MCPA_TASK_QUEUE>
 
 One project's failure is recorded and the run moves on, so a slow or broken project never blocks the rest.
 """
@@ -33,8 +38,10 @@ with temporalio.workflow.unsafe.imports_passed_through():
 
 @dataclasses.dataclass(frozen=True)
 class WrappedCoordinatorInputs:
-    # None covers the year the schedule fires in, which is December.
+    # None covers the year the run starts in.
     year: int | None = None
+    # None discovers every project with tool calls in the year.
+    team_ids: list[int] | None = None
     max_concurrent_teams: int = MAX_CONCURRENT_TEAMS
 
 
@@ -42,17 +49,22 @@ class WrappedCoordinatorInputs:
 class MCPWrappedCoordinatorWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> WrappedCoordinatorInputs:
-        return WrappedCoordinatorInputs(year=int(inputs[0]) if inputs else None)
+        return WrappedCoordinatorInputs(
+            year=int(inputs[0]) if inputs else None,
+            team_ids=[int(team_id) for team_id in inputs[1:]] or None,
+        )
 
     @temporalio.workflow.run
     async def run(self, inputs: WrappedCoordinatorInputs) -> dict[str, Any]:
         year = inputs.year or temporalio.workflow.now().year
-        team_ids: list[int] = await temporalio.workflow.execute_activity(
-            discover_wrapped_team_ids_activity,
-            WrappedDiscoveryInputs(year=year),
-            start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
-            retry_policy=DISCOVERY_RETRY_POLICY,
-        )
+        team_ids = inputs.team_ids
+        if team_ids is None:
+            team_ids = await temporalio.workflow.execute_activity(
+                discover_wrapped_team_ids_activity,
+                WrappedDiscoveryInputs(year=year),
+                start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
+                retry_policy=DISCOVERY_RETRY_POLICY,
+            )
 
         statuses: Counter[str] = Counter()
         failed_team_ids: list[int] = []
