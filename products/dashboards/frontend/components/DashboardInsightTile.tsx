@@ -63,8 +63,9 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         refreshDashboardItem,
         setTileOverride,
         zoomDateRange,
+        setTileInView,
     } = useActions(dashboardLogic)
-    const { zoomPreview } = useValues(dashboardLogic)
+    const { zoomPreview, dashboardV2Enabled } = useValues(dashboardLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { renameInsight } = useActions(insightsModel)
     const { tile, insight } = cardProps
@@ -83,6 +84,15 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         skip: exportPlacement,
     })
     const mergedRefs = useMergeRefs([ref, visibilityRef, keepRef])
+    // Only the dashboard page loads and refreshes tiles by what is on screen.
+    const reportsInView = dashboardV2Enabled && cardProps.placement === DashboardPlacement.Dashboard
+    useEffect(() => {
+        if (!reportsInView) {
+            return
+        }
+        setTileInView(tile.id, inView)
+        return () => setTileInView(tile.id, false)
+    }, [inView, reportsInView, tile.id, setTileInView])
     useEffect(() => {
         if (inView && !cardMounted) {
             return queueDashboardInsightMount(() => setCardMounted(true))
