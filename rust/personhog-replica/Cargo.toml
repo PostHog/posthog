@@ -6,7 +6,11 @@ edition = "2021"
 publish = false
 
 [dependencies]
+assignment-coordination = { path = "../common/assignment-coordination" }
+common-kafka = { path = "../common/kafka" }
 personhog-common = { path = "../personhog-common" }
+personhog-coordination = { path = "../personhog-coordination" }
+personhog-leader = { path = "../personhog-leader" }
 personhog-proto = { path = "../personhog-proto" }
 common-database = { path = "../common/database" }
 common-alloc = { path = "../common/alloc" }
@@ -23,6 +27,7 @@ rand = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -26,6 +26,8 @@ use personhog_replica::storage::postgres::PostgresStorage;
 
 common_alloc::used!();
 
+const SHUTDOWN_SLACK: Duration = Duration::from_secs(5);
+
 async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
     match config.storage_backend.as_str() {
         "postgres" => {
@@ -162,16 +164,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Storage backend: {}", config.storage_backend);
 
     // Build lifecycle manager and register components
-    let mut manager = Manager::builder("personhog-replica").build();
+    // A follower hands its partitions off before it stops, and it must keep serving them
+    // until each handoff completes. So coordination drains first and the server stops
+    // after it, as on a leader.
+    let server_shutdown = Duration::from_secs(30);
+    let following = config.follower.enabled;
+    let mut builder = Manager::builder("personhog-replica");
+    let mut server_options = ComponentOptions::new().with_graceful_shutdown(server_shutdown);
+    if following {
+        let drain = config.follower.coordination_shutdown();
+        builder = builder.with_global_shutdown_timeout(drain + server_shutdown + SHUTDOWN_SLACK);
+        server_options = server_options.with_shutdown_phase(1);
+    }
+    let mut manager = builder.build();
 
-    let grpc_handle = manager.register(
-        "grpc_server",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
-    );
+    let grpc_handle = manager.register("grpc_server", server_options);
     let metrics_handle = manager.register(
         "metrics_server",
         ComponentOptions::new().is_observability(true),
     );
+
+    let follower_handle = following.then(|| {
+        manager.register(
+            "follower",
+            ComponentOptions::new().with_graceful_shutdown(config.follower.coordination_shutdown()),
+        )
+    });
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -317,7 +335,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(config.pool_monitor_interval_secs),
     );
 
-    let service = PersonHogReplicaService::new(storage);
+    let replica_pool = storage.replica_pool.clone();
+    let mut service = PersonHogReplicaService::new(storage);
+    if let Some(handle) = follower_handle {
+        match personhog_replica::follower_mode::start(
+            &config.follower,
+            &config.grpc_address,
+            replica_pool,
+            handle,
+        )
+        .await
+        .expect("Failed to start follower mode")
+        {
+            Some(reads) => service = service.with_follower(reads),
+            None => return Ok(()),
+        }
+    }
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
