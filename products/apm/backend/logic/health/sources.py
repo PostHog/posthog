@@ -31,6 +31,8 @@ from products.apm.backend.logic.health.contract import (
 
 SPARKLINE_POINTS = 24
 SERVICES_LIMIT = 500
+# One row per service and bucket, plus the partial bucket a window that doesn't divide evenly leaves.
+SPARKLINE_ROWS_LIMIT = SERVICES_LIMIT * (SPARKLINE_POINTS + 1)
 ENDPOINTS_LIMIT = 500
 # The map joins spans to their parents, so it reads a bounded sample of traces, not the whole window.
 MAP_TRACE_LIMIT = 2000
@@ -232,22 +234,37 @@ def _service_edges_query(
     return query
 
 
-def _sparkline_query(date_from: datetime, date_to: datetime, environment: str | None) -> ast.SelectQuery:
-    # One bucket per point across the window; the client draws the counts in order. The caller picks
-    # entry or root spans per service and environment, the same fallback the services query applies.
+def _sparkline_query(
+    date_from: datetime, date_to: datetime, environment: str | None, services: list[str]
+) -> ast.SelectQuery:
+    # One bucket per point across the window; the client draws the counts in order. Entry or root
+    # spans are picked per service and environment, the same fallback the services query applies, and
+    # the environments are merged before the LIMIT so the row count doesn't grow with environments.
     query = parse_select(
         """
-        SELECT
-            service_name,
-            {env_expr} AS environment,
-            toInt(floor(dateDiff('second', {date_from}, timestamp) / {bucket_seconds})) AS bucket,
-            countIf(kind IN (2, 5)) AS entry_spans,
-            countIf(is_root_span) AS root_spans
-        FROM posthog.trace_spans
-        WHERE {where} AND {env_where}
-        GROUP BY service_name, environment, bucket
-        ORDER BY service_name, environment, bucket
-        LIMIT 100000
+        SELECT service_name, bucket, sum(if(environment_has_entry, entry_spans, root_spans)) AS span_count
+        FROM (
+            SELECT
+                service_name,
+                bucket,
+                entry_spans,
+                root_spans,
+                max(entry_spans) OVER (PARTITION BY service_name, environment) > 0 AS environment_has_entry
+            FROM (
+                SELECT
+                    service_name,
+                    {env_expr} AS environment,
+                    toInt(floor(dateDiff('second', {date_from}, timestamp) / {bucket_seconds})) AS bucket,
+                    countIf(kind IN (2, 5)) AS entry_spans,
+                    countIf(is_root_span) AS root_spans
+                FROM posthog.trace_spans
+                WHERE {where} AND {env_where} AND service_name IN {services}
+                GROUP BY service_name, environment, bucket
+            )
+        )
+        GROUP BY service_name, bucket
+        ORDER BY service_name, bucket
+        LIMIT {limit}
         """,
         placeholders={
             "date_from": ast.Constant(value=date_from),
@@ -257,6 +274,8 @@ def _sparkline_query(date_from: datetime, date_to: datetime, environment: str | 
             "where": _window_where(date_from, date_to),
             "env_where": _environment_where(environment),
             "env_expr": environment_expr(),
+            "services": ast.Tuple(exprs=[ast.Constant(value=service) for service in services]),
+            "limit": ast.Constant(value=SPARKLINE_ROWS_LIMIT),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -288,12 +307,12 @@ def list_services_health(
     seconds = max(1.0, (date_to - date_from).total_seconds())
     rows = _run(team, _services_query(date_from, date_to, environment))
     sparklines: dict[str, list[int]] = {}
-    sparkline_rows = _run(team, _sparkline_query(date_from, date_to, environment))
-    has_entry = {(service, env) for service, env, _bucket, entry_spans, _root in sparkline_rows if entry_spans > 0}
-    for service_name, env, bucket, entry_spans, root_spans in sparkline_rows:
+    services_listed = [row[0] for row in rows]
+    sparkline_rows = _run(team, _sparkline_query(date_from, date_to, environment, services_listed)) if rows else []
+    for service_name, bucket, span_count in sparkline_rows:
         points = sparklines.setdefault(service_name, [0] * SPARKLINE_POINTS)
         if 0 <= bucket < SPARKLINE_POINTS:
-            points[bucket] += entry_spans if (service_name, env) in has_entry else root_spans
+            points[bucket] += span_count
     services = []
     for service_name, span_count, error_count, p95_ms in rows:
         if not span_count:

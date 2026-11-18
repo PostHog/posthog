@@ -244,6 +244,20 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
         staging = self._list(environment="staging", **window)["results"]
         self.assertEqual([(r["health"]["span_count"], r["health"]["error_count"]) for r in staging], [(3, 1)])
 
+    def test_more_environments_do_not_push_later_services_past_the_sparkline_limit(self) -> None:
+        writer = SpanWriter(team_id=self.team.id, base=dt.datetime(2026, 6, 9, 8, 0, 0), uuid_prefix="019e8779")
+        for env in ("prod", "staging", "dev"):
+            writer.span("a-many-envs", env=env)
+        writer.span("b-one-env", env="prod")
+        writer.insert()
+
+        with patch("products.apm.backend.logic.health.sources.SPARKLINE_ROWS_LIMIT", 2):
+            results = self._list(environment=None, date_from="2026-06-09T07:00:00Z", date_to="2026-06-09T09:00:00Z")[
+                "results"
+            ]
+
+        self.assertEqual({r["service_name"]: sum(r["sparkline"]) for r in results}, {"a-many-envs": 3, "b-one-env": 1})
+
     def test_defaults_to_the_last_hour_when_no_range_is_given(self) -> None:
         with patch(FLAG_PATCH, return_value=True):
             response = self.client.get(f"/api/projects/{self.team.id}/apm/services/")
